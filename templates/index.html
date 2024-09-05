@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PoupAqui E-commerce</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        header {
+            background-color: #e60000;
+            padding: 1rem;
+        }
+
+        header nav ul {
+            display: flex;
+            justify-content: space-around;
+            list-style-type: none;
+        }
+
+        header nav ul li a {
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        main {
+            text-align: center;
+            margin-top: 2rem;
+        }
+
+        .medicamentos-container {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .medicamento-item {
+            background-color: white;
+            padding: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 200px;
+        }
+
+        .medicamento-item img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .btn-carrinho {
+            background-color: #ffcc00;
+            color: #333;
+            border: none;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            font-size: 1rem;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-carrinho i {
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li><a href="#">Início</a></li>
+                <li><a href="#">Medicamentos</a></li>
+                <li><a href="#">Carrinho</a></li>
+                <li><a href="#">Contato</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <h1>Bem-vindo ao PoupAqui</h1>
+        <div class="medicamentos-container">
+            <div class="medicamento-item">
+                <img src="/static/img/medicamentoA.png" alt="Medicamento A">
+                <h2>Medicamento A</h2>
+                <p>R$ 49,99</p>
+                <button class="btn-carrinho">
+                    <i class="fas fa-shopping-cart"></i> Adicionar ao carrinho
+                </button>
+            </div>
+            <div class="medicamento-item">
+                <img src="/static/img/medicamentoB.png" alt="Medicamento B">
+                <h2>Medicamento B</h2>
+                <p>R$ 29,99</p>
+                <button class="btn-carrinho">
+                    <i class="fas fa-shopping-cart"></i> Adicionar ao carrinho
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+</body>
+</html>
