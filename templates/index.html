@@ -4,70 +4,262 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PoupAqui E-commerce</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f9f9f9;
-            color: #333;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
+            position: relative;
+            overflow-x: hidden;
         }
 
         header {
             background-color: #e60000;
             padding: 1rem;
+            z-index: 1;
+            position: relative;
         }
 
         header nav ul {
             display: flex;
             justify-content: space-around;
             list-style-type: none;
+            padding: 0;
+            margin: 0;
         }
 
         header nav ul li a {
             color: white;
             text-decoration: none;
             font-weight: bold;
+            display: flex;
+            align-items: center;
+            font-size: 1.1rem;
         }
 
-        main {
-            text-align: center;
-            margin-top: 2rem;
+        header nav ul li a i {
+            margin-right: 0.5rem;
         }
 
-        .medicamentos-container {
+        /* Estilo do banner de ofertas */
+        .banner-container {
+            margin-top: 1rem;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+            height: 180px;
+            z-index: 2;
+        }
+
+        .banner-slider {
+            display: flex;
+            transition: transform 0.5s ease-in-out;
+        }
+
+        .banner-item {
+            min-width: 100%;
+            background: linear-gradient(135deg, #FFD700, #E60000);
+            color: white;
             display: flex;
             justify-content: center;
-            gap: 2rem;
+            align-items: center;
+            flex-direction: column;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin: 0 15px;
+            position: relative;
+            border: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .banner-item:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+            border-color: #FFD700;
+        }
+
+        /* Etiqueta de oferta */
+        .etiqueta-oferta {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            background-color: #ff0000;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+            padding: 0.25rem 0.75rem;
+            border-radius: 5px;
+            transform: rotate(-10deg);
+        }
+
+        .banner-item h2 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .banner-item p {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .banner-item button {
+            background-color: #E60000;
+            color: white;
+            border: none;
+            padding: 0.75rem 2rem;
+            font-size: 1.2rem;
+            cursor: pointer;
+            border-radius: 25px;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, color 0.3s ease;
+            animation: pulse 1.5s infinite;
+        }
+
+        .banner-item button i {
+            margin-right: 0.5rem;
+        }
+
+        .banner-item button:hover {
+            background-color: #FFD700;
+            color: white;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+        }
+
+        /* Botões de navegação */
+        .nav-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: #333;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            font-size: 1rem;
+            border-radius: 5px;
+            opacity: 0.7;
+            transition: opacity 0.3s ease;
+            z-index: 3;
+        }
+
+        .nav-button:hover {
+            opacity: 1;
+        }
+
+        .prev-btn {
+            left: 20px;
+        }
+
+        .next-btn {
+            right: 20px;
+        }
+
+        .banner-slider {
+            animation: slide 30s infinite;
+        }
+
+        @keyframes slide {
+            0% {transform: translateX(0);}
+            33% {transform: translateX(-100%);}
+            66% {transform: translateX(-200%);}
+            100% {transform: translateX(0);}
+        }
+
+        /* Medicamentos */
+        .medicamentos-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            gap: 1rem;
             margin-top: 2rem;
+            padding-left: 2rem;
+            position: relative;
+            z-index: 2;
         }
 
         .medicamento-item {
             background-color: white;
-            padding: 1rem;
+            padding: 0.75rem;
             border: 1px solid #ccc;
             border-radius: 5px;
-            width: 200px;
+            width: 140px;
+            position: relative;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
-        .medicamento-item img {
-            max-width: 100%;
-            height: auto;
+        .medicamento-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
         }
 
-        .btn-carrinho {
+        /* Etiqueta de oferta nos medicamentos */
+        .medicamento-item.oferta::before {
+            content: 'Oferta!';
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            background-color: #ff0000;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+            padding: 0.25rem 0.75rem;
+            border-radius: 5px;
+            transform: rotate(-10deg);
+        }
+
+        .btn-carrinho, .btn-info {
             background-color: #ffcc00;
             color: #333;
             border: none;
             padding: 0.5rem 1rem;
             cursor: pointer;
-            font-size: 1rem;
-            margin-top: 1rem;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
             display: flex;
             align-items: center;
             justify-content: center;
+            width: 100%;
+            transition: background-color 0.3s ease;
         }
 
-        .btn-carrinho i {
+        .btn-carrinho i, .btn-info i {
             margin-right: 0.5rem;
+            color: red;
+        }
+
+        .btn-carrinho:active i, .btn-info:active i {
+            color: yellow;
+        }
+
+        /* Responsividade */
+        @media (max-width: 768px) {
+            .medicamentos-container {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .medicamento-item {
+                width: 90%;
+            }
+
+            header nav ul {
+                flex-direction: column;
+            }
+
+            header nav ul li {
+                margin: 0.5rem 0;
+            }
         }
     </style>
 </head>
@@ -75,36 +267,103 @@
     <header>
         <nav>
             <ul>
-                <li><a href="#">Início</a></li>
-                <li><a href="#">Medicamentos</a></li>
-                <li><a href="#">Carrinho</a></li>
-                <li><a href="#">Contato</a></li>
+                <li><a href="#"><i class="fas fa-home"></i>Início</a></li>
+                <li><a href="#"><i class="fas fa-pills"></i>Medicamentos</a></li>
+                <li><a href="#"><i class="fas fa-shopping-cart"></i>Carrinho</a></li>
+                <li><a href="#"><i class="fab fa-whatsapp"></i>Contato</a></li>
             </ul>
         </nav>
     </header>
 
-    <main>
-        <h1>Bem-vindo ao PoupAqui</h1>
-        <div class="medicamentos-container">
-            <div class="medicamento-item">
-                <img src="/static/img/medicamentoA.png" alt="Medicamento A">
-                <h2>Medicamento A</h2>
-                <p>R$ 49,99</p>
-                <button class="btn-carrinho">
-                    <i class="fas fa-shopping-cart"></i> Adicionar ao carrinho
-                </button>
+    <!-- Banner de Ofertas -->
+    <div class="banner-container">
+        <div class="banner-slider" id="slider">
+            <div class="banner-item">
+                <div class="etiqueta-oferta">Oferta!</div>
+                <h2>Oferta Especial: Medicamento A</h2>
+                <p>R$ 39,99</p>
+                <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
             </div>
-            <div class="medicamento-item">
-                <img src="/static/img/medicamentoB.png" alt="Medicamento B">
-                <h2>Medicamento B</h2>
-                <p>R$ 29,99</p>
-                <button class="btn-carrinho">
-                    <i class="fas fa-shopping-cart"></i> Adicionar ao carrinho
-                </button>
+            <div class="banner-item">
+                <h2>Super Oferta: Medicamento B</h2>
+                <p>R$ 19,99</p>
+                <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
+            </div>
+            <div class="banner-item">
+                <h2>Desconto Exclusivo: Medicamento C</h2>
+                <p>R$ 9,99</p>
+                <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
             </div>
         </div>
-    </main>
 
-    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+        <!-- Botões de navegação -->
+        <button class="nav-button prev-btn" onclick="prevSlide()">&#10094;</button>
+        <button class="nav-button next-btn" onclick="nextSlide()">&#10095;</button>
+    </div>
+
+    <!-- Medicamentos -->
+    <div class="medicamentos-container">
+        <div class="medicamento-item oferta">
+            <h2>Medicamento A</h2>
+            <p>R$ 49,99</p>
+            <button class="btn-carrinho">
+                <i class="fas fa-shopping-cart"></i> Adicionar
+            </button>
+            <button class="btn-info">
+                <i class="fas fa-info-circle"></i> Informações
+            </button>
+        </div>
+        <div class="medicamento-item">
+            <h2>Medicamento B</h2>
+            <p>R$ 29,99</p>
+            <button class="btn-carrinho">
+                <i class="fas fa-shopping-cart"></i> Adicionar
+            </button>
+            <button class="btn-info">
+                <i class="fas fa-info-circle"></i> Informações
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.banner-item');
+        const slider = document.getElementById('slider');
+        let autoSlideInterval;
+
+        function showSlide(index) {
+            if (index >= slides.length) {
+                currentSlide = 0;
+            } else if (index < 0) {
+                currentSlide = slides.length - 1;
+            } else {
+                currentSlide = index;
+            }
+            slider.style.transform = `translateX(${-currentSlide * 100}%)`;
+        }
+
+        function nextSlide() {
+            showSlide(currentSlide + 1);
+        }
+
+        function prevSlide() {
+            showSlide(currentSlide - 1);
+        }
+
+        function startAutoSlide() {
+            autoSlideInterval = setInterval(() => {
+                nextSlide();
+            }, 59000); // 10 segundos entre os slides
+        }
+
+        function stopAutoSlide() {
+            clearInterval(autoSlideInterval);
+        }
+
+        document.querySelector('.banner-container').addEventListener('mouseover', stopAutoSlide);
+        document.querySelector('.banner-container').addEventListener('mouseout', startAutoSlide);
+
+        startAutoSlide();
+    </script>
 </body>
 </html>
