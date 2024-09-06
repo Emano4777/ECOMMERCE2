@@ -7,23 +7,25 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
-            font-family: 'Arial', sans-serif;
+            font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
             overflow-x: hidden;
             position: relative;
-            overflow-y: auto; /* Permite a rolagem apenas no eixo Y */
-            scrollbar-width: thin; /* Para navegadores compatíveis, como Firefox */
-            scrollbar-color: transparent transparent; /* Torna a barra de rolagem transparente */
+            overflow-y: auto; /* Permite rolagem apenas no eixo Y */
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            scrollbar-width: thin;
         }
 
-        /* Para navegadores baseados no WebKit, como Chrome e Safari */
+        /* Para navegadores WebKit, como Chrome e Safari */
         body::-webkit-scrollbar {
-            width: 0;
+            width: 0; /* Remover a barra de rolagem à esquerda */
             background: transparent;
         }
 
-        /* Estilo para garantir que o vídeo cubra todo o fundo da página */
+        /* Video Background */
         .video-background-wrapper {
             position: fixed;
             top: 0;
@@ -45,29 +47,26 @@
             z-index: -1;
         }
 
-        /* Menu lateral */
+        /* Menu lateral com marcas d'água */
         .menu-lateral {
             position: fixed;
             left: 0;
             top: 0;
             width: 60px;
             height: 100%;
-            background-color: #b30000; /* Tom de vermelho ajustado */
+            background-color: #b30000; /* Vermelho mais suave */
             overflow-x: hidden;
             transition: width 0.3s;
             z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between; /* Para garantir que o botão de logout fique na parte inferior */
+            background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255, 255, 255, 0.1) 10px, rgba(255, 255, 255, 0.1) 20px), repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1) 20px, transparent 20px, transparent 40px);
         }
 
-        /* Marca d'água */
         .menu-lateral::before {
             content: 'Poupaqui';
             position: absolute;
-            bottom: 20px;
-            left: 10px;
-            color: rgba(255, 255, 255, 0.2); /* Marca d'água branca, translúcida */
+            bottom: 10px;
+            left: 5px;
+            color: rgba(255, 255, 255, 0.2);
             font-size: 12px;
             transform: rotate(-45deg);
         }
@@ -75,9 +74,9 @@
         .menu-lateral::after {
             content: 'Poupaqui';
             position: absolute;
-            top: 20px;
-            left: 10px;
-            color: rgba(255, 255, 255, 0.2); /* Segunda marca d'água */
+            top: 50px;
+            left: 5px;
+            color: rgba(255, 255, 255, 0.2);
             font-size: 12px;
             transform: rotate(-45deg);
         }
@@ -86,30 +85,33 @@
             list-style-type: none;
             padding: 0;
             margin: 0;
+            height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
-            flex-grow: 1; /* Faz o menu crescer e deixar o logout no final */
         }
 
         .menu-lateral ul li {
             width: 100%;
             padding: 1rem;
             text-align: center;
+            position: relative;
         }
 
         .menu-lateral ul li a {
             color: white;
             text-decoration: none;
-            font-size: 1.5rem;
+            font-weight: bold;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 1.5rem;
+            width: 100%;
+            transition: background-color 0.2s;
         }
 
         .menu-lateral ul li a:hover {
-            background-color: rgba(255, 204, 0, 0.9);
-            transition: background-color 0.3s ease;
+            background-color: #ffcc00;
         }
 
         .logout {
@@ -118,33 +120,33 @@
         }
 
         .logout a {
-            color: white; /* Define a cor branca para o ícone */
+            color: white;
             font-size: 1.5rem;
             text-decoration: none;
         }
 
         .logout a:hover {
-            color: #ffcc00; /* Altera a cor para amarelo ao passar o mouse */
+            color: #ffcc00;
         }
 
         /* Seções */
         .sections {
+            flex-grow: 1;
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             padding-top: 2rem;
-            padding-left: 100px; /* Espaço entre o menu lateral */
-            padding-right: 100px; /* Espaço do lado direito */
+            padding-left: 80px; /* Espaço do lado esquerdo para o menu lateral */
+            padding-right: 50px;
         }
 
-        /* Estilo ajustado para "Novidades" */
+        /* Estilo para "Novidades" */
         .novidades {
-            width: 100%;
-            text-align: left;
+            width: 50%;
             padding: 20px;
         }
 
         .novidades h2 {
-            font-size: 2rem; /* Tamanho original da fonte */
+            font-size: 2rem;
             margin-bottom: 1rem;
             font-weight: bold;
             color: #e60000;
@@ -153,14 +155,13 @@
 
         /* Animação de cores gradientes */
         @keyframes colorChange {
-            0% { color: #e60000; } /* Vermelho */
-            50% { color: #ffcc00; } /* Amarelo */
-            100% { color: #e60000; } /* Vermelho */
+            0% { color: #e60000; }
+            50% { color: #ffcc00; }
+            100% { color: #e60000; }
         }
 
         .novidades .produtos {
-            padding: 10px 0;
-            color: white; /* Aumenta o contraste com o fundo preto */
+            color: white;
         }
 
         .novidades h3 {
@@ -178,9 +179,8 @@
             border: none;
             cursor: pointer;
             margin-top: 10px;
-            display: inline-block;
             font-size: 1rem;
-            animation: blink 1.5s infinite; /* Adiciona animação de piscar */
+            animation: blink 1.5s infinite;
         }
 
         @keyframes blink {
@@ -196,13 +196,12 @@
             background-color: rgba(255, 0, 0, 1);
         }
 
-        /* Rodapé com avaliações e redes sociais */
+        /* Rodapé no fim da página */
         .rodape {
             background-color: #333;
             color: white;
             padding: 1.5rem;
             text-align: center;
-            position: relative;
         }
 
         .rodape .social-icons {
@@ -248,23 +247,35 @@
             animation: slide 20s linear infinite;
         }
 
-        /* Responsivo */
+        /* Ajustes responsivos */
         @media(max-width: 768px) {
             .sections {
                 flex-direction: column;
-                margin-left: 70px;
+                padding-left: 70px;
+                padding-right: 20px;
+                padding-top: 1rem;
             }
 
             .novidades {
                 width: 100%;
+                margin-bottom: 1rem;
+            }
+
+            .novidades h2 {
+                font-size: 1.5rem;
             }
 
             .novidades .produtos {
                 flex-direction: column;
+                text-align: left;
             }
 
             .reviews {
-                margin-left: 70px;
+                font-size: 0.8rem;
+            }
+
+            .rodape .social-icons a {
+                font-size: 1.2rem;
             }
         }
     </style>
