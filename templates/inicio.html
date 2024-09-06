@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Página Inicial - PoupAqui E-commerce</title>
+    <title>PoupAqui E-commerce</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
@@ -12,64 +12,84 @@
             padding: 0;
             overflow-x: hidden;
             position: relative;
+            overflow-y: auto; /* Permite a rolagem apenas no eixo Y */
+            scrollbar-width: thin; /* Para navegadores compatíveis, como Firefox */
+            scrollbar-color: transparent transparent; /* Torna a barra de rolagem transparente */
         }
 
-        /* Vídeo de fundo */
-        .video-background {
+        /* Para navegadores baseados no WebKit, como Chrome e Safari */
+        body::-webkit-scrollbar {
+            width: 0;
+            background: transparent;
+        }
+
+        /* Estilo para garantir que o vídeo cubra todo o fundo da página */
+        .video-background-wrapper {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+            width: 100vw;
+            height: 100vh;
             z-index: -1;
-            opacity: 0.6;
+            overflow: hidden;
+        }
+
+        .video-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            border: none;
+            z-index: -1;
         }
 
         /* Menu lateral */
-.menu-lateral {
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 60px;
-    height: 100%;
-    background-color: #b30000; /* Tom de vermelho ajustado */
-    overflow-x: hidden;
-    transition: width 0.3s;
-    z-index: 1000;
-    background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255, 255, 255, 0.1) 10px, rgba(255, 255, 255, 0.1) 20px);
-}
+        .menu-lateral {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 60px;
+            height: 100%;
+            background-color: #b30000; /* Tom de vermelho ajustado */
+            overflow-x: hidden;
+            transition: width 0.3s;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between; /* Para garantir que o botão de logout fique na parte inferior */
+        }
 
-/* Marca d'água */
-.menu-lateral::before {
-    content: 'Poupaqui';
-    position: absolute;
-    bottom: 20px;
-    left: 10px;
-    color: rgba(255, 255, 255, 0.2); /* Marca d'água branca, translúcida */
-    font-size: 12px;
-    transform: rotate(-45deg);
-}
+        /* Marca d'água */
+        .menu-lateral::before {
+            content: 'Poupaqui';
+            position: absolute;
+            bottom: 20px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.2); /* Marca d'água branca, translúcida */
+            font-size: 12px;
+            transform: rotate(-45deg);
+        }
 
-.menu-lateral::after {
-    content: 'Poupaqui';
-    position: absolute;
-    top: 20px;
-    left: 10px;
-    color: rgba(255, 255, 255, 0.2); /* Segunda marca d'água */
-    font-size: 12px;
-    transform: rotate(-45deg);
-}
-
+        .menu-lateral::after {
+            content: 'Poupaqui';
+            position: absolute;
+            top: 20px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.2); /* Segunda marca d'água */
+            font-size: 12px;
+            transform: rotate(-45deg);
+        }
 
         .menu-lateral ul {
             list-style-type: none;
             padding: 0;
             margin: 0;
-            height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
+            flex-grow: 1; /* Faz o menu crescer e deixar o logout no final */
         }
 
         .menu-lateral ul li {
@@ -86,86 +106,69 @@
             align-items: center;
             justify-content: center;
         }
-        .logout a {
-    color: white; /* Define a cor branca para o ícone */
-    font-size: 1.5rem;
-    text-decoration: none;
-}
-
-.logout a:hover {
-    color: #ffcc00; /* Altera a cor para amarelo ao passar o mouse */
-}
 
         .menu-lateral ul li a:hover {
             background-color: rgba(255, 204, 0, 0.9);
             transition: background-color 0.3s ease;
         }
 
-        /* Estilo do ícone de logout */
         .logout {
-            margin-bottom: 20px;
+            padding: 1rem;
+            text-align: center;
         }
 
-        /* Seções lado a lado com fundo transparente */
+        .logout a {
+            color: white; /* Define a cor branca para o ícone */
+            font-size: 1.5rem;
+            text-decoration: none;
+        }
+
+        .logout a:hover {
+            color: #ffcc00; /* Altera a cor para amarelo ao passar o mouse */
+        }
+
+        /* Seções */
         .sections {
             display: flex;
             justify-content: space-between;
-            margin-left: 80px;
-            margin-right: 2rem;
             padding-top: 2rem;
+            padding-left: 100px; /* Espaço entre o menu lateral */
+            padding-right: 100px; /* Espaço do lado direito */
         }
 
-        .novidades, .vantagens {
-            width: 48%;
-            background-color: rgba(255, 255, 255, 0.3); /* Fundo transparente */
-            padding: 1.5rem;
-            text-align: center;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Sombra leve */
+        /* Estilo ajustado para "Novidades" */
+        .novidades {
+            width: 100%;
+            text-align: left;
+            padding: 20px;
         }
 
-        /* Animação de cores suaves */
-        .novidades h2, .vantagens h2 {
-            font-size: 2rem;
+        .novidades h2 {
+            font-size: 2rem; /* Tamanho original da fonte */
             margin-bottom: 1rem;
             font-weight: bold;
+            color: #e60000;
             animation: colorChange 5s ease-in-out infinite;
         }
 
+        /* Animação de cores gradientes */
         @keyframes colorChange {
-            0% {
-                color: rgba(230, 0, 0, 1);
-            }
-            50% {
-                color: rgba(255, 204, 0, 1);
-            }
-            100% {
-                color: rgba(255, 0, 0, 0.7);
-            }
+            0% { color: #e60000; } /* Vermelho */
+            50% { color: #ffcc00; } /* Amarelo */
+            100% { color: #e60000; } /* Vermelho */
         }
 
-        /* Estilo dos itens de produto */
         .novidades .produtos {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
+            padding: 10px 0;
+            color: white; /* Aumenta o contraste com o fundo preto */
         }
 
-        .novidades .produto-item {
-            background-color: rgba(255, 255, 255, 0.2); /* Mais transparência */
-            padding: 1rem;
-            border-radius: 5px;
-            text-align: center;
-            animation: moveUpDown 3s infinite alternate;
-            position: relative;
+        .novidades h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
         }
 
-        @keyframes moveUpDown {
-            0% {transform: translateY(0);}
-            100% {transform: translateY(-10px);}
-        }
-
-        /* Botão Ver Novidades */
+        /* Efeito de piscar no botão Ver Novidades */
         .ver-novidades {
             background-color: rgba(255, 0, 0, 0.8);
             color: white;
@@ -174,62 +177,32 @@
             border-radius: 5px;
             border: none;
             cursor: pointer;
-            animation: blink 1s infinite;
             margin-top: 10px;
+            display: inline-block;
+            font-size: 1rem;
+            animation: blink 1.5s infinite; /* Adiciona animação de piscar */
         }
 
         @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
         }
 
-        /* Sessão de Vantagens */
-        .vantagens .vantagem-item {
-            background-color: rgba(255, 255, 255, 0.2);
-            padding: 1rem;
-            border-radius: 5px;
-            border: 2px solid #ffcc00;
-            text-align: center;
+        .ver-novidades:hover {
+            background-color: rgba(255, 0, 0, 1);
         }
 
-        /* Carrossel de Reviews */
-        .reviews {
-            background-color: rgba(255, 255, 255, 0.3);
-            padding: 1.5rem;
-            display: flex;
-            gap: 1rem;
-            margin-left: 80px;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-
-        .reviews .review-item {
-            display: inline-block;
-            min-width: 300px;
-            background-color: rgba(255, 255, 255, 0.2);
-            padding: 1rem;
-            border-radius: 5px;
-            border: 1px solid #ccc;
-            font-weight: bold;
-            animation: colorChange 5s ease-in-out infinite;
-        }
-
-        /* Animação de rolagem horizontal */
-        @keyframes slide {
-            0% { transform: translateX(100%); }
-            100% { transform: translateX(-100%); }
-        }
-
-        .reviews {
-            animation: slide 20s linear infinite;
-        }
-
-        /* Rodapé */
+        /* Rodapé com avaliações e redes sociais */
         .rodape {
             background-color: #333;
             color: white;
             padding: 1.5rem;
             text-align: center;
+            position: relative;
         }
 
         .rodape .social-icons {
@@ -247,6 +220,34 @@
             color: #ffcc00;
         }
 
+        /* Carrossel de Reviews movido para o rodapé */
+        .reviews {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            white-space: nowrap;
+            overflow: hidden;
+            width: 100%;
+            color: white;
+            font-size: 1rem;
+        }
+
+        .reviews .review-item {
+            display: inline-block;
+            padding: 0 20px;
+            text-align: center;
+        }
+
+        @keyframes slide {
+            0% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+        }
+
+        .reviews {
+            animation: slide 20s linear infinite;
+        }
+
         /* Responsivo */
         @media(max-width: 768px) {
             .sections {
@@ -254,11 +255,11 @@
                 margin-left: 70px;
             }
 
-            .novidades, .vantagens {
+            .novidades {
                 width: 100%;
             }
 
-            .novidades .produtos, .vantagens .vantagem-item {
+            .novidades .produtos {
                 flex-direction: column;
             }
 
@@ -270,11 +271,10 @@
 </head>
 <body>
 
-    <!-- Vídeo de fundo -->
-    <video autoplay loop muted class="video-background" playsinline>
-        <source src="/videos/poupaqui.mp4#t=0,15" type="video/mp4">
-        Seu navegador não suporta a reprodução de vídeos.
-    </video>
+    <!-- Video background usando iframe -->
+    <div class="video-background-wrapper">
+        <iframe class="video-background" src="https://www.youtube.com/embed/iHIVEeP0bHU?autoplay=1&mute=1&controls=0&loop=1&playlist=iHIVEeP0bHU" frameborder="0" allow="autoplay; fullscreen"></iframe>
+    </div>
 
     <div class="menu-lateral">
         <ul>
@@ -288,7 +288,7 @@
         </div>
     </div>
 
-    <!-- Seções de Novidades e Vantagens lado a lado -->
+    <!-- Seção "Novidades" -->
     <div class="sections">
         <div class="novidades">
             <h2>Novidades</h2>
@@ -305,40 +305,22 @@
                 </div>
             </div>
         </div>
-        <div class="vantagens">
-            <h2>Por que comprar conosco?</h2>
-            <div class="vantagem-item">
-                <h3>Frete grátis em compras acima de R$ 100,00</h3>
-            </div>
-            <div class="vantagem-item">
-                <h3>Atendimento 24 horas pelo WhatsApp</h3>
-            </div>
-        </div>
     </div>
 
-    <!-- Carrossel de Reviews -->
-    <div class="reviews">
-        <div class="review-item">
-            <p>"Excelente qualidade e ótimo atendimento!"</p>
-            <p>- João</p>
-        </div>
-        <div class="review-item">
-            <p>"Rápido, prático e os preços são ótimos!"</p>
-            <p>- Maria</p>
-        </div>
-        <div class="review-item">
-            <p>"Melhor farmácia online, recomendo!"</p>
-            <p>- Lucas</p>
-        </div>
-    </div>
-
-    <!-- Rodapé com redes sociais -->
+    <!-- Rodapé com redes sociais e avaliações -->
     <div class="rodape">
         <p>Siga-nos nas redes sociais</p>
         <div class="social-icons">
             <a href="#"><i class="fab fa-instagram"></i></a>
             <a href="#"><i class="fab fa-facebook-f"></i></a>
             <a href="#"><i class="fab fa-whatsapp"></i></a>
+        </div>
+
+        <!-- Carrossel de avaliações dos usuários -->
+        <div class="reviews">
+            <div class="review-item">"Excelente qualidade e ótimo atendimento!" - João</div>
+            <div class="review-item">"Rápido, prático e os preços são ótimos!" - Maria</div>
+            <div class="review-item">"Melhor farmácia online, recomendo!" - Lucas</div>
         </div>
     </div>
 
