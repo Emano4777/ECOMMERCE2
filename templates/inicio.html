@@ -90,10 +90,20 @@
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Sombra leve */
         }
 
+        /* Destaque dos Títulos com mudança de cor */
         .novidades h2, .vantagens h2 {
-            color: #e60000;
-            font-size: 2rem;
+            font-size: 2.5rem;
             margin-bottom: 1rem;
+            animation: colorChange 3s infinite alternate;
+        }
+
+        @keyframes colorChange {
+            0% {
+                color: #e60000; /* Vermelho suave */
+            }
+            100% {
+                color: #ffcc00; /* Amarelo suave */
+            }
         }
 
         /* Estilo dos itens de produto */
@@ -142,7 +152,6 @@
             border-radius: 5px;
             border: 2px solid #ffcc00;
             text-align: center;
-            animation: blink 2s infinite;
         }
 
         /* Carrossel de Reviews no rodapé */
@@ -245,7 +254,7 @@
     <!-- Seções de Novidades e Vantagens lado a lado -->
     <div class="sections">
         <div class="novidades">
-            <h2>Novidades</h2>
+            <h2>NOVIDADES</h2>
             <div class="produtos">
                 <div class="produto-item">
                     <h3>Produto A</h3>
@@ -260,7 +269,7 @@
             </div>
         </div>
         <div class="vantagens">
-            <h2>Por que comprar conosco?</h2>
+            <h2>POR QUE COMPRAR CONOSCO?</h2>
             <div class="vantagem-item">
                 <h3>Frete grátis em compras acima de R$ 100,00</h3>
             </div>

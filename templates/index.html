@@ -15,7 +15,7 @@
             overflow-x: hidden;
         }
 
-        /* Menu lateral com mais marcas d'água */
+        /* Menu lateral com marcas d'água Poupaqui */
         .menu-lateral {
             position: fixed;
             left: 0;
@@ -26,24 +26,26 @@
             overflow-x: hidden;
             transition: width 0.3s;
             z-index: 1000;
-            background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255, 255, 255, 0.1) 10px, rgba(255, 255, 255, 0.1) 20px), repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1) 20px, transparent 20px, transparent 40px);
+            background-image: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(255, 255, 255, 0.1) 10px,
+                rgba(255, 255, 255, 0.1) 20px
+            ),
+            repeating-linear-gradient(
+                45deg,
+                rgba(255, 255, 255, 0.1),
+                rgba(255, 255, 255, 0.1) 20px,
+                transparent 20px,
+                transparent 40px
+            );
         }
 
         .menu-lateral::before {
             content: 'Poupaqui';
             position: absolute;
             bottom: 10px;
-            left: 5px;
-            color: rgba(255, 255, 255, 0.2);
-            font-size: 12px;
-            transform: rotate(-45deg);
-        }
-
-        /* Adicionando mais marcas d'água */
-        .menu-lateral::after {
-            content: 'Poupaqui';
-            position: absolute;
-            top: 50px;
             left: 5px;
             color: rgba(255, 255, 255, 0.2);
             font-size: 12px;
@@ -77,69 +79,147 @@
             font-size: 1.5rem;
             width: 100%;
             transition: background-color 0.2s;
+            position: relative;
+        }
+
+        /* Quantidade de itens no ícone do carrinho */
+        .menu-lateral ul li a .badge {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background-color: #ffcc00;
+            color: #b30000;
+            font-size: 0.8rem;
+            padding: 2px 6px;
+            border-radius: 50%;
+            display: none;
         }
 
         .menu-lateral ul li a:hover {
             background-color: #ffcc00;
         }
 
-        .menu-lateral ul li a i {
-            margin-right: 0;
+        /* Float do carrinho */
+        .float-carrinho {
+            position: fixed;
+            top: 100px; /* Posicionado mais para baixo */
+            right: 20px;
+            width: 300px;
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 2px solid #b30000;
+            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            z-index: 2000;
+            display: none; /* Inicialmente escondido */
         }
 
-        /* Tooltip para o texto à direita */
-        .menu-lateral ul li:hover::after {
-            content: attr(data-tooltip);
-            position: absolute;
-            left: 70px; /* Exibido à direita */
-            top: 50%;
-            transform: translateY(-50%);
-            background-color: #333;
-            color: #fff;
-            padding: 0.5rem;
+        .float-carrinho h3 {
+            color: #b30000;
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .float-carrinho .item-carrinho {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: rgba(255, 204, 0, 0.8); /* Amarelo suave */
             border-radius: 5px;
-            white-space: nowrap;
-            font-size: 0.9rem;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            z-index: 100;
         }
 
-        /* Estilo do banner de ofertas */
+        .float-carrinho .item-carrinho p {
+            margin: 0;
+            color: #b30000;
+        }
+
+        .float-carrinho .item-carrinho .delete-item {
+            color: #b30000;
+            cursor: pointer;
+        }
+
+        /* Botão Concluir Compra piscando com ícone de bolsa */
+        .float-carrinho .btn-concluir {
+            width: 100%;
+            background-color: #b30000;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: blink 1.5s infinite;
+        }
+
+        .float-carrinho .btn-concluir i {
+            margin-right: 0.5rem;
+        }
+
+        .float-carrinho .btn-fechar {
+            background-color: #b30000;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Banner de ofertas */
         .banner-container {
-            margin-top: 1rem;
-            margin-left: 60px; /* Ajustando espaço para o menu lateral */
+            margin-left: 60px;
             width: calc(100% - 60px);
             overflow: hidden;
             position: relative;
-            height: 120px; /* Reduzido o tamanho do banner */
-            z-index: 2;
-            transition: margin-left 0.3s, width 0.3s;
+            height: 120px;
+            z-index: 1;
         }
 
         .banner-slider {
             display: flex;
             transition: transform 0.5s ease-in-out;
+            animation: slide 30s infinite;
+        }
+
+        @keyframes slide {
+            0% {transform: translateX(0);}
+            33% {transform: translateX(-100%);}
+            66% {transform: translateX(-200%);}
+            100% {transform: translateX(0);}
         }
 
         .banner-item {
             min-width: 100%;
-            background: white; /* Começa em branco */
+            background: white;
             color: black;
             display: flex;
-            justify-content: space-between; /* Ajustado para mover o botão para a direita */
+            justify-content: space-between;
             align-items: center;
-            flex-direction: row;
-            padding: 1rem; /* Ajuste do padding para o banner menor */
+            padding: 1rem;
             border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
             margin: 0 15px;
             position: relative;
             border: 3px solid transparent;
             transition: all 0.5s ease, background 5s ease;
-            animation: changeColor 10s infinite alternate; /* Animação de troca de cor */
+            animation: changeColor 10s infinite alternate;
         }
 
-        /* Animação para troca de cor */
         @keyframes changeColor {
             0% {
                 background: white;
@@ -155,89 +235,20 @@
             }
         }
 
-        .banner-item h2 {
-            font-size: 1.2rem; /* Reduzido o tamanho da fonte para o banner menor */
-            margin-bottom: 0.3rem;
-        }
-
-        .banner-item p {
-            font-size: 1rem;
-            margin-bottom: 0.3rem;
-        }
-
-        /* Ajuste da borda do botão "Confira esta oferta" */
         .banner-item button {
-            background-color: #b30000; /* Vermelho mais suave */
-            color: white;
-            border: none;
-            padding: 0.4rem 1.2rem; /* Ajustado para reduzir o tamanho */
-            font-size: 0.9rem; /* Ajustado o tamanho da fonte para o botão */
+            border: 2px solid #b30000; /* Borda vermelha */
+            padding: 0.5rem 1rem;
+            background-color: #ffcc00;
+            color: #333;
             cursor: pointer;
-            border-radius: 15px;
-            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
-            transition: background-color 0.3s ease, color 0.3s ease;
-            animation: pulse 1.5s infinite;
-        }
-
-        .banner-item button i {
-            margin-right: 0.5rem;
-        }
-
-        .banner-item button:hover {
-            background-color: #FFD700;
-            color: white;
-        }
-
-        @keyframes pulse {
-            0%, 100% {
-                transform: scale(1);
-            }
-            50% {
-                transform: scale(1.1);
-            }
-        }
-
-        /* Botões de navegação ajustados */
-        .nav-button {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            background-color: #666;
-            color: white;
-            border: none;
-            padding: 0.5rem 1.5rem;
-            cursor: pointer;
-            font-size: 1rem;
             border-radius: 5px;
-            opacity: 0.8;
-            transition: opacity 0.3s ease;
-            z-index: 3;
+            animation: blink 1.5s infinite; /* Botão piscando */
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .nav-button:hover {
-            opacity: 1;
-        }
-
-        .prev-btn {
-            left: 10px;
-        }
-
-        .next-btn {
-            right: 10px;
-        }
-
-        .banner-slider {
-            animation: slide 30s infinite;
-        }
-
-        @keyframes slide {
-            0% {transform: translateX(0);}
-            33% {transform: translateX(-100%);}
-            66% {transform: translateX(-200%);}
-            100% {transform: translateX(0);}
-        }
-
-        /* Medicamentos */
+        /* Medicamentos visíveis para adicionar ao carrinho */
         .medicamentos-container {
             display: flex;
             flex-wrap: wrap;
@@ -247,7 +258,6 @@
             padding-left: 60px;
             position: relative;
             z-index: 2;
-            transition: padding-left 0.3s;
         }
 
         .medicamento-item {
@@ -263,21 +273,6 @@
         .medicamento-item:hover {
             transform: translateY(-5px);
             box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Etiqueta de oferta nos medicamentos */
-        .medicamento-item.oferta::before {
-            content: 'Oferta!';
-            position: absolute;
-            top: -10px;
-            left: -10px;
-            background-color: #ff0000;
-            color: white;
-            font-size: 0.8rem;
-            font-weight: bold;
-            padding: 0.25rem 0.75rem;
-            border-radius: 5px;
-            transform: rotate(-10deg);
         }
 
         .btn-carrinho, .btn-info {
@@ -297,15 +292,25 @@
 
         .btn-carrinho i, .btn-info i {
             margin-right: 0.5rem;
-            color: red;
         }
 
-        .btn-carrinho:active i, .btn-info:active i {
-            color: yellow;
+        .quantity-input {
+            width: 50px;
+            text-align: center;
+            margin-top: 0.5rem;
+        }
+
+        /* Arrastável */
+        .dragging {
+            cursor: move;
         }
 
         /* Responsividade */
         @media (max-width: 768px) {
+            .menu-lateral ul li a {
+                font-size: 1.2rem;
+            }
+
             .medicamentos-container {
                 flex-direction: column;
                 align-items: center;
@@ -318,20 +323,31 @@
     </style>
 </head>
 <body>
+
+    <!-- Menu lateral -->
     <div class="menu-lateral">
         <ul>
             <li data-tooltip="Início"><a href="/"><i class="fas fa-home"></i></a></li>
-            <li data-tooltip="Medicamentos"><a href="#"><i class="fas fa-pills"></i></a></li>
-            <li data-tooltip="Carrinho"><a href="#"><i class="fas fa-shopping-cart"></i></a></li>
+            <li data-tooltip="Medicamentos"><a href="/medicamentos"><i class="fas fa-pills"></i></a></li>
+            <li data-tooltip="Carrinho" id="btn-carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count"></span></a>
+            </li>
             <li data-tooltip="Contato"><a href="#"><i class="fab fa-whatsapp"></i></a></li>
         </ul>
+    </div>
+
+    <!-- Float do carrinho -->
+    <div class="float-carrinho" id="carrinho-float">
+        <h3>Carrinho de Compras</h3>
+        <div id="itens-carrinho"></div>
+        <button class="btn-concluir" id="concluir-compra"><i class="fas fa-shopping-bag"></i> Concluir Compra</button>
+        <button class="btn-fechar" id="fechar-carrinho">Fechar</button>
     </div>
 
     <!-- Banner de Ofertas -->
     <div class="banner-container">
         <div class="banner-slider" id="slider">
             <div class="banner-item">
-                <div class="etiqueta-oferta">Oferta!</div>
                 <h2>Oferta Especial: Medicamento A</h2>
                 <p>R$ 39,99</p>
                 <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
@@ -347,17 +363,14 @@
                 <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
             </div>
         </div>
-
-        <!-- Botões de navegação ajustados -->
-        <button class="nav-button prev-btn" onclick="prevSlide()">&#10094;</button>
-        <button class="nav-button next-btn" onclick="nextSlide()">&#10095;</button>
     </div>
 
     <!-- Medicamentos -->
     <div class="medicamentos-container">
-        <div class="medicamento-item oferta">
+        <div class="medicamento-item" data-nome="Medicamento A" data-preco="49.99">
             <h2>Medicamento A</h2>
             <p>R$ 49,99</p>
+            <input type="number" class="quantity-input" min="1" value="1">
             <button class="btn-carrinho">
                 <i class="fas fa-shopping-cart"></i> Adicionar
             </button>
@@ -365,9 +378,10 @@
                 <i class="fas fa-info-circle"></i> Informações
             </button>
         </div>
-        <div class="medicamento-item">
+        <div class="medicamento-item" data-nome="Medicamento B" data-preco="29.99">
             <h2>Medicamento B</h2>
             <p>R$ 29,99</p>
+            <input type="number" class="quantity-input" min="1" value="1">
             <button class="btn-carrinho">
                 <i class="fas fa-shopping-cart"></i> Adicionar
             </button>
@@ -378,44 +392,147 @@
     </div>
 
     <script>
-        let currentSlide = 0;
-        const slides = document.querySelectorAll('.banner-item');
-        const slider = document.getElementById('slider');
-        let autoSlideInterval;
+        const carrinhoBtn = document.getElementById('btn-carrinho');
+        const carrinhoFloat = document.getElementById('carrinho-float');
+        const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
+        const concluirCompraBtn = document.getElementById('concluir-compra');
+        const itensCarrinho = document.getElementById('itens-carrinho');
+        const cartCount = document.getElementById('cart-count');
+        let carrinhoAberto = false;
+        let carrinho = [];
 
-        function showSlide(index) {
-            if (index >= slides.length) {
-                currentSlide = 0;
-            } else if (index < 0) {
-                currentSlide = slides.length - 1;
+        carrinhoBtn.addEventListener('click', () => {
+            carrinhoAberto = !carrinhoAberto;
+            carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
+            renderCarrinho();
+        });
+
+        fecharCarrinhoBtn.addEventListener('click', () => {
+            carrinhoFloat.style.display = 'none';
+            carrinhoAberto = false;
+        });
+
+        concluirCompraBtn.addEventListener('click', () => {
+        if (carrinho.length === 0) {
+            alert("Seu carrinho está vazio!");
+            return;
+        }
+
+        // Cria um formulário oculto para enviar os dados via POST
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/cart';
+        form.style.display = 'none';
+
+        carrinho.forEach(item => {
+            const inputNome = document.createElement('input');
+            inputNome.name = 'nome';
+            inputNome.value = item.nome;
+            form.appendChild(inputNome);
+
+            const inputPreco = document.createElement('input');
+            inputPreco.name = 'preco';
+            inputPreco.value = item.preco;
+            form.appendChild(inputPreco);
+
+            const inputQuantidade = document.createElement('input');
+            inputQuantidade.name = 'quantidade';
+            inputQuantidade.value = item.quantidade;
+            form.appendChild(inputQuantidade);
+        });
+
+        document.body.appendChild(form);
+        form.submit(); // Submete o formulário
+    });
+
+
+    document.querySelectorAll('.btn-carrinho').forEach(btn => {
+        btn.addEventListener('click', (event) => {
+            const item = event.target.closest('.medicamento-item');
+            const nome = item.getAttribute('data-nome');
+            const preco = item.getAttribute('data-preco');
+            const quantidade = item.querySelector('.quantity-input').value;
+
+            const itemCarrinho = {
+                nome: nome,
+                preco: preco,
+                quantidade: parseInt(quantidade)
+            };
+
+            // Verifica se o item já está no carrinho
+            const itemExistente = carrinho.find(i => i.nome === nome);
+
+            if (itemExistente) {
+                // Atualiza a quantidade se o item já estiver no carrinho
+                itemExistente.quantidade += itemCarrinho.quantidade;
             } else {
-                currentSlide = index;
+                // Adiciona o novo item ao carrinho
+                carrinho.push(itemCarrinho);
             }
-            slider.style.transform = `translateX(${-currentSlide * 100}%)`;
+
+            updateCartCount(); // Atualiza o contador do carrinho
+            alert(`${quantidade}x ${nome} adicionado ao carrinho!`);
+        });
+    });
+
+        function renderCarrinho() {
+            itensCarrinho.innerHTML = '';
+            carrinho.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'item-carrinho';
+                div.innerHTML = `<p>${item.quantidade}x ${item.nome}</p><p>R$ ${(item.preco * item.quantidade).toFixed(2)}</p><i class="fas fa-trash delete-item" data-index="${index}"></i>`;
+                itensCarrinho.appendChild(div);
+            });
+
+            document.querySelectorAll('.delete-item').forEach(btn => {
+                btn.addEventListener('click', (event) => {
+                    const index = event.target.getAttribute('data-index');
+                    carrinho.splice(index, 1);
+                    updateCartCount();
+                    renderCarrinho();
+                });
+            });
         }
 
-        function nextSlide() {
-            showSlide(currentSlide + 1);
+        function updateCartCount() {
+        const cartCount = document.getElementById('cart-count');
+        const totalItems = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
+
+        if (totalItems > 0) {
+            cartCount.textContent = totalItems;
+            cartCount.style.display = 'block';
+        } else {
+            cartCount.style.display = 'none';
         }
+    }
 
-        function prevSlide() {
-            showSlide(currentSlide - 1);
-        }
+        /* Função para arrastar o carrinho */
+        carrinhoFloat.addEventListener('mousedown', function (event) {
+            carrinhoFloat.classList.add('dragging');
+            let shiftX = event.clientX - carrinhoFloat.getBoundingClientRect().left;
+            let shiftY = event.clientY - carrinhoFloat.getBoundingClientRect().top;
 
-        function startAutoSlide() {
-            autoSlideInterval = setInterval(() => {
-                nextSlide();
-            }, 10000); // 10 segundos entre os slides
-        }
+            function moveAt(pageX, pageY) {
+                carrinhoFloat.style.left = pageX - shiftX + 'px';
+                carrinhoFloat.style.top = pageY - shiftY + 'px';
+            }
 
-        function stopAutoSlide() {
-            clearInterval(autoSlideInterval);
-        }
+            function onMouseMove(event) {
+                moveAt(event.pageX, event.pageY);
+            }
 
-        document.querySelector('.banner-container').addEventListener('mouseover', stopAutoSlide);
-        document.querySelector('.banner-container').addEventListener('mouseout', startAutoSlide);
+            document.addEventListener('mousemove', onMouseMove);
 
-        startAutoSlide();
+            carrinhoFloat.onmouseup = function () {
+                document.removeEventListener('mousemove', onMouseMove);
+                carrinhoFloat.classList.remove('dragging');
+            };
+
+            carrinhoFloat.ondragstart = function () {
+                return false;
+            };
+        });
     </script>
+
 </body>
 </html>
