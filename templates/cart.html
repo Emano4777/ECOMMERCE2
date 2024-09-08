@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carrinho de Compras - PoupAqui</title>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/gh/efipay/js-payment-token-efi/dist/payment-token-efi-umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
@@ -147,6 +149,92 @@
             background-color: #ffc107;
         }
 
+        /* Modal flutuante para cartão de crédito */
+        /* Tornar o modal responsivo */
+/* Modal flutuante para cartão de crédito */
+#modalCartaoCredito {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    padding: 20px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    width: 90%; /* Ajustado para caber em dispositivos menores */
+    max-width: 400px; /* Limitar o tamanho máximo */
+    max-height: 90%; /* Limitar a altura máxima para evitar sair da tela */
+    overflow-y: auto; /* Permitir rolagem se o conteúdo for maior que o modal */
+}
+
+     /* Inputs responsivos */
+#modalCartaoCredito input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+/* Melhorar responsividade dos inputs */
+#modalCartaoCredito input {
+    width: 100%; /* Fazer os inputs ocuparem 100% da largura do modal */
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+/* Botão de fechar ajustado para se adequar melhor ao modal */
+#modalCartaoCredito .close-modal {
+    background-color: #b30000;
+    color: white;
+    padding: 10px;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    border-radius: 5px;
+    margin-top: 10px;
+}
+
+/* Para ajustar o modal no celular */
+@media (max-width: 600px) {
+    #modalCartaoCredito {
+        width: 95%; /* O modal ocupa quase toda a largura da tela em celulares */
+        height: auto;
+        max-height: 95%;
+    }
+}
+
+/* Spinner de carregamento responsivo */
+#loading-spinner {
+    display: flex;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+#loading-spinner img {
+    width: 50px;
+    height: 50px;
+}
+
+#modalCartaoCredito .close-modal {
+    background-color: #b30000;
+    color: white;
+    padding: 10px;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    border-radius: 5px;
+}
+
+        #modalCartaoCredito h2 {
+            text-align: center;
+        }
+
         /* Estilos para os ícones de edição e exclusão */
         .icon-btn {
             background: none;
@@ -202,7 +290,6 @@
             cursor: pointer;
             margin-top: 10px;
         }
-
     </style>
 </head>
 <body>
@@ -262,35 +349,263 @@
             <div class="payment-options">
                 <button class="btn-pix" id="btn-pix"><i class="fas fa-qrcode"></i> Pagar com PIX</button>
                 <button class="btn-boleto"><i class="fas fa-barcode"></i> Boleto</button>
-                <button class="btn-cartao"><i class="fas fa-credit-card"></i> Cartão de Crédito</button>
+                <button id="btn-cartao-credito" class="btn-cartao"><i class="fas fa-credit-card"></i> Pagar com Cartão de Crédito</button>
             </div>
 
-            <!-- Modal do QR Code PIX -->
-            <div id="pix-modal">
-                <h3>Escaneie o QR Code para pagar via PIX</h3>
-                <img src="/static/img/qrcode_nubank.png" alt="QR Code PIX">
-                <h3>Valor Total: {{ total_carrinho }}</h3>
-                <button class="modal-close">Fechar</button>
+             <!-- Modal flutuante para pagamento com cartão de crédito -->
+             <!-- Modal flutuante para pagamento com cartão de crédito -->
+             <div id="modalCartaoCredito" class="modal">
+                <h2>Pagar com Cartão</h2>
+                <form id="formCartaoCredito" method="POST">
+                    <input type="text" id="numero_cartao" placeholder="Número do Cartão" required>
+                    <input type="text" id="cvv" placeholder="CVV" required>
+                    <input type="text" id="validade_mes" placeholder="Mês de Validade (MM)" required>
+                    <input type="text" id="validade_ano" placeholder="Ano de Validade (AAAA)" required>
+                    <input type="text" id="nome_completo" placeholder="Nome Completo" required>
+                    <input type="text" id="cpf_comprador" placeholder="CPF do Comprador" required>
+                    <input type="text" id="telefone_comprador" placeholder="Número de Telefone (DD + 9 Dígitos)" required>
+                    <input type="date" id="data_nascimento" placeholder="Data de Nascimento (YYYY-MM-DD)" required>
+                    <input type="email" id="email_comprador" placeholder="Email do Comprador" required>
+                    <input type="submit" value="Pagar">
+                </form>
+                <button class="close-modal">Fechar</button>
             </div>
 
         {% else %}
             <p>Seu carrinho está vazio.</p>
         {% endif %}
     </div>
+    <script>
+        function mostrarAlerta(titulo, texto, tipo) {
+            Swal.fire({
+                title: titulo,
+                text: texto,
+                icon: tipo,
+                confirmButtonText: 'OK'
+            });
+        }
+    </script>
+    <!-- Modal do QR Code PIX -->
+    <div id="pix-modal">
+        <h3>Escaneie o QR Code para pagar via PIX</h3>
+        <img src="/static/img/qrcode_nubank.png" alt="QR Code PIX">
+        <h3>Valor Total: {{ total_carrinho }}</h3>
+        <button class="modal-close">Fechar</button>
+    </div>
 
     <script>
         // Mostrar modal ao clicar no botão de PIX
         const btnPix = document.getElementById('btn-pix');
-        const modal = document.getElementById('pix-modal');
-        const closeModal = document.querySelector('.modal-close');
+        const modalPix = document.getElementById('pix-modal');
+        const closeModalPix = document.querySelector('.modal-close');
 
         btnPix.addEventListener('click', () => {
-            modal.style.display = 'block';
+            modalPix.style.display = 'block';
         });
 
-        closeModal.addEventListener('click', () => {
-            modal.style.display = 'none';
+        closeModalPix.addEventListener('click', () => {
+            modalPix.style.display = 'none';
         });
+
+          // Modal do Cartão de Crédito (float)
+        const modalCartaoCredito = document.getElementById("modalCartaoCredito");
+        const btnCartaoCredito = document.getElementById("btn-cartao-credito");
+        const closeModalCartao = document.querySelector(".close-modal");
+
+        btnCartaoCredito.onclick = function() {
+    modalCartaoCredito.style.display = "block";
+    document.body.style.overflow = "hidden"; // Evitar que a página embaixo role
+}
+
+closeModalCartao.onclick = function() {
+    modalCartaoCredito.style.display = "none";
+    document.body.style.overflow = "auto"; // Restaurar a rolagem ao fechar o modal
+}
+
+        document.getElementById('formCartaoCredito').addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const btnSubmit = e.target.querySelector('input[type="submit"]');
+    btnSubmit.disabled = true;
+    btnSubmit.value = 'Processando...';
+    
+    const numeroCartao = document.getElementById('numero_cartao');
+    const cvv = document.getElementById('cvv');
+    const validadeMes = document.getElementById('validade_mes');
+    const validadeAno = document.getElementById('validade_ano');
+    const nomeCompleto = document.getElementById('nome_completo');
+    const cpfComprador = document.getElementById('cpf_comprador');
+    const dataNascimento = document.getElementById('data_nascimento');
+    const phoneNumber = document.getElementById('phone_number');
+    const emailComprador = document.getElementById('email_comprador').value;
+
+
+    if (!phoneNumber.value.match(/^[1-9]{2}9?[0-9]{8}$/)) {
+    console.error('Número de telefone inválido');
+    alert('Por favor, insira um número de telefone válido no formato: DD + 9 dígitos.');
+    return;
+}
+    // Verificação dos campos
+    if (!numeroCartao || !numeroCartao.value || 
+        !cvv || !cvv.value || 
+        !validadeMes || !validadeMes.value || 
+        !validadeAno || !validadeAno.value || 
+        !nomeCompleto || !nomeCompleto.value || 
+        !cpfComprador || !cpfComprador.value) {
+        console.error('Um ou mais campos obrigatórios estão vazios');
+        alert('Por favor, preencha todos os campos.');
+        return;
+    }
+
+    try {
+        const cardData = {
+            brand: 'visa',
+            number: numeroCartao.value,
+            cvv: cvv.value,
+            expiration_month: validadeMes.value,
+            expiration_year: validadeAno.value,
+            card_holder_name: nomeCompleto.value,
+            cpf_comprador: cpfComprador.value,
+            birth: dataNascimento.value,
+            phone_number: phoneNumber.value,
+            email: emailComprador  
+        };
+
+        const clientId = document.getElementById('identificadorConta').value;
+
+        // Chama o SDK para gerar o payment_token
+        const resultPaymentToken = await EfiPay.CreditCard
+            .setAccount(clientId)
+            .setEnvironment('sandbox')
+            .setCreditCardData({
+                brand: cardData.brand,
+                number: cardData.number,
+                cvv: cardData.cvv,
+                expirationMonth: cardData.expiration_month,
+                expirationYear: cardData.expiration_year,
+                cardHolderName: cardData.card_holder_name
+            })
+            .getPaymentToken();
+
+        const paymentToken = resultPaymentToken.payment_token;
+
+        // Envia os dados ao backend
+        const response = await fetch('/pagar_cartao', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                payment_token: paymentToken,
+                total_carrinho: '{{ total_carrinho }}',
+                nome_completo: cardData.card_holder_name,
+                cpf_comprador: cardData.cpf_comprador,
+                birth: cardData.birth,
+                phone_number: cardData.phone_number,
+                email: cardData.email
+            })
+        });
+
+        const data = await response.json();
+        if (data.error) {
+    mostrarAlerta('Erro no pagamento', data.error, 'error');
+} else {
+    mostrarAlerta('Sucesso', 'Pagamento efetuado com sucesso!', 'success');
+}
+
+    } catch (error) {
+        console.error('Erro ao gerar o payment_token:', error);
+        alert('Erro ao gerar o token de pagamento: ' + error.message);
+    }
+});
+
+
+indow.onclick = function(event) {
+    if (event.target == modalCartaoCredito) {
+        modalCartaoCredito.style.display = "none";
+        document.body.style.overflow = "auto";
+            }
+        }  
+        
+        // Inicializar SDK da EfiPay
+       // const gn = new EfiPay();
+
+       // document.getElementById('formCartaoCredito').addEventListener('submit', function (e) {
+   // e.preventDefault();
+   // const cardData = {
+    //    brand: 'visa', // Defina a bandeira correta (visa, mastercard, etc.)
+    //    number: document.getElementById('numero_cartao').value,
+    //    cvv: document.getElementById('cvv').value,
+    //    expiration_month: document.getElementById('validade_mes').value,
+  //      expiration_year: document.getElementById('validade_ano').value
+//    };
+
+    // Comentado para desabilitar o uso da EfiPay no frontend, já que será manuseado no backend
+    /*
+    gn.paymentToken({
+        brand: cardData.brand,
+        number: cardData.number,
+        cvv: cardData.cvv,
+        expiration_month: cardData.expiration_month,
+        expiration_year: cardData.expiration_year
+    })
+    .then(function (response) {
+        const paymentToken = response.data.payment_token;
+        // Enviar o token para o back-end
+        fetch('/pagar_cartao', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                payment_token: paymentToken, // Enviar o payment_token gerado
+                total_carrinho: '{{ total_carrinho }}' // Enviar o valor total do carrinho para o back-end
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Erro no pagamento: ' + data.error);
+            } else {
+                alert('Pagamento efetuado com sucesso!');
+                console.log(data.message);
+            }
+        });
+    })
+    .catch(function (error) {
+        console.error('Erro ao gerar token de pagamento:', error);
+    });
+    */
+    
+    // Enviar os dados do cartão diretamente para o back-end
+ //   fetch('/pagar_cartao', {
+   //     method: 'POST',
+   //     headers: {
+    //        'Content-Type': 'application/json'
+   //     },
+   //     body: JSON.stringify({
+    //        number: cardData.number,
+    //        cvv: cardData.cvv,
+    //        expiration_month: cardData.expiration_month,
+     //       expiration_year: cardData.expiration_year,
+     //       nome_completo: cardData.nome_completo,
+          //  cpf_comprador: cardData.cpf_comprador
+    //    })
+  //  })
+  //  .then(response => response.json())
+ //   .then(data => {
+    //    if (data.error) {
+    //        alert('Erro no pagamento: ' + data.error);
+    //    } else {
+    //        alert('Pagamento efetuado com sucesso!');
+   //         console.log(data.message);
+     //   }
+   // })
+  //  .catch(function (error) {
+  //      console.error('Erro ao processar pagamento:', error);
+  //  });
+//});
+
     </script>
 
 </body>
