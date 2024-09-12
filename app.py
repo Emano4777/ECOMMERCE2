@@ -80,38 +80,50 @@ def pagar_cartao():
     try:
         # Recebe os dados enviados no corpo da requisição
         data = request.get_json()
-
-        # Adicionando logs para verificar os dados recebidos
         print(f"Dados recebidos do frontend: {data}")
 
-        # Dados do cliente
-        customer_data = {
-            "name": data["nome_completo"],
-            "cpf": data["cpf_comprador"],
-            "birth": data["birth"],
-            "phone_number": data["phone_number"],  
-            "email": data["email"],  # Inclui o email
-            "address": {
-                "street": "Rua Exemplo",
-                "number": "123",
-                "neighborhood": "Centro",
-                "zipcode": "12345678",
-                "city": "São Paulo",
-                "state": "SP"
-            }
-        }
+        # Coleta os dados do frontend
+        endereco = data['endereco']
+        parcelas = int(data['parcelas'])
+        valor_total = float(data['total_carrinho'].replace('R$', '').replace(',', '.').strip())
+        
+        # Aplica juros se o parcelamento for maior que 2x
+        juros = 0
+        if parcelas > 2:
+            juros = 0.02 + (parcelas - 3) * 0.01  # Juros começa em 2% e aumenta 1% por parcela acima de 3x
+
+        valor_com_juros = valor_total * (1 + juros)  # Aplica o juros ao valor total
+
+        # Log para verificação
+        print(f"Parcelas: {parcelas}, Juros: {juros * 100}%, Valor com juros: R$ {valor_com_juros:.2f}, Valor total sem juros: R$ {valor_total:.2f}")
 
         # Token de pagamento gerado no front-end
         payment_token = data['payment_token']
-        valor_total = data['total_carrinho']
-
-        # Log dos dados recebidos do frontend
         print(f"Token de pagamento recebido: {payment_token}")
-        print(f"Valor total do carrinho: {valor_total}")
+
+        # Dados do cliente
+        customer_data = {
+    "name": data.get("nome_completo", ""),  # Usa .get() para evitar KeyError
+    "cpf": data.get("cpf_comprador", ""),   # Usa .get() aqui também
+    "birth": data.get("birth", ""),
+    "phone_number": data.get("phone_number", "11999999999"),  # Certificando que um valor padrão seja atribuído
+    "email": data.get("email", "email@exemplo.com"),  # Utiliza .get() para evitar erros se o email estiver ausente
+    "address": {
+        "street": endereco['rua'],
+        "number": endereco['numero'],
+        "neighborhood": endereco.get('bairro', 'Centro'),
+        "zipcode": endereco['cep'],
+        "city": endereco['cidade'],
+        "state": endereco['estado'].upper()  # Verifique se está no formato correto
+    }
+}
+
+        print(f"Dados do cliente: {customer_data}")
 
         # Chama a função para criar a cobrança no cartão de crédito
         print("Iniciando criação da cobrança...")
-        resultado_cobranca = criar_cobranca_cartao(valor_total, payment_token, customer_data)
+        resultado_cobranca = criar_cobranca_cartao(valor_com_juros, payment_token, customer_data, parcelas)
+        print(f"Resultado da criação da cobrança: {resultado_cobranca}")
 
         # Verifica se a cobrança foi criada com sucesso
         if resultado_cobranca.get('code') == 200:
@@ -120,13 +132,14 @@ def pagar_cartao():
             
             # Chama a função para processar o pagamento após a criação da cobrança
             print("Iniciando o pagamento com cartão de crédito...")
-            resultado_pagamento = pagar_cartao_credito(charge_id, payment_token, customer_data)
+            resultado_pagamento = pagar_cartao_credito(charge_id, payment_token, customer_data, parcelas)
+            print(f"Resultado do pagamento: {resultado_pagamento}")
             
             if resultado_pagamento['data']['status'] == 'approved':
-             return jsonify({"message": "Pagamento efetuado com sucesso!"})
+                return jsonify({"message": "Pagamento efetuado com sucesso!"})
             else:
-             print(f"Erro no pagamento: {resultado_pagamento}")
-             return jsonify({"error": "Erro ao processar o pagamento."}), 400
+                print(f"Erro no pagamento: {resultado_pagamento}")
+                return jsonify({"error": "Erro ao processar o pagamento."}), 400
         else:
             print(f"Erro ao criar a cobrança: {resultado_cobranca}")
             return jsonify({"error": "Erro ao criar a cobrança."}), 400
@@ -134,6 +147,7 @@ def pagar_cartao():
     except Exception as e:
         print(f"Erro no processo de pagamento: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 
 def gerar_payment_token(card_data):
@@ -154,140 +168,59 @@ def gerar_payment_token(card_data):
         raise Exception(f"Erro ao gerar token de pagamento: {response['errors']}")
 
 
-def criar_cobranca_cartao(valor_total, payment_token, customer_data):
-    """Cria a cobrança no cartão de crédito com logs adicionais."""
+def criar_cobranca_cartao(valor_total, customer_data, payment_token, parcelas):
+    """Cria a cobrança no sistema Efipay."""
     try:
-        # Log antes de obter o token
         print("Iniciando o processo de obtenção do token...")
-
         token = obter_token()  # Obtém o access_token
-
-        # Log após a obtenção do token
-        print(f"Token obtido com sucesso: {token}")
-
+        print(f"Token obtido: {token}")
+        
         url = charge_url
-
         headers = {
-            "Authorization": f"Bearer {token}",  # Usa o token de acesso aqui
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
 
-        # Remover "R$" e converter a vírgula em ponto para o valor_total
-        valor_total_float = float(valor_total.replace('R$', '').replace(',', '.').strip())
-        valor_total_centavos = int(valor_total_float * 100)  # Convertendo para centavos
+        # Calcula o valor total em centavos
+        valor_total_centavos = int(valor_total * 100)
 
-        # Corpo da requisição de acordo com a documentação
+        # Corpo da requisição para criação da cobrança
         body = {
             "items": [
                 {
-                    "name": "Compra de Medicamentos",  # Nome do item
-                    "amount": 1,  # Quantidade de itens
-                    "value": valor_total_centavos  # Agora em centavos
-                }
-            ],
-            "shippings": [
-                {
-                    "name": "Entrega Padrão",  # Rótulo do frete (opcional)
-                    "value": 1500  # Valor do frete em centavos (opcional)
+                    "name": "Compra de Medicamentos",
+                    "amount": 1,
+                    "value": valor_total_centavos  # Envia o valor em centavos
                 }
             ],
             "metadata": {
-                "custom_id": "ID-1234567890",  # ID opcional para associar a transação
-                "notification_url": "https://meusite.com.br/notificacoes"  # URL de notificação opcional
+                "custom_id": "ID-1234567890",
+                "notification_url": "https://meusite.com.br/notificacoes"
             }
         }
 
-        # Log antes da requisição
-        print(f"Enviando dados do pagamento: {body}")
-        print(f"Headers: {headers}")
-        print(f"URL: {url}")
-
-        # Faz a requisição POST
+        # Log dos dados da requisição
+        print(f"Enviando requisição para criação de cobrança com os seguintes dados: {body}")
+        
         response = requests.post(url, headers=headers, json=body)
-
-        # Log após a resposta
+        
+        # Log da resposta
         print(f"Response status code: {response.status_code}")
         print(f"Response body: {response.text}")
-
-        if response.status_code == 200:
-            print("Cobrança criada com sucesso, retornando dados...")
-            return response.json()
-        else:
-            raise Exception(f"Erro ao criar cobrança: {response.text}")
-    
-    except Exception as e:
-        # Log de erro detalhado
-        print(f"Erro durante a criação da cobrança: {str(e)}")
-        raise
-
-
-def criar_cobranca_cartao(valor_total, payment_token, customer_data):
-    """Cria a cobrança no cartão de crédito."""
-    try:
-        # Log antes de obter o token
-        print("Iniciando o processo de obtenção do token...")
-
-        token = obter_token()  # Obtém o access_token
-
-        # Log após a obtenção do token
-        print(f"Token obtido com sucesso: {token}")
-
-        url = charge_url
-
-        headers = {
-            "Authorization": f"Bearer {token}",  # Usa o token de acesso aqui
-            "Content-Type": "application/json"
-        }
-
-        # Remover "R$" e converter a vírgula em ponto para o valor_total
-        valor_total_float = float(valor_total.replace('R$', '').replace(',', '.').strip())
-        valor_total_centavos = int(valor_total_float * 100)  # Convertendo para centavos
-
-        # Corpo da requisição de acordo com a documentação
-        body = {
-            "items": [
-                {
-                    "name": "Compra de Medicamentos",  # Nome do item
-                    "amount": 1,  # Quantidade de itens
-                    "value": valor_total_centavos  # Agora em centavos
-                }
-            ],
-            "shippings": [
-                {
-                    "name": "Entrega Padrão",  # Rótulo do frete (opcional)
-                    "value": 1500  # Valor do frete em centavos (opcional)
-                }
-            ],
-            "metadata": {
-                "custom_id": "ID-1234567890",  # ID opcional para associar a transação
-                "notification_url": "https://meusite.com.br/notificacoes"  # URL de notificação opcional
-            }
-        }
-
-        # Log antes da requisição
-        print(f"Enviando dados do pagamento: {body}")
-        print(f"Headers: {headers}")
-        print(f"URL: {url}")
-
-        # Faz a requisição POST
-        response = requests.post(url, headers=headers, json=body)
-
-        # Log após a resposta
-        print(f"Response status code (criação da cobrança): {response.status_code}")
-        print(f"Response body (criação da cobrança): {response.text}")
-
+        
+        # Verifica se a resposta foi bem sucedida
         if response.status_code == 200:
             return response.json()
         else:
             raise Exception(f"Erro ao criar cobrança: {response.text}")
     
     except Exception as e:
-        # Log de erro detalhado
         print(f"Erro durante a criação da cobrança: {str(e)}")
         raise
 
 
-def pagar_cartao_credito(charge_id, payment_token, customer_data):
+
+def pagar_cartao_credito(charge_id, payment_token, customer_data, parcelas):
     url = f"https://cobrancas-h.api.efipay.com.br/v1/charge/{charge_id}/pay"
     
     headers = {
@@ -295,16 +228,16 @@ def pagar_cartao_credito(charge_id, payment_token, customer_data):
         "Content-Type": "application/json"
     }
     
-    # Adicionando o campo 'birth' (data de nascimento) no corpo da requisição
     body = {
         "payment": {
             "credit_card": {
                 "payment_token": payment_token,
                 "billing_address": customer_data["address"],
+                "installments": int(parcelas),
                 "customer": {
                     "name": customer_data["name"],
                     "cpf": customer_data["cpf"],
-                    "birth": customer_data["birth"],  # Adiciona a data de nascimento
+                    "birth": customer_data["birth"],
                     "phone_number": customer_data.get("phone_number", ""),
                     "email": customer_data.get("email", "")
                 }
@@ -315,12 +248,7 @@ def pagar_cartao_credito(charge_id, payment_token, customer_data):
     # Logs adicionais antes da requisição
     print(f"Iniciando o pagamento para charge_id: {charge_id} com token: {payment_token}")
     print(f"Enviando dados para o pagamento com cartão: {body}")    
-    print(f"Headers: {headers}")
-    print(f"URL de pagamento: {url}")
-
     response = requests.post(url, headers=headers, json=body)
-
-    # Logs após a requisição
     print(f"Response status code (pagamento): {response.status_code}")
     print(f"Response body (pagamento): {response.text}")
 

@@ -69,15 +69,14 @@
         }
 
         .cart-table {
-            width: 80%;
+            width: 100%; /* Ocupa 100% da largura disponível em telas menores */
             max-width: 800px;
             margin-bottom: 2rem;
             border-collapse: collapse;
         }
 
         .cart-table th, .cart-table td {
-            border: 1px solid #ddd;
-            padding: 12px;
+            padding: 8px;
             text-align: center;
         }
 
@@ -87,7 +86,7 @@
         }
 
         .cart-table td {
-            background-color: #f9f9f9;
+            word-wrap: break-word; /* Quebra longas palavras em telas menores */
         }
 
         /* Frase de introdução */
@@ -149,116 +148,29 @@
             background-color: #ffc107;
         }
 
+        /* Tornar a página toda responsiva */
+        @media (max-width: 800px) {
+            .container {
+                width: 100%;
+                padding: 10px;
+            }
+
+            .cart-table {
+                width: 100%;
+            }
+
+            .menu-lateral {
+                width: 50px;
+            }
+
+            .payment-options {
+                flex-direction: column; /* Alinha os botões em uma coluna em telas pequenas */
+                gap: 10px;
+            }
+        }
+
         /* Modal flutuante para cartão de crédito */
-        /* Tornar o modal responsivo */
-/* Modal flutuante para cartão de crédito */
-#modalCartaoCredito {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    background-color: white;
-    padding: 20px;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-    border-radius: 10px;
-    width: 90%; /* Ajustado para caber em dispositivos menores */
-    max-width: 400px; /* Limitar o tamanho máximo */
-    max-height: 90%; /* Limitar a altura máxima para evitar sair da tela */
-    overflow-y: auto; /* Permitir rolagem se o conteúdo for maior que o modal */
-}
-
-     /* Inputs responsivos */
-#modalCartaoCredito input {
-    width: 100%;
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 5px;
-    border: 1px solid #ddd;
-}
-/* Melhorar responsividade dos inputs */
-#modalCartaoCredito input {
-    width: 100%; /* Fazer os inputs ocuparem 100% da largura do modal */
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 5px;
-    border: 1px solid #ddd;
-}
-
-/* Botão de fechar ajustado para se adequar melhor ao modal */
-#modalCartaoCredito .close-modal {
-    background-color: #b30000;
-    color: white;
-    padding: 10px;
-    border: none;
-    cursor: pointer;
-    width: 100%;
-    text-align: center;
-    border-radius: 5px;
-    margin-top: 10px;
-}
-
-/* Para ajustar o modal no celular */
-@media (max-width: 600px) {
-    #modalCartaoCredito {
-        width: 95%; /* O modal ocupa quase toda a largura da tela em celulares */
-        height: auto;
-        max-height: 95%;
-    }
-}
-
-/* Spinner de carregamento responsivo */
-#loading-spinner {
-    display: flex;
-    justify-content: center;
-    margin-top: 10px;
-}
-
-#loading-spinner img {
-    width: 50px;
-    height: 50px;
-}
-
-#modalCartaoCredito .close-modal {
-    background-color: #b30000;
-    color: white;
-    padding: 10px;
-    border: none;
-    cursor: pointer;
-    width: 100%;
-    text-align: center;
-    border-radius: 5px;
-}
-
-        #modalCartaoCredito h2 {
-            text-align: center;
-        }
-
-        /* Estilos para os ícones de edição e exclusão */
-        .icon-btn {
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 1.2rem;
-            color: #b30000;
-            margin: 0 5px;
-        }
-
-        .icon-btn:hover {
-            color: #ffcc00;
-        }
-
-        .edit-btn {
-            color: #ffcc00;
-        }
-
-        .delete-btn {
-            color: red;
-        }
-
-        /* Modal para QR Code PIX */
-        #pix-modal {
+        #modalCartaoCredito {
             display: none;
             position: fixed;
             z-index: 1000;
@@ -268,114 +180,307 @@
             background-color: white;
             padding: 20px;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-            text-align: center;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90%;
+            overflow-y: auto;
         }
 
-        #pix-modal img {
-            width: 200px;
-            height: 200px;
+        /* Estilos para cada etapa */
+        .step {
+            display: none;
         }
 
-        #pix-modal h3 {
-            margin-top: 10px;
-            font-size: 1.2rem;
+        .step.active {
+            display: block;
+        }
+
+        .next-btn, .back-btn {
+            padding: 10px;
+            background-color: #ffcc00;
             color: #333;
-        }
-
-        .modal-close {
-            background-color: #b30000;
-            color: white;
-            padding: 5px 10px;
             border: none;
             cursor: pointer;
+            border-radius: 5px;
+            margin: 10px 5px;
+        }
+
+        .next-btn:hover, .back-btn:hover {
+            background-color: #ffc107;
+        }
+
+        /* Inputs responsivos */
+        #modalCartaoCredito input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        /* Melhorar responsividade dos inputs */
+        #modalCartaoCredito input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        /* Botão de fechar ajustado para se adequar melhor ao modal */
+        #modalCartaoCredito .close-modal {
+            background-color: #b30000;
+            color: white;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+            border-radius: 5px;
             margin-top: 10px;
+        }
+
+        /* Para ajustar o modal no celular */
+        @media (max-width: 600px) {
+            #modalCartaoCredito {
+                width: 95%;
+                height: auto;
+                max-height: 95%;
+            }
         }
     </style>
 </head>
 <body>
 
-    <!-- Menu lateral -->
-    <div class="menu-lateral">
-        <ul>
-            <li><a href="/"><i class="fas fa-home"></i></a></li>
-            <li><a href="/medicamentos"><i class="fas fa-pills"></i></a></li>
-            <li><a href="/cart"><i class="fas fa-shopping-cart"></i></a></li>
-            <li><a href="#"><i class="fab fa-whatsapp"></i></a></li>
-        </ul>
+   <!-- Menu lateral -->
+<div class="menu-lateral">
+    <ul>
+        <li><a href="/"><i class="fas fa-home"></i></a></li>
+        <li><a href="/medicamentos"><i class="fas fa-pills"></i></a></li>
+        <li><a href="/cart"><i class="fas fa-shopping-cart"></i></a></li>
+        <li><a href="#"><i class="fab fa-whatsapp"></i></a></li>
+    </ul>
+</div>
+
+<!-- Conteúdo centralizado -->
+<div class="container">
+    <h1>Carrinho de Compras</h1>
+
+    {% if carrinho %}
+    <table class="cart-table">
+        <thead>
+            <tr>
+                <th>Produto</th>
+                <th>Quantidade</th>
+                <th>Preço</th>
+                <th>Total</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in carrinho %}
+            <tr>
+                <td>{{ item.nome }}</td>
+                <td>{{ item.quantidade }}</td>
+                <td>{{ item.preco }}</td>
+                <td>{{ item.total }}</td>
+                <td>
+                    <form action="{{ url_for('edit_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
+                        <input type="number" name="quantidade" value="{{ item.quantidade }}" min="1" style="width: 50px;">
+                        <button class="icon-btn edit-btn"><i class="fas fa-pencil-alt"></i></button>
+                    </form>
+                    <form action="{{ url_for('delete_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
+                        <button class="icon-btn delete-btn"><i class="fas fa-trash"></i></button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Opções de pagamento -->
+    <div class="payment-options">
+        <button class="btn-pix" id="btn-pix"><i class="fas fa-qrcode"></i> Pagar com PIX</button>
+        <button class="btn-boleto"><i class="fas fa-barcode"></i> Boleto</button>
+        <button id="btn-cartao-credito" class="btn-cartao"><i class="fas fa-credit-card"></i> Pagar com Cartão de Crédito</button>
     </div>
 
-    <!-- Conteúdo centralizado -->
-    <div class="container">
-        <h1>Carrinho de Compras</h1>
-
-        {% if carrinho %}
-            <table class="cart-table">
-                <thead>
-                    <tr>
-                        <th>Produto</th>
-                        <th>Quantidade</th>
-                        <th>Preço</th>
-                        <th>Total</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in carrinho %}
-                        <tr>
-                            <td>{{ item.nome }}</td>
-                            <td>{{ item.quantidade }}</td>
-                            <td>{{ item.preco }}</td>
-                            <td>{{ item.total }}</td>
-                            <td>
-                                <!-- Botão de editar (ícone de lápis) -->
-                                <form action="{{ url_for('edit_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
-                                    <input type="number" name="quantidade" value="{{ item.quantidade }}" min="1" style="width: 50px;">
-                                    <button class="icon-btn edit-btn"><i class="fas fa-pencil-alt"></i></button>
-                                </form>
-                                <!-- Botão de excluir (ícone de lixeira) -->
-                                <form action="{{ url_for('delete_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
-                                    <button class="icon-btn delete-btn"><i class="fas fa-trash"></i></button>
-                                </form>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-
-            <!-- Frase de introdução -->
-            <p class="payment-intro">Escolha qual método de pagamento para as compras dos medicamentos escolhidos:</p>
-
-            <!-- Opções de pagamento -->
-            <div class="payment-options">
-                <button class="btn-pix" id="btn-pix"><i class="fas fa-qrcode"></i> Pagar com PIX</button>
-                <button class="btn-boleto"><i class="fas fa-barcode"></i> Boleto</button>
-                <button id="btn-cartao-credito" class="btn-cartao"><i class="fas fa-credit-card"></i> Pagar com Cartão de Crédito</button>
+    <div id="modalCartaoCredito" class="modal">
+        <h2>Pagar com Cartão</h2>
+        <form id="paymentForm" method="POST">
+            <input type="hidden" name="identificadorConta" id="identificadorConta" value="042799106cb3d82d88bb9f8ec0e72c8b">
+            <h3>Informações do Cartão</h3>
+            <input type="text" id="numero_cartao" placeholder="Número do Cartão" required>
+            <input type="text" id="cvv" placeholder="CVV" required>
+            <input type="text" id="validade_mes" placeholder="Mês de Validade (MM)" required>
+            <input type="text" id="validade_ano" placeholder="Ano de Validade (AAAA)" required>
+    
+            <label for="parcelas">Parcelamento:</label>
+            <select id="parcelas" required>
+                <option value="1">1x sem juros</option>
+                <option value="2">2x sem juros</option>
+                <option value="3">3x com juros</option>
+                <option value="4">4x com juros</option>
+                <option value="5">5x com juros</option>
+                <option value="6">6x com juros</option>
+            </select>
+            <div style="text-align: center; margin: 10px 0;">
+                <strong>Valor Total: R$ {{ total_carrinho }}</strong>
+                <p id="valor-parcelado"></p> <!-- Este é o elemento que precisa existir -->
             </div>
+    
+            <!-- Etapa 1 -->
+            <div class="step" id="step1" style="display: block;">
+                <h3>Informações Pessoais</h3>
+                <input type="text" id="nome_completo" placeholder="Nome Completo" required>
+                <input type="text" id="cpf_comprador" placeholder="CPF do Comprador" required>
+                <input type="text" id="telefone_comprador" placeholder="Número de Telefone (DD + 9 Dígitos)" required>
+                <input type="date" id="data_nascimento" placeholder="Data de Nascimento" required>
+                <input type="email" id="email_comprador" placeholder="Email do Comprador" required>
 
-             <!-- Modal flutuante para pagamento com cartão de crédito -->
-             <!-- Modal flutuante para pagamento com cartão de crédito -->
-             <div id="modalCartaoCredito" class="modal">
-                <h2>Pagar com Cartão</h2>
-                <form id="formCartaoCredito" method="POST">
-                    <input type="text" id="numero_cartao" placeholder="Número do Cartão" required>
-                    <input type="text" id="cvv" placeholder="CVV" required>
-                    <input type="text" id="validade_mes" placeholder="Mês de Validade (MM)" required>
-                    <input type="text" id="validade_ano" placeholder="Ano de Validade (AAAA)" required>
-                    <input type="text" id="nome_completo" placeholder="Nome Completo" required>
-                    <input type="text" id="cpf_comprador" placeholder="CPF do Comprador" required>
-                    <input type="text" id="telefone_comprador" placeholder="Número de Telefone (DD + 9 Dígitos)" required>
-                    <input type="date" id="data_nascimento" placeholder="Data de Nascimento (YYYY-MM-DD)" required>
-                    <input type="email" id="email_comprador" placeholder="Email do Comprador" required>
-                    <input type="submit" value="Pagar">
-                </form>
-                <button class="close-modal">Fechar</button>
+                <button type="button" class="next-btn" id="next-step-btn-1">Próxima Etapa</button>
             </div>
-
-        {% else %}
-            <p>Seu carrinho está vazio.</p>
-        {% endif %}
+    
+            <!-- Etapa 2 -->
+            <div class="step" id="step2" style="display: none;">
+                <h3>Endereço de Cobrança</h3>
+                <input type="text" id="rua" placeholder="Rua" required>
+                <input type="text" id="numero" placeholder="Número" required>
+                <input type="text" id="bairro" placeholder="Bairro" required>
+                <input type="text" id="cep" placeholder="CEP" required>
+                <input type="text" id="cidade" placeholder="Cidade" required>
+                <input type="text" id="estado" placeholder="Estado" required>
+                <button type="button" class="back-btn" onclick="previousStep(1)">Voltar</button>
+                <input type="submit" value="Finalizar Pagamento">
+            </div>
+        </form>
+        <button class="close-modal">Fechar</button>
     </div>
-    <script>
+    
+
+{% else %}
+<p>Seu carrinho está vazio.</p>
+{% endif %}
+
+            
+
+
+<!-- JavaScript -->
+<script>
+    document.getElementById('btn-cartao-credito').onclick = function() {
+        console.log("Abrindo modal de pagamento com cartão.");
+        document.getElementById('modalCartaoCredito').style.display = "block";
+        document.body.style.overflow = "hidden"; // Evita rolagem da página
+    }
+    
+    document.querySelector('.close-modal').onclick = function() {
+        console.log("Fechando modal de pagamento com cartão.");
+        document.getElementById('modalCartaoCredito').style.display = "none";
+        document.body.style.overflow = "auto"; // Restaura a rolagem
+    }
+    
+    
+        // Verificar se o botão de próxima etapa está funcionando
+        document.getElementById('next-step-btn-1').onclick = function () {
+            console.log("Próxima Etapa clicada!");
+            nextStep(1);
+        };
+
+        function nextStep(step) {
+    console.log('Tentando avançar para a próxima etapa:', step);
+    if (validateStep(step)) {
+        const currentStepElement = document.getElementById('step' + step);
+        const nextStepElement = document.getElementById('step' + (step + 1));
+
+        // Verifique se os elementos existem antes de tentar acessar suas propriedades
+        if (currentStepElement && nextStepElement) {
+            currentStepElement.style.display = "none";
+            nextStepElement.style.display = "block";
+            console.log('Passou para a próxima etapa:', step + 1);
+        } else {
+            console.log('Elemento da etapa não encontrado');
+        }
+    } else {
+        console.log('Validação da etapa falhou');
+    }
+}
+function previousStep(step) {
+    console.log('Voltando para a etapa anterior:', step);
+    const currentStepElement = document.getElementById('step' + (step + 1));
+    const previousStepElement = document.getElementById('step' + step);
+
+    // Verifique se os elementos existem antes de tentar acessar suas propriedades
+    if (currentStepElement && previousStepElement) {
+        currentStepElement.style.display = "none";
+        previousStepElement.style.display = "block";
+        console.log('Retornou para a etapa:', step);
+    } else {
+        console.log('Elemento da etapa não encontrado');
+    }
+}
+
+
+function validateStep(step) {
+    if (step === 1) {
+        const nomeCompleto = document.getElementById('nome_completo').value.trim();
+        const cpfComprador = document.getElementById('cpf_comprador').value.trim();
+        const phoneNumber = document.getElementById('telefone_comprador').value.trim();
+        const dataNascimento = document.getElementById('data_nascimento').value;
+        const emailComprador = document.getElementById('email_comprador').value.trim();
+        const numeroCartao = document.getElementById('numero_cartao').value.trim();
+        const cvv = document.getElementById('cvv').value.trim();
+        const validadeMes = document.getElementById('validade_mes').value.trim();
+        const validadeAno = document.getElementById('validade_ano').value.trim();
+
+        // Verifica se todos os campos pessoais foram preenchidos
+        if (!nomeCompleto || !cpfComprador || !phoneNumber || !dataNascimento || !emailComprador) {
+            mostrarAlerta('Erro', 'Preencha todos os campos obrigatórios antes de continuar.', 'error');
+            return false;
+        }
+
+        // Validação do CPF
+        if (!validarCPF(cpfComprador)) {
+            mostrarAlerta('Erro', 'CPF inválido.', 'error');
+            return false;
+        }
+
+        // Validação do formato do telefone
+        if (!phoneNumber.match(/^[1-9]{2}9?[0-9]{8}$/)) {
+            mostrarAlerta('Erro', 'Número de telefone inválido.', 'error');
+            return false;
+        }
+
+        // Validação do formato de email
+        if (!emailComprador.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+            mostrarAlerta('Erro', 'Email inválido.', 'error');
+            return false;
+        }
+
+        // Verifica se todos os campos do cartão foram preenchidos
+        if (!numeroCartao || !cvv || !validadeMes || !validadeAno) {
+            mostrarAlerta('Erro', 'Preencha todos os campos do cartão antes de continuar.', 'error');
+            return false;
+        }
+    } else if (step === 2) {
+        // Validação dos campos de endereço na segunda etapa
+        const rua = document.getElementById('rua').value.trim();
+        const numero = document.getElementById('numero').value.trim();
+        const bairro = document.getElementById('bairro').value.trim();
+        const cep = document.getElementById('cep').value.trim();
+        const cidade = document.getElementById('cidade').value.trim();
+        const estado = document.getElementById('estado').value.trim();
+
+        if (!rua || !numero || !bairro || !cep || !cidade || !estado) {
+            mostrarAlerta('Erro', 'Preencha todos os campos de endereço antes de continuar.', 'error');
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+
         function mostrarAlerta(titulo, texto, tipo) {
             Swal.fire({
                 title: titulo,
@@ -384,229 +489,230 @@
                 confirmButtonText: 'OK'
             });
         }
-    </script>
-    <!-- Modal do QR Code PIX -->
-    <div id="pix-modal">
-        <h3>Escaneie o QR Code para pagar via PIX</h3>
-        <img src="/static/img/qrcode_nubank.png" alt="QR Code PIX">
-        <h3>Valor Total: {{ total_carrinho }}</h3>
-        <button class="modal-close">Fechar</button>
-    </div>
 
-    <script>
-        // Mostrar modal ao clicar no botão de PIX
-        const btnPix = document.getElementById('btn-pix');
-        const modalPix = document.getElementById('pix-modal');
-        const closeModalPix = document.querySelector('.modal-close');
-
-        btnPix.addEventListener('click', () => {
-            modalPix.style.display = 'block';
-        });
-
-        closeModalPix.addEventListener('click', () => {
-            modalPix.style.display = 'none';
-        });
-
-          // Modal do Cartão de Crédito (float)
-        const modalCartaoCredito = document.getElementById("modalCartaoCredito");
-        const btnCartaoCredito = document.getElementById("btn-cartao-credito");
-        const closeModalCartao = document.querySelector(".close-modal");
-
-        btnCartaoCredito.onclick = function() {
-    modalCartaoCredito.style.display = "block";
-    document.body.style.overflow = "hidden"; // Evitar que a página embaixo role
-}
-
-closeModalCartao.onclick = function() {
-    modalCartaoCredito.style.display = "none";
-    document.body.style.overflow = "auto"; // Restaurar a rolagem ao fechar o modal
-}
-
-        document.getElementById('formCartaoCredito').addEventListener('submit', async function (e) {
-    e.preventDefault();
-
-    const btnSubmit = e.target.querySelector('input[type="submit"]');
-    btnSubmit.disabled = true;
-    btnSubmit.value = 'Processando...';
     
-    const numeroCartao = document.getElementById('numero_cartao');
-    const cvv = document.getElementById('cvv');
-    const validadeMes = document.getElementById('validade_mes');
-    const validadeAno = document.getElementById('validade_ano');
-    const nomeCompleto = document.getElementById('nome_completo');
-    const cpfComprador = document.getElementById('cpf_comprador');
-    const dataNascimento = document.getElementById('data_nascimento');
-    const phoneNumber = document.getElementById('phone_number');
-    const emailComprador = document.getElementById('email_comprador').value;
+    document.getElementById('paymentForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const cartInfoElement = document.getElementById('cart-info');
+        const btnSubmit = e.target.querySelector('input[type="submit"]');
+        btnSubmit.disabled = true;
+        btnSubmit.value = 'Processando...';
+
+        console.log("Enviando formulário de pagamento com cartão.");
+
+        
+    
+        const numeroCartao = document.getElementById('numero_cartao').value;
+        const cvv = document.getElementById('cvv').value;
+        const validadeMes = document.getElementById('validade_mes').value;
+        const validadeAno = document.getElementById('validade_ano').value;
+        const nomeCompleto = document.getElementById('nome_completo').value;
+        const cpfComprador = document.getElementById('cpf_comprador').value;
+        const phoneNumber = document.getElementById('telefone_comprador').value;
+        const emailComprador = document.getElementById('email_comprador').value;
+        const dataNascimento = document.getElementById('data_nascimento').value;
+        const parcelas = document.getElementById('parcelas').value;
+        const endereco = {
+        rua: document.getElementById('rua').value,
+        numero: document.getElementById('numero').value,
+        bairro: document.getElementById('bairro').value,
+        cep: document.getElementById('cep').value,
+        cidade: document.getElementById('cidade').value,
+        estado: document.getElementById('estado').value
+        
+    };
 
 
-    if (!phoneNumber.value.match(/^[1-9]{2}9?[0-9]{8}$/)) {
-    console.error('Número de telefone inválido');
-    alert('Por favor, insira um número de telefone válido no formato: DD + 9 dígitos.');
-    return;
-}
-    // Verificação dos campos
-    if (!numeroCartao || !numeroCartao.value || 
-        !cvv || !cvv.value || 
-        !validadeMes || !validadeMes.value || 
-        !validadeAno || !validadeAno.value || 
-        !nomeCompleto || !nomeCompleto.value || 
-        !cpfComprador || !cpfComprador.value) {
-        console.error('Um ou mais campos obrigatórios estão vazios');
-        alert('Por favor, preencha todos os campos.');
+    try {
+
+         
+        // Validação do telefone
+        if (!phoneNumber.match(/^[1-9]{2}9?[0-9]{8}$/)) {
+            mostrarAlerta('Erro', 'Número de telefone inválido.', 'error');
+            console.log('Número de telefone inválido: ', phoneNumber);
+            btnSubmit.disabled = false;
+            btnSubmit.value = 'Finalizar Pagamento';
+            return;
+        }
+      
+         // Validação de CEP
+    const cepRegex = /^[0-9]{8}$/;
+    if (!cepRegex.test(endereco.cep)) {
+        mostrarAlerta('Erro', 'CEP inválido.', 'error');
+        btnSubmit.disabled = false;
+        btnSubmit.value = 'Finalizar Pagamento';
         return;
     }
 
-    try {
-        const cardData = {
-            brand: 'visa',
-            number: numeroCartao.value,
-            cvv: cvv.value,
-            expiration_month: validadeMes.value,
-            expiration_year: validadeAno.value,
-            card_holder_name: nomeCompleto.value,
-            cpf_comprador: cpfComprador.value,
-            birth: dataNascimento.value,
-            phone_number: phoneNumber.value,
-            email: emailComprador  
-        };
+     // Validação de CPF
+     if (!validarCPF(cpfComprador)) {
+        mostrarAlerta('Erro', 'CPF inválido.', 'error');
+        btnSubmit.disabled = false;
+        btnSubmit.value = 'Finalizar Pagamento';
+        return;
+    }
 
-        const clientId = document.getElementById('identificadorConta').value;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailComprador)) {
+        mostrarAlerta('Erro', 'Email inválido.', 'error');
+        btnSubmit.disabled = false;
+        btnSubmit.value = 'Finalizar Pagamento';
+        return;
+    }
 
-        // Chama o SDK para gerar o payment_token
-        const resultPaymentToken = await EfiPay.CreditCard
-            .setAccount(clientId)
-            .setEnvironment('sandbox')
-            .setCreditCardData({
-                brand: cardData.brand,
-                number: cardData.number,
-                cvv: cardData.cvv,
-                expirationMonth: cardData.expiration_month,
-                expirationYear: cardData.expiration_year,
-                cardHolderName: cardData.card_holder_name
-            })
-            .getPaymentToken();
+        // Validação dos campos obrigatórios
+        if (!numeroCartao || !cvv || !validadeMes || !validadeAno || !nomeCompleto || !cpfComprador) {
+            mostrarAlerta('Erro', 'Preencha todos os campos obrigatórios.', 'error');
+            console.log('Falha na validação de campos obrigatórios no envio do formulário.');
+            btnSubmit.disabled = false;
+            btnSubmit.value = 'Finalizar Pagamento';
+        }
 
-        const paymentToken = resultPaymentToken.payment_token;
+        if (!emailComprador) {
+    mostrarAlerta('Erro', 'O campo de email é obrigatório.', 'error');
+    return;
+}
+    
+            // Gerando o token de pagamento
+            const cardData = {
+                brand: 'visa',
+                number: numeroCartao,
+                cvv: cvv,
+                expirationMonth: validadeMes,
+                expirationYear: validadeAno,
+                card_holder_name: nomeCompleto,
+                cpf_comprador: cpfComprador,
+                birth: dataNascimento
+            };
+    
+            const clientId = document.getElementById('identificadorConta').value;
+            const resultPaymentToken = await EfiPay.CreditCard
+                .setAccount(clientId)
+                .setEnvironment('sandbox')
+                .setCreditCardData(cardData)
+                .getPaymentToken();
+    
+            const paymentToken = resultPaymentToken.payment_token;
+            console.log("Token de pagamento gerado com sucesso: ", paymentToken);
+    
+            // Enviar para o backend
+            const response = await fetch('/pagar_cartao', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    payment_token: paymentToken,
+                    total_carrinho: '{{ total_carrinho }}',
+                    nome_completo: nomeCompleto,
+                    cpf_comprador: cpfComprador,
+                    parcelas: parcelas,
+                    endereco: endereco ,
+                    birth: cardData.birth
+                })
+            });
+    
+            const data = await response.json();
+            if (data.error) {
+                mostrarAlerta('Erro no pagamento', data.error, 'error');
+                console.log('Erro retornado pelo backend: ', data.error);
+            } else {
+                mostrarAlerta('Sucesso', 'Pagamento efetuado com sucesso!', 'success');
+                console.log('Pagamento efetuado com sucesso.');
+            }
+    
+        } catch (error) {
+            mostrarAlerta('Erro', 'Falha no processamento. Tente novamente.', 'error');
+            console.log('Erro durante o processamento do pagamento: ', error);
+        } finally {
+            btnSubmit.disabled = false;
+            btnSubmit.value = 'Finalizar Pagamento';
+        }
+    });
 
-        // Envia os dados ao backend
-        const response = await fetch('/pagar_cartao', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                payment_token: paymentToken,
-                total_carrinho: '{{ total_carrinho }}',
-                nome_completo: cardData.card_holder_name,
-                cpf_comprador: cardData.cpf_comprador,
-                birth: cardData.birth,
-                phone_number: cardData.phone_number,
-                email: cardData.email
-            })
-        });
+    function validarCPF(cpf) {
+    // Remove caracteres não numéricos
+    cpf = cpf.replace(/[^\d]+/g, '');
 
-        const data = await response.json();
-        if (data.error) {
-    mostrarAlerta('Erro no pagamento', data.error, 'error');
-} else {
-    mostrarAlerta('Sucesso', 'Pagamento efetuado com sucesso!', 'success');
+    // Verifica se o CPF tem 11 dígitos
+    if (cpf.length !== 11) {
+        return false;
+    }
+
+    // Elimina CPFs conhecidos como inválidos
+    if (/^(\d)\1+$/.test(cpf)) {
+        return false; // Ex: 000.000.000-00 ou 111.111.111-11
+    }
+
+    // Cálculo para validar o primeiro dígito verificador
+    let soma = 0;
+    for (let i = 0; i < 9; i++) {
+        soma += parseInt(cpf.charAt(i)) * (10 - i);
+    }
+    let resto = 11 - (soma % 11);
+    let primeiroDigitoVerificador = resto > 9 ? 0 : resto;
+
+    if (primeiroDigitoVerificador !== parseInt(cpf.charAt(9))) {
+        return false;
+    }
+
+    // Cálculo para validar o segundo dígito verificador
+    soma = 0;
+    for (let i = 0; i < 10; i++) {
+        soma += parseInt(cpf.charAt(i)) * (11 - i);
+    }
+    resto = 11 - (soma % 11);
+    let segundoDigitoVerificador = resto > 9 ? 0 : resto;
+
+    if (segundoDigitoVerificador !== parseInt(cpf.charAt(10))) {
+        return false;
+    }
+
+    // Se chegou até aqui, o CPF é válido
+    return true;
 }
 
-    } catch (error) {
-        console.error('Erro ao gerar o payment_token:', error);
-        alert('Erro ao gerar o token de pagamento: ' + error.message);
+    
+    document.getElementById('parcelas').addEventListener('change', function() {
+    const parcelas = parseInt(this.value);
+    const total = parseFloat('{{ total_carrinho }}'.replace('R$', '').replace(',', '.')); // Pega o valor total sem formatação
+
+    console.log("Parcelamento selecionado: ", parcelas);
+    console.log("Valor total: ", total);
+
+    let juros = 0; // Juros base é 0 para até 2x
+
+    if (parcelas > 2) {
+        juros = 0.02 + (parcelas - 3) * 0.01; // Juros começa em 0.02 para 3x e aumenta 0.01 para cada parcela adicional
+        console.log("Juros aplicados: ", juros);
+    }
+
+    const totalComJuros = total * (1 + juros); // Aplica os juros ao valor total
+    const valorParcela = totalComJuros / parcelas; // Calcula o valor de cada parcela
+
+    const valorParceladoElement = document.getElementById('valor-parcelado');
+    if (valorParceladoElement) {
+        if (juros > 0) {
+            valorParceladoElement.textContent = `Valor Total: R$ ${total.toFixed(2)} | ${parcelas}x de R$ ${valorParcela.toFixed(2)} com juros de ${(juros * 100).toFixed(2)}%.`;
+            console.log("Valor total com juros: ", totalComJuros);
+        } else {
+            valorParceladoElement.textContent = `Valor Total: R$ ${total.toFixed(2)} | ${parcelas}x de R$ ${(total / parcelas).toFixed(2)} sem juros.`;
+            console.log("Valor total sem juros: ", total);
+        }
+    } else {
+        console.log('Elemento "valor-parcelado" não encontrado');
     }
 });
 
-
-indow.onclick = function(event) {
-    if (event.target == modalCartaoCredito) {
-        modalCartaoCredito.style.display = "none";
-        document.body.style.overflow = "auto";
-            }
-        }  
-        
-        // Inicializar SDK da EfiPay
-       // const gn = new EfiPay();
-
-       // document.getElementById('formCartaoCredito').addEventListener('submit', function (e) {
-   // e.preventDefault();
-   // const cardData = {
-    //    brand: 'visa', // Defina a bandeira correta (visa, mastercard, etc.)
-    //    number: document.getElementById('numero_cartao').value,
-    //    cvv: document.getElementById('cvv').value,
-    //    expiration_month: document.getElementById('validade_mes').value,
-  //      expiration_year: document.getElementById('validade_ano').value
-//    };
-
-    // Comentado para desabilitar o uso da EfiPay no frontend, já que será manuseado no backend
-    /*
-    gn.paymentToken({
-        brand: cardData.brand,
-        number: cardData.number,
-        cvv: cardData.cvv,
-        expiration_month: cardData.expiration_month,
-        expiration_year: cardData.expiration_year
-    })
-    .then(function (response) {
-        const paymentToken = response.data.payment_token;
-        // Enviar o token para o back-end
-        fetch('/pagar_cartao', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                payment_token: paymentToken, // Enviar o payment_token gerado
-                total_carrinho: '{{ total_carrinho }}' // Enviar o valor total do carrinho para o back-end
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert('Erro no pagamento: ' + data.error);
-            } else {
-                alert('Pagamento efetuado com sucesso!');
-                console.log(data.message);
-            }
-        });
-    })
-    .catch(function (error) {
-        console.error('Erro ao gerar token de pagamento:', error);
-    });
-    */
     
-    // Enviar os dados do cartão diretamente para o back-end
- //   fetch('/pagar_cartao', {
-   //     method: 'POST',
-   //     headers: {
-    //        'Content-Type': 'application/json'
-   //     },
-   //     body: JSON.stringify({
-    //        number: cardData.number,
-    //        cvv: cardData.cvv,
-    //        expiration_month: cardData.expiration_month,
-     //       expiration_year: cardData.expiration_year,
-     //       nome_completo: cardData.nome_completo,
-          //  cpf_comprador: cardData.cpf_comprador
-    //    })
-  //  })
-  //  .then(response => response.json())
- //   .then(data => {
-    //    if (data.error) {
-    //        alert('Erro no pagamento: ' + data.error);
-    //    } else {
-    //        alert('Pagamento efetuado com sucesso!');
-   //         console.log(data.message);
-     //   }
-   // })
-  //  .catch(function (error) {
-  //      console.error('Erro ao processar pagamento:', error);
-  //  });
-//});
-
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('modalCartaoCredito')) {
+            document.getElementById('modalCartaoCredito').style.display = "none";
+            document.body.style.overflow = "auto";
+            console.log("Modal de pagamento com cartão fechado clicando fora do modal.");
+        }
+    }  
     </script>
-
+    
 </body>
 </html>
