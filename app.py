@@ -3,10 +3,20 @@ import requests
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory
 from efipay import EfiPay  
 import base64
-
+import psycopg2
 
 app = Flask(__name__)
 app.secret_key = 'secret_key'
+
+
+def get_db_connection():
+    conn = psycopg2.connect(
+        host="406279.hstgr.cloud",
+        database="postgres",
+        user="postgres",
+        password="Poupaqui123"
+    )
+    return conn
 
 # Credenciais fornecidas
 # Configuração das credenciais
@@ -257,18 +267,23 @@ def pagar_cartao_credito(charge_id, payment_token, customer_data, parcelas):
     else:
         raise Exception(f"Erro ao processar pagamento: {response.text}")
 
-
-
-
-
-
 @app.route('/medicamentos')
 def index():
+    conn = get_db_connection()  # Obtenha a conexão com o banco de dados
+    cursor = conn.cursor()  # Crie um cursor a partir da conexão
+    cursor.execute("SELECT nome, link_imagem, preco FROM sugestao WHERE link_imagem IS NOT NULL")
+    medicamentos = cursor.fetchall()
+     
+    # Transforme o resultado da consulta em uma lista de dicionários
     medicamentos = [
-        {'nome': 'Medicamento A', 'preco': '49.99', 'imagem': '/static/img/medicamentoA.png'},
-        {'nome': 'Medicamento B', 'preco': '29.99', 'imagem': '/static/img/medicamentoB.png'}
+        {'nome': row[0], 'link_imagem': row[1], 'preco': row[2]} for row in medicamentos
     ]
+
+    cursor.close()  # Feche o cursor
+    conn.close()  # Feche a conexão
+
     return render_template('index.html', medicamentos=medicamentos)
+
 
 
 

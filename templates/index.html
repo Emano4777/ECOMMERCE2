@@ -17,6 +17,8 @@
 
         /* Menu lateral com marcas d'água Poupaqui */
 /* Menu Desktop */
+
+
 .menu-desktop {
     display: flex;
     justify-content: flex-end; /* Alinha o menu à direita */
@@ -24,6 +26,36 @@
     padding: 1rem;
     color: white;
     font-size: 1.5rem; /* Tamanho maior da fonte */
+}
+
+
+.logo-desktop {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    height: 120px; /* Ajuste o tamanho para algo mais proporcional */
+    max-height: 70px; /* Limita o tamanho máximo */
+    z-index: 1000;
+}
+
+/* Ajuste para a logo no mobile */
+.logo-mobile {
+    display: none; /* Escondido inicialmente */
+}
+
+@media (max-width: 768px) {
+    .logo-desktop {
+        display: none; /* Esconde a logo no desktop em telas pequenas */
+    }
+
+    .logo-mobile {
+        display: block;
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        height: 40px; /* Tamanho da logo no mobile */
+        z-index: 1000;
+    }
 }
 
 .log-container {
@@ -282,9 +314,18 @@
             border: 1px solid #ccc;
             border-radius: 5px;
             width: 140px;
+            min-width: 140px; /* Define um mínimo de largura */
+    max-width: 200px; /* Limita a largura máxima */
+    min-height: 300px; /* Define um mínimo de altura */
             position: relative;
+            word-wrap: break-word; /* Quebra palavras longas */
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
+        .medicamento-item h2 {
+    font-size: 1.2rem;
+    white-space: normal; /* Permite que o texto quebre em várias linhas */
+    text-align: center;
+}
 
         .medicamento-item:hover {
             transform: translateY(-5px);
@@ -322,6 +363,19 @@
         }
 
        /* Responsividade Geral */
+       @media (max-width: 768px) {
+    .medicamento-item {
+        width: 90%; /* O item ocupa quase a tela inteira no celular */
+        margin-bottom: 1rem;
+    }
+}
+
+@media (min-width: 769px) {
+    .medicamento-item {
+        width: calc(25% - 1rem); /* Distribui os itens em 4 colunas no desktop */
+    }
+}
+
 @media (max-width: 768px) {
 
 /* Float do carrinho em telas pequenas */
@@ -387,6 +441,7 @@
 <body>
 
     <nav class="menu-desktop">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" lat="Logo Poupaqui" class="logo-desktop">
         <ul>
             <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
             <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
@@ -397,6 +452,7 @@
         </ul>
     </nav>
     <div class="menu-hamburguer" onclick="toggleMenu()">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
         <i class="fas fa-bars"></i> Menu
     </div>
 
@@ -447,20 +503,11 @@
 
     <!-- Medicamentos -->
     <div class="medicamentos-container">
-        <div class="medicamento-item" data-nome="Medicamento A" data-preco="49.99">
-            <h2>Medicamento A</h2>
-            <p>R$ 49,99</p>
-            <input type="number" class="quantity-input" min="1" value="1">
-            <button  class="btn-carrinho">
-                <i class="fas fa-shopping-cart"></i> Adicionar
-            </button>
-            <button class="btn-info">
-                <i class="fas fa-info-circle"></i> Informações
-            </button>
-        </div>
-        <div class="medicamento-item" data-nome="Medicamento B" data-preco="29.99">
-            <h2>Medicamento B</h2>
-            <p>R$ 29,99</p>
+        {% for medicamento in medicamentos %}
+        <div class="medicamento-item" data-nome="{{ medicamento.nome }}" data-preco="{{ medicamento.preco }}">
+            <h2>{{ medicamento.nome }}</h2>
+            <img src="{{ medicamento.link_imagem }}" alt="{{ medicamento.nome }}" style="width:100px;height:100px;">
+            <p>R$ {{ medicamento.preco }}</p>
             <input type="number" class="quantity-input" min="1" value="1">
             <button class="btn-carrinho">
                 <i class="fas fa-shopping-cart"></i> Adicionar
@@ -469,7 +516,9 @@
                 <i class="fas fa-info-circle"></i> Informações
             </button>
         </div>
+        {% endfor %}
     </div>
+    
 
     <script>
 

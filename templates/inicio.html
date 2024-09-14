@@ -52,6 +52,37 @@
     position: relative;
 }
 
+/* Logo no Desktop */
+.logo-desktop {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    height: 120px; /* Tamanho ajustado */
+    max-height: 70px; /* Tamanho máximo */
+    z-index: 1000;
+}
+
+/* Logo no Mobile */
+.logo-mobile {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .logo-desktop {
+        display: none; /* Esconde a logo do desktop no mobile */
+    }
+
+    .logo-mobile {
+        display: block;
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        height: 40px; /* Tamanho da logo no mobile */
+        z-index: 1000;
+    }
+}
+
+
 .menu-desktop ul {
     list-style: none;
     display: flex;
@@ -334,6 +365,7 @@
 
     <!-- Menu Desktop -->
     <nav class="menu-desktop">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-desktop">
         <ul>
             <li><a href="/inicio"><i class="fas fa-home"></i> Início</a></li>
             <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
@@ -344,6 +376,7 @@
 
     <!-- Menu Hamburguer para Mobile -->
     <div class="menu-hamburguer" onclick="toggleMenu()">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
         <i class="fas fa-bars"></i> Menu
     </div>
 
