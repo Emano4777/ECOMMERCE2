@@ -17,47 +17,90 @@
             overflow-x: hidden;
         }
 
-        /* Menu lateral */
-        .menu-lateral {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 60px;
-            height: 100%;
-            background-color: #b30000;
-            overflow-x: hidden;
-            z-index: 1000;
-        }
+/* Menu Desktop */
+.menu-desktop {
+    display: flex;
+    justify-content: flex-end; /* Alinha o menu à direita */
+    background-color: rgba(179, 0, 0, 0.9);
+    padding: 1rem;
+    color: white;
+    font-size: 1.5rem;
+}
 
-        .menu-lateral ul {
-            list-style-type: none;
-            padding: 0;
-            margin: 0;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
+.menu-desktop ul {
+    list-style: none;
+    display: flex;
+    gap: 20px;
+    padding: 0;
+}
 
-        .menu-lateral ul li {
-            width: 100%;
-            padding: 1rem;
-            text-align: center;
-        }
+.menu-desktop ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.2rem;
+}
 
-        .menu-lateral ul li a {
-            color: white;
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 1.5rem;
-            display: block;
-            padding: 10px;
-        }
+/* Menu Hamburguer para Mobile */
+.menu-hamburguer {
+    display: none; /* Oculto no desktop */
+    padding: 10px;
+    background-color: rgba(179, 0, 0, 0.9);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
 
-        .menu-lateral ul li a:hover {
-            background-color: #ffcc00;
-        }
+/* Menu lateral oculto para Mobile */
+.menu-lateral-oculto {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    height: 100%;
+    background-color: rgba(179, 0, 0, 0.9);
+    padding: 20px;
+    z-index: 1000;
+}
 
+.menu-lateral-oculto ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+.menu-lateral-oculto ul li {
+    padding: 15px 0;
+}
+
+.menu-lateral-oculto ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.2rem;
+}
+
+.menu-lateral-oculto .close-btn {
+    font-size: 2rem;
+    color: white;
+    cursor: pointer;
+}
+
+/* Estilos para Mobile */
+@media (max-width: 768px) {
+    .menu-desktop {
+        display: none; /* Oculto no celular */
+    }
+
+    .menu-hamburguer {
+        display: block;
+        background-color: rgba(179, 0, 0, 0.9);
+        color: white;
+        padding: 15px;
+    }
+
+    .menu-hamburguer i {
+        margin-right: 10px;
+    }
+}
         /* Conteúdo centralizado */
         .container {
             display: flex;
@@ -148,26 +191,33 @@
             background-color: #ffc107;
         }
 
-        /* Tornar a página toda responsiva */
-        @media (max-width: 800px) {
-            .container {
-                width: 100%;
-                padding: 10px;
-            }
+        /* Responsividade Geral */
+@media (max-width: 768px) {
 
-            .cart-table {
-                width: 100%;
-            }
+/* Float do carrinho em telas pequenas */
+.float-carrinho {
+    width: 90%; /* Aumenta o espaço do carrinho no mobile */
+    right: 5%; /* Centraliza melhor */
+}
 
-            .menu-lateral {
-                width: 50px;
-            }
+/* Tabela do carrinho responsiva */
+.cart-table {
+    width: 100%;
+    font-size: 0.9rem; /* Tamanho de texto menor no mobile */
+}
 
-            .payment-options {
-                flex-direction: column; /* Alinha os botões em uma coluna em telas pequenas */
-                gap: 10px;
-            }
-        }
+/* Pagamento responsivo */
+.payment-options {
+    flex-direction: column; /* Alinha os botões verticalmente */
+    gap: 15px;
+}
+
+/* Inputs do modal de cartão de crédito */
+#modalCartaoCredito input {
+    font-size: 1rem;
+}
+}
+
 
         /* Modal flutuante para cartão de crédito */
         #modalCartaoCredito {
@@ -253,15 +303,43 @@
 </head>
 <body>
 
-   <!-- Menu lateral -->
-<div class="menu-lateral">
+<nav class="menu-desktop">
     <ul>
-        <li><a href="/"><i class="fas fa-home"></i></a></li>
-        <li><a href="/medicamentos"><i class="fas fa-pills"></i></a></li>
-        <li><a href="/cart"><i class="fas fa-shopping-cart"></i></a></li>
-        <li><a href="#"><i class="fab fa-whatsapp"></i></a></li>
+        <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+        <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+        <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>
+        <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+    </ul>
+</nav>
+
+<!-- Menu Hamburguer para Mobile -->
+<div class="menu-hamburguer" onclick="toggleMenu()">
+    <i class="fas fa-bars"></i> Menu
+</div>
+
+<!-- Menu Lateral Oculto para Mobile -->
+<div id="menuLateral" class="menu-lateral-oculto">
+    <i class="fas fa-times close-btn" onclick="toggleMenu()"></i>
+    <ul>
+        <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+        <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+        <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>
+        <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
     </ul>
 </div>
+
+<script>
+    function toggleMenu() {
+        const menu = document.getElementById('menuLateral');
+        if (menu.style.display === 'block') {
+            menu.style.display = 'none';
+            document.body.style.overflow = 'auto'; // Restaura a rolagem
+        } else {
+            menu.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Evita rolagem da página
+        }
+    }
+</script>
 
 <!-- Conteúdo centralizado -->
 <div class="container">

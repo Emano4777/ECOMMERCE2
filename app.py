@@ -299,6 +299,16 @@ def cart():
         carrinho = session.get('carrinho', [])
         total_carrinho = calcular_total_carrinho(carrinho)
         return render_template('cart.html', carrinho=carrinho, total_carrinho=total_carrinho)
+    
+@app.route('/log-click', methods=['POST'])
+def log_click():
+    data = request.json
+    message = data.get('message', 'Nenhuma mensagem enviada')
+    
+    # Registrar a mensagem no terminal
+    print(f"Log de clique recebido: {message}")
+    
+    return jsonify({"message": "Log recebido com sucesso!"}), 200
 
 @app.route('/edit_item/<item_nome>', methods=['POST'])
 def edit_item(item_nome):

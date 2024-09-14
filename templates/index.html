@@ -16,87 +16,103 @@
         }
 
         /* Menu lateral com marcas d'água Poupaqui */
-        .menu-lateral {
+/* Menu Desktop */
+.menu-desktop {
+    display: flex;
+    justify-content: flex-end; /* Alinha o menu à direita */
+    background-color: rgba(179, 0, 0, 0.9);
+    padding: 1rem;
+    color: white;
+    font-size: 1.5rem; /* Tamanho maior da fonte */
+}
+
+.log-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px;
+    font-size: 14px;
+    z-index: 100000;
+    max-height: 100px;
+    overflow-y: auto;
+    display: block; /* Garante que esteja visível */
+}
+
+
+.menu-desktop ul {
+    list-style: none;
+    display: flex;
+    gap: 20px;
+    padding: 0;
+}
+
+.menu-desktop ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.2rem;
+}
+
+/* Menu Hamburguer para Mobile */
+.menu-hamburguer {
+    display: none;
+    padding: 10px;
+    background-color: rgba(179, 0, 0, 0.9);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    z-index: 10000; /* Aumentar o z-index para garantir que esteja acima de outros elementos */
+}
+
+.menu-lateral-oculto {
             position: fixed;
+            top: 0;
             left: 0;
-            top: 0;
-            width: 60px;
+            width: 250px;
             height: 100%;
-            background-color: #b30000; /* Vermelho mais suave */
-            overflow-x: hidden;
-            transition: width 0.3s;
-            z-index: 1000;
-            background-image: repeating-linear-gradient(
-                45deg,
-                transparent,
-                transparent 10px,
-                rgba(255, 255, 255, 0.1) 10px,
-                rgba(255, 255, 255, 0.1) 20px
-            ),
-            repeating-linear-gradient(
-                45deg,
-                rgba(255, 255, 255, 0.1),
-                rgba(255, 255, 255, 0.1) 20px,
-                transparent 20px,
-                transparent 40px
-            );
+            background-color: rgba(179, 0, 0, 0.9);
+            padding: 20px;
+            z-index: 10000;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out; /* Animação da transição */
         }
 
-        .menu-lateral::before {
-            content: 'Poupaqui';
-            position: absolute;
-            bottom: 10px;
-            left: 5px;
-            color: rgba(255, 255, 255, 0.2);
-            font-size: 12px;
-            transform: rotate(-45deg);
+        .menu-lateral-oculto.show {
+            transform: translateX(0); /* Ao mostrar, trazer o menu para dentro da tela */
         }
 
-        .menu-lateral ul {
-            list-style-type: none;
-            padding: 0;
-            margin: 0;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
 
-        .menu-lateral ul li {
-            width: 100%;
-            padding: 1rem;
-            text-align: center;
-            position: relative;
-        }
+.menu-lateral-oculto ul {
+    list-style-type: none;
+    padding: 0;
+}
 
-        .menu-lateral ul li a {
-            color: white;
-            text-decoration: none;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-            width: 100%;
-            transition: background-color 0.2s;
-            position: relative;
-        }
+.menu-lateral-oculto ul li {
+    padding: 15px 0;
+}
 
-        /* Quantidade de itens no ícone do carrinho */
-        .menu-lateral ul li a .badge {
-            position: absolute;
-            top: 0;
-            right: 0;
-            background-color: #ffcc00;
-            color: #b30000;
-            font-size: 0.8rem;
-            padding: 2px 6px;
-            border-radius: 50%;
-            display: none;
-        }
+.menu-lateral-oculto ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.2rem;
+}
 
-        .menu-lateral ul li a:hover {
-            background-color: #ffcc00;
+.menu-lateral-oculto .close-btn {
+    font-size: 2rem;
+    color: white;
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
+            .menu-hamburguer {
+                display: block;
+            }
+
+            .menu-desktop {
+                display: none;
+            }
         }
 
         /* Float do carrinho */
@@ -305,35 +321,99 @@
             cursor: move;
         }
 
-        /* Responsividade */
-        @media (max-width: 768px) {
-            .menu-lateral ul li a {
-                font-size: 1.2rem;
-            }
+       /* Responsividade Geral */
+@media (max-width: 768px) {
 
-            .medicamentos-container {
-                flex-direction: column;
-                align-items: center;
-            }
+/* Float do carrinho em telas pequenas */
+.float-carrinho {
+    width: 90%; /* Aumenta o espaço do carrinho no mobile */
+    right: 5%; /* Centraliza melhor */
+}
 
-            .medicamento-item {
-                width: 90%;
-            }
-        }
+/* Medicamentos responsivos */
+.medicamentos-container {
+    flex-direction: column;
+    align-items: center;
+    padding-left: 0; /* Remove o padding lateral */
+}
+
+.medicamento-item {
+    width: 90%; /* Cada item de medicamento ocupa quase a tela inteira */
+    margin-bottom: 20px; /* Dá um espaçamento maior entre os itens no mobile */
+}
+
+/* Banner responsivo */
+.banner-container {
+    margin-left: 0;
+    width: 100%;
+}
+
+.banner-item {
+    flex-direction: column;
+    text-align: center;
+}
+
+.banner-item h2 {
+    font-size: 1.5rem; /* Reduz o tamanho do texto no banner */
+}
+
+.banner-item p {
+    font-size: 1.2rem;
+}
+
+.banner-item button {
+    padding: 10px 20px; /* Botões maiores no mobile */
+}
+
+@media (max-width: 768px) {
+    .menu-hamburguer {
+        display: block;
+        background-color: rgba(179, 0, 0, 0.9);
+        color: white;
+        padding: 15px;
+    }
+
+    .menu-desktop {
+        display: none;
+    }
+}
+/* Medicamento cards no mobile */
+.btn-carrinho, .btn-info {
+    font-size: 1rem; /* Aumenta a legibilidade dos botões no mobile */
+}
+}
     </style>
 </head>
 <body>
 
-    <!-- Menu lateral -->
-    <div class="menu-lateral">
+    <nav class="menu-desktop">
         <ul>
-            <li data-tooltip="Início"><a href="/"><i class="fas fa-home"></i></a></li>
-            <li data-tooltip="Medicamentos"><a href="/medicamentos"><i class="fas fa-pills"></i></a></li>
-            <li data-tooltip="Carrinho" id="btn-carrinho">
-                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count"></span></a>
+            <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+            <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+            <li id="btn-carrinho-desktop" data-tooltip="Carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-desktop">0</span></a>
             </li>
-            <li data-tooltip="Contato"><a href="#"><i class="fab fa-whatsapp"></i></a></li>
+            <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
         </ul>
+    </nav>
+    <div class="menu-hamburguer" onclick="toggleMenu()">
+        <i class="fas fa-bars"></i> Menu
+    </div>
+
+    <div class="log-container" id="log-container"></div>
+    
+    <div id="menuLateral" class="menu-lateral-oculto">
+        <i class="fas fa-times close-btn" onclick="toggleMenu()"></i>
+        <ul>
+            <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+            <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+            <li id="btn-carrinho-mobile" data-tooltip="Carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-mobile">0</span></a>
+            </li>
+            <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+        </ul>
+    </div>
+    
     </div>
 
     <!-- Float do carrinho -->
@@ -371,7 +451,7 @@
             <h2>Medicamento A</h2>
             <p>R$ 49,99</p>
             <input type="number" class="quantity-input" min="1" value="1">
-            <button class="btn-carrinho">
+            <button  class="btn-carrinho">
                 <i class="fas fa-shopping-cart"></i> Adicionar
             </button>
             <button class="btn-info">
@@ -392,60 +472,99 @@
     </div>
 
     <script>
-        const carrinhoBtn = document.getElementById('btn-carrinho');
-        const carrinhoFloat = document.getElementById('carrinho-float');
-        const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
-        const concluirCompraBtn = document.getElementById('concluir-compra');
-        const itensCarrinho = document.getElementById('itens-carrinho');
-        const cartCount = document.getElementById('cart-count');
-        let carrinhoAberto = false;
-        let carrinho = [];
 
-        carrinhoBtn.addEventListener('click', () => {
-            carrinhoAberto = !carrinhoAberto;
-            carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
-            renderCarrinho();
-        });
+function logEvent(message) {
+    const logContainer = document.getElementById('log-container');
+    logContainer.innerHTML += message + "<br>";
+    logContainer.scrollTop = logContainer.scrollHeight; // Mantém o log sempre no final
+}
 
-        fecharCarrinhoBtn.addEventListener('click', () => {
-            carrinhoFloat.style.display = 'none';
-            carrinhoAberto = false;
-        });
+function toggleMenu() {
+    const menu = document.getElementById('menuLateral');
+    const isMenuOpen = menu.classList.contains('show'); 
 
-        concluirCompraBtn.addEventListener('click', () => {
-        if (carrinho.length === 0) {
-            alert("Seu carrinho está vazio!");
-            return;
-        }
+    logEvent("Menu hamburguer clicado!"); // Log do clique no botão do menu
 
-        // Cria um formulário oculto para enviar os dados via POST
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '/cart';
-        form.style.display = 'none';
+    // Evitar overflow quando o menu estiver aberto
+    if (!isMenuOpen) {
+        // Abrir o menu
+        menu.classList.add('show');
+        menu.style.display = 'block'; // Garantir que esteja visível
+        document.body.style.overflow = 'hidden';
+        logEvent("Menu aberto.");
+        
+        // Revalidação do CSS para garantir que a transição ocorra
+        window.getComputedStyle(menu).transform;
+    } else {
+        // Fechar o menu
+        menu.classList.remove('show');
+        menu.style.display = 'none'; // Esconder o menu
+        document.body.style.overflow = 'auto';
+        logEvent("Menu fechado.");
+    }
+}
 
-        carrinho.forEach(item => {
-            const inputNome = document.createElement('input');
-            inputNome.name = 'nome';
-            inputNome.value = item.nome;
-            form.appendChild(inputNome);
 
-            const inputPreco = document.createElement('input');
-            inputPreco.name = 'preco';
-            inputPreco.value = item.preco;
-            form.appendChild(inputPreco);
 
-            const inputQuantidade = document.createElement('input');
-            inputQuantidade.name = 'quantidade';
-            inputQuantidade.value = item.quantidade;
-            form.appendChild(inputQuantidade);
-        });
 
-        document.body.appendChild(form);
-        form.submit(); // Submete o formulário
+    const carrinhoFloat = document.getElementById('carrinho-float');
+    const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
+    const cartCountDesktop = document.getElementById('cart-count-desktop');
+    const cartCountMobile = document.getElementById('cart-count-mobile');
+    const itensCarrinho = document.getElementById('itens-carrinho');
+    let carrinho = [];
+    let carrinhoAberto = false;
+    const concluirCompraBtn = document.getElementById('concluir-compra');
+concluirCompraBtn.addEventListener('click', () => {
+    if (carrinho.length === 0) {
+        alert("Seu carrinho está vazio!");
+        return;
+    }
+
+    // Cria um formulário oculto para enviar os dados via POST
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/cart'; // URL da página cart.html
+    form.style.display = 'none';
+
+    carrinho.forEach((item, index) => {
+        const inputNome = document.createElement('input');
+        inputNome.name = 'nome';  // Nome esperado pelo backend
+        inputNome.value = item.nome;
+        form.appendChild(inputNome);
+
+        const inputPreco = document.createElement('input');
+        inputPreco.name = 'preco';  // Nome esperado pelo backend
+        inputPreco.value = item.preco;
+        form.appendChild(inputPreco);
+
+        const inputQuantidade = document.createElement('input');
+        inputQuantidade.name = 'quantidade';  // Nome esperado pelo backend
+        inputQuantidade.value = item.quantidade;
+        form.appendChild(inputQuantidade);
     });
 
+    document.body.appendChild(form);
+    form.submit(); // Submete o formulário para redirecionar à página de checkout
+});
 
+    // Função para abrir o carrinho (para desktop e mobile)
+    function abrirCarrinho() {
+        carrinhoAberto = !carrinhoAberto;
+        carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
+    }
+
+    // Eventos para abrir o carrinho no desktop e no mobile
+    document.getElementById('btn-carrinho-desktop').addEventListener('click', abrirCarrinho);
+    document.getElementById('btn-carrinho-mobile').addEventListener('click', abrirCarrinho);
+
+    fecharCarrinhoBtn.addEventListener('click', () => {
+        carrinhoFloat.style.display = 'none';
+        carrinhoAberto = false;
+    });
+
+    // Função para adicionar itens ao carrinho
+    document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.btn-carrinho').forEach(btn => {
         btn.addEventListener('click', (event) => {
             const item = event.target.closest('.medicamento-item');
@@ -459,79 +578,87 @@
                 quantidade: parseInt(quantidade)
             };
 
-            // Verifica se o item já está no carrinho
             const itemExistente = carrinho.find(i => i.nome === nome);
 
             if (itemExistente) {
-                // Atualiza a quantidade se o item já estiver no carrinho
                 itemExistente.quantidade += itemCarrinho.quantidade;
             } else {
-                // Adiciona o novo item ao carrinho
                 carrinho.push(itemCarrinho);
             }
 
-            updateCartCount(); // Atualiza o contador do carrinho
+            updateCartCount();
+            renderCarrinho();
             alert(`${quantidade}x ${nome} adicionado ao carrinho!`);
         });
     });
+});
 
-        function renderCarrinho() {
-            itensCarrinho.innerHTML = '';
-            carrinho.forEach((item, index) => {
-                const div = document.createElement('div');
-                div.className = 'item-carrinho';
-                div.innerHTML = `<p>${item.quantidade}x ${item.nome}</p><p>R$ ${(item.preco * item.quantidade).toFixed(2)}</p><i class="fas fa-trash delete-item" data-index="${index}"></i>`;
-                itensCarrinho.appendChild(div);
+    // Função para renderizar os itens do carrinho no float
+    function renderCarrinho() {
+        itensCarrinho.innerHTML = '';
+        carrinho.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = 'item-carrinho';
+            div.innerHTML = `<p>${item.quantidade}x ${item.nome}</p><p>R$ ${(item.preco * item.quantidade).toFixed(2)}</p><i class="fas fa-trash delete-item" data-index="${index}"></i>`;
+            itensCarrinho.appendChild(div);
+        });
+
+        document.querySelectorAll('.delete-item').forEach(btn => {
+            btn.addEventListener('click', (event) => {
+                const index = event.target.getAttribute('data-index');
+                carrinho.splice(index, 1);
+                updateCartCount();
+                renderCarrinho();
             });
+        });
+    }
 
-            document.querySelectorAll('.delete-item').forEach(btn => {
-                btn.addEventListener('click', (event) => {
-                    const index = event.target.getAttribute('data-index');
-                    carrinho.splice(index, 1);
-                    updateCartCount();
-                    renderCarrinho();
-                });
-            });
-        }
-
-        function updateCartCount() {
-        const cartCount = document.getElementById('cart-count');
+    // Função para atualizar o contador do carrinho
+    function updateCartCount() {
         const totalItems = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
 
         if (totalItems > 0) {
-            cartCount.textContent = totalItems;
-            cartCount.style.display = 'block';
+            cartCountDesktop.textContent = totalItems;
+            cartCountMobile.textContent = totalItems;
+            cartCountDesktop.style.display = 'inline-block';
+            cartCountMobile.style.display = 'inline-block';
         } else {
-            cartCount.style.display = 'none';
+            cartCountDesktop.style.display = 'none';
+            cartCountMobile.style.display = 'none';
         }
     }
 
-        /* Função para arrastar o carrinho */
-        carrinhoFloat.addEventListener('mousedown', function (event) {
-            carrinhoFloat.classList.add('dragging');
-            let shiftX = event.clientX - carrinhoFloat.getBoundingClientRect().left;
-            let shiftY = event.clientY - carrinhoFloat.getBoundingClientRect().top;
+    // Código para arrastar o carrinho
+    carrinhoFloat.addEventListener('mousedown', function (event) {
+        carrinhoFloat.classList.add('dragging');
+        let shiftX = event.clientX - carrinhoFloat.getBoundingClientRect().left;
+        let shiftY = event.clientY - carrinhoFloat.getBoundingClientRect().top;
 
-            function moveAt(pageX, pageY) {
-                carrinhoFloat.style.left = pageX - shiftX + 'px';
-                carrinhoFloat.style.top = pageY - shiftY + 'px';
-            }
+        function moveAt(pageX, pageY) {
+            carrinhoFloat.style.left = pageX - shiftX + 'px';
+            carrinhoFloat.style.top = pageY - shiftY + 'px';
+        }
 
-            function onMouseMove(event) {
-                moveAt(event.pageX, event.pageY);
-            }
+        function onMouseMove(event) {
+            moveAt(event.pageX, event.pageY);
+        }
 
-            document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mousemove', onMouseMove);
 
-            carrinhoFloat.onmouseup = function () {
-                document.removeEventListener('mousemove', onMouseMove);
-                carrinhoFloat.classList.remove('dragging');
-            };
+        carrinhoFloat.onmouseup = function () {
+            document.removeEventListener('mousemove', onMouseMove);
+            carrinhoFloat.classList.remove('dragging');
+        };
 
-            carrinhoFloat.ondragstart = function () {
-                return false;
-            };
-        });
+        carrinhoFloat.ondragstart = function () {
+            return false;
+        };
+    });
+
+    // Função para alternar o menu lateral (mobile)
+  
+    
+
     </script>
 
 </body>
