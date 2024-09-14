@@ -473,17 +473,10 @@
 
     <script>
 
-function logEvent(message) {
-    const logContainer = document.getElementById('log-container');
-    logContainer.innerHTML += message + "<br>";
-    logContainer.scrollTop = logContainer.scrollHeight; // Mantém o log sempre no final
-}
-
 function toggleMenu() {
     const menu = document.getElementById('menuLateral');
     const isMenuOpen = menu.classList.contains('show'); 
 
-    logEvent("Menu hamburguer clicado!"); // Log do clique no botão do menu
 
     // Evitar overflow quando o menu estiver aberto
     if (!isMenuOpen) {
@@ -491,7 +484,7 @@ function toggleMenu() {
         menu.classList.add('show');
         menu.style.display = 'block'; // Garantir que esteja visível
         document.body.style.overflow = 'hidden';
-        logEvent("Menu aberto.");
+        
         
         // Revalidação do CSS para garantir que a transição ocorra
         window.getComputedStyle(menu).transform;
@@ -500,12 +493,8 @@ function toggleMenu() {
         menu.classList.remove('show');
         menu.style.display = 'none'; // Esconder o menu
         document.body.style.overflow = 'auto';
-        logEvent("Menu fechado.");
     }
 }
-
-
-
 
     const carrinhoFloat = document.getElementById('carrinho-float');
     const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
