@@ -15,9 +15,84 @@
             overflow-x: hidden;
         }
 
-        /* Menu lateral com marcas d'água Poupaqui */
-/* Menu Desktop */
 
+.search-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+    width: 100%;
+}
+
+#search-form {
+    display: flex;
+    align-items: center;
+    background-color: #fff;
+    border: 2px solid #b30000;
+    border-radius: 50px;
+    padding: 5px 10px;
+    max-width: 500px;
+    width: 100%;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+#search-bar {
+    border: none;
+    outline: none;
+    padding: 10px;
+    font-size: 1rem;
+    flex-grow: 1;
+    border-radius: 50px;
+}
+
+#search-button {
+    background-color: transparent;
+    border: none;
+    color: #b30000;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 10px;
+    transition: color 0.3s ease;
+}
+
+#search-button:hover {
+    color: #ff9900;
+}
+/* Responsividade da barra de pesquisa */
+@media (max-width: 768px) {
+    .search-container {
+        justify-content: center;
+        width: 100%; /* Garante que a barra ocupe toda a largura da tela no mobile */
+        padding: 0 20px; /* Adiciona um padding lateral para não encostar nas bordas da tela */
+    }
+
+    #search-form {
+        max-width: 100%; /* Faz com que a barra de pesquisa ocupe a largura total */
+        width: 100%; 
+        padding: 5px 15px; /* Ajusta o padding para ficar adequado ao mobile */
+    }
+
+    #search-bar {
+        font-size: 1rem;
+        padding: 10px;
+    }
+
+    #search-button {
+        font-size: 1.2rem;
+    }
+}
+
+/* Responsividade dos medicamentos filtrados */
+@media (max-width: 768px) {
+    .medicamento-item {
+        width: 100%; /* Medicamentos ocupam toda a largura da tela no mobile */
+        margin-bottom: 20px; /* Adiciona espaço entre os medicamentos no mobile */
+    }
+    
+    .medicamentos-container {
+        padding-left: 10px;
+        padding-right: 10px; /* Remove padding lateral para melhor uso da tela no mobile */
+    }
+}
 
 .menu-desktop {
     display: flex;
@@ -241,19 +316,19 @@
 
         /* Banner de ofertas */
         .banner-container {
-            margin-left: 60px;
-            width: calc(100% - 60px);
-            overflow: hidden;
-            position: relative;
-            height: 120px;
-            z-index: 1;
-        }
+    margin-left: 60px;
+    width: calc(100% - 60px);
+    overflow: hidden;
+    position: relative;
+    height: 120px;
+    z-index: 1;
+}
 
-        .banner-slider {
-            display: flex;
-            transition: transform 0.5s ease-in-out;
-            animation: slide 30s infinite;
-        }
+.banner-slider {
+    display: flex;
+    transition: transform 0.5s ease-in-out;
+    animation: slide 30s infinite;
+}
 
         @keyframes slide {
             0% {transform: translateX(0);}
@@ -263,20 +338,21 @@
         }
 
         .banner-item {
-            min-width: 100%;
-            background: white;
-            color: black;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem;
-            border-radius: 10px;
-            margin: 0 15px;
-            position: relative;
-            border: 3px solid transparent;
-            transition: all 0.5s ease, background 5s ease;
-            animation: changeColor 10s infinite alternate;
-        }
+    min-width: 100%;
+    background: white;
+    color: black;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-radius: 10px;
+    margin: 0 15px;
+    position: relative;
+    border: 3px solid transparent;
+    transition: all 0.5s ease, background 5s ease;
+    cursor: pointer; /* Transforma o banner em clicável */
+    text-decoration: none; /* Remove o sublinhado padrão do link */
+}
 
         @keyframes changeColor {
             0% {
@@ -305,6 +381,43 @@
             align-items: center;
             justify-content: center;
         }
+        .banner-item:hover {
+    background-color: rgba(255, 230, 153, 1); /* Altera a cor de fundo ao passar o mouse */
+}
+
+
+     /* Ajustes para o banner de ofertas em dispositivos móveis */
+/* Responsividade do banner */
+@media (max-width: 768px) {
+    .banner-container {
+        margin-left: 0;
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+
+    .banner-slider {
+        display: inline-flex;
+        flex-wrap: nowrap;
+        width: auto;
+    }
+
+    .banner-item {
+        flex: 0 0 auto;
+        width: 80%; /* Reduz o tamanho do item no mobile */
+        margin: 10px;
+        padding: 10px;
+    }
+
+    .banner-item h2 {
+        font-size: 1.2rem;
+    }
+
+    .banner-item p {
+        font-size: 1rem;
+    }
+}
+
 
         /* Medicamentos visíveis para adicionar ao carrinho */
         .medicamentos-container {
@@ -493,23 +606,32 @@
     <!-- Banner de Ofertas -->
     <div class="banner-container">
         <div class="banner-slider" id="slider">
-            <div class="banner-item">
+            <a href="/medicamento/medicamento-a" class="banner-item">
                 <h2>Oferta Especial: Medicamento A</h2>
                 <p>R$ 39,99</p>
-                <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
-            </div>
-            <div class="banner-item">
+            </a>
+            <a href="/medicamento/medicamento-b" class="banner-item">
                 <h2>Super Oferta: Medicamento B</h2>
                 <p>R$ 19,99</p>
-                <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
-            </div>
-            <div class="banner-item">
+            </a>
+            <a href="/medicamento/medicamento-c" class="banner-item">
                 <h2>Desconto Exclusivo: Medicamento C</h2>
                 <p>R$ 9,99</p>
-                <button><i class="fas fa-shopping-bag"></i> Confira esta oferta</button>
-            </div>
+            </a>
         </div>
     </div>
+    <!-- Barra de Pesquisa -->
+<div class="search-container">
+    <form id="search-form" method="POST">
+        <input type="text" id="search-bar" name="termo_pesquisa" placeholder="Buscar medicamentos..." class="search-input">
+        <button type="submit" id="search-button">
+            <i class="fas fa-search"></i>
+        </button>
+    </form>
+</div>
+
+<!-- Container onde os medicamentos filtrados aparecerão -->
+<div id="medicamentos-container"></div>
 
     <!-- Medicamentos -->
     <div class="medicamentos-container">
@@ -531,6 +653,45 @@
     
 
     <script>
+
+document.getElementById('search-form').addEventListener('submit', function(event) {
+    event.preventDefault(); // Previne o reload da página
+
+    var termo_pesquisa = document.getElementById('search-bar').value;
+
+    fetch('/filtrar_medicamentos_index', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'termo_pesquisa=' + encodeURIComponent(termo_pesquisa)
+    })
+    .then(response => response.json())
+    .then(data => {
+        var medicamentosContainer = document.getElementById('medicamentos-container');
+        medicamentosContainer.innerHTML = '';  // Limpa o container
+
+        // Insere os medicamentos filtrados
+        data.medicamentos.forEach(medicamento => {
+            var medicamentoHTML = `
+                <div class="medicamento-item" data-nome="${medicamento.nome}" data-preco="${medicamento.preco}">
+                    <h2>${medicamento.nome}</h2>
+                    <img src="${medicamento.link_imagem}" alt="${medicamento.nome}" style="width:100px;height:100px;">
+                    <p>R$ ${medicamento.preco}</p>
+                    <input type="number" class="quantity-input" min="1" value="1">
+                    <button class="btn-carrinho">
+                        <i class="fas fa-shopping-cart"></i> Adicionar
+                    </button>
+                    <button class="btn-info" onclick="window.location.href='/medicamento/${medicamento.nome}'">
+                        <i class="fas fa-info-circle"></i> Informações
+                    </button>
+                </div>
+            `;
+            medicamentosContainer.innerHTML += medicamentoHTML;
+        });
+    })
+    .catch(error => console.error('Erro ao buscar medicamentos:', error));
+});
 
 function toggleMenu() {
     const menu = document.getElementById('menuLateral');

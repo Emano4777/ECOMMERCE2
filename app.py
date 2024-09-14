@@ -138,6 +138,42 @@ def ver_medicamento(nome):
     else:
         return render_template('404.html', mensagem="Medicamento não encontrado.")
 
+def buscar_medicamentos_pagina(termo_pesquisa, medicamentos_pagina):
+    # Filtra os medicamentos que estão na página atual, utilizando o termo de pesquisa com ILIKE
+    termo = termo_pesquisa.lower()
+
+    medicamentos_filtrados = [
+        medicamento for medicamento in medicamentos_pagina
+        if termo in medicamento['nome'].lower()
+    ]
+
+    return medicamentos_filtrados
+
+
+@app.route('/filtrar_medicamentos_index', methods=['POST'])
+def filtrar_medicamentos_index():
+    termo_pesquisa = request.form.get('termo_pesquisa')
+
+    conn = get_db_connection()  # Conexão com o banco de dados
+    cursor = conn.cursor()
+    query = """
+        SELECT nome, link_imagem, preco 
+        FROM sugestao 
+        WHERE nome ILIKE %s
+    """
+    cursor.execute(query, (f"%{termo_pesquisa}%",))  # Busca os medicamentos que contenham o termo
+    medicamentos = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    # Formatação do resultado em JSON
+    medicamentos_formatados = [
+        {'nome': row[0], 'link_imagem': row[1], 'preco': row[2]} for row in medicamentos
+    ]
+
+    return jsonify({'medicamentos': medicamentos_formatados})
+
 
 
 # Rota que retorna os medicamentos filtrados
