@@ -37,7 +37,45 @@
         overflow: hidden; /* Impede qualquer transbordamento */
     }
 }
+.search-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
 
+#search-input {
+    width: 300px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px 0 0 5px;
+    font-size: 1rem;
+}
+
+#search-button {
+    padding: 10px 20px;
+    background-color: #b30000;
+    color: white;
+    border: none;
+    border-radius: 0 5px 5px 0;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+#search-button i {
+    margin-left: 5px;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    #search-input {
+        width: 90%; /* O campo de pesquisa ocupará 90% da largura da tela */
+        padding: 8px; /* Reduz o padding para telas menores */
+    }
+
+    #search-button {
+        padding: 8px 12px; /* Ajusta o padding para o botão em telas menores */
+    }
+}
 
      /* Menu visível no desktop */
      .menu-desktop {
@@ -403,7 +441,14 @@
     </div>
 
 
-
+    <form id="searchForm" action="/buscar_medicamentos" method="POST" style="display: flex; align-items: center; justify-content: center; margin-top: 50px;">
+        <input type="text" id="termo_pesquisa" name="termo_pesquisa" placeholder="Pesquisar medicamentos..." style="padding: 10px; border-radius: 5px 0 0 5px; border: 1px solid #ccc; width: 300px;">
+        <button type="submit" style="padding: 10px; background-color: #b30000; color: white; border: none; border-radius: 0 5px 5px 0; cursor: pointer;">
+            <i class="fas fa-search"></i>
+        </button>
+    </form>
+    
+    
     <!-- Seções de Novidades e Vantagens lado a lado -->
     <div class="sections">
         <div class="novidades">
@@ -460,6 +505,41 @@
                 document.body.style.overflow = 'hidden'; // Evita rolagem da página
             }
         }
+
+        document.getElementById('searchForm').addEventListener('submit', function(e) {
+    e.preventDefault(); // Previne o comportamento padrão do formulário
+
+    const termoPesquisa = document.getElementById('termo_pesquisa').value;
+
+    fetch('/buscar_medicamentos', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `termo_pesquisa=${termoPesquisa}`,
+    })
+    .then(response => response.json())
+    .then(data => {
+        const medicamentosContainer = document.querySelector('.produtos');
+        medicamentosContainer.innerHTML = ''; // Limpa a lista atual de medicamentos
+
+        // Exibe os resultados da pesquisa
+        data.medicamentos.forEach(med => {
+            const produtoItem = `
+                <div class="produto-item">
+                    <h3>${med.nome}</h3>
+                    <p>R$ ${med.preco}</p>
+                    <button class="ver-novidades" onclick="window.location.href='/medicamento/${encodeURIComponent(med.nome)}'">Ver medicamento</button>
+                </div>
+            `;
+            medicamentosContainer.innerHTML += produtoItem;
+        });
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+    });
+});
+
     </script>
     
 </body>

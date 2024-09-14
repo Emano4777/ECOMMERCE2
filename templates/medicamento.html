@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ medicamento.nome }} - PoupAqui E-commerce</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
+            position: relative;
+            overflow-x: hidden;
+        }
+        .float-carrinho {
+    position: fixed;
+    top: 100px;
+    right: 20px;
+    width: 300px;
+    padding: 20px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid #b30000;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    z-index: 2000;
+    display: none; /* Inicialmente escondido */
+}
+        .menu-desktop {
+            display: flex;
+            justify-content: flex-end;
+            background-color: rgba(179, 0, 0, 0.9);
+            padding: 1rem;
+            color: white;
+            height: 80px;
+            font-size: 1.5rem;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        .logo-desktop,
+.logo-mobile {
+    height: auto;
+    max-height: 100%; /* Garante que a logo não ultrapasse a altura do menu */
+    width: auto; /* Mantém a proporção */
+}
+
+        .logo-desktop {
+            position: absolute;
+            left: 10px;
+            top: 0;
+            height: auto;
+            max-height: 100%;
+            width: auto;
+        }
+
+        .logo-mobile {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .logo-desktop {
+                display: none;
+            }
+
+            .logo-mobile {
+                display: block;
+                position: absolute;
+                right: 10px;
+                top: 10px;
+                height: 40px;
+                width: auto;
+                max-width: 100px;
+                z-index: 1000;
+            }
+        }
+
+        .menu-desktop ul {
+            list-style: none;
+            display: flex;
+            gap: 20px;
+            padding: 0;
+        }
+
+        .menu-desktop ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 1.2rem;
+        }
+
+        .menu-hamburguer {
+            display: none;
+            padding: 10px;
+            background-color: rgba(179, 0, 0, 0.9);
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            z-index: 10000;
+        }
+
+        .menu-lateral-oculto {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 250px;
+            height: 100%;
+            background-color: rgba(179, 0, 0, 0.9);
+            padding: 20px;
+            z-index: 10000;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .menu-lateral-oculto.show {
+            transform: translateX(0);
+        }
+
+        .menu-lateral-oculto ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .menu-lateral-oculto ul li {
+            padding: 15px 0;
+        }
+
+        .menu-lateral-oculto ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 1.2rem;
+        }
+
+        .menu-lateral-oculto .close-btn {
+            font-size: 2rem;
+            color: white;
+            cursor: pointer;
+        }
+
+        @media (max-width: 768px) {
+            .menu-hamburguer {
+                display: block;
+            }
+
+            .menu-desktop {
+                display: none;
+            }
+        }
+
+        .medicamento-container {
+    display: flex;
+    flex-wrap: wrap; /* Permitir que os itens fiquem em coluna quando a tela for pequena */
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 20px;
+    margin-top: 50px;
+}
+
+.imagem-detalhes {
+    flex: 1;
+    max-width: 400px;
+    margin-right: 20px;
+    text-align: center; /* Centralizar nome e imagem no modo desktop */
+}
+
+.imagem-detalhes img {
+    max-width: 100%;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.nome-medicamento {
+    font-size: 2rem;
+    color: #b30000;
+    margin-bottom: 10px;
+}
+
+.detalhes-medicamento {
+    flex: 2;
+    background-color: rgba(255, 255, 255, 0.8);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.detalhes-medicamento h1 {
+    color: #b30000;
+    font-size: 2.2rem;
+    margin-bottom: 10px;
+}
+
+.detalhes-medicamento .preco {
+    font-size: 1.5rem;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+.detalhes-medicamento .marca, .detalhes-medicamento .descricao, .detalhes-medicamento .prescricao {
+    font-size: 1.2rem;
+    color: #555;
+    margin-bottom: 10px;
+}
+
+.detalhes-medicamento .descricao {
+    font-style: italic;
+    margin-bottom: 15px;
+}
+
+.detalhes-medicamento .prescricao {
+    font-weight: bold;
+}
+
+.detalhes-medicamento .quantity-input {
+    width: 60px;
+    padding: 5px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.btn-carrinho {
+    background-color: #ffcc00;
+    color: #333;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+}
+
+.btn-carrinho i {
+    margin-right: 0.5rem;
+}
+
+.btn-carrinho:hover {
+    background-color: #ff9900;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .medicamento-container {
+        flex-direction: column; /* Mudar para coluna em telas pequenas */
+        padding: 10px;
+    }
+
+    .imagem-detalhes {
+        max-width: 100%; /* Imagem ocupa a largura total em telas pequenas */
+        margin-right: 0;
+    }
+
+    .detalhes-medicamento {
+        width: 100%; /* Detalhes ocupam a largura total em telas pequenas */
+    }
+
+    .nome-medicamento {
+        font-size: 1.5rem; /* Reduzir o tamanho do nome do medicamento em telas menores */
+    }
+
+    .detalhes-medicamento .preco, .detalhes-medicamento .marca, .detalhes-medicamento .descricao, .detalhes-medicamento .prescricao {
+        font-size: 1rem; /* Ajusta o tamanho das fontes em telas menores */
+    }
+}
+        .quantity-input {
+            width: 50px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="menu-desktop">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" lat="Logo Poupaqui" class="logo-desktop">
+        <ul>
+            <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+            <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+            <li id="btn-carrinho-desktop" data-tooltip="Carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-desktop">0</span></a>
+            </li>
+            <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+        </ul>
+    </nav>
+
+    <div class="menu-hamburguer" onclick="toggleMenu()">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+        <i class="fas fa-bars"></i> Menu
+    </div>
+
+    <div id="menuLateral" class="menu-lateral-oculto">
+        <i class="fas fa-times close-btn" onclick="toggleMenu()"></i>
+        <ul>
+            <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+            <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+            <li id="btn-carrinho-mobile" data-tooltip="Carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-mobile">0</span></a>
+            </li>
+            <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+        </ul>
+    </div>
+
+    <div class="medicamento-container">
+        <div class="imagem-detalhes">
+            <h1>{{ medicamento.nome }}</h1>
+            <img src="{{ medicamento.link_imagem }}" alt="{{ medicamento.nome }}">
+        </div>
+    
+        <div class="detalhes-medicamento">
+            <p class="preco">Preço: R$ {{ medicamento.preco }}</p>
+            <p class="marca">Marca: {{ medicamento.marca }}</p>
+            <p class="descricao">{{ medicamento.descricao }}</p>
+            <p class="prescricao">Prescrição médica: {{ medicamento.presmedica | title }}</p>
+    
+            <input type="number" class="quantity-input" min="1" value="1">
+            <button class="btn-carrinho">
+                <i class="fas fa-shopping-cart"></i> Adicionar ao Carrinho
+            </button>
+        </div>
+    </div>
+    <div class="float-carrinho" id="carrinho-float" style="display: none;">
+        <h3>Carrinho de Compras</h3>
+        <div id="itens-carrinho"></div>
+        <button class="btn-concluir" id="concluir-compra"><i class="fas fa-shopping-bag"></i> Concluir Compra</button>
+        <button class="btn-fechar" id="fechar-carrinho">Fechar</button>
+    </div>
+    
+    <script>
+        function toggleMenu() {
+    const menu = document.getElementById('menuLateral');
+    const isMenuOpen = menu.classList.contains('show'); 
+
+
+    // Evitar overflow quando o menu estiver aberto
+    if (!isMenuOpen) {
+        // Abrir o menu
+        menu.classList.add('show');
+        menu.style.display = 'block'; // Garantir que esteja visível
+        document.body.style.overflow = 'hidden';
+        
+        
+        // Revalidação do CSS para garantir que a transição ocorra
+        window.getComputedStyle(menu).transform;
+    } else {
+        // Fechar o menu
+        menu.classList.remove('show');
+        menu.style.display = 'none'; // Esconder o menu
+        document.body.style.overflow = 'auto';
+    }
+}
+
+    const carrinhoFloat = document.getElementById('carrinho-float');
+    const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
+    const cartCountDesktop = document.getElementById('cart-count-desktop');
+    const cartCountMobile = document.getElementById('cart-count-mobile');
+    const itensCarrinho = document.getElementById('itens-carrinho');
+    let carrinho = [];
+    let carrinhoAberto = false;
+    const concluirCompraBtn = document.getElementById('concluir-compra');
+    concluirCompraBtn.addEventListener('click', () => {
+    if (carrinho.length === 0) {
+        alert("Seu carrinho está vazio!");
+        return;
+    }
+
+    // Cria um formulário oculto para enviar os dados via POST
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/cart'; // URL da página cart.html
+    form.style.display = 'none';
+
+    carrinho.forEach((item, index) => {
+        const inputNome = document.createElement('input');
+        inputNome.name = 'nome';  // Nome esperado pelo backend
+        inputNome.value = item.nome;
+        form.appendChild(inputNome);
+
+        const inputPreco = document.createElement('input');
+        inputPreco.name = 'preco';  // Nome esperado pelo backend
+        inputPreco.value = item.preco;
+        form.appendChild(inputPreco);
+
+        const inputQuantidade = document.createElement('input');
+        inputQuantidade.name = 'quantidade';  // Nome esperado pelo backend
+        inputQuantidade.value = item.quantidade;
+        form.appendChild(inputQuantidade);
+    });
+
+    document.body.appendChild(form);
+    form.submit(); // Submete o formulário para redirecionar à página de checkout
+});
+
+    // Função para abrir o carrinho (para desktop e mobile)
+    function abrirCarrinho() {
+        carrinhoAberto = !carrinhoAberto;
+        carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
+    }
+
+    // Eventos para abrir o carrinho no desktop e no mobile
+    document.getElementById('btn-carrinho-desktop').addEventListener('click', abrirCarrinho);
+    document.getElementById('btn-carrinho-mobile').addEventListener('click', abrirCarrinho);
+
+    fecharCarrinhoBtn.addEventListener('click', () => {
+        carrinhoFloat.style.display = 'none';
+        carrinhoAberto = false;
+    });
+
+    // Função para adicionar itens ao carrinho
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelector('.btn-carrinho').addEventListener('click', (event) => {
+    const nome = "{{ medicamento.nome }}";
+    const preco = "{{ medicamento.preco }}";
+    const quantidade = document.querySelector('.quantity-input').value;
+
+    const itemCarrinho = {
+        nome: nome,
+        preco: preco,
+        quantidade: parseInt(quantidade)
+    };
+
+    const itemExistente = carrinho.find(i => i.nome === nome);
+
+    if (itemExistente) {
+        itemExistente.quantidade += itemCarrinho.quantidade;
+    } else {
+        carrinho.push(itemCarrinho);
+    }
+
+    updateCartCount();
+    renderCarrinho();
+    alert(`${quantidade}x ${nome} adicionado ao carrinho!`);
+        });
+    });
+
+
+    // Função para renderizar os itens do carrinho no float
+    function renderCarrinho() {
+        itensCarrinho.innerHTML = '';
+        carrinho.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = 'item-carrinho';
+            div.innerHTML = `<p>${item.quantidade}x ${item.nome}</p><p>R$ ${(item.preco * item.quantidade).toFixed(2)}</p><i class="fas fa-trash delete-item" data-index="${index}"></i>`;
+            itensCarrinho.appendChild(div);
+        });
+
+        document.querySelectorAll('.delete-item').forEach(btn => {
+            btn.addEventListener('click', (event) => {
+                const index = event.target.getAttribute('data-index');
+                carrinho.splice(index, 1);
+                updateCartCount();
+                renderCarrinho();
+            });
+        });
+    }
+
+    // Função para atualizar o contador do carrinho
+    function updateCartCount() {
+        const totalItems = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
+
+        if (totalItems > 0) {
+            cartCountDesktop.textContent = totalItems;
+            cartCountMobile.textContent = totalItems;
+            cartCountDesktop.style.display = 'inline-block';
+            cartCountMobile.style.display = 'inline-block';
+        } else {
+            cartCountDesktop.style.display = 'none';
+            cartCountMobile.style.display = 'none';
+        }
+    }
+
+    // Código para arrastar o carrinho
+    carrinhoFloat.addEventListener('mousedown', function (event) {
+        carrinhoFloat.classList.add('dragging');
+        let shiftX = event.clientX - carrinhoFloat.getBoundingClientRect().left;
+        let shiftY = event.clientY - carrinhoFloat.getBoundingClientRect().top;
+
+        function moveAt(pageX, pageY) {
+            carrinhoFloat.style.left = pageX - shiftX + 'px';
+            carrinhoFloat.style.top = pageY - shiftY + 'px';
+        }
+
+        function onMouseMove(event) {
+            moveAt(event.pageX, event.pageY);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+
+        carrinhoFloat.onmouseup = function () {
+            document.removeEventListener('mousemove', onMouseMove);
+            carrinhoFloat.classList.remove('dragging');
+        };
+
+        carrinhoFloat.ondragstart = function () {
+            return false;
+        };
+    });
+
+    // Função para alternar o menu lateral (mobile)
+    </script>
+
+</body>
+</html>

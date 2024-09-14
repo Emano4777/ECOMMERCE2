@@ -83,7 +83,69 @@ def obter_token():
         raise Exception(f"Erro ao obter token de acesso: {response.text}")
 
 
+# Função global para buscar medicamentos
+def buscar_medicamentos(termo_pesquisa):
+    conn = get_db_connection()  # Conexão com o banco de dados
+    cursor = conn.cursor()
 
+    # Pesquisa similar utilizando ILIKE para busca de termos semelhantes (case insensitive)
+    termo = f"%{termo_pesquisa}%"
+    query = """
+        SELECT nome, link_imagem, preco
+        FROM sugestao
+        WHERE nome ILIKE %s
+    """
+    cursor.execute(query, (termo,))
+    medicamentos = cursor.fetchall()
+
+    # Formatar o resultado em uma lista de dicionários
+    resultado = [
+        {'nome': row[0], 'link_imagem': row[1], 'preco': row[2]} for row in medicamentos
+    ]
+
+    cursor.close()
+    conn.close()
+    
+    return resultado
+
+@app.route('/medicamento/<nome>')
+def ver_medicamento(nome):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Consultar o medicamento específico pelo nome
+    query = """
+    SELECT nome, link_imagem, preco, marca, descricao, presmedica
+    FROM sugestao
+    WHERE nome = %s
+    """
+    cursor.execute(query, (nome,))
+    medicamento = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if medicamento:
+        medicamento_info = {
+            'nome': medicamento[0],
+            'link_imagem': medicamento[1],
+            'preco': medicamento[2],
+            'marca': medicamento[3],
+            'descricao': medicamento[4],
+            'presmedica': medicamento[5]
+        }
+        return render_template('medicamento.html', medicamento=medicamento_info)
+    else:
+        return render_template('404.html', mensagem="Medicamento não encontrado.")
+
+
+
+# Rota que retorna os medicamentos filtrados
+@app.route('/buscar_medicamentos', methods=['POST'])
+def buscar_medicamentos_route():
+    termo_pesquisa = request.form.get('termo_pesquisa')
+    medicamentos = buscar_medicamentos(termo_pesquisa)
+    return jsonify({'medicamentos': medicamentos})
 
 @app.route('/pagar_cartao', methods=['POST'])
 def pagar_cartao():
