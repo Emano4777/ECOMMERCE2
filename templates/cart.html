@@ -21,10 +21,10 @@
 .logo-desktop {
     position: absolute;
     left: 10px;
-    top: 10px;
-    height: 120px; /* Tamanho ajustado */
-    max-height: 70px; /* Tamanho máximo */
-    z-index: 1000;
+    top: 0;
+    height: auto; /* Permite que a altura seja ajustada conforme necessário */
+    max-height: 100%; /* Garante que a logo ocupe o espaço do menu */
+    width: auto; /* Mantém a proporção da largura */
 }
 
 /* Logo no Mobile */
@@ -41,8 +41,10 @@
         display: block;
         position: absolute;
         right: 10px;
-        top: 10px;
+        top: 0;
         height: 40px; /* Tamanho da logo no mobile */
+        width: auto;
+        max-width: 100px; /* Limita a largura da logo no mobile */
         z-index: 1000;
     }
 }
@@ -56,6 +58,14 @@
     padding: 1rem;
     color: white;
     font-size: 1.5rem;
+    height: 80px; /* Altura do menu */
+    position: relative;
+    box-sizing: border-box;
+}
+.logo-desktop,
+.logo-mobile {
+    height: 100%; /* Ajusta a altura da logo ao tamanho do menu */
+    max-height: 80px; /* Limita a altura da logo no desktop ao tamanho do menu */
 }
 
 .menu-desktop ul {
@@ -78,7 +88,7 @@
     background-color: rgba(179, 0, 0, 0.9);
     color: white;
     font-size: 1.5rem;
-    cursor: pointer;
+    cursor: pointer;    
 }
 
 /* Menu lateral oculto para Mobile */
@@ -126,6 +136,9 @@
         background-color: rgba(179, 0, 0, 0.9);
         color: white;
         padding: 15px;
+        height: 50px;
+        position: relative;
+        box-sizing: border-box;
     }
 
     .menu-hamburguer i {

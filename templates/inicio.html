@@ -50,6 +50,13 @@
     width: 100%;
     box-sizing: border-box;
     position: relative;
+    font-size: 1.5rem; /* Tamanho do menu */
+    height: 80px; /* Altura do menu */
+}
+.logo-desktop,
+.logo-mobile {
+    height: 100%; /* Ajusta a altura da logo ao tamanho do menu */
+    max-height: 80px; /* Limita a altura para se alinhar ao menu */
 }
 
 /* Logo no Desktop */
@@ -57,8 +64,10 @@
     position: absolute;
     left: 10px;
     top: 10px;
-    height: 120px; /* Tamanho ajustado */
-    max-height: 70px; /* Tamanho máximo */
+    top: 0; /* Ajusta a logo para alinhar com o topo do menu */
+    height: 100%; /* Ajusta a altura da logo para ser a mesma do menu */
+    width: auto; /* A largura se ajusta proporcionalmente à altura */
+    max-height: 80px; /* Limita a altura da logo ao tamanho do menu */
     z-index: 1000;
 }
 
@@ -74,11 +83,13 @@
 
     .logo-mobile {
         display: block;
-        position: absolute;
-        right: 10px;
-        top: 10px;
-        height: 40px; /* Tamanho da logo no mobile */
-        z-index: 1000;
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    height: 40px; /* Tamanho ajustado para mobile */
+    max-height: 40px; /* Limita a altura máxima no mobile */
+    width: auto; /* Ajusta a largura automaticamente */
+    z-index: 1000;
     }
 }
 

@@ -25,17 +25,25 @@
     background-color: rgba(179, 0, 0, 0.9);
     padding: 1rem;
     color: white;
-    font-size: 1.5rem; /* Tamanho maior da fonte */
+    height: 80px;
+    font-size: 1.5rem; 
+    position: relative;
+    box-sizing: border-box;/* Tamanho maior da fonte */
+}
+.logo-desktop,
+.logo-mobile {
+    height: 100%; /* Ajusta a altura da logo ao tamanho do menu */
+    max-height: 80px; /* Limita a altura da logo no desktop ao tamanho do menu */
 }
 
 
 .logo-desktop {
     position: absolute;
     left: 10px;
-    top: 10px;
-    height: 120px; /* Ajuste o tamanho para algo mais proporcional */
-    max-height: 70px; /* Limita o tamanho máximo */
-    z-index: 1000;
+    top: 0;
+    height: auto; /* Permite que a altura seja ajustada conforme necessário */
+    max-height: 100%; /* Garante que a logo ocupe o espaço do menu */
+    width: auto; /* Mantém a proporção da largura */
 }
 
 /* Ajuste para a logo no mobile */
@@ -54,6 +62,8 @@
         right: 10px;
         top: 10px;
         height: 40px; /* Tamanho da logo no mobile */
+        width: auto;
+        max-width: 100px; /* Limita a largura da logo no mobile */
         z-index: 1000;
     }
 }
