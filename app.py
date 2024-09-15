@@ -670,6 +670,11 @@ def pagar_cartao_credito(charge_id, payment_token, customer_data, parcelas):
 
 @app.route('/medicamentos')
 def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))  # Redireciona para a página de login se não estiver logado
+
+    user_id = session['user_id']
+    carrinho = buscar_itens_carrinho(user_id)
     conn = get_db_connection()  # Obtenha a conexão com o banco de dados
     cursor = conn.cursor()  # Crie um cursor a partir da conexão
     cursor.execute("SELECT medicamento_id, nome, link_imagem, preco FROM sugestao WHERE link_imagem IS NOT NULL")
