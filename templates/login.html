@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* Estilos básicos */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Estilo do Menu - Desktop */
+        .menu-desktop {
+            display: flex;
+            justify-content: flex-end;
+            background-color: rgba(179, 0, 0, 0.9);
+            padding: 1rem;
+            color: white;
+            height: 80px;
+            font-size: 1.5rem;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        .logo-desktop {
+            position: absolute;
+            left: 10px;
+            top: 0;
+            height: auto;
+            max-height: 100%;
+            width: auto;
+        }
+
+        .menu-desktop ul {
+            list-style: none;
+            display: flex;
+            gap: 20px;
+            padding: 0;
+        }
+
+        .menu-desktop ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 1.2rem;
+        }
+
+        /* Menu Mobile */
+        .menu-hamburguer {
+            display: none;
+            padding: 10px;
+            background-color: rgba(179, 0, 0, 0.9);
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            z-index: 10000;
+        }
+
+        @media (max-width: 768px) {
+            .menu-hamburguer {
+                display: block;
+            }
+
+            .menu-desktop {
+                display: none;
+            }
+
+            .logo-mobile {
+                display: block;
+                position: absolute;
+                right: 10px;
+                top: 10px;
+                height: 40px;
+                width: auto;
+                max-width: 100px;
+                z-index: 1000;
+            }
+        }
+
+        /* Estilos do formulário de login */
+        .login-container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 300px;
+            margin: 100px auto; /* Adiciona margem para centralizar */
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #b30000;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        button:hover {
+            background-color: #ff9900;
+        }
+
+        /* Mensagem de erro */
+        .error-message {
+            color: red;
+            margin-top: 20px;
+        }
+
+        /* Estilo para o redirecionamento entre páginas de login e cadastro */
+        .redirect-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .redirect-link {
+            color: #b30000;
+            font-weight: bold;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .redirect-link:hover {
+            color: #ff9900;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Menu Desktop -->
+    <nav class="menu-desktop">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-desktop">
+        <ul>
+            <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+            <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+            <li id="btn-carrinho-desktop" data-tooltip="Carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-desktop">0</span></a>
+            </li>
+            <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+        </ul>
+    </nav>
+
+    <!-- Menu Mobile -->
+    <div class="menu-hamburguer" onclick="toggleMenu()">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+        <i class="fas fa-bars"></i> Menu
+    </div>
+
+    <!-- Formulário de login -->
+    <div class="login-container">
+        <h2>Login</h2>
+        <form action="/login" method="POST">
+            <input type="text" id="usuario" name="usuario" placeholder="Usuário" required><br>
+            <input type="password" id="senha" name="senha" placeholder="Senha" required><br>
+            <button type="submit">Entrar</button>
+        </form>
+
+        <!-- Redirecionamento para cadastro -->
+        <div class="redirect-container">
+            <p>Não tem uma conta? <a href="/cadastrar_usuario" class="redirect-link">Cadastre-se aqui</a>.</p>
+        </div>
+
+        <!-- Alerta de erro, se houver -->
+        {% if error_message %}
+        <div class="error-message">
+            <strong>Erro:</strong> {{ error_message }}
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function toggleMenu() {
+            const menu = document.getElementById('menuLateral');
+            const isMenuOpen = menu.classList.contains('show');
+
+            if (!isMenuOpen) {
+                menu.classList.add('show');
+                menu.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                window.getComputedStyle(menu).transform;
+            } else {
+                menu.classList.remove('show');
+                menu.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
+        }
+    </script>
+
+</body>
+</html>

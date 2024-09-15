@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cadastrar-se</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
+            position: relative;
+            overflow-x: hidden;
+        }
+          /* Estilo para o redirecionamento entre páginas de login e cadastro */
+.redirect-container {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.redirect-link {
+    color: #b30000;
+    font-weight: bold;
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.redirect-link:hover {
+    color: #ff9900;
+}
+        /* Estilo do Menu - Desktop */
+        .menu-desktop {
+            display: flex;
+            justify-content: flex-end;
+            background-color: rgba(179, 0, 0, 0.9);
+            padding: 1rem;
+            color: white;
+            height: 80px;
+            font-size: 1.5rem;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        .logo-desktop {
+            position: absolute;
+            left: 10px;
+            top: 0;
+            height: auto;
+            max-height: 100%;
+            width: auto;
+        }
+
+        .menu-desktop ul {
+            list-style: none;
+            display: flex;
+            gap: 20px;
+            padding: 0;
+        }
+
+        .menu-desktop ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 1.2rem;
+        }
+
+        /* Menu Mobile */
+        .menu-hamburguer {
+            display: none;
+            padding: 10px;
+            background-color: rgba(179, 0, 0, 0.9);
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            z-index: 10000;
+        }
+
+        @media (max-width: 768px) {
+            .menu-hamburguer {
+                display: block;
+            }
+
+            .menu-desktop {
+                display: none;
+            }
+
+            .logo-mobile {
+                display: block;
+                position: absolute;
+                right: 10px;
+                top: 10px;
+                height: 40px;
+                width: auto;
+                max-width: 100px;
+                z-index: 1000;
+            }
+        }
+
+        /* Estilo do formulário de cadastro */
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+            margin-top: 50px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #b30000;
+            margin-bottom: 20px;
+        }
+
+        label {
+            font-size: 1rem;
+            color: #333;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="text"], input[type="password"], select {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 2px solid #b30000;
+            border-radius: 5px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            background-color: #b30000;
+            color: white;
+            padding: 10px;
+            font-size: 1.2rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button[type="submit"]:hover {
+            background-color: #ff9900;
+        }
+
+        /* Estilo do select */
+        select {
+            background-color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- Menu Desktop -->
+    <nav class="menu-desktop">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-desktop">
+        <ul>
+            <li><a href="/"><i class="fas fa-home"></i> Início</a></li>
+            <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
+            <li id="btn-carrinho-desktop" data-tooltip="Carrinho">
+                <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-desktop">0</span></a>
+            </li>
+            <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+        </ul>
+    </nav>
+
+    <!-- Menu Mobile -->
+    <div class="menu-hamburguer" onclick="toggleMenu()">
+        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+        <i class="fas fa-bars"></i> Menu
+    </div>
+
+    <!-- Formulário de Cadastro -->
+    <div class="container">
+        <h2>Cadastrar-se</h2>
+
+    <!-- Formulário de cadastro -->
+    <form action="/cadastrar_usuario" method="POST">
+        <label for="usuario">Usuário:</label>
+        <input type="text" id="usuario" name="usuario" required><br><br>
+
+        <label for="senha">Senha:</label>
+        <input type="password" id="senha" name="senha" required><br><br>
+
+        <label for="lojaescolhida">Loja Escolhida Poupaqui para realização das compras:</label>
+        <select id="lojaescolhida" name="lojaescolhida">
+            <option value="Mirassol">Mirassol</option>
+            <!-- Outras opções de loja -->
+        </select><br><br>
+
+        <button type="submit">Cadastrar</button>
+    </form>
+
+    <!-- Alerta de erro, se houver -->
+    {% if error_message %}
+    <div style="color: red; margin-top: 20px;">
+        <strong>Erro:</strong> {{ error_message }}
+    </div>
+    {% endif %}
+
+    <div class="redirect-container">
+        <p>Já tem uma conta? <a href="/login" class="redirect-link">Clique aqui para fazer login</a>.</p>
+    </div>
+    
+    <script>
+        function toggleMenu() {
+            const menu = document.getElementById('menuLateral');
+            const isMenuOpen = menu.classList.contains('show');
+
+            if (!isMenuOpen) {
+                menu.classList.add('show');
+                menu.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                window.getComputedStyle(menu).transform;
+            } else {
+                menu.classList.remove('show');
+                menu.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
+        }
+    </script>
+</body>
+</html>

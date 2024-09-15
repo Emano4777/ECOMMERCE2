@@ -54,6 +54,7 @@
     transition: color 0.3s ease;
 }
 
+
 #search-button:hover {
     color: #ff9900;
 }
@@ -501,11 +502,12 @@
 
 @media (max-width: 768px) {
 
-/* Float do carrinho em telas pequenas */
-.float-carrinho {
-    width: 90%; /* Aumenta o espaço do carrinho no mobile */
-    right: 5%; /* Centraliza melhor */
-}
+    .float-carrinho {
+        width: 90%; /* Aumenta o espaço do carrinho no mobile */
+        right: 5%; /* Centraliza melhor */
+        top: 10px; /* Ajusta o topo para mais visibilidade */
+    }
+
 
 /* Medicamentos responsivos */
 .medicamentos-container {
@@ -636,20 +638,26 @@
     <!-- Medicamentos -->
     <div class="medicamentos-container">
         {% for medicamento in medicamentos %}
-        <div class="medicamento-item" data-nome="{{ medicamento.nome }}" data-preco="{{ medicamento.preco }}">
-            <h2>{{ medicamento.nome }}</h2>
-            <img src="{{ medicamento.link_imagem }}" alt="{{ medicamento.nome }}" style="width:100px;height:100px;">
-            <p>R$ {{ medicamento.preco }}</p>
-            <input type="number" class="quantity-input" min="1" value="1">
-            <button class="btn-carrinho">
-                <i class="fas fa-shopping-cart"></i> Adicionar
-            </button>
-            <button class="btn-info" onclick="window.location.href='/medicamento/{{ medicamento.nome }}'">
-                <i class="fas fa-info-circle"></i> Informações
-            </button>
-        </div>
+        <div class="medicamento-item" 
+        data-id="{{ medicamento.medicamento_id }}" 
+        data-nome="{{ medicamento.nome }}" 
+        data-preco="{{ medicamento.preco }}">
+       <h2>{{ medicamento.nome }}</h2>
+       <img src="{{ medicamento.link_imagem }}" alt="{{ medicamento.nome }}" style="width:100px;height:100px;">
+       <p>R$ {{ medicamento.preco }}</p>
+       <input type="number" class="quantity-input" min="1" value="1">
+       <button class="btn-carrinho">
+           <i class="fas fa-shopping-cart"></i> Adicionar
+       </button>
+       <button class="btn-info" onclick="window.location.href='/medicamento/{{ medicamento.nome }}'">
+           <i class="fas fa-info-circle"></i> Informações
+       </button>
+   </div>
         {% endfor %}
     </div>
+    
+
+
     
 
     <script>
@@ -715,13 +723,12 @@ function toggleMenu() {
         document.body.style.overflow = 'auto';
     }
 }
-
+    let carrinho = JSON.parse(localStorage.getItem('carrinho')) || [];
     const carrinhoFloat = document.getElementById('carrinho-float');
     const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
     const cartCountDesktop = document.getElementById('cart-count-desktop');
     const cartCountMobile = document.getElementById('cart-count-mobile');
     const itensCarrinho = document.getElementById('itens-carrinho');
-    let carrinho = [];
     let carrinhoAberto = false;
     const concluirCompraBtn = document.getElementById('concluir-compra');
 concluirCompraBtn.addEventListener('click', () => {
@@ -772,8 +779,18 @@ concluirCompraBtn.addEventListener('click', () => {
         carrinhoAberto = false;
     });
 
-    // Função para adicionar itens ao carrinho
-    document.addEventListener('DOMContentLoaded', () => {
+   // Função para abrir o carrinho (para desktop e mobile)
+function abrirCarrinho() {
+    renderCarrinho(); // Renderiza o carrinho sempre que ele é aberto
+    carrinhoAberto = !carrinhoAberto;
+    carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
+}
+
+// Chama updateCartCount quando a página for carregada
+document.addEventListener('DOMContentLoaded', () => {
+    updateCartCount(); // Atualiza o contador do carrinho ao carregar a página
+
+    // Adiciona eventos para botões de adicionar ao carrinho
     document.querySelectorAll('.btn-carrinho').forEach(btn => {
         btn.addEventListener('click', (event) => {
             const item = event.target.closest('.medicamento-item');
@@ -781,90 +798,166 @@ concluirCompraBtn.addEventListener('click', () => {
             const preco = item.getAttribute('data-preco');
             const quantidade = item.querySelector('.quantity-input').value;
 
-            const itemCarrinho = {
-                nome: nome,
-                preco: preco,
-                quantidade: parseInt(quantidade)
-            };
-
-            const itemExistente = carrinho.find(i => i.nome === nome);
-
-            if (itemExistente) {
-                itemExistente.quantidade += itemCarrinho.quantidade;
-            } else {
-                carrinho.push(itemCarrinho);
+            const medicamentoId = item.getAttribute('data-id');
+            if (!medicamentoId) {
+                alert("Erro: ID do medicamento não encontrado.");
+                return;
             }
 
-            updateCartCount();
-            renderCarrinho();
-            alert(`${quantidade}x ${nome} adicionado ao carrinho!`);
+            const itemCarrinho = {
+                medicamento_id: medicamentoId,
+                quantidade: parseInt(quantidade),
+                preco: parseFloat(preco)
+            };
+
+            // Enviar os dados ao backend
+            fetch('/adicionar_ao_carrinho', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(itemCarrinho)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message) {
+                    alert(`${quantidade}x ${nome} adicionado ao carrinho com sucesso!`);
+                    updateCartCount(); // Atualiza o contador após adicionar o item
+                } else {
+                    console.error('Erro ao adicionar ao carrinho:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Erro na requisição:', error);
+            });
         });
     });
 });
 
-    // Função para renderizar os itens do carrinho no float
-    function renderCarrinho() {
-        itensCarrinho.innerHTML = '';
-        carrinho.forEach((item, index) => {
+
+
+// Função para deletar item do carrinho (aqui você pode implementar um fetch para remover o item do banco de dados)
+// Função para deletar item do carrinho
+function handleDeleteItem(event) {
+    const nome = event.target.getAttribute('data-nome'); // Obtém o nome do item
+
+    // Chamar a rota backend para remover o item do carrinho
+    fetch(`/delete_item/${encodeURIComponent(nome)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Erro na requisição');
+        }
+        return response.json();  // Verifica e converte a resposta para JSON
+    })
+    .then(data => {
+        if (data.message) {
+            console.log(`Item removido com sucesso!`);
+            updateCartCount();
+            renderCarrinho();  // Re-renderiza o carrinho após a exclusão
+        } else {
+            console.error('Erro ao remover item:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erro na requisição:', error);
+    });
+}
+
+// Função para renderizar o carrinho com itens do banco de dados
+function renderCarrinho() {
+    fetch('/manter_carrinho')
+    .then(response => response.json())
+    .then(data => {
+        const itensCarrinho = document.getElementById('itens-carrinho');
+        itensCarrinho.innerHTML = '';  // Limpa o container
+
+        // Itera sobre os itens recebidos do backend e os exibe no carrinho
+        data.carrinho.forEach((item, index) => {
+            // Converte o total para número, caso esteja como string
+            const total = parseFloat(item.total); 
+
             const div = document.createElement('div');
             div.className = 'item-carrinho';
-            div.innerHTML = `<p>${item.quantidade}x ${item.nome}</p><p>R$ ${(item.preco * item.quantidade).toFixed(2)}</p><i class="fas fa-trash delete-item" data-index="${index}"></i>`;
-            itensCarrinho.appendChild(div);
+            div.innerHTML = `
+                <p>${item.quantidade}x ${item.nome}</p>
+                <p>R$ ${total.toFixed(2)}</p>
+                <i class="fas fa-trash delete-item" data-nome="${item.nome}"></i>`;
+                itensCarrinho.appendChild(div);
         });
 
+        // Vincula o evento de clique para excluir itens após a renderização
         document.querySelectorAll('.delete-item').forEach(btn => {
-            btn.addEventListener('click', (event) => {
-                const index = event.target.getAttribute('data-index');
-                carrinho.splice(index, 1);
-                updateCartCount();
-                renderCarrinho();
-            });
+            btn.addEventListener('click', handleDeleteItem);  // Chama a função handleDeleteItem
         });
-    }
+    })
+    .catch(error => console.error('Erro ao renderizar o carrinho:', error));
+}
 
-    // Função para atualizar o contador do carrinho
-    function updateCartCount() {
-        const totalItems = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
 
-        if (totalItems > 0) {
-            cartCountDesktop.textContent = totalItems;
-            cartCountMobile.textContent = totalItems;
-            cartCountDesktop.style.display = 'inline-block';
-            cartCountMobile.style.display = 'inline-block';
-        } else {
-            cartCountDesktop.style.display = 'none';
-            cartCountMobile.style.display = 'none';
-        }
-    }
+
+// Eventos para abrir o carrinho no desktop e no mobile
+document.getElementById('btn-carrinho-desktop').addEventListener('click', abrirCarrinho);
+document.getElementById('btn-carrinho-mobile').addEventListener('click', abrirCarrinho);
+
+
+
+// Função para atualizar o contador do carrinho
+function updateCartCount() {
+    fetch('/manter_carrinho')
+    .then(response => response.json())
+    .then(data => {
+        const totalItems = data.carrinho.reduce((acc, item) => acc + item.quantidade, 0);
+        document.getElementById('cart-count-desktop').textContent = totalItems;
+        document.getElementById('cart-count-mobile').textContent = totalItems;
+    })
+    .catch(error => console.error('Erro ao atualizar o contador do carrinho:', error));
+}
+
+
 
     // Código para arrastar o carrinho
-    carrinhoFloat.addEventListener('mousedown', function (event) {
-        carrinhoFloat.classList.add('dragging');
-        let shiftX = event.clientX - carrinhoFloat.getBoundingClientRect().left;
-        let shiftY = event.clientY - carrinhoFloat.getBoundingClientRect().top;
+let isDragging = false; // Flag para indicar se o carrinho está sendo arrastado
 
-        function moveAt(pageX, pageY) {
-            carrinhoFloat.style.left = pageX - shiftX + 'px';
-            carrinhoFloat.style.top = pageY - shiftY + 'px';
-        }
+carrinhoFloat.addEventListener('mousedown', function (event) {
+    isDragging = true; // Define como verdadeiro quando o botão do mouse é pressionado
+    carrinhoFloat.classList.add('dragging');
+    let shiftX = event.clientX - carrinhoFloat.getBoundingClientRect().left;
+    let shiftY = event.clientY - carrinhoFloat.getBoundingClientRect().top;
 
-        function onMouseMove(event) {
-            moveAt(event.pageX, event.pageY);
-        }
+    function moveAt(pageX, pageY) {
+        carrinhoFloat.style.left = pageX - shiftX + 'px';
+        carrinhoFloat.style.top = pageY - shiftY + 'px';
+    }
 
-        document.addEventListener('mousemove', onMouseMove);
+    function onMouseMove(event) {
+        if (!isDragging) return; // Só move se estiver arrastando
+        moveAt(event.pageX, event.pageY);
+    }
 
-        carrinhoFloat.onmouseup = function () {
-            document.removeEventListener('mousemove', onMouseMove);
-            carrinhoFloat.classList.remove('dragging');
-        };
+    document.addEventListener('mousemove', onMouseMove);
 
-        carrinhoFloat.ondragstart = function () {
-            return false;
-        };
+    carrinhoFloat.addEventListener('mouseup', function () {
+        isDragging = false; // Define como falso quando o botão do mouse é solto
+        document.removeEventListener('mousemove', onMouseMove);
+        carrinhoFloat.classList.remove('dragging');
     });
 
-    // Função para alternar o menu lateral (mobile)
+    carrinhoFloat.onmouseup = function () {
+        isDragging = false; // Define como falso quando o botão do mouse é solto
+        document.removeEventListener('mousemove', onMouseMove);
+        carrinhoFloat.classList.remove('dragging');
+    };
+});
+
+// Prevenir o comportamento padrão de arrastar o carrinho
+carrinhoFloat.ondragstart = function () {
+    return false;
+};
   
     
 

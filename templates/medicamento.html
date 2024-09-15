@@ -14,19 +14,9 @@
             position: relative;
             overflow-x: hidden;
         }
-        .float-carrinho {
-    position: fixed;
-    top: 100px;
-    right: 20px;
-    width: 300px;
-    padding: 20px;
-    background-color: rgba(255, 255, 255, 0.9);
-    border: 2px solid #b30000;
-    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
-    border-radius: 10px;
-    z-index: 2000;
-    display: none; /* Inicialmente escondido */
-}
+
+        
+       
         .menu-desktop {
             display: flex;
             justify-content: flex-end;
@@ -97,6 +87,88 @@
             font-size: 1.5rem;
             cursor: pointer;
             z-index: 10000;
+        }
+
+                /* Float do carrinho */
+                .float-carrinho {
+            position: fixed;
+            top: 100px; /* Posicionado mais para baixo */
+            right: 20px;
+            width: 300px;
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 2px solid #b30000;
+            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            z-index: 2000;
+            display: none; /* Inicialmente escondido */
+        }
+
+        .float-carrinho h3 {
+            color: #b30000;
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .float-carrinho .item-carrinho {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: rgba(255, 204, 0, 0.8); /* Amarelo suave */
+            border-radius: 5px;
+        }
+
+        .float-carrinho .item-carrinho p {
+            margin: 0;
+            color: #b30000;
+        }
+
+        .float-carrinho .item-carrinho .delete-item {
+            color: #b30000;
+            cursor: pointer;
+        }
+
+        /* Botão Concluir Compra piscando com ícone de bolsa */
+        .float-carrinho .btn-concluir {
+            width: 100%;
+            background-color: #b30000;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: blink 1.5s infinite;
+        }
+
+        .float-carrinho .btn-concluir i {
+            margin-right: 0.5rem;
+        }
+
+        .float-carrinho .btn-fechar {
+            background-color: #b30000;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .menu-lateral-oculto {
@@ -350,13 +422,12 @@
         document.body.style.overflow = 'auto';
     }
 }
-
+    let carrinho = JSON.parse(localStorage.getItem('carrinho')) || [];
     const carrinhoFloat = document.getElementById('carrinho-float');
     const fecharCarrinhoBtn = document.getElementById('fechar-carrinho');
     const cartCountDesktop = document.getElementById('cart-count-desktop');
     const cartCountMobile = document.getElementById('cart-count-mobile');
     const itensCarrinho = document.getElementById('itens-carrinho');
-    let carrinho = [];
     let carrinhoAberto = false;
     const concluirCompraBtn = document.getElementById('concluir-compra');
     concluirCompraBtn.addEventListener('click', () => {
@@ -392,12 +463,7 @@
     form.submit(); // Submete o formulário para redirecionar à página de checkout
 });
 
-    // Função para abrir o carrinho (para desktop e mobile)
-    function abrirCarrinho() {
-        carrinhoAberto = !carrinhoAberto;
-        carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
-    }
-
+ 
     // Eventos para abrir o carrinho no desktop e no mobile
     document.getElementById('btn-carrinho-desktop').addEventListener('click', abrirCarrinho);
     document.getElementById('btn-carrinho-mobile').addEventListener('click', abrirCarrinho);
@@ -409,6 +475,7 @@
 
     // Função para adicionar itens ao carrinho
     document.addEventListener('DOMContentLoaded', () => {
+      updateCartCount();
         document.querySelector('.btn-carrinho').addEventListener('click', (event) => {
     const nome = "{{ medicamento.nome }}";
     const preco = "{{ medicamento.preco }}";
@@ -428,47 +495,116 @@
         carrinho.push(itemCarrinho);
     }
 
-    updateCartCount();
-    renderCarrinho();
+      // Renderiza o carrinho ao carregar a página
+    updateCartCount(); // Atualiza o contador
     alert(`${quantidade}x ${nome} adicionado ao carrinho!`);
         });
     });
 
+   
+function renderCarrinho() {
+    fetch('/manter_carrinho')
+    .then(response => response.json())
+    .then(data => {
+        const itensCarrinho = document.getElementById('itens-carrinho');
+        itensCarrinho.innerHTML = '';  // Limpa o container
 
-    // Função para renderizar os itens do carrinho no float
-    function renderCarrinho() {
-        itensCarrinho.innerHTML = '';
-        carrinho.forEach((item, index) => {
+        // Itera sobre os itens recebidos do backend e os exibe no carrinho
+        data.carrinho.forEach((item, index) => {
+            // Converte o total para número, caso esteja como string
+            const total = parseFloat(item.total); 
+
             const div = document.createElement('div');
             div.className = 'item-carrinho';
-            div.innerHTML = `<p>${item.quantidade}x ${item.nome}</p><p>R$ ${(item.preco * item.quantidade).toFixed(2)}</p><i class="fas fa-trash delete-item" data-index="${index}"></i>`;
-            itensCarrinho.appendChild(div);
+            div.innerHTML = `
+                <p>${item.quantidade}x ${item.nome}</p>
+                <p>R$ ${total.toFixed(2)}</p>
+                <i class="fas fa-trash delete-item" data-nome="${item.nome}"></i>`;
+                itensCarrinho.appendChild(div);
         });
 
+        // Vincula o evento de clique para excluir itens após a renderização
         document.querySelectorAll('.delete-item').forEach(btn => {
-            btn.addEventListener('click', (event) => {
-                const index = event.target.getAttribute('data-index');
-                carrinho.splice(index, 1);
-                updateCartCount();
-                renderCarrinho();
-            });
+            btn.addEventListener('click', handleDeleteItem);  // Chama a função handleDeleteItem
         });
-    }
+    })
+    .catch(error => console.error('Erro ao renderizar o carrinho:', error));
+}
+   // Função para abrir o carrinho (para desktop e mobile)
+   function abrirCarrinho() {
+    renderCarrinho(); // Renderiza o carrinho sempre que ele é aberto
+    carrinhoAberto = !carrinhoAberto;
+    carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
+}
+
+
+    // Função para renderizar os itens do carrinho no float
+    function handleDeleteItem(event) {
+    const index = event.target.getAttribute('data-index');
+    
+    // Chamar uma rota backend para remover o item
+    fetch(`/delete_item/${index}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            console.log(`Item removido com sucesso!`);
+            updateCartCount();
+            renderCarrinho();
+        } else {
+            console.error('Erro ao remover item:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erro na requisição:', error);
+    });
+}
+
+// Função para deletar item do carrinho
+function handleDeleteItem(event) {
+    const nome = event.target.getAttribute('data-nome'); // Obtém o nome do item
+
+    // Chamar a rota backend para remover o item do carrinho
+    fetch(`/delete_item/${encodeURIComponent(nome)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Erro na requisição');
+        }
+        return response.json();  // Verifica e converte a resposta para JSON
+    })
+    .then(data => {
+        if (data.message) {
+            console.log(`Item removido com sucesso!`);
+            updateCartCount();
+            renderCarrinho();  // Re-renderiza o carrinho após a exclusão
+        } else {
+            console.error('Erro ao remover item:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Erro na requisição:', error);
+    });
+}
 
     // Função para atualizar o contador do carrinho
     function updateCartCount() {
-        const totalItems = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
+    // Faz a requisição para obter os itens do backend
+    fetch('/manter_carrinho')
+    .then(response => response.json())
+    .then(data => {
+        const totalItems = data.carrinho.reduce((acc, item) => acc + item.quantidade, 0);
+        document.getElementById('cart-count-desktop').textContent = totalItems;
+        document.getElementById('cart-count-mobile').textContent = totalItems;
+    })
+    .catch(error => console.error('Erro ao atualizar o contador do carrinho:', error));
+}
 
-        if (totalItems > 0) {
-            cartCountDesktop.textContent = totalItems;
-            cartCountMobile.textContent = totalItems;
-            cartCountDesktop.style.display = 'inline-block';
-            cartCountMobile.style.display = 'inline-block';
-        } else {
-            cartCountDesktop.style.display = 'none';
-            cartCountMobile.style.display = 'none';
-        }
-    }
 
     // Código para arrastar o carrinho
     carrinhoFloat.addEventListener('mousedown', function (event) {

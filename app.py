@@ -4,6 +4,8 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from efipay import EfiPay  
 import base64
 import psycopg2
+import uuid
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = 'secret_key'
@@ -148,6 +150,307 @@ def buscar_medicamentos_pagina(termo_pesquisa, medicamentos_pagina):
     ]
 
     return medicamentos_filtrados
+
+@app.route('/cadastrar_usuario', methods=['GET', 'POST'])
+def cadastrar_usuario():
+    if request.method == 'POST':
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Gerar um novo UUID para o user_id
+            user_id = str(uuid.uuid4())
+            usuario = request.form.get('usuario')
+            senha = request.form.get('senha')
+            lojaescolhida = request.form.get('lojaescolhida')
+
+            print(f"Gerando user_id: {user_id} para o usuário {usuario}")
+
+            # Insere o novo usuário
+            query = """
+                INSERT INTO acessos (user_id, usuario, senha, lojaescolhida)
+                VALUES (%s, %s, %s, %s)
+                RETURNING user_id;
+            """
+            cursor.execute(query, (user_id, usuario, senha, lojaescolhida))
+            user_id_inserido = cursor.fetchone()[0]  # Obtém o user_id gerado
+
+            # Confirma a transação
+            conn.commit()
+            print("Usuário inserido com sucesso, user_id:", user_id_inserido)
+
+            # Armazena o usuário na sessão (login automático)
+            session['user_id'] = user_id_inserido
+            session['usuario'] = usuario
+
+            cursor.close()
+            conn.close()
+
+            # Redireciona para a página de início após o cadastro com o usuário logado
+            return redirect(url_for('inicio'))
+        except Exception as e:
+            print(f"Erro ao cadastrar usuário: {str(e)}")
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            # Retorna um alerta de erro para o frontend
+            return render_template('cadastrar_usuario.html', error_message=str(e))
+    
+    # Se o método for GET, renderiza a página de cadastro
+    return render_template('cadastrar_usuario.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        usuario = request.form.get('usuario')
+        senha = request.form.get('senha')
+
+        try:
+            # Verifica se o usuário existe no banco de dados
+            query = "SELECT user_id, senha FROM acessos WHERE usuario = %s"
+            cursor.execute(query, (usuario,))
+            user = cursor.fetchone()
+
+            if user and user[1] == senha:
+                # Se a senha estiver correta, salva as informações de login na sessão
+                session['user_id'] = user[0]
+                session['usuario'] = usuario
+
+                print(f"Usuário {usuario} logado com sucesso!")
+
+                cursor.close()
+                conn.close()
+
+                # Redireciona para a página de início
+                return redirect(url_for('inicio'))
+            else:
+                # Se usuário ou senha estiverem incorretos
+                cursor.close()
+                conn.close()
+                return render_template('login.html', error_message="Usuário ou senha incorretos.")
+
+        except Exception as e:
+            print(f"Erro ao fazer login: {str(e)}")
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return render_template('login.html', error_message="Erro ao processar o login.")
+        
+        
+
+    # Se o método for GET, renderiza a página de login
+    return render_template('login.html')
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/area_restrita')
+@login_required
+def area_restrita():
+    return "Você está acessando uma área restrita!"
+
+def registrar_pedido(user_id, medicamento_id, quantidade, total, status="em_carrinho"):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        query = """
+            INSERT INTO pedidos_log (user_id, medicamento_id, quantidade, total, status)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (user_id, medicamento_id, quantidade, total, status))
+        conn.commit()
+        print(f"Pedido registrado com sucesso para o usuário {user_id}.")
+    except Exception as e:
+        print(f"Erro ao registrar pedido: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def adicionar_item_ao_carrinho(user_id, medicamento_id, quantidade, preco):
+    total = quantidade * preco
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Inserir o item diretamente na tabela pedidos_log
+        query = """
+            INSERT INTO pedidos_log (user_id, medicamento_id, quantidade, total, status)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (user_id, medicamento_id, quantidade, total, 'em_carrinho'))
+        conn.commit()
+
+        print(f"Item {medicamento_id} adicionado ao carrinho com sucesso para o usuário {user_id}.")
+    
+    except Exception as e:
+        print(f"Erro ao adicionar item ao carrinho: {e}")
+        conn.rollback()
+    
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+def buscar_itens_carrinho(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT p.medicamento_id, s.nome, p.quantidade, p.total 
+        FROM pedidos_log p
+        JOIN sugestao s ON p.medicamento_id = s.medicamento_id
+        WHERE p.user_id = %s AND p.status = 'em_carrinho'
+    """
+    cursor.execute(query, (user_id,))
+    itens = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    # Retornar uma lista de dicionários para os itens do carrinho
+    return [{'medicamento_id': item[0], 'nome': item[1], 'quantidade': item[2], 'total': item[3]} for item in itens]
+
+
+@app.route('/manter_carrinho')
+@login_required
+def manter_carrinho():
+    user_id = session['user_id']
+    carrinho = buscar_itens_carrinho(user_id)
+    session['carrinho'] = carrinho
+    return jsonify({'carrinho': carrinho})
+
+@app.route('/adicionar_ao_carrinho', methods=['POST'])
+@login_required
+def adicionar_ao_carrinho():
+    data = request.json
+    medicamento_id = data.get('medicamento_id')
+    quantidade = data.get('quantidade')
+    preco = data.get('preco')
+    user_id = session['user_id']
+
+    # Verifica se o medicamento_id está presente e não está vazio
+    if not medicamento_id:
+        return jsonify({"error": "ID do medicamento não foi fornecido."}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Verifica se o medicamento existe na tabela sugestao
+    cursor.execute("SELECT medicamento_id FROM sugestao WHERE medicamento_id = %s", (medicamento_id,))
+    medicamento = cursor.fetchone()
+
+    if not medicamento:
+        return jsonify({"error": "Medicamento não encontrado."}), 404
+
+    try:
+        # Inserir ou atualizar o item no carrinho (pedidos_log)
+        query_verificar = """
+            SELECT quantidade FROM pedidos_log 
+            WHERE user_id = %s AND medicamento_id = %s AND status = 'em_carrinho'
+        """
+        cursor.execute(query_verificar, (user_id, medicamento_id))
+        item = cursor.fetchone()
+
+        total = quantidade * preco
+
+        if item:
+            # Atualiza a quantidade se o item já estiver no carrinho
+            nova_quantidade = item[0] + quantidade
+            query_atualizar = """
+                UPDATE pedidos_log
+                SET quantidade = %s, total = %s
+                WHERE user_id = %s AND medicamento_id = %s AND status = 'em_carrinho'
+            """
+            cursor.execute(query_atualizar, (nova_quantidade, nova_quantidade * preco, user_id, medicamento_id))
+        else:
+            # Insere um novo item no carrinho
+            query_inserir = """
+                INSERT INTO pedidos_log (user_id, medicamento_id, quantidade, total, status)
+                VALUES (%s, %s, %s, %s, 'em_carrinho')
+            """
+            cursor.execute(query_inserir, (user_id, medicamento_id, quantidade, total))
+        
+        conn.commit()
+        return jsonify({"message": "Item adicionado ao carrinho com sucesso!"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+
+
+def buscar_pedidos_carrinho(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        query = """
+            SELECT medicamento_id, quantidade, total
+            FROM pedidos_log
+            WHERE user_id = %s AND status = 'em_carrinho'
+        """
+        cursor.execute(query, (user_id,))
+        pedidos = cursor.fetchall()
+        return pedidos
+    except Exception as e:
+        print(f"Erro ao buscar pedidos no carrinho: {e}")
+        return []
+    finally:
+        cursor.close()
+        conn.close()
+def atualizar_status_pedido(user_id, novo_status):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        query = """
+            UPDATE pedidos_log
+            SET status = %s
+            WHERE user_id = %s AND status = 'em_carrinho'
+        """
+        cursor.execute(query, (novo_status, user_id))
+        conn.commit()
+        print(f"Status do pedido atualizado para '{novo_status}' para o usuário {user_id}.")
+    except Exception as e:
+        print(f"Erro ao atualizar o status do pedido: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+def finalizar_pedido(user_id, total):
+    # Aqui você pode pegar os itens do carrinho e registrar o pagamento
+    pedidos_carrinho = buscar_pedidos_carrinho(user_id)
+    if not pedidos_carrinho:
+        print(f"Carrinho vazio para o usuário {user_id}.")
+        return
+
+    # Atualizar o status do pedido para 'finalizado'
+    atualizar_status_pedido(user_id, 'finalizado')
+
+    print(f"Pedido finalizado para o usuário {user_id} com valor total de R$ {total}.")
+
+
+
 
 
 @app.route('/filtrar_medicamentos_index', methods=['POST'])
@@ -369,18 +672,20 @@ def pagar_cartao_credito(charge_id, payment_token, customer_data, parcelas):
 def index():
     conn = get_db_connection()  # Obtenha a conexão com o banco de dados
     cursor = conn.cursor()  # Crie um cursor a partir da conexão
-    cursor.execute("SELECT nome, link_imagem, preco FROM sugestao WHERE link_imagem IS NOT NULL")
+    cursor.execute("SELECT medicamento_id, nome, link_imagem, preco FROM sugestao WHERE link_imagem IS NOT NULL")
     medicamentos = cursor.fetchall()
      
     # Transforme o resultado da consulta em uma lista de dicionários
-    medicamentos = [
-        {'nome': row[0], 'link_imagem': row[1], 'preco': row[2]} for row in medicamentos
-    ]
+    medicamentos = [{'medicamento_id': row[0], 'nome': row[1], 'link_imagem': row[2], 'preco': row[3]} for row in medicamentos]
+
+     # Buscar os itens do carrinho para o usuário logado
+    user_id = session['user_id']  # Pegar o ID do usuário logado da sessão
+    carrinho = buscar_itens_carrinho(user_id)  # Função que busca o carrinho do usuário
 
     cursor.close()  # Feche o cursor
     conn.close()  # Feche a conexão
 
-    return render_template('index.html', medicamentos=medicamentos)
+    return render_template('index.html', medicamentos=medicamentos,carrinho=carrinho)
 
 
 
@@ -438,11 +743,33 @@ def edit_item(item_nome):
     return redirect(url_for('cart'))
 
 @app.route('/delete_item/<item_nome>', methods=['POST'])
+@login_required
 def delete_item(item_nome):
-    carrinho = session.get('carrinho', [])
-    carrinho = [item for item in carrinho if item['nome'] != item_nome]
-    session['carrinho'] = carrinho
-    return redirect(url_for('cart'))
+    user_id = session.get('user_id')
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Exclui o item do banco de dados onde o status ainda está 'em_carrinho'
+        query = """
+            DELETE FROM pedidos_log
+            WHERE user_id = %s AND medicamento_id = (
+                SELECT medicamento_id FROM sugestao WHERE nome = %s
+            ) AND status = 'em_carrinho'
+        """
+        cursor.execute(query, (user_id, item_nome))
+        conn.commit()
+
+        return jsonify({"message": "Item removido com sucesso!"})
+    except Exception as e:
+        print(f"Erro ao remover item: {str(e)}")
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 
 @app.route('/videos/<path:filename>')
 def download_file(filename):
