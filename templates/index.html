@@ -792,46 +792,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Adiciona eventos para botões de adicionar ao carrinho
     document.querySelectorAll('.btn-carrinho').forEach(btn => {
-        btn.addEventListener('click', (event) => {
-            const item = event.target.closest('.medicamento-item');
-            const nome = item.getAttribute('data-nome');
-            const preco = item.getAttribute('data-preco');
-            const quantidade = item.querySelector('.quantity-input').value;
+    btn.addEventListener('click', (event) => {
+        fetch('/verificar_usuario_logado')
+        .then(response => response.json())
+        .then(data => {
+            if (data.logado) {
+                // Se o usuário estiver logado, procede com a adição ao carrinho
+                const item = event.target.closest('.medicamento-item');
+                const nome = item.getAttribute('data-nome');
+                const preco = item.getAttribute('data-preco');
+                const quantidade = item.querySelector('.quantity-input').value;
+                const medicamentoId = item.getAttribute('data-id');
 
-            const medicamentoId = item.getAttribute('data-id');
-            if (!medicamentoId) {
-                alert("Erro: ID do medicamento não encontrado.");
-                return;
-            }
-
-            const itemCarrinho = {
-                medicamento_id: medicamentoId,
-                quantidade: parseInt(quantidade),
-                preco: parseFloat(preco)
-            };
-
-            // Enviar os dados ao backend
-            fetch('/adicionar_ao_carrinho', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(itemCarrinho)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.message) {
-                    alert(`${quantidade}x ${nome} adicionado ao carrinho com sucesso!`);
-                    updateCartCount(); // Atualiza o contador após adicionar o item
-                } else {
-                    console.error('Erro ao adicionar ao carrinho:', data.error);
+                if (!medicamentoId) {
+                    alert("Erro: ID do medicamento não encontrado.");
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Erro na requisição:', error);
-            });
+
+                const itemCarrinho = {
+                    medicamento_id: medicamentoId,
+                    quantidade: parseInt(quantidade),
+                    preco: parseFloat(preco)
+                };
+
+                // Envia os dados ao backend para adicionar ao carrinho
+                fetch('/adicionar_ao_carrinho', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(itemCarrinho)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message) {
+                        alert(`${quantidade}x ${nome} adicionado ao carrinho com sucesso!`);
+                        updateCartCount(); // Atualiza o contador do carrinho
+                    } else {
+                        console.error('Erro ao adicionar ao carrinho:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro na requisição:', error);
+                });
+            } else {
+                // Se o usuário não estiver logado, redireciona para a página de login
+                window.location.href = '/login';
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao verificar o login:', error);
         });
     });
+});
 });
 
 

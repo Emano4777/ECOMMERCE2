@@ -12,8 +12,48 @@
             padding: 0;
             overflow-x: hidden;
             position: relative;
-        }
+        } 
+        .float-perfil {
+    position: absolute;
+    top: 80px;
+    right: 20px;
+    width: 300px;
+    padding: 20px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid #b30000;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    z-index: 2000;
+    display: none;
+}
 
+.float-perfil h3 {
+    color: #b30000;
+    font-size: 1.5rem;
+    margin-bottom: 10px;
+}
+@media (max-width: 768px) {
+    #perfil-float {
+        position: fixed;
+        top: 100px;
+        right: 50%; /* Ajuste para centralizar */
+        transform: translateX(50%); /* Centraliza o float */
+        width: 90%; /* Ocupe 90% da largura da tela */
+        max-width: 400px; /* Limita a largura máxima para não ficar exagerado */
+        background-color: rgba(255, 255, 255, 0.95); 
+        padding: 20px;
+        z-index: 2000;
+        box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2); /* Melhorar o efeito de sombra */
+        border-radius: 10px;
+    }
+}
+
+/* Ajuste para a logo e ícone no mobile */
+.logo-perfil-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
         .video-background {
     position: fixed;
     top: 0;
@@ -420,15 +460,26 @@
             <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
             <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>
             <li><a href="/contato"><i class="fab fa-whatsapp"></i> Contato</a></li>
+            <li id="perfil-desktop">
+                <a href="#" id="icone-perfil">
+                    <i class="fas fa-user-circle"></i>
+                    <span class="perfil-texto">Entrar ou Cadastrar-se</span> <!-- Texto opcional -->
+                </a>
+            </li>
         </ul>
     </nav>
 
-    <!-- Menu Hamburguer para Mobile -->
-    <div class="menu-hamburguer" onclick="toggleMenu()">
+   <!-- Menu Hamburguer para Mobile -->
+<div class="menu-hamburguer" onclick="toggleMenu()">
+    <div class="logo-perfil-container">
         <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
-        <i class="fas fa-bars"></i> Menu
     </div>
+    <i class="fas fa-bars"></i> Menu
+</div>
 
+
+
+   
     <!-- Menu Lateral Oculto para Mobile -->
     <div id="menuLateral" class="menu-lateral-oculto">
         <i class="fas fa-times close-btn" onclick="toggleMenu()"></i>
@@ -437,8 +488,24 @@
             <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
             <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>
             <li><a href="/contato"><i class="fab fa-whatsapp"></i> Contato</a></li>
+            <li id="perfil-mobile">
+                <a href="#" id="icone-perfil-mobile">
+                    <i class="fas fa-user-circle"></i>
+                    <span class="perfil-texto">Entrar ou Cadastrar-se</span> <!-- Texto opcional -->
+                </a>
+            </li>
         </ul>
     </div>
+
+    <!-- Float de login/cadastro que aparece ao clicar no ícone -->
+<div id="perfil-float" class="float-perfil" style="display: none;">
+    <h3 id="bem-vindo-usuario" style="display: none;">Bem-vindo, <span id="usuario-logado"></span></h3>
+    <div id="opcoes-login-cadastro">
+        <p>Já tem uma conta? <a href="/login">Clique aqui para fazer login</a>.</p>
+        <p>Ainda não tem uma conta? <a href="/cadastrar_usuario">Cadastre-se</a>.</p>
+    </div>
+    <button id="logout-btn" style="display: none;">Sair</button>
+</div>
 
 
     <form id="searchForm" action="/buscar_medicamentos" method="POST" style="display: flex; align-items: center; justify-content: center; margin-top: 50px;">
@@ -495,6 +562,66 @@
         </div>
     </div>
     <script>
+   
+   window.onload = function() {
+    fetch('/verificar_usuario_logado') // Rota para verificar se o usuário está logado
+        .then(response => response.json())
+        .then(data => {
+            if (data.logado) {
+                document.getElementById('usuario-logado').textContent = data.usuario;
+                document.getElementById('bem-vindo-usuario').style.display = 'block';
+                document.getElementById('opcoes-login-cadastro').style.display = 'none';
+                document.getElementById('logout-btn').style.display = 'block';
+
+                // Esconder todos os textos "Entrar ou Cadastrar-se"
+                document.querySelectorAll('.perfil-texto').forEach(function(el) {
+                    el.style.display = 'none';
+                });
+            } else {
+                document.getElementById('bem-vindo-usuario').style.display = 'none';
+                document.getElementById('opcoes-login-cadastro').style.display = 'block';
+                document.getElementById('logout-btn').style.display = 'none';
+
+                document.querySelectorAll('.perfil-texto').forEach(function(el) {
+                    el.style.display = 'inline';
+                });
+            }
+        })
+        .catch(error => console.error('Erro ao verificar o usuário:', error));
+};
+
+// Função de logout
+document.getElementById('logout-btn').addEventListener('click', function () {
+    fetch('/logout', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                location.reload(); // Recarrega a página após logout
+            }
+        })
+        .catch(error => console.error('Erro ao fazer logout:', error));
+});
+
+// Função para exibir e ocultar o perfil flutuante
+function togglePerfil() {
+    const perfilFloat = document.getElementById('perfil-float');
+    if (perfilFloat.style.display === 'block') {
+        perfilFloat.style.display = 'none';
+    } else {
+        perfilFloat.style.display = 'block';
+    }
+}
+
+// Evento de clique para o ícone de perfil (desktop e mobile)
+document.getElementById('icone-perfil').addEventListener('click', function(e) {
+    e.preventDefault();
+    togglePerfil();
+});
+
+document.getElementById('icone-perfil-mobile').addEventListener('click', function(e) {
+    e.preventDefault();
+    togglePerfil();
+});
+
         function toggleMenu() {
             const menu = document.getElementById('menuLateral');
             if (menu.style.display === 'block') {

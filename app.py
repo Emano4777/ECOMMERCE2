@@ -670,30 +670,40 @@ def pagar_cartao_credito(charge_id, payment_token, customer_data, parcelas):
 
 @app.route('/medicamentos')
 def index():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))  # Redireciona para a página de login se não estiver logado
-
-    user_id = session['user_id']
-    carrinho = buscar_itens_carrinho(user_id)
     conn = get_db_connection()  # Obtenha a conexão com o banco de dados
     cursor = conn.cursor()  # Crie um cursor a partir da conexão
     cursor.execute("SELECT medicamento_id, nome, link_imagem, preco FROM sugestao WHERE link_imagem IS NOT NULL")
     medicamentos = cursor.fetchall()
-     
+
     # Transforme o resultado da consulta em uma lista de dicionários
     medicamentos = [{'medicamento_id': row[0], 'nome': row[1], 'link_imagem': row[2], 'preco': row[3]} for row in medicamentos]
 
-     # Buscar os itens do carrinho para o usuário logado
-    user_id = session['user_id']  # Pegar o ID do usuário logado da sessão
-    carrinho = buscar_itens_carrinho(user_id)  # Função que busca o carrinho do usuário
+    # Inicializa o carrinho como vazio para usuários não logados
+    carrinho = []
+
+    # Verifica se o usuário está logado
+    if 'user_id' in session:
+        user_id = session['user_id']
+        carrinho = buscar_itens_carrinho(user_id)  # Função que busca o carrinho do usuário
 
     cursor.close()  # Feche o cursor
     conn.close()  # Feche a conexão
 
-    return render_template('index.html', medicamentos=medicamentos,carrinho=carrinho)
+    return render_template('index.html', medicamentos=medicamentos, carrinho=carrinho)
 
 
 
+@app.route('/verificar_usuario_logado')
+def verificar_usuario_logado():
+    if 'user_id' in session:
+        return jsonify({'logado': True, 'usuario': session.get('usuario')})
+    return jsonify({'logado': False})
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('user_id', None)
+    session.pop('usuario', None)
+    return jsonify({'message': 'Logout realizado com sucesso!'})
 
 @app.route('/cart', methods=['GET', 'POST'])
 def cart():
