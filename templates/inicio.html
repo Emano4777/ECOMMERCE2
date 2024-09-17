@@ -16,6 +16,61 @@ body {
     width: 100%;
     background-color: #f0f0f0;
 }
+
+#bem-vindo-usuario {
+    margin-bottom: 15px; /* Adiciona espaço abaixo do texto "Bem-vindo" */
+}
+
+
+.carrinho-opcoes i {
+    color: #b30000;
+    margin-top: 10px; /* Espaço acima do ícone do carrinho */
+    margin-bottom: 15px; /* Espaço abaixo do ícone do carrinho */
+    display: flex;
+    align-items: center;
+    font-size: 1.2rem; /* Tamanho do texto do Carrinho */
+}
+
+.carrinho-opcoes a {
+    color: #b30000;
+    margin-top: 10px; /* Espaço acima do ícone do carrinho */
+    margin-bottom: 15px; /* Espaço abaixo do ícone do carrinho */
+    display: flex;
+    align-items: center;
+    font-size: 1.2rem; /* Tamanho do texto do Carrinho */
+}
+
+.carrinho-opcoes a:hover {
+    margin-top: 10px; /* Espaço acima do ícone do carrinho */
+    margin-bottom: 15px; /* Espaço abaixo do ícone do carrinho */
+    display: flex;
+    align-items: center;
+    font-size: 1.2rem; /* Tamanho do texto do Carrinho */
+}
+
+#logout-btn {
+    margin-top: 10px; /* Adiciona espaço acima do botão de logout */
+    background-color: #b30000;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.3s ease;
+}
+
+#logout-btn:hover {
+    background-color: #ff9900;
+}
+
+#logout-btn:active {
+    transform: scale(0.98);
+}
+
+
+
+
 /* Float Perfil */
 .float-perfil {
     position: absolute;
@@ -137,6 +192,7 @@ body {
 .menu-hamburguer {
     display: none;
     padding: 10px;
+    justify-content: space-between;
     background-color: rgba(179, 0, 0, 0.9);
     color: white;
     font-size: 1.5rem;
@@ -144,34 +200,72 @@ body {
     box-sizing: border-box;
     max-width: 100%;
 }
+#icone-perfil-mobile {
+    display: flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+    margin-right: 20px; /* Mantém o espaço entre o menu e o perfil */
+    margin-left: auto;  /* Empurra o ícone para o lado esquerdo */
+}
+
+.logo-perfil-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-left: 0; /* Mantém a logo no lado direito */
+}
 
 /* Responsividade Logo e Menu Mobile */
 @media (max-width: 768px) {
     .logo-desktop {
         display: none;
     }
+    .logo-perfil-container {
+    display: flex;
+    justify-content: center;
+}
 
     .logo-mobile {
-        display: block;
-        position: absolute;
-        right: 10px;
-        top: 10px;
         height: 40px;
-        max-height: 40px;
-        width: auto;
-        z-index: 1000;
+    max-height: 40px;
+    width: auto;
+    margin-right: 10px;
     }
 
     .menu-desktop {
         display: none;
     }
+    
 
     .menu-hamburguer {
-        display: block;
-        background-color: rgba(179, 0, 0, 0.9);
-        color: white;
-        padding: 15px;
-    }
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background-color: rgba(179, 0, 0, 0.9);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+.menu-hamburguer i {
+    margin-left: 10px;
+}
+.perfil-link {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    color: white;
+    margin-left: auto;
+}
+
+.perfil-link i {
+    margin-right: 5px; /* Espaço entre o ícone e o texto */
+}
+
+.perfil-texto {
+    font-size: 1.2rem;
+}
+
 }
 
 /* Menu Lateral Oculto Mobile */
@@ -415,52 +509,55 @@ body {
         <ul>
             <li><a href="/inicio"><i class="fas fa-home"></i> Início</a></li>
             <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
-            <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>
+           <!-- <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>-->
             <li><a href="/contato"><i class="fab fa-whatsapp"></i> Contato</a></li>
             <li id="perfil-desktop">
                 <a href="#" id="icone-perfil">
                     <i class="fas fa-user-circle"></i>
-                    <span class="perfil-texto">Entrar ou Cadastrar-se</span> <!-- Texto opcional -->
+                    <span class="perfil-texto">Entrar</span> <!-- Texto opcional -->
                 </a>
             </li>
         </ul>
     </nav>
-
-   <!-- Menu Hamburguer para Mobile -->
-<div class="menu-hamburguer" onclick="toggleMenu()">
-    <div class="logo-perfil-container">
-        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+    <div class="menu-hamburguer">
+        <div onclick="toggleMenu()">
+            <i class="fas fa-bars"></i> Menu
+        </div>
+        <a href="#" id="icone-perfil-mobile" class="perfil-link">
+            <span class="perfil-texto">Login</span>
+            <i class="fas fa-user-circle"></i>  
+        </a>
+        <div class="logo-perfil-container">
+            <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+        </div>
     </div>
-    <i class="fas fa-bars"></i> Menu
-</div>
+    
+    
 
-
-   
     <!-- Menu Lateral Oculto para Mobile -->
     <div id="menuLateral" class="menu-lateral-oculto">
         <i class="fas fa-times close-btn" onclick="toggleMenu()"></i>
         <ul>
             <li><a href="/inicio"><i class="fas fa-home"></i> Início</a></li>
             <li><a href="/medicamentos"><i class="fas fa-pills"></i> Medicamentos</a></li>
-            <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>
+           <!-- <li><a href="/cart"><i class="fas fa-shopping-cart"></i> Carrinho</a></li>-->
             <li><a href="/contato"><i class="fab fa-whatsapp"></i> Contato</a></li>
-            <li id="perfil-mobile">
-                <a href="#" id="icone-perfil-mobile">
-                    <i class="fas fa-user-circle"></i>
-                    <span class="perfil-texto">Entrar ou Cadastrar-se</span> <!-- Texto opcional -->
-                </a>
-            </li>
         </ul>
     </div>
     <!-- Float de login/cadastro que aparece ao clicar no ícone -->
-<div id="perfil-float" class="float-perfil" style="display: none;">
-    <h3 id="bem-vindo-usuario" style="display: none;">Bem-vindo, <span id="usuario-logado"></span></h3>
-    <div id="opcoes-login-cadastro"> 
-        <p>Já tem uma conta? <a href="/login">Clique aqui para fazer login</a>.</p>
-        <p>Ainda não tem uma conta? <a href="/cadastrar_usuario">Cadastre-se</a>.</p>
+    <div id="perfil-float" class="float-perfil" style="display: none;">
+        <h3 id="bem-vindo-usuario" style="display: none;">Bem-vindo, <span id="usuario-logado"></span></h3>
+        <div id="opcoes-login-cadastro"> 
+            <p>Já tem uma conta? <a href="/login">Fazer login</a>.</p>
+            <p>Ainda não tem uma conta? <a href="/cadastrar_usuario">Cadastre-se</a>.</p>
+        </div>
+        <div class="carrinho-opcoes" id="carrinho-opcoes" style="display: none; align-items: center; margin-top: 10px;">
+            <i class="fas fa-shopping-cart"></i>
+            <a href="/cart" style="margin-left: 10px; text-decoration: none; color: #b30000;">Carrinho</a>
+        </div>
+        <button id="logout-btn" style="display: none; margin-top: 10px;">Sair</button>
     </div>
-    <button id="logout-btn" style="display: none;">Sair</button>
-</div>
+    
 
     <form id="searchForm" action="/buscar_medicamentos" method="POST" style="display: flex; align-items: center; justify-content: center; margin-top: 50px;">
         <input type="text" id="termo_pesquisa" name="termo_pesquisa" placeholder="Pesquisar medicamentos..." style="padding: 10px; border-radius: 5px 0 0 5px; border: 1px solid #ccc; width: 300px;">
@@ -527,6 +624,8 @@ body {
                 document.getElementById('opcoes-login-cadastro').style.display = 'none';
                 document.getElementById('logout-btn').style.display = 'block';
 
+                document.getElementById('carrinho-opcoes').style.display = 'flex';
+
                 // Esconder todos os textos "Entrar ou Cadastrar-se"
                 document.querySelectorAll('.perfil-texto').forEach(function(el) {
                     el.style.display = 'none';
@@ -535,6 +634,7 @@ body {
                 document.getElementById('bem-vindo-usuario').style.display = 'none';
                 document.getElementById('opcoes-login-cadastro').style.display = 'block';
                 document.getElementById('logout-btn').style.display = 'none';
+                document.getElementById('carrinho-opcoes').style.display = 'none';
 
                 document.querySelectorAll('.perfil-texto').forEach(function(el) {
                     el.style.display = 'inline';
