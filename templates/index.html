@@ -601,7 +601,7 @@
     <div class="float-carrinho" id="carrinho-float">
         <h3>Carrinho de Compras</h3>
         <div id="itens-carrinho"></div>
-        <button class="btn-concluir" id="concluir-compra"><i class="fas fa-shopping-bag"></i> Concluir Compra</button>
+        <button id="concluir-compra" class="btn-concluir"><i class="fas fa-shopping-bag"></i> Concluir Compra</button>
         <button class="btn-fechar" id="fechar-carrinho">Fechar</button>
     </div>
 
@@ -730,40 +730,7 @@ function toggleMenu() {
     const cartCountMobile = document.getElementById('cart-count-mobile');
     const itensCarrinho = document.getElementById('itens-carrinho');
     let carrinhoAberto = false;
-    const concluirCompraBtn = document.getElementById('concluir-compra');
-concluirCompraBtn.addEventListener('click', () => {
-    if (carrinho.length === 0) {
-        alert("Seu carrinho está vazio!");
-        return;
-    }
-
-    // Cria um formulário oculto para enviar os dados via POST
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/cart'; // URL da página cart.html
-    form.style.display = 'none';
-
-    carrinho.forEach((item, index) => {
-        const inputNome = document.createElement('input');
-        inputNome.name = 'nome';  // Nome esperado pelo backend
-        inputNome.value = item.nome;
-        form.appendChild(inputNome);
-
-        const inputPreco = document.createElement('input');
-        inputPreco.name = 'preco';  // Nome esperado pelo backend
-        inputPreco.value = item.preco;
-        form.appendChild(inputPreco);
-
-        const inputQuantidade = document.createElement('input');
-        inputQuantidade.name = 'quantidade';  // Nome esperado pelo backend
-        inputQuantidade.value = item.quantidade;
-        form.appendChild(inputQuantidade);
-    });
-
-    document.body.appendChild(form);
-    form.submit(); // Submete o formulário para redirecionar à página de checkout
-});
-
+   
     // Função para abrir o carrinho (para desktop e mobile)
     function abrirCarrinho() {
         carrinhoAberto = !carrinhoAberto;
@@ -789,6 +756,12 @@ function abrirCarrinho() {
 // Chama updateCartCount quando a página for carregada
 document.addEventListener('DOMContentLoaded', () => {
     updateCartCount(); // Atualiza o contador do carrinho ao carregar a página
+    const concluirCompraBtn = document.getElementById('concluir-compra');
+    concluirCompraBtn.addEventListener('click', () => {
+        window.location.href = '/cart'; // Redireciona para a página cart.html
+    });
+
+
 
     // Adiciona eventos para botões de adicionar ao carrinho
     document.querySelectorAll('.btn-carrinho').forEach(btn => {
@@ -880,7 +853,6 @@ function handleDeleteItem(event) {
         console.error('Erro na requisição:', error);
     });
 }
-
 // Função para renderizar o carrinho com itens do banco de dados
 function renderCarrinho() {
     fetch('/manter_carrinho')
@@ -924,15 +896,13 @@ function updateCartCount() {
     fetch('/manter_carrinho')
     .then(response => response.json())
     .then(data => {
+        console.log('Carrinho atual:', data.carrinho); 
         const totalItems = data.carrinho.reduce((acc, item) => acc + item.quantidade, 0);
         document.getElementById('cart-count-desktop').textContent = totalItems;
         document.getElementById('cart-count-mobile').textContent = totalItems;
     })
     .catch(error => console.error('Erro ao atualizar o contador do carrinho:', error));
 }
-
-
-
     // Código para arrastar o carrinho
 let isDragging = false; // Flag para indicar se o carrinho está sendo arrastado
 

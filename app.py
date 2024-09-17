@@ -325,6 +325,7 @@ def buscar_itens_carrinho(user_id):
     return [{'medicamento_id': item[0], 'nome': item[1], 'quantidade': item[2], 'total': item[3]} for item in itens]
 
 
+
 @app.route('/manter_carrinho')
 @login_required
 def manter_carrinho():
@@ -705,33 +706,43 @@ def logout():
     session.pop('usuario', None)
     return jsonify({'message': 'Logout realizado com sucesso!'})
 
-@app.route('/cart', methods=['GET', 'POST'])
+def calcular_total_carrinho_bd(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT SUM(total) 
+        FROM pedidos_log 
+        WHERE user_id = %s AND status = 'em_carrinho'
+    """
+    cursor.execute(query, (user_id,))
+    total = cursor.fetchone()[0] or 0  # Caso o total seja None, retorna 0
+
+    cursor.close()
+    conn.close()
+
+    return f'R$ {total:.2f}'
+
+
+@app.route('/cart', methods=['GET'])
+@login_required
 def cart():
-    if request.method == 'POST':
-        carrinho = []
-        nomes = request.form.getlist('nome')
-        precos = request.form.getlist('preco')
-        quantidades = request.form.getlist('quantidade')
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login'))
 
-        for nome, preco, quantidade in zip(nomes, precos, quantidades):
-            preco_float = float(preco.replace('R$', '').replace(',', '.').strip())
-            quantidade_int = int(quantidade)
-            total = preco_float * quantidade_int
+    # Buscar os itens do carrinho do usuário a partir da tabela pedidos_log
+    carrinho = buscar_itens_carrinho(user_id)
 
-            carrinho.append({
-                'nome': nome,
-                'preco': f'R$ {preco_float:.2f}',
-                'quantidade': quantidade_int,
-                'total': f'R$ {total:.2f}'
-            })
+    # Se não houver itens no carrinho, redireciona para uma página de carrinho vazio
+    if not carrinho:
+        return render_template('cart.html', carrinho=[], total_carrinho="R$ 0,00")
 
-        session['carrinho'] = carrinho
-        total_carrinho = calcular_total_carrinho(carrinho)
-        return render_template('cart.html', carrinho=carrinho, total_carrinho=total_carrinho)
-    else:
-        carrinho = session.get('carrinho', [])
-        total_carrinho = calcular_total_carrinho(carrinho)
-        return render_template('cart.html', carrinho=carrinho, total_carrinho=total_carrinho)
+    # Calcula o total do carrinho somando os preços
+    total_carrinho = sum(float(item['total']) for item in carrinho)
+    total_carrinho_formatado = f'R$ {total_carrinho:.2f}'
+
+    return render_template('cart.html', carrinho=carrinho, total_carrinho=total_carrinho_formatado)
     
 @app.route('/log-click', methods=['POST'])
 def log_click():

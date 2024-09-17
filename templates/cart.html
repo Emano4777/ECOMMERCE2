@@ -392,36 +392,37 @@
     <h1>Carrinho de Compras</h1>
 
     {% if carrinho %}
-    <table class="cart-table">
-        <thead>
-            <tr>
-                <th>Produto</th>
-                <th>Quantidade</th>
-                <th>Preço</th>
-                <th>Total</th>
-                <th>Ações</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in carrinho %}
-            <tr>
-                <td>{{ item.nome }}</td>
-                <td>{{ item.quantidade }}</td>
-                <td>{{ item.preco }}</td>
-                <td>{{ item.total }}</td>
-                <td>
-                    <form action="{{ url_for('edit_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
-                        <input type="number" name="quantidade" value="{{ item.quantidade }}" min="1" style="width: 50px;">
-                        <button class="icon-btn edit-btn"><i class="fas fa-pencil-alt"></i></button>
-                    </form>
-                    <form action="{{ url_for('delete_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
-                        <button class="icon-btn delete-btn"><i class="fas fa-trash"></i></button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<table class="cart-table">
+    <thead>
+        <tr>
+            <th>Produto</th>
+            <th>Quantidade</th>
+            <th>Preço</th>
+            <th>Total</th>
+            <th>Ações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in carrinho %}
+        <tr>
+            <td>{{ item.nome }}</td>
+            <td>{{ item.quantidade }}</td>
+            <td>{{ item.preco }}</td>
+            <td>{{ item.total }}</td>
+            <td>
+                <form action="{{ url_for('edit_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
+                    <input type="number" name="quantidade" value="{{ item.quantidade }}" min="1" style="width: 50px;">
+                    <button class="icon-btn edit-btn"><i class="fas fa-pencil-alt"></i></button>
+                </form>
+                <form action="{{ url_for('delete_item', item_nome=item.nome) }}" method="POST" style="display:inline;">
+                    <button class="icon-btn delete-btn"><i class="fas fa-trash"></i></button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
 
     <!-- Opções de pagamento -->
     <div class="payment-options">

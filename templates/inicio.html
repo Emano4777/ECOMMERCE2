@@ -6,14 +6,18 @@
     <title>Página Inicial - PoupAqui E-commerce</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 0;
-            padding: 0;
-            overflow-x: hidden;
-            position: relative;
-        } 
-        .float-perfil {
+       /* Estilos Globais */
+body {
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    position: relative;
+    width: 100%;
+    background-color: #f0f0f0;
+}
+/* Float Perfil */
+.float-perfil {
     position: absolute;
     top: 80px;
     right: 20px;
@@ -32,51 +36,25 @@
     font-size: 1.5rem;
     margin-bottom: 10px;
 }
+
+/* Responsividade Float Perfil */
 @media (max-width: 768px) {
     #perfil-float {
         position: fixed;
         top: 100px;
-        right: 50%; /* Ajuste para centralizar */
-        transform: translateX(50%); /* Centraliza o float */
-        width: 90%; /* Ocupe 90% da largura da tela */
-        max-width: 400px; /* Limita a largura máxima para não ficar exagerado */
-        background-color: rgba(255, 255, 255, 0.95); 
+        right: 50%;
+        transform: translateX(50%);
+        width: 90%;
+        max-width: 400px;
+        background-color: rgba(255, 255, 255, 0.95);
         padding: 20px;
         z-index: 2000;
-        box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2); /* Melhorar o efeito de sombra */
+        box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
         border-radius: 10px;
     }
 }
 
-/* Ajuste para a logo e ícone no mobile */
-.logo-perfil-container {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-        .video-background {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    object-fit: cover;
-    z-index: -1;
-    opacity: 0.6;
-    pointer-events: none;
-    max-width: 100%; /* Garante que o vídeo não exceda a largura da viewport */
-    overflow: hidden; /* Impede qualquer transbordamento */
-}
-
-@media (max-width: 768px) {
-    .video-background {
-        position: fixed;
-        width: 100vw;
-        height: 100vh;
-        object-fit: cover;
-        overflow: hidden; /* Impede qualquer transbordamento */
-    }
-}
+/* Search Container */
 .search-container {
     display: flex;
     justify-content: center;
@@ -105,72 +83,40 @@
     margin-left: 5px;
 }
 
-/* Responsividade */
+/* Responsividade Search Container */
 @media (max-width: 768px) {
     #search-input {
-        width: 90%; /* O campo de pesquisa ocupará 90% da largura da tela */
-        padding: 8px; /* Reduz o padding para telas menores */
+        width: 90%;
+        padding: 8px;
     }
 
     #search-button {
-        padding: 8px 12px; /* Ajusta o padding para o botão em telas menores */
+        padding: 8px 12px;
     }
 }
 
-     /* Menu visível no desktop */
-     .menu-desktop {
+/* Menu Desktop */
+.menu-desktop {
     display: flex;
     justify-content: flex-end;
     background-color: rgba(179, 0, 0, 0.9);
-    padding: 1rem 2rem; /* Ajuste para melhor espaçamento */
+    padding: 1rem 2rem;
     color: white;
-    font-size: 1.5rem;
     width: 100%;
     box-sizing: border-box;
+    height: 80px;
     position: relative;
-    font-size: 1.5rem; /* Tamanho do menu */
-    height: 80px; /* Altura do menu */
-}
-.logo-desktop,
-.logo-mobile {
-    height: 100%; /* Ajusta a altura da logo ao tamanho do menu */
-    max-height: 80px; /* Limita a altura para se alinhar ao menu */
 }
 
-/* Logo no Desktop */
 .logo-desktop {
     position: absolute;
     left: 10px;
-    top: 10px;
-    top: 0; /* Ajusta a logo para alinhar com o topo do menu */
-    height: 100%; /* Ajusta a altura da logo para ser a mesma do menu */
-    width: auto; /* A largura se ajusta proporcionalmente à altura */
-    max-height: 80px; /* Limita a altura da logo ao tamanho do menu */
+    top: 0;
+    height: 100%;
+    width: auto;
+    max-height: 80px;
     z-index: 1000;
 }
-
-/* Logo no Mobile */
-.logo-mobile {
-    display: none;
-}
-
-@media (max-width: 768px) {
-    .logo-desktop {
-        display: none; /* Esconde a logo do desktop no mobile */
-    }
-
-    .logo-mobile {
-        display: block;
-    position: absolute;
-    right: 10px;
-    top: 10px;
-    height: 40px; /* Tamanho ajustado para mobile */
-    max-height: 40px; /* Limita a altura máxima no mobile */
-    width: auto; /* Ajusta a largura automaticamente */
-    z-index: 1000;
-    }
-}
-
 
 .menu-desktop ul {
     list-style: none;
@@ -180,141 +126,172 @@
     margin: 0;
 }
 
-        .menu-desktop ul li a {
-            color: white;
-            text-decoration: none;
-            font-size: 1.5rem;
-            justify-content: flex-end;
-            padding: 1rem;
-        }
-
-        /* Menu Hamburguer para celular */
-        .menu-hamburguer {
-            display: none; /* Oculto no desktop */
-            padding: 10px;
-            background-color: rgba(179, 0, 0, 0.9);
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
-
-        /* Menu lateral oculto para celular */
-        .menu-lateral-oculto {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 250px;
-            height: 100%;
-            background-color: rgba(179, 0, 0, 0.9);
-            padding: 20px;
-            z-index: 1000;
-        }
-
-        .menu-lateral-oculto ul {
-            list-style-type: none;
-            padding: 0;
-        }
-
-        .menu-lateral-oculto ul li {
-            padding: 15px 0;
-        }
-
-        .menu-lateral-oculto ul li a {
-            color: white;
-            text-decoration: none;
-            font-size: 1.2rem;
-        }
-
-        .menu-lateral-oculto .close-btn {
-            font-size: 2rem;
-            color: white;
-            cursor: pointer;
-        }
-
-        /* Estilos para Mobile */
-        @media (max-width: 768px) {
-            .menu-desktop {
-                display: none; /* Oculto no celular */
-            }
-
-            .menu-hamburguer {
-                display: block;
-                background-color: rgba(179, 0, 0, 0.9);
-                color: white;
-                padding: 15px;
-            }
-
-            .menu-hamburguer i {
-                margin-right: 10px;
-            }
-
-            .sections {
-        flex-direction: column;
-        align-items: center;
-        margin: 0 1rem;
-    }
-
-        }
-
-        .sections {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    margin: 0 2rem;
-    padding-top: 2rem;
+.menu-desktop ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.5rem;
+    padding: 1rem;
 }
 
+/* Menu Hamburguer Mobile */
+.menu-hamburguer {
+    display: none;
+    padding: 10px;
+    background-color: rgba(179, 0, 0, 0.9);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+/* Responsividade Logo e Menu Mobile */
 @media (max-width: 768px) {
-    .sections {
-        flex-direction: column; /* Coloca as seções em coluna no mobile */
-        margin: 0 1rem; /* Reduz as margens laterais no mobile */
+    .logo-desktop {
+        display: none;
+    }
+
+    .logo-mobile {
+        display: block;
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        height: 40px;
+        max-height: 40px;
+        width: auto;
+        z-index: 1000;
+    }
+
+    .menu-desktop {
+        display: none;
+    }
+
+    .menu-hamburguer {
+        display: block;
+        background-color: rgba(179, 0, 0, 0.9);
+        color: white;
+        padding: 15px;
     }
 }
 
+/* Menu Lateral Oculto Mobile */
+.menu-lateral-oculto {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    height: 100%;
+    background-color: rgba(179, 0, 0, 0.9);
+    padding: 20px;
+    z-index: 1000;
+}
 
-        /* Destaque dos Títulos com mudança de cor */
-        .novidades h2, .vantagens h2 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            animation: colorChange 3s infinite alternate;
-        }
+.menu-lateral-oculto ul {
+    list-style-type: none;
+    padding: 0;
+}
 
-        @keyframes colorChange {
-            0% {
-                color: #e60000; /* Vermelho suave */
-            }
-            100% {
-                color: #ffcc00; /* Amarelo suave */
-            }
-        }
+.menu-lateral-oculto ul li {
+    padding: 15px 0;
+}
 
-        /* Estilo dos itens de produto */
-        .novidades .produtos {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
+.menu-lateral-oculto ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.2rem;
+}
 
-        .novidades .produto-item {
-            background-color: rgba(255, 255, 255, 0.2); /* Mais transparência */
-            padding: 1rem;
-            border-radius: 5px;
+.menu-lateral-oculto .close-btn {
+    font-size: 2rem;
+    color: white;
+    cursor: pointer;
+}
+
+.redirect-container {
+            margin-top: 20px;
             text-align: center;
-            animation: moveUpDown 3s infinite alternate;
-            position: relative;
         }
 
-        @keyframes moveUpDown {
-            0% {transform: translateY(0);}
-            100% {transform: translateY(-10px);}
+        .redirect-link {
+            color: #b30000;
+            font-weight: bold;
+            text-decoration: none;
+            transition: color 0.3s ease;
         }
 
-        /* Botão Ver Novidades */
-        .ver-novidades {
+        .redirect-link:hover {
+            color: #ff9900;
+        }
+
+/* Seções de Novidades e Vantagens */
+.sections {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    margin: 0 1rem;
+    padding-top: 2rem;
+    max-width: 100%; /* Garante que as seções não excedam a largura da tela */
+}
+
+.novidades {
+    flex: 1;
+    background-color: rgba(255, 255, 255, 0.3);
+    padding: 1rem; /* Reduz o padding para deixar a seção mais compacta */
+    text-align: center;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    margin-right: 1rem; /* Espaçamento entre as seções no desktop */
+    box-sizing: border-box;
+}
+
+.vantagens {
+    flex: 1;
+    background-color: rgba(255, 255, 255, 0.3);
+    padding: 1rem;
+    text-align: center;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+}
+
+.novidades h2, .vantagens h2 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    animation: colorChange 3s infinite alternate;
+}
+
+@keyframes colorChange {
+    0% { color: #e60000; }
+    100% { color: #ffcc00; }
+}
+
+/* Produtos */
+.produtos {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.produto-item {
+    background-color: rgba(255, 255, 255, 0.2);
+    padding: 1rem;
+    border-radius: 5px;
+    text-align: center;
+    animation: moveUpDown 3s infinite alternate;
+    position: relative;
+}
+
+@keyframes moveUpDown {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-10px); }
+}
+
+/* Botão Ver Novidades */
+.ver-novidades {
     background-color: rgba(255, 0, 0, 0.8);
     color: white;
-    padding: 1rem 2rem; /* Ajuste para tamanhos de tela variados */
+    padding: 1rem 2rem;
     font-size: 1.2rem;
     text-decoration: none;
     border-radius: 5px;
@@ -323,134 +300,114 @@
     animation: blink 1s infinite;
     margin-top: 10px;
 }
+
 @media (max-width: 768px) {
     .ver-novidades {
-        padding: 0.8rem 1.5rem; /* Reduzir padding em telas menores */
+        padding: 0.8rem 1.5rem;
         font-size: 1rem;
     }
 }
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
 
-        /* Sessão de Vantagens */
-        .vantagens .vantagem-item {
-            background-color: rgba(255, 255, 255, 0.2);
-            padding: 1rem;
-            border-radius: 5px;
-            border: 2px solid #ffcc00;
-            text-align: center;
-        }
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+/* Responsividade das Seções */
+@media (max-width: 768px) {
+    .sections {
+        flex-direction: column; /* Coloca as seções em coluna no mobile */
+        margin: 0 1rem; /* Reduz as margens laterais no mobile */
+        max-width: 100%; /* Garante que não exceda a largura da tela */
+    }
 
-        /* Carrossel de Reviews no rodapé */
-        .rodape {
-            background-color: #333;
-            color: white;
-            padding: 1.5rem;
-            text-align: center;
-            position: relative;
-        }
+    .novidades, .vantagens {
+        width: 100%; /* Ocupa toda a largura no mobile */
+        background-color: rgba(255, 255, 255, 0.4);
+        padding: 0.5rem; /* Torna o fundo mais compacto no celular */
+        margin-right: 0; /* Remove margem direita no mobile */
+        margin-bottom: 1rem;
+    }
 
-        .rodape .social-icons {
-            margin-top: 1rem;
-        }
+    /* Ajustes gerais para garantir que o conteúdo não ultrapasse a tela */
+    .novidades, .vantagens, .sections {
+        box-sizing: border-box; /* Garante que o padding/margem não extrapolem a largura */
+    }
+}
 
-        .rodape .social-icons a {
-            margin: 0 10px;
-            color: white;
-            font-size: 1.5rem;
-            text-decoration: none;
-        }
+.rodape {
+    background-color: #333;
+    color: white;
+    padding: 1.5rem;
+    text-align: center;
+    overflow: hidden; /* Garante que o conteúdo não ultrapasse */
+}
 
-        .rodape .social-icons a:hover {
-            color: #ffcc00;
-        }
+.rodape .social-icons {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+}
 
-        .rodape .reviews {
+.rodape .social-icons a {
+    margin: 0 10px;
+    color: white;
+    font-size: 1.5rem;
+    text-decoration: none;
+}
+
+.rodape .social-icons a:hover {
+    color: #ffcc00;
+}
+
+.rodape .reviews {
     font-size: 1rem;
     white-space: nowrap;
     overflow: hidden;
     display: flex;
-    flex-wrap: nowrap;
+    justify-content: center;
+    max-width: 100%;
 }
 
+.rodape .review-item {
+    display: inline-block;
+    padding: 0 20px;
+    text-align: center;
+    flex: 0 0 auto;
+}
+
+
+@keyframes slide {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+}
+
+.rodape .reviews {
+    animation: slide 20s linear infinite;
+}
+
+/* Responsividade do Rodapé */
 @media (max-width: 768px) {
+    .rodape {
+        font-size: 0.9rem;
+        padding: 1rem;
+    }
+
     .rodape .reviews {
         font-size: 0.8rem;
-        white-space: normal; /* Permitir quebra de linha em telas menores */
         flex-direction: column;
         align-items: center;
     }
-}
 
-        .rodape .review-item {
-            display: inline-block;
-            padding: 0 20px;
-            text-align: center;
-        }
-
-        @keyframes slide {
-            0% { transform: translateX(100%); }
-            100% { transform: translateX(-100%); }
-        }
-
-        .rodape .reviews {
-            animation: slide 20s linear infinite;
-        }
-
-        /* Responsivo */
-        @media(max-width: 768px) {
-            .sections {
-                flex-direction: column;
-                margin-left: 70px;
-            }
-
-            .novidades, .vantagens {
-    width: 48%;
-    background-color: rgba(255, 255, 255, 0.3); /* Fundo levemente transparente */
-    padding: 1.5rem;
-    text-align: center;
-    border-radius: 10px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    margin-bottom: 2rem; /* Espaçamento entre as seções */
-}
-
-@media (max-width: 768px) {
-    .novidades, .vantagens {
-        width: 100%; /* Ocupa toda a largura no mobile */
-        background-color: rgba(255, 255, 255, 0.4); /* Aumenta a opacidade no mobile para melhor leitura */
-        padding: 1rem;
-        margin-bottom: 1rem;
+    .rodape .social-icons a {
+        font-size: 1.2rem;
     }
 }
-
-
-            .novidades .produtos, .vantagens .vantagem-item {
-                flex-direction: column;
-            }
-
-            .rodape {
-                font-size: 0.9rem;
-            }
-
-            .rodape .social-icons a {
-                font-size: 1.2rem;
-            }
-
-            .rodape .reviews {
-                font-size: 0.8rem;
-            }
-        }
     </style>
 </head>
 <body>
 
-    <!-- Vídeo de fundo -->
-    <video autoplay loop muted class="video-background" playsinline>
-        <source src="/videos/poupaqui.mp4#t=0,15" type="video/mp4">
-        Seu navegador não suporta a reprodução de vídeos.
-    </video>
+
 
     <!-- Menu Desktop -->
     <nav class="menu-desktop">
@@ -478,7 +435,6 @@
 </div>
 
 
-
    
     <!-- Menu Lateral Oculto para Mobile -->
     <div id="menuLateral" class="menu-lateral-oculto">
@@ -496,17 +452,15 @@
             </li>
         </ul>
     </div>
-
     <!-- Float de login/cadastro que aparece ao clicar no ícone -->
 <div id="perfil-float" class="float-perfil" style="display: none;">
     <h3 id="bem-vindo-usuario" style="display: none;">Bem-vindo, <span id="usuario-logado"></span></h3>
-    <div id="opcoes-login-cadastro">
+    <div id="opcoes-login-cadastro"> 
         <p>Já tem uma conta? <a href="/login">Clique aqui para fazer login</a>.</p>
         <p>Ainda não tem uma conta? <a href="/cadastrar_usuario">Cadastre-se</a>.</p>
     </div>
     <button id="logout-btn" style="display: none;">Sair</button>
 </div>
-
 
     <form id="searchForm" action="/buscar_medicamentos" method="POST" style="display: flex; align-items: center; justify-content: center; margin-top: 50px;">
         <input type="text" id="termo_pesquisa" name="termo_pesquisa" placeholder="Pesquisar medicamentos..." style="padding: 10px; border-radius: 5px 0 0 5px; border: 1px solid #ccc; width: 300px;">
