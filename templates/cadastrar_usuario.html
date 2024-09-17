@@ -6,30 +6,32 @@
     <title>Cadastrar-se</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
-            position: relative;
-            overflow-x: hidden;
+       body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #ffffff; /* Define o fundo como branco */
+    position: relative;
+    overflow-x: hidden;
+}
+
+        /* Estilo para o redirecionamento entre páginas de login e cadastro */
+        .redirect-container {
+            margin-top: 20px;
+            text-align: center;
         }
-          /* Estilo para o redirecionamento entre páginas de login e cadastro */
-.redirect-container {
-    margin-top: 20px;
-    text-align: center;
-}
 
-.redirect-link {
-    color: #b30000;
-    font-weight: bold;
-    text-decoration: none;
-    transition: color 0.3s ease;
-}
+        .redirect-link {
+            color: #b30000;
+            font-weight: bold;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
 
-.redirect-link:hover {
-    color: #ff9900;
-}
+        .redirect-link:hover {
+            color: #ff9900;
+        }
+
         /* Estilo do Menu - Desktop */
         .menu-desktop {
             display: flex;
@@ -108,7 +110,19 @@
             margin-top: 50px;
         }
 
-        h1 {
+        .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .header-container img {
+            margin-right: 10px;
+            height: 40px;
+        }
+
+        h2 {
             text-align: center;
             color: #b30000;
             margin-bottom: 20px;
@@ -150,6 +164,37 @@
         select {
             background-color: white;
         }
+
+        /* Alerta de erro */
+        .alert-container {
+            display: none;
+            background-color: #f44336;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            width: 80%;
+            text-align: center;
+        }
+
+        .alert-container.show {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                width: 90%;
+            }
+
+            .header-container img {
+                height: 30px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -172,39 +217,65 @@
         <i class="fas fa-bars"></i> Menu
     </div>
 
+    <div id="alert" class="alert-container"></div>
+
     <!-- Formulário de Cadastro -->
     <div class="container">
-        <h2>Cadastrar-se</h2>
+        <div class="header-container">
+            <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui">
+            <h2>Cadastrar-se</h2>
+        </div>
 
-    <!-- Formulário de cadastro -->
-    <form action="/cadastrar_usuario" method="POST">
-        <label for="usuario">Usuário:</label>
-        <input type="text" id="usuario" name="usuario" required><br><br>
+        <form id="cadastroForm" action="/cadastrar_usuario" method="POST">
+            <label for="usuario">Usuário:</label>
+            <input type="text" id="usuario" name="usuario" required>
 
-        <label for="senha">Senha:</label>
-        <input type="password" id="senha" name="senha" required><br><br>
+            <label for="senha">Senha:</label>
+            <input type="password" id="senha" name="senha" required>
 
-        <label for="lojaescolhida">Loja Escolhida Poupaqui para realização das compras:</label>
-        <select id="lojaescolhida" name="lojaescolhida">
-            <option value="Mirassol">Mirassol</option>
-            <!-- Outras opções de loja -->
-        </select><br><br>
+            <label for="lojaescolhida">Loja Escolhida Poupaqui para realização das compras:</label>
+            <select id="lojaescolhida" name="lojaescolhida">
+                <option value="Mirassol">Mirassol</option>
+                <!-- Outras opções de loja -->
+            </select>
 
-        <button type="submit">Cadastrar</button>
-    </form>
+            <button type="submit">Cadastrar</button>
+        </form>
 
-    <!-- Alerta de erro, se houver -->
-    {% if error_message %}
-    <div style="color: red; margin-top: 20px;">
-        <strong>Erro:</strong> {{ error_message }}
+        <!-- Redirecionamento para login -->
+        <div class="redirect-container">
+            <p>Já tem uma conta? <a href="/login" class="redirect-link">Clique aqui para fazer login</a>.</p>
+        </div>
+
+        <!-- Alerta de erro, se houver -->
+        {% if error_message %}
+        <div style="color: red; margin-top: 20px;">
+            <strong>Erro:</strong> {{ error_message }}
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
 
-    <div class="redirect-container">
-        <p>Já tem uma conta? <a href="/login" class="redirect-link">Clique aqui para fazer login</a>.</p>
-    </div>
-    
     <script>
+        function showAlert(message) {
+            const alertBox = document.getElementById('alert');
+            alertBox.textContent = message;
+            alertBox.classList.add('show');
+            setTimeout(() => {
+                alertBox.classList.remove('show');
+            }, 3000);
+        }
+
+        // Validação do formulário de cadastro
+        document.getElementById('cadastroForm').addEventListener('submit', function(event) {
+            const usuario = document.getElementById('usuario').value;
+            const senha = document.getElementById('senha').value;
+
+            if (usuario === "" || senha === "") {
+                event.preventDefault();
+                showAlert('Por favor, preencha todos os campos!');
+            }
+        });
+
         function toggleMenu() {
             const menu = document.getElementById('menuLateral');
             const isMenuOpen = menu.classList.contains('show');
