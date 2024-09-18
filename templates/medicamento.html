@@ -27,6 +27,35 @@
     height: 100%;
     background-color: rgba(0, 0, 0, 0.5); /* Fundo escurecido */
 }
+.float-perfil {
+    position: absolute;
+    top: 80px;
+    right: 20px;
+    width: 300px;
+    padding: 20px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid #b30000;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    z-index: 2000;
+    display: none; /* Escondido por padrão */
+}
+
+@media (max-width: 768px) {
+    .float-perfil {
+        position: fixed;
+        top: 100px;
+        left: 50%;
+        transform: translateX(-50%); /* Isso centraliza o elemento */
+        width: 80%; /* Mantém a largura de 80% da tela */
+        max-width: 320px; /* Limite máximo da largura */
+        padding: 10px 20px; /* Ajusta o padding */
+        box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+        background-color: rgba(255, 255, 255, 0.95);
+        z-index: 2000;
+        border-radius: 10px;
+    }
+}
 
 .modal-content {
     background-color: white;
@@ -76,12 +105,15 @@
             position: relative;
             box-sizing: border-box;
         }
+        #icone-perfil{
+    display: flex;
+    align-items: flex;
+    color: white;
+    text-decoration: none;
+}
 
-        .logo-desktop,
-.logo-mobile {
-    height: auto;
-    max-height: 100%; /* Garante que a logo não ultrapasse a altura do menu */
-    width: auto; /* Mantém a proporção */
+#icone-perfil i {
+    margin-right: 5px;
 }
 
         .logo-desktop {
@@ -107,7 +139,7 @@
                 position: absolute;
                 right: 10px;
                 top: 10px;
-                height: 40px;
+                height: 30px;
                 width: auto;
                 max-width: 100px;
                 z-index: 1000;
@@ -259,8 +291,41 @@
 
         @media (max-width: 768px) {
             .menu-hamburguer {
-                display: block;
-            }
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background-color: rgba(179, 0, 0, 0.9);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+.menu-hamburguer i {
+    margin-left: 10px;
+}
+.perfil-link {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    color: white;
+    margin-left: auto;
+}
+
+.perfil-link i {
+    margin-right: 5px; /* Espaço entre o ícone e o texto */
+}
+
+.perfil-texto {
+    font-size: 1.2rem;
+}
+#icone-perfil-mobile {
+    display: flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+    margin-right: 50px; /* Mantém o espaço entre o menu e o perfil */
+    margin-left: auto;  /* Empurra o ícone para o lado esquerdo */
+}
 
             .menu-desktop {
                 display: none;
@@ -402,14 +467,27 @@
                 <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-desktop">0</span></a>
             </li>
             <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+            <li id="perfil-desktop"></li>
+                <a href="#" id="icone-perfil">
+                    <i class="fas fa-user-circle"></i>
+                    <span class="perfil-texto">Entrar</span> <!-- Texto opcional -->
+                </a>
+            </li>
         </ul>
     </nav>
 
-    <div class="menu-hamburguer" onclick="toggleMenu()">
-        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
-        <i class="fas fa-bars"></i> Menu
+    <div class="menu-hamburguer">
+        <div onclick="toggleMenu()">
+            <i class="fas fa-bars"></i> Menu
+        </div>
+        <a href="#" id="icone-perfil-mobile" class="perfil-link">
+            <span class="perfil-texto">Login</span>
+            <i class="fas fa-user-circle"></i>  
+        </a>
+        <div class="logo-perfil-container">
+            <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+        </div>
     </div>
-
     <div id="menuLateral" class="menu-lateral-oculto">
         <i class="fas fa-times close-btn" onclick="toggleMenu()"></i>
         <ul>
@@ -450,6 +528,19 @@
             </button>
         </div>
     </div>
+    <div id="perfil-float" class="float-perfil" style="display: none;">
+        <h3 id="bem-vindo-usuario" style="display: none;">Bem-vindo, <span id="usuario-logado"></span></h3>
+        <div id="opcoes-login-cadastro">
+            <p>Já tem uma conta? <a href="/login">Fazer login</a>.</p>
+            <p>Ainda não tem uma conta? <a href="/cadastrar_usuario">Cadastre-se</a>.</p>
+        </div>
+        <div class="carrinho-opcoes" id="carrinho-opcoes" style="display: none; align-items: center; margin-top: 10px;">
+            <i class="fas fa-shopping-cart"></i>
+            <a href="/cart" style="margin-left: 10px; text-decoration: none; color: #ca0b0b;">Ver itens</a>
+        </div>
+        <button id="logout-btn" style="display: none; margin-top: 10px;">Sair</button>
+    </div>
+
     <div class="float-carrinho" id="carrinho-float" style="display: none;">
         <h3>Carrinho de Compras</h3>
         <div id="itens-carrinho"></div>
@@ -458,6 +549,69 @@
     </div>
     
     <script>
+     window.onload = function() {
+    fetch('/verificar_usuario_logado') // Rota para verificar se o usuário está logado
+        .then(response => response.json())
+        .then(data => {
+            if (data.logado) {
+                document.getElementById('usuario-logado').textContent = data.usuario;
+                document.getElementById('bem-vindo-usuario').style.display = 'block';
+                document.getElementById('opcoes-login-cadastro').style.display = 'none';
+                document.getElementById('logout-btn').style.display = 'block';
+
+                document.getElementById('carrinho-opcoes').style.display = 'flex';
+
+                // Esconder todos os textos "Entrar ou Cadastrar-se"
+                document.querySelectorAll('.perfil-texto').forEach(function(el) {
+                    el.style.display = 'none';
+                });
+            } else {
+                document.getElementById('bem-vindo-usuario').style.display = 'none';
+                document.getElementById('opcoes-login-cadastro').style.display = 'block';
+                document.getElementById('logout-btn').style.display = 'none';
+                document.getElementById('carrinho-opcoes').style.display = 'none';
+
+                document.querySelectorAll('.perfil-texto').forEach(function(el) {
+                    el.style.display = 'inline';
+                });
+            }
+        })
+        .catch(error => console.error('Erro ao verificar o usuário:', error));
+};
+
+// Função de logout
+document.getElementById('logout-btn').addEventListener('click', function () {
+    fetch('/logout', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                location.reload(); // Recarrega a página após logout
+            }
+        })
+        .catch(error => console.error('Erro ao fazer logout:', error));
+});
+
+// Função para exibir e ocultar o perfil flutuante
+function togglePerfil() {
+    const perfilFloat = document.getElementById('perfil-float');
+    if (perfilFloat.style.display === 'block') {
+        perfilFloat.style.display = 'none';
+    } else {
+        perfilFloat.style.display = 'block';
+    }
+}
+
+// Evento de clique para o ícone de perfil (desktop e mobile)
+document.getElementById('icone-perfil').addEventListener('click', function(e) {
+    e.preventDefault();
+    togglePerfil();
+});
+
+document.getElementById('icone-perfil-mobile').addEventListener('click', function(e) {
+    e.preventDefault();
+    togglePerfil();
+});
+
+
         function toggleMenu() {
     const menu = document.getElementById('menuLateral');
     const isMenuOpen = menu.classList.contains('show'); 
