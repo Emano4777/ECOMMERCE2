@@ -7,16 +7,64 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
-            position: relative;
-            overflow-x: hidden;
+            font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    position: relative;
+    width: 100%;
+    background-color: #f0f0f0;
         }
 
-        
-       
+
+        .modal {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5); /* Fundo escurecido */
+}
+
+.modal-content {
+    background-color: white;
+    margin: 15% auto;
+    padding: 20px;
+    border-radius: 10px;
+    width: 80%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.modal-content p {
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+}
+
+.modal-content button {
+    background-color: #b30000;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    margin: 10px;
+}
+
+.modal-content button:hover {
+    background-color: #ff9900;
+}
+
+.close {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+      
         .menu-desktop {
             display: flex;
             justify-content: flex-end;
@@ -374,6 +422,16 @@
         </ul>
     </div>
 
+    <!-- Modal de Aviso para Login -->
+<div id="modal-login" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <p>Para adicionar itens ao carrinho, é necessário criar uma conta ou fazer login em nosso sistema.</p>
+        <button id="login-btn">Fazer Login</button>
+        <button id="signup-btn">Criar Conta</button>
+    </div>
+</div>
+
     <div class="medicamento-container">
         <div class="imagem-detalhes">
             <h1>{{ medicamento.nome }}</h1>
@@ -429,77 +487,104 @@
     const cartCountMobile = document.getElementById('cart-count-mobile');
     const itensCarrinho = document.getElementById('itens-carrinho');
     let carrinhoAberto = false;
-    const concluirCompraBtn = document.getElementById('concluir-compra');
-    concluirCompraBtn.addEventListener('click', () => {
-    if (carrinho.length === 0) {
-        alert("Seu carrinho está vazio!");
-        return;
-    }
 
-    // Cria um formulário oculto para enviar os dados via POST
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/cart'; // URL da página cart.html
-    form.style.display = 'none';
-
-    carrinho.forEach((item, index) => {
-        const inputNome = document.createElement('input');
-        inputNome.name = 'nome';  // Nome esperado pelo backend
-        inputNome.value = item.nome;
-        form.appendChild(inputNome);
-
-        const inputPreco = document.createElement('input');
-        inputPreco.name = 'preco';  // Nome esperado pelo backend
-        inputPreco.value = item.preco;
-        form.appendChild(inputPreco);
-
-        const inputQuantidade = document.createElement('input');
-        inputQuantidade.name = 'quantidade';  // Nome esperado pelo backend
-        inputQuantidade.value = item.quantidade;
-        form.appendChild(inputQuantidade);
-    });
-
-    document.body.appendChild(form);
-    form.submit(); // Submete o formulário para redirecionar à página de checkout
-});
-
- 
-    // Eventos para abrir o carrinho no desktop e no mobile
-    document.getElementById('btn-carrinho-desktop').addEventListener('click', abrirCarrinho);
-    document.getElementById('btn-carrinho-mobile').addEventListener('click', abrirCarrinho);
-
-    fecharCarrinhoBtn.addEventListener('click', () => {
-        carrinhoFloat.style.display = 'none';
-        carrinhoAberto = false;
-    });
 
     // Função para adicionar itens ao carrinho
     document.addEventListener('DOMContentLoaded', () => {
-      updateCartCount();
-        document.querySelector('.btn-carrinho').addEventListener('click', (event) => {
-    const nome = "{{ medicamento.nome }}";
-    const preco = "{{ medicamento.preco }}";
-    const quantidade = document.querySelector('.quantity-input').value;
+    updateCartCount(); // Atualiza o contador do carrinho ao carregar a página
+    const concluirCompraBtn = document.getElementById('concluir-compra');
+    concluirCompraBtn.addEventListener('click', () => {
+        window.location.href = '/cart'; // Redireciona para a página cart.html
+    });
+    const modal = document.getElementById('modal-login');
+    const closeModal = document.querySelector('.close');
+    const loginBtn = document.getElementById('login-btn');
+    const signupBtn = document.getElementById('signup-btn');
 
-    const itemCarrinho = {
-        nome: nome,
-        preco: preco,
-        quantidade: parseInt(quantidade)
-    };
-
-    const itemExistente = carrinho.find(i => i.nome === nome);
-
-    if (itemExistente) {
-        itemExistente.quantidade += itemCarrinho.quantidade;
-    } else {
-        carrinho.push(itemCarrinho);
+    function abrirModalLogin() {
+        modal.style.display = 'block';
     }
 
-      // Renderiza o carrinho ao carregar a página
-    updateCartCount(); // Atualiza o contador
-    alert(`${quantidade}x ${nome} adicionado ao carrinho!`);
+    // Fechar modal ao clicar no X
+    closeModal.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+
+    // Fechar modal ao clicar fora dele
+    window.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+
+    // Redirecionar para a página de login
+    loginBtn.addEventListener('click', () => {
+        window.location.href = '/login';
+    });
+
+    // Redirecionar para a página de cadastro
+    signupBtn.addEventListener('click', () => {
+        window.location.href = '/cadastrar_usuario';
+    });
+
+
+
+    // Adiciona eventos para botões de adicionar ao carrinho
+    document.querySelectorAll('.btn-carrinho').forEach(btn => {
+    btn.addEventListener('click', (event) => {
+        fetch('/verificar_usuario_logado')
+        .then(response => response.json())
+        .then(data => {
+            if (data.logado) {
+                // Se o usuário estiver logado, procede com a adição ao carrinho
+                const item = event.target.closest('.medicamento-item');
+                const nome = item.getAttribute('data-nome');
+                const preco = item.getAttribute('data-preco');
+                const quantidade = item.querySelector('.quantity-input').value;
+                const medicamentoId = item.getAttribute('data-id');
+
+                if (!medicamentoId) {
+                    alert("Erro: ID do medicamento não encontrado.");
+                    return;
+                }
+
+                const itemCarrinho = {
+                    medicamento_id: medicamentoId,
+                    quantidade: parseInt(quantidade),
+                    preco: parseFloat(preco)
+                };
+
+                // Envia os dados ao backend para adicionar ao carrinho
+                fetch('/adicionar_ao_carrinho', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(itemCarrinho)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message) {
+                        alert(`${quantidade}x ${nome} adicionado ao carrinho com sucesso!`);
+                        updateCartCount(); // Atualiza o contador do carrinho
+                    } else {
+                        console.error('Erro ao adicionar ao carrinho:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro na requisição:', error);
+                });
+            } else {
+                // Se o usuário não estiver logado, redireciona para a página de login
+                abrirModalLogin();
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao verificar o login:', error);
         });
     });
+});
+});
 
    
 function renderCarrinho() {
@@ -532,11 +617,25 @@ function renderCarrinho() {
 }
    // Função para abrir o carrinho (para desktop e mobile)
    function abrirCarrinho() {
+        carrinhoAberto = !carrinhoAberto;
+        carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
+    }
+
+    // Eventos para abrir o carrinho no desktop e no mobile
+    document.getElementById('btn-carrinho-desktop').addEventListener('click', abrirCarrinho);
+    document.getElementById('btn-carrinho-mobile').addEventListener('click', abrirCarrinho);
+
+    fecharCarrinhoBtn.addEventListener('click', () => {
+        carrinhoFloat.style.display = 'none';
+        carrinhoAberto = false;
+    });
+
+   // Função para abrir o carrinho (para desktop e mobile)
+function abrirCarrinho() {
     renderCarrinho(); // Renderiza o carrinho sempre que ele é aberto
     carrinhoAberto = !carrinhoAberto;
     carrinhoFloat.style.display = carrinhoAberto ? 'block' : 'none';
 }
-
 
     // Função para renderizar os itens do carrinho no float
     function handleDeleteItem(event) {

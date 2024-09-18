@@ -7,13 +7,62 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(to bottom, rgba(230,230,230,1) 0%, rgba(210,210,210,1) 100%);
-            position: relative;
-            overflow-x: hidden;
+            font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    position: relative;
+    width: 100%;
+    background-color: #f0f0f0;
         }
+
+        .modal {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5); /* Fundo escurecido */
+}
+
+.modal-content {
+    background-color: white;
+    margin: 15% auto;
+    padding: 20px;
+    border-radius: 10px;
+    width: 80%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.modal-content p {
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+}
+
+.modal-content button {
+    background-color: #b30000;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    margin: 10px;
+}
+
+.modal-content button:hover {
+    background-color: #ff9900;
+}
+
+.close {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
 
 
 .search-container {
@@ -62,23 +111,27 @@
 @media (max-width: 768px) {
     .search-container {
         justify-content: center;
-        width: 100%; /* Garante que a barra ocupe toda a largura da tela no mobile */
-        padding: 0 20px; /* Adiciona um padding lateral para não encostar nas bordas da tela */
+        width: 100%; /* A barra ocupa toda a largura da tela */
+        padding: 0 15px; /* Adiciona padding para evitar que encoste nas bordas */
+        box-sizing: border-box; /* Garante que o padding seja incluído no cálculo da largura */
     }
 
     #search-form {
-        max-width: 100%; /* Faz com que a barra de pesquisa ocupe a largura total */
-        width: 100%; 
-        padding: 5px 15px; /* Ajusta o padding para ficar adequado ao mobile */
+        max-width: 100%; /* A barra de pesquisa ocupa a largura total disponível */
+        width: 100%;
+        padding: 5px 10px; /* Reduz o padding para adequar ao mobile */
+        border-radius: 25px; /* Mantém o design arredondado */
     }
 
     #search-bar {
         font-size: 1rem;
         padding: 10px;
+        flex-grow: 1;
     }
 
     #search-button {
         font-size: 1.2rem;
+        padding: 10px;
     }
 }
 
@@ -107,10 +160,7 @@
     box-sizing: border-box;/* Tamanho maior da fonte */
 }
 .logo-desktop,
-.logo-mobile {
-    height: 100%; /* Ajusta a altura da logo ao tamanho do menu */
-    max-height: 80px; /* Limita a altura da logo no desktop ao tamanho do menu */
-}
+
 
 
 .logo-desktop {
@@ -132,17 +182,8 @@
         display: none; /* Esconde a logo no desktop em telas pequenas */
     }
 
-    .logo-mobile {
-        display: block;
-        position: absolute;
-        right: 10px;
-        top: 10px;
-        height: 40px; /* Tamanho da logo no mobile */
-        width: auto;
-        max-width: 100px; /* Limita a largura da logo no mobile */
-        z-index: 1000;
-    }
 }
+
 
 .log-container {
     position: fixed;
@@ -172,6 +213,52 @@
     text-decoration: none;
     font-size: 1.2rem;
 }
+#icone-perfil{
+    display: flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+}
+
+#icone-perfil i {
+    margin-right: 5px;
+}
+
+.perfil-texto {
+    font-size: 1.2rem;
+}
+
+.float-perfil {
+    position: absolute;
+    top: 80px;
+    right: 20px;
+    width: 300px;
+    padding: 20px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid #b30000;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    z-index: 2000;
+    display: none; /* Escondido por padrão */
+}
+
+@media (max-width: 768px) {
+    .float-perfil {
+        position: fixed;
+        top: 100px;
+        left: 50%;
+        transform: translateX(-50%); /* Isso centraliza o elemento */
+        width: 80%; /* Mantém a largura de 80% da tela */
+        max-width: 320px; /* Limite máximo da largura */
+        padding: 10px 20px; /* Ajusta o padding */
+        box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+        background-color: rgba(255, 255, 255, 0.95);
+        z-index: 2000;
+        border-radius: 10px;
+    }
+}
+
+
 
 /* Menu Hamburguer para Mobile */
 .menu-hamburguer {
@@ -546,11 +633,53 @@
 
 @media (max-width: 768px) {
     .menu-hamburguer {
-        display: block;
-        background-color: rgba(179, 0, 0, 0.9);
-        color: white;
-        padding: 15px;
-    }
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background-color: rgba(179, 0, 0, 0.9);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+#icone-perfil-mobile {
+    display: flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+    margin-right: 10px; /* Mantém o espaço entre o menu e o perfil */
+    margin-left: auto;  /* Empurra o ícone para o lado esquerdo */
+}
+.perfil-link {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    color: white;
+    margin-left: auto;
+}
+
+.perfil-link i {
+    margin-right: 5px; /* Espaço entre o ícone e o texto */
+}
+
+.perfil-texto {
+    font-size: 1.2rem;
+}
+
+.logo-mobile {
+    display: block;
+    position: relative; /* Ajuste para permitir um melhor controle do layout */
+    margin-right: auto;  /* Centraliza a logo */
+    margin-left: 10px;   /* Ajuste para afastar a logo da borda esquerda */
+    height: 40px;
+    width: auto;
+    max-width: 100px;
+}
+
+
 
     .menu-desktop {
         display: none;
@@ -574,12 +703,37 @@
                 <a href="#"><i class="fas fa-shopping-cart"></i><span class="badge" id="cart-count-desktop">0</span></a>
             </li>
             <li><a href="#"><i class="fab fa-whatsapp"></i> Contato</a></li>
+            <li id="perfil-desktop">
+                <a href="#" id="icone-perfil">
+                    <i class="fas fa-user-circle"></i>
+                    <span class="perfil-texto">Entrar</span>
+                </a>
+            </li>
+            
         </ul>
     </nav>
-    <div class="menu-hamburguer" onclick="toggleMenu()">
-        <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
-        <i class="fas fa-bars"></i> Menu
+    <div class="menu-hamburguer">
+        <div onclick="toggleMenu()">
+            <i class="fas fa-bars"></i> Menu
+        </div>
+        <a href="#" id="icone-perfil-mobile" class="perfil-link">
+            <span class="perfil-texto">Login</span>
+            <i class="fas fa-user-circle"></i>
+        </a>        
+        <div class="logo-perfil-container">
+            <img src="https://res.cloudinary.com/dizfq460q/image/upload/v1726291972/poupaqui_ihrjq8.png" alt="Logo Poupaqui" class="logo-mobile">
+        </div>
     </div>
+
+     <!-- Modal de Aviso para Login -->
+<div id="modal-login" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <p>Para adicionar itens ao carrinho, é necessário criar uma conta ou fazer login em nosso sistema.</p>
+        <button id="login-btn">Fazer Login</button>
+        <button id="signup-btn">Criar Conta</button>
+    </div>
+</div>
 
     <div class="log-container" id="log-container"></div>
     
@@ -596,6 +750,20 @@
     </div>
     
     </div>
+
+    <div id="perfil-float" class="float-perfil" style="display: none;">
+        <h3 id="bem-vindo-usuario" style="display: none;">Bem-vindo, <span id="usuario-logado"></span></h3>
+        <div id="opcoes-login-cadastro">
+            <p>Já tem uma conta? <a href="/login">Fazer login</a>.</p>
+            <p>Ainda não tem uma conta? <a href="/cadastrar_usuario">Cadastre-se</a>.</p>
+        </div>
+        <div class="carrinho-opcoes" id="carrinho-opcoes" style="display: none; align-items: center; margin-top: 10px;">
+            <i class="fas fa-shopping-cart"></i>
+            <a href="/cart" style="margin-left: 10px; text-decoration: none; color: #ca0b0b;">Ver itens</a>
+        </div>
+        <button id="logout-btn" style="display: none; margin-top: 10px;">Sair</button>
+    </div>
+    
 
     <!-- Float do carrinho -->
     <div class="float-carrinho" id="carrinho-float">
@@ -661,6 +829,71 @@
     
 
     <script>
+
+
+window.onload = function() {
+    fetch('/verificar_usuario_logado') // Rota para verificar se o usuário está logado
+        .then(response => response.json())
+        .then(data => {
+            if (data.logado) {
+                document.getElementById('usuario-logado').textContent = data.usuario;
+                document.getElementById('bem-vindo-usuario').style.display = 'block';
+                document.getElementById('opcoes-login-cadastro').style.display = 'none';
+                document.getElementById('logout-btn').style.display = 'block';
+
+                document.getElementById('carrinho-opcoes').style.display = 'flex';
+
+                // Esconder todos os textos "Entrar ou Cadastrar-se"
+                document.querySelectorAll('.perfil-texto').forEach(function(el) {
+                    el.style.display = 'none';
+                });
+            } else {
+                document.getElementById('bem-vindo-usuario').style.display = 'none';
+                document.getElementById('opcoes-login-cadastro').style.display = 'block';
+                document.getElementById('logout-btn').style.display = 'none';
+                document.getElementById('carrinho-opcoes').style.display = 'none';
+
+                document.querySelectorAll('.perfil-texto').forEach(function(el) {
+                    el.style.display = 'inline';
+                });
+            }
+        })
+        .catch(error => console.error('Erro ao verificar o usuário:', error));
+};
+
+// Função de logout
+document.getElementById('logout-btn').addEventListener('click', function () {
+    fetch('/logout', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                location.reload(); // Recarrega a página após logout
+            }
+        })
+        .catch(error => console.error('Erro ao fazer logout:', error));
+});
+
+// Função para exibir e ocultar o perfil flutuante
+function togglePerfil() {
+    const perfilFloat = document.getElementById('perfil-float');
+    if (perfilFloat.style.display === 'block') {
+        perfilFloat.style.display = 'none';
+    } else {
+        perfilFloat.style.display = 'block';
+    }
+}
+
+// Evento de clique para o ícone de perfil (desktop e mobile)
+document.getElementById('icone-perfil').addEventListener('click', function(e) {
+    e.preventDefault();
+    togglePerfil();
+});
+
+document.getElementById('icone-perfil-mobile').addEventListener('click', function(e) {
+    e.preventDefault();
+    togglePerfil();
+});
+
+
 
 document.getElementById('search-form').addEventListener('submit', function(event) {
     event.preventDefault(); // Previne o reload da página
@@ -730,6 +963,17 @@ function toggleMenu() {
     const cartCountMobile = document.getElementById('cart-count-mobile');
     const itensCarrinho = document.getElementById('itens-carrinho');
     let carrinhoAberto = false;
+
+            // Função para exibir e ocultar o perfil flutuante
+function togglePerfil() {
+    const perfilFloat = document.getElementById('perfil-float');
+    if (perfilFloat.style.display === 'block') {
+        perfilFloat.style.display = 'none';
+    } else {
+        perfilFloat.style.display = 'block';
+    }
+}
+
    
     // Função para abrir o carrinho (para desktop e mobile)
     function abrirCarrinho() {
@@ -760,6 +1004,38 @@ document.addEventListener('DOMContentLoaded', () => {
     concluirCompraBtn.addEventListener('click', () => {
         window.location.href = '/cart'; // Redireciona para a página cart.html
     });
+    const modal = document.getElementById('modal-login');
+    const closeModal = document.querySelector('.close');
+    const loginBtn = document.getElementById('login-btn');
+    const signupBtn = document.getElementById('signup-btn');
+
+    function abrirModalLogin() {
+        modal.style.display = 'block';
+    }
+
+    // Fechar modal ao clicar no X
+    closeModal.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+
+    // Fechar modal ao clicar fora dele
+    window.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+
+    // Redirecionar para a página de login
+    loginBtn.addEventListener('click', () => {
+        window.location.href = '/login';
+    });
+
+    // Redirecionar para a página de cadastro
+    signupBtn.addEventListener('click', () => {
+        window.location.href = '/cadastrar_usuario';
+    });
+
+
 
 
 
@@ -810,7 +1086,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } else {
                 // Se o usuário não estiver logado, redireciona para a página de login
-                window.location.href = '/login';
+                abrirModalLogin();
             }
         })
         .catch(error => {
