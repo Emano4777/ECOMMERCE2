@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa das Lojas PoupAqui</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 500px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Mapa das Lojas PoupAqui</h2>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        // Inicializa o mapa e define a visão inicial no Brasil
+        var map = L.map('map').setView([-23.55052, -46.633308], 5); // Centraliza no Brasil
+
+        // Adiciona a chave da API LocationIQ
+        var apiKey = 'pk.3f4cc273f03963ee5b46cb62f1abeeaf';
+
+        // Adiciona o tile layer da LocationIQ
+        L.tileLayer(`https://{s}-tiles.locationiq.com/v2/obk/r/{z}/{x}/{y}.png?key=${apiKey}`, {
+            attribution: '&copy; <a href="https://locationiq.com">LocationIQ</a>',
+            maxZoom: 18,
+            subdomains: ['a', 'b', 'c'], // subdomínios corretos para LocationIQ
+            errorTileUrl: 'https://cdn.rawgit.com/jlord/sheetsee-cache/gh-pages/images/error-tile.png' // Adiciona um erro visual para depuração
+        }).addTo(map);
+
+        // Busca as localizações das lojas no backend
+        fetch('/api/lojas')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Erro HTTP! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(lojas => {
+                console.log("Lojas recebidas:", lojas);  // Verificar se os dados estão sendo recebidos
+                lojas.forEach(function(loja) {
+                    // Adiciona um marcador para cada loja
+                    L.marker([loja.lat, loja.lon])
+                        .addTo(map)
+                        .bindPopup(`<b>${loja.nome}</b>`); // Popup com o nome da loja
+                });
+            })
+            .catch(error => console.error('Erro ao carregar lojas ou mapa:', error));
+    </script>
+
+</body>
+</html>

@@ -6,6 +6,7 @@ import base64
 import psycopg2
 import uuid
 from functools import wraps
+import time
 
 app = Flask(__name__)
 app.secret_key = 'secret_key'
@@ -51,6 +52,89 @@ headers = {
     'Authorization': f"Basic {auth}",
     'Content-Type': 'application/json'
 }
+
+def geocode(endereco, cache):
+    """Função para geocodificar um endereço usando o cache e a API da LocationIQ."""
+    # Verifica se o endereço já está no cache que foi carregado
+    if endereco in cache:
+        print(f"Usando cache para o endereço: {endereco}")
+        return cache[endereco]
+
+    # Se não estiver no cache, consulta a API
+    token = "pk.3f4cc273f03963ee5b46cb62f1abeeaf"
+    url = "https://us1.locationiq.com/v1/search.php"
+    params = {
+        'key': token,
+        'q': endereco,
+        'format': 'json',
+        'limit': 1,
+        'countrycodes': 'BR'
+    }
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200 and response.json():
+        coordenadas = response.json()[0]
+        lat, lon = coordenadas['lat'], coordenadas['lon']
+
+        # Insere o endereço e coordenadas no cache (e no banco de dados)
+        cache[endereco] = {'lat': lat, 'lon': lon}
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO geocoding_cache (endereco, lat, lon) VALUES (%s, %s, %s) ON CONFLICT (endereco) DO NOTHING",
+            (endereco, lat, lon)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {'lat': lat, 'lon': lon}
+    else:
+        print(f"Erro ao geocodificar o endereço: {endereco} - Response code: {response.status_code}")
+        return None
+
+
+@app.route('/api/lojas', methods=['GET'])
+def get_lojas_route():
+    """Rota para pegar todas as lojas (endereços) do banco de dados e cachear coordenadas."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Carrega todos os endereços do cache de uma vez só
+    cursor.execute("SELECT endereco, lat, lon FROM geocoding_cache")
+    cache_resultados = cursor.fetchall()
+
+    # Converte os resultados do cache em um dicionário
+    cache = {row[0]: {'lat': row[1], 'lon': row[2]} for row in cache_resultados}
+
+    # Pega todos os endereços da tabela 'users'
+    cursor.execute("SELECT endereco FROM users")
+    enderecos = cursor.fetchall()
+
+    lojas = []
+    for endereco in enderecos:
+        coordenadas = geocode(endereco[0], cache)
+        if coordenadas:
+            lojas.append({
+                'nome': endereco[0],
+                'lat': coordenadas['lat'],
+                'lon': coordenadas['lon']
+            })
+        else:
+            print(f"Não foi possível obter coordenadas para o endereço: {endereco[0]}")
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(lojas)
+
+
+@app.route('/mapa')
+def exibir_mapa():
+    return render_template('mapa.html')
+
+
 
 # Faz a requisição POST
 response = requests.post(auth_url, headers=headers, data=payload)
