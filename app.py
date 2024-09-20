@@ -201,7 +201,7 @@ def ver_medicamento(nome):
 
     # Consultar o medicamento específico pelo nome
     query = """
-    SELECT nome, link_imagem, preco, marca, descricao, presmedica
+    SELECT nome, link_imagem, preco, marca, descricao, presmedica, indicacao, contraindicacao, reacoes_adversas, instrucoes_uso
     FROM sugestao
     WHERE nome = %s
     """
@@ -218,7 +218,11 @@ def ver_medicamento(nome):
             'preco': medicamento[2],
             'marca': medicamento[3],
             'descricao': medicamento[4],
-            'presmedica': medicamento[5]
+            'presmedica': medicamento[5],
+            'indicacao': medicamento[6],
+            'contraindicacao': medicamento[7],
+            'reacoes_adversas': medicamento[8],
+            'instrucoes_uso': medicamento[9]
         }
         return render_template('medicamento.html', medicamento=medicamento_info)
     else:

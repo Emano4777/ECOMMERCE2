@@ -15,8 +15,6 @@
     width: 100%;
     background-color: #f0f0f0;
         }
-
-
         .modal {
     display: none;
     position: fixed;
@@ -332,15 +330,17 @@
             }
         }
 
-        .medicamento-container {
+       /* Estilo para o contêiner de detalhes e imagem */
+.medicamento-container {
     display: flex;
-    flex-wrap: wrap; /* Permitir que os itens fiquem em coluna quando a tela for pequena */
+    flex-wrap: wrap; /* Permite que os itens se reorganizem em telas pequenas */
     justify-content: space-between;
     align-items: flex-start;
     padding: 20px;
     margin-top: 50px;
 }
 
+/* Estilos da imagem do medicamento */
 .imagem-detalhes {
     flex: 1;
     max-width: 400px;
@@ -354,12 +354,7 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-.nome-medicamento {
-    font-size: 2rem;
-    color: #b30000;
-    margin-bottom: 10px;
-}
-
+/* Estilos para a descrição e detalhes do medicamento */
 .detalhes-medicamento {
     flex: 2;
     background-color: rgba(255, 255, 255, 0.8);
@@ -376,33 +371,93 @@
     margin-bottom: 10px;
 }
 
-.detalhes-medicamento .preco {
-    font-size: 1.5rem;
-    color: #333;
-    margin-bottom: 15px;
-}
-
-.detalhes-medicamento .marca, .detalhes-medicamento .descricao, .detalhes-medicamento .prescricao {
+.detalhes-medicamento .preco,
+.detalhes-medicamento .marca,
+.detalhes-medicamento .descricao,
+.detalhes-medicamento .prescricao {
     font-size: 1.2rem;
     color: #555;
     margin-bottom: 10px;
 }
 
-.detalhes-medicamento .descricao {
-    font-style: italic;
-    margin-bottom: 15px;
+/* Estilos do accordion */
+.accordion-btn {
+    background-color: #f0f0f0;
+    color: rgb(3, 3, 3);
+    cursor: pointer;
+    padding: 10px;
+    width: 100%;
+    text-align: left;
+    border: none;
+    outline: none;
+    transition: 0.4s;
+    border-radius: 5px;
+    margin-bottom: 10px;
 }
 
-.detalhes-medicamento .prescricao {
-    font-weight: bold;
+.accordion-btn.active, .accordion-btn:hover {
+    background-color: #ff9900;
 }
 
-.detalhes-medicamento .quantity-input {
-    width: 60px;
-    padding: 5px;
-    text-align: center;
-    margin-bottom: 20px;
+.panel {
+    display: none;
+    background-color: #f0f0f0;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 10px;
 }
+
+/* Responsividade para telas menores */
+@media (max-width: 768px) {
+    .medicamento-container {
+        flex-direction: column; /* Mudar para coluna em telas pequenas */
+        padding: 10px;
+    }
+
+    .imagem-detalhes {
+        max-width: 100%; /* Imagem ocupa a largura total em telas pequenas */
+        margin-right: 0;
+    }
+
+    .detalhes-medicamento {
+        width: 100%; /* Detalhes ocupam a largura total em telas pequenas */
+    }
+
+    .detalhes-medicamento h1 {
+        font-size: 1.8rem; /* Reduzir o tamanho do nome do medicamento em telas menores */
+    }
+
+    .detalhes-medicamento .preco, 
+    .detalhes-medicamento .marca, 
+    .detalhes-medicamento .descricao, 
+    .detalhes-medicamento .prescricao {
+        font-size: 1rem; /* Ajustar o tamanho das fontes em telas menores */
+    }
+}
+
+/* Estilos para muito pequenas telas (smartphones) */
+@media (max-width: 480px) {
+    .detalhes-medicamento h1 {
+        font-size: 1.5rem; /* Ajusta o tamanho do título para telas bem pequenas */
+    }
+
+    .detalhes-medicamento .preco, 
+    .detalhes-medicamento .marca, 
+    .detalhes-medicamento .descricao, 
+    .detalhes-medicamento .prescricao {
+        font-size: 0.9rem; /* Diminuir o tamanho do texto em telas muito pequenas */
+    }
+
+    .accordion-btn {
+        font-size: 1rem; /* Reduzir tamanho do botão accordion para melhor visualização */
+    }
+
+    .panel {
+        font-size: 0.9rem; /* Ajustar o tamanho do texto dentro do painel */
+    }
+}
+
 
 .btn-carrinho {
     background-color: #ffcc00;
@@ -515,12 +570,34 @@
             <h1>{{ medicamento.nome }}</h1>
             <img src="{{ medicamento.link_imagem }}" alt="{{ medicamento.nome }}">
         </div>
-    
         <div class="detalhes-medicamento">
             <p class="preco">Preço: R$ {{ medicamento.preco }}</p>
             <p class="marca">Marca: {{ medicamento.marca }}</p>
             <p class="descricao">{{ medicamento.descricao }}</p>
             <p class="prescricao">Prescrição médica: {{ medicamento.presmedica | title }}</p>
+
+            <!-- Seções para as informações adicionais -->
+        <div class="accordion">
+            <button class="accordion-btn">Indicação</button>
+            <div class="panel">
+                <p>{{ medicamento.indicacao }}</p>
+            </div>
+
+            <button class="accordion-btn">Contraindicações</button>
+            <div class="panel">
+                <p>{{ medicamento.contraindicacao }}</p>
+            </div>
+
+            <button class="accordion-btn">Reações Adversas</button>
+            <div class="panel">
+                <p>{{ medicamento.reacoes_adversas }}</p>
+            </div>
+
+            <button class="accordion-btn">Instruções de Uso</button>
+            <div class="panel">
+                <p>{{ medicamento.instrucoes_uso }}</p>
+            </div>
+        </div>
     
             <input type="number" class="quantity-input" min="1" value="1">
             <button class="btn-carrinho">
@@ -549,6 +626,22 @@
     </div>
     
     <script>
+
+var acc = document.getElementsByClassName("accordion-btn");
+var i;
+
+for (i = 0; i < acc.length; i++) {
+    acc[i].addEventListener("click", function() {
+        this.classList.toggle("active");
+        var panel = this.nextElementSibling;
+        if (panel.style.display === "block") {
+            panel.style.display = "none";
+        } else {
+            panel.style.display = "block";
+        }
+    });
+}
+
      window.onload = function() {
     fetch('/verificar_usuario_logado') // Rota para verificar se o usuário está logado
         .then(response => response.json())
