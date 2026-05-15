@@ -891,6 +891,24 @@ async function detectarCategoria() {
   }
 }
 
+function extrairIdDeUrl(val) {
+  // Extrai MLB\d+ de qualquer URL ou texto colado
+  const m = val.match(/MLB\d+/);
+  if (m) {
+    document.getElementById('ml-input-cat').value = m[0];
+    document.getElementById('ml-cat-nome').textContent = '✓ ID extraído: ' + m[0];
+    // Busca nome da categoria via ML diretamente do browser
+    fetch(`https://api.mercadolibre.com/categories/${m[0]}`)
+      .then(r => r.json())
+      .then(d => {
+        const path = d.path_from_root || [];
+        const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : (d.name || m[0]);
+        document.getElementById('ml-cat-nome').textContent = '✓ ' + name;
+      })
+      .catch(() => {});
+  }
+}
+
 function renderSugestoes(sugestoes, box) {
   box.innerHTML = sugestoes.map(s =>
     `<button type="button" onclick="selecionarCategoria('${s.category_id}','${s.category_name.replace(/'/g,"\\'")}',this)"
@@ -1050,18 +1068,29 @@ function pausarNoML() {
     </div>
     <div class="ml-field">
       <label>Categoria ML</label>
+      <div style="background:#1a1900;border:1px solid #f5c842;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.76rem;color:#e8c94a">
+        <i class="fa fa-circle-info me-1"></i>
+        <strong>Desative a VPN</strong> para buscar automaticamente. Ou cole abaixo o ID copiado do ML.
+      </div>
       <div style="display:flex;gap:6px;margin-bottom:6px">
-        <input type="text" class="pk-input" id="ml-cat-busca" placeholder="buscar: ex. whey protein, vitamina c…"
-               style="font-size:.84rem" oninput="clearTimeout(_mlCatTimer);_mlCatTimer=setTimeout(()=>detectarCategoria(),600)">
+        <input type="text" class="pk-input" id="ml-cat-busca" placeholder="buscar categoria (ex: whey protein, vitamina c…)"
+               style="font-size:.84rem" oninput="clearTimeout(_mlCatTimer);_mlCatTimer=setTimeout(()=>detectarCategoria(),700)">
         <button type="button" id="ml-btn-cat-detect" onclick="detectarCategoria()"
                 style="white-space:nowrap;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
           <i class="fa fa-magnifying-glass"></i>
         </button>
       </div>
       <div id="ml-cat-sugestoes" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
-      <input type="text" class="pk-input" id="ml-input-cat" placeholder="ID preenchido ao selecionar acima"
-             style="font-family:monospace;font-size:.82rem">
+      <input type="text" class="pk-input" id="ml-input-cat"
+             placeholder="MLB272431  ou cole URL do ML aqui"
+             style="font-family:monospace;font-size:.82rem"
+             oninput="extrairIdDeUrl(this.value)">
       <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>
+      <div style="font-size:.73rem;color:var(--pk-muted);margin-top:4px">
+        <i class="fa fa-lightbulb me-1" style="color:#f5c842"></i>
+        Como pegar o ID: no ML, abra qualquer produto da categoria → copie a URL → cole aqui.
+        <a href="https://www.mercadolivre.com.br" target="_blank" style="color:#f5c842;margin-left:4px">Ir ao ML <i class="fa fa-arrow-up-right-from-square fa-xs"></i></a>
+      </div>
     </div>
     <div class="ml-field">
       <label>URL da imagem (opcional)</label>
