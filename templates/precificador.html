@@ -891,22 +891,50 @@ async function detectarCategoria() {
   }
 }
 
-function extrairIdDeUrl(val) {
-  // Extrai MLB\d+ de qualquer URL ou texto colado
-  const m = val.match(/MLB\d+/);
-  if (m) {
-    document.getElementById('ml-input-cat').value = m[0];
-    document.getElementById('ml-cat-nome').textContent = '✓ ID extraído: ' + m[0];
-    // Busca nome da categoria via ML diretamente do browser
-    fetch(`https://api.mercadolibre.com/categories/${m[0]}`)
-      .then(r => r.json())
-      .then(d => {
-        const path = d.path_from_root || [];
-        const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : (d.name || m[0]);
-        document.getElementById('ml-cat-nome').textContent = '✓ ' + name;
-      })
-      .catch(() => {});
+async function extrairIdDeUrl(val) {
+  // Se parece uma URL do ML, tenta extrair categoria via item
+  const mlbMatch = val.match(/MLB\d+/g);
+  if (!mlbMatch) return;
+
+  const nomeEl = document.getElementById('ml-cat-nome');
+  nomeEl.textContent = '⏳ Buscando categoria…';
+
+  for (const mlbId of mlbMatch) {
+    // Tenta: é um item? Pega category_id
+    try {
+      const r = await fetch(`https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`);
+      if (r.ok) {
+        const d = await r.json();
+        const catId = d.category_id;
+        if (catId && catId.startsWith('MLB')) {
+          document.getElementById('ml-input-cat').value = catId;
+          // Busca nome
+          const cr = await fetch(`https://api.mercadolibre.com/categories/${catId}`);
+          const cd = await cr.json();
+          const path = cd.path_from_root || [];
+          const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : cd.name;
+          nomeEl.textContent = '✓ ' + name;
+          return;
+        }
+      }
+    } catch {}
+
+    // Tenta: é uma categoria diretamente?
+    try {
+      const cr = await fetch(`https://api.mercadolibre.com/categories/${mlbId}`);
+      if (cr.ok) {
+        const cd = await cr.json();
+        if (cd.children_categories !== undefined) {
+          document.getElementById('ml-input-cat').value = mlbId;
+          const path = cd.path_from_root || [];
+          const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : cd.name;
+          nomeEl.textContent = '✓ ' + name;
+          return;
+        }
+      }
+    } catch {}
   }
+  nomeEl.textContent = '';
 }
 
 function renderSugestoes(sugestoes, box) {
@@ -1082,7 +1110,7 @@ function pausarNoML() {
       </div>
       <div id="ml-cat-sugestoes" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
       <input type="text" class="pk-input" id="ml-input-cat"
-             placeholder="MLB272431  ou cole URL do ML aqui"
+             placeholder="Cole aqui a URL de qualquer produto ML ou o ID (MLB…)"
              style="font-family:monospace;font-size:.82rem"
              oninput="extrairIdDeUrl(this.value)">
       <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>

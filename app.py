@@ -6181,6 +6181,7 @@ def api_ml_publicar():
             "listing_type_id": "gold_special",
             "condition": "new",
             "description": {"plain_text": descricao},
+            "attributes": [{"id": "GTIN", "value_name": ean}],
         }
         if pictures:
             p["pictures"] = pictures
