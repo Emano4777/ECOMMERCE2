@@ -1,0 +1,154 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Meus Cupons{% endblock %}
+
+{% block extra_style %}
+<style>
+.cupons-wrap { max-width:680px; margin:0 auto; padding:28px 16px 70px; }
+.cupons-title { font-size:1.4rem; font-weight:900; margin-bottom:24px; display:flex; align-items:center; gap:10px; }
+
+.loja-section { margin-bottom:28px; }
+.loja-hd {
+  font-size:.78rem; font-weight:900; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--pq-muted); margin-bottom:12px; padding-bottom:8px;
+  border-bottom:2px solid var(--pq-border);
+  display:flex; align-items:center; gap:6px;
+}
+.loja-hd i { color:var(--pq-red); }
+
+.cup-list { display:flex; flex-direction:column; gap:10px; }
+.cup-card {
+  background:#fff;
+  border:1.5px dashed var(--pq-red);
+  border-radius:14px;
+  overflow:hidden;
+  display:flex;
+  align-items:stretch;
+  box-shadow:0 1px 4px rgba(0,0,0,.04);
+}
+.cup-left {
+  background:var(--pq-red);
+  color:#fff;
+  width:88px;
+  flex-shrink:0;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:14px 8px;
+  text-align:center;
+}
+.cup-left .cup-pct { font-size:1.7rem; font-weight:900; line-height:1; }
+.cup-left .cup-unit { font-size:.7rem; font-weight:700; opacity:.85; margin-top:2px; }
+.cup-right { flex:1; padding:14px 16px; display:flex; flex-direction:column; gap:3px; }
+.cup-codigo { font-size:1rem; font-weight:900; letter-spacing:2px; font-family:monospace; color:var(--pq-text); }
+.cup-desc { font-size:.8rem; color:var(--pq-muted); }
+.cup-valid { font-size:.74rem; color:var(--pq-muted); }
+.cup-copy {
+  align-self:center; flex-shrink:0;
+  border:1.5px solid var(--pq-red); background:none; color:var(--pq-red);
+  border-radius:8px; padding:8px 14px; font-size:.78rem; font-weight:800;
+  cursor:pointer; font-family:inherit; margin-right:12px;
+  transition:background .12s;
+}
+.cup-copy:hover { background:#fff5f7; }
+.cup-copy.copied { background:var(--pq-red); color:#fff; }
+
+.empty-cupons {
+  text-align:center; padding:56px 20px;
+  background:#fff; border:1px solid var(--pq-border);
+  border-radius:16px; box-shadow:var(--pq-shadow);
+  color:var(--pq-muted);
+}
+.empty-cupons > i { font-size:3.5rem; opacity:.15; display:block; margin-bottom:16px; color:#777; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cupons-wrap">
+  <div class="cupons-title">
+    <i class="fa fa-ticket" style="color:var(--pq-red)"></i>
+    Meus Cupons
+  </div>
+
+  {% if cupons_por_loja %}
+    {% for grupo in cupons_por_loja %}
+    <div class="loja-section">
+      <div class="loja-hd">
+        <i class="fa fa-store"></i>{{ grupo.loja.razao }}
+      </div>
+      <div class="cup-list">
+        {% for c in grupo.cupons %}
+        <div class="cup-card">
+          <div class="cup-left">
+            {% if c.desconto_tipo == 'pct' %}
+              <div class="cup-pct">{{ c.desconto_valor | int }}%</div>
+              <div class="cup-unit">desconto</div>
+            {% else %}
+              <div class="cup-pct" style="font-size:1.1rem">R${{ "%.2f"|format(c.desconto_valor) }}</div>
+              <div class="cup-unit">de desconto</div>
+            {% endif %}
+          </div>
+          <div class="cup-right">
+            <div class="cup-codigo">{{ c.codigo }}</div>
+            <div class="cup-desc">
+              {% if c.desconto_tipo == 'pct' %}
+                {{ c.desconto_valor | int }}% de desconto nos produtos
+              {% else %}
+                R$ {{ "%.2f"|format(c.desconto_valor) }} de desconto fixo
+              {% endif %}
+            </div>
+            <div class="cup-valid">
+              {% set esc_v = c.escopo if c.escopo else 'todos' %}
+              {% if esc_v == 'categoria' %}<i class="fa fa-box me-1"></i>Categorias: {{ c.escopo_categorias or 'Todos' }}
+              {% elif esc_v == 'produto' %}<i class="fa fa-pills me-1"></i>Produtos específicos
+              {% else %}<i class="fa fa-store me-1"></i>Todos os produtos da loja
+              {% endif %}
+            </div>
+            <div class="cup-valid">
+              {% if c.valido_ate %}
+                <i class="fa fa-calendar me-1"></i>Válido até {{ c.valido_ate.strftime('%d/%m/%Y') }}
+              {% else %}
+                <i class="fa fa-infinity me-1"></i>Sem data de vencimento
+              {% endif %}
+            </div>
+          </div>
+          <button class="cup-copy" onclick="copiarCodigo(this, '{{ c.codigo }}')">
+            <i class="fa fa-copy me-1"></i>Copiar
+          </button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+
+    <div style="text-align:center;color:var(--pq-muted);font-size:.82rem;padding:4px 0 0">
+      <i class="fa fa-circle-info me-1"></i>
+      Os cupons são aplicados na hora de finalizar o pedido, direto no carrinho.
+      <a href="{{ url_for('carrinho') }}" style="color:var(--pq-red);font-weight:800;text-decoration:none;margin-left:4px">Ir ao carrinho</a>
+    </div>
+  {% else %}
+    <div class="empty-cupons">
+      <i class="fa fa-ticket"></i>
+      <div style="font-size:1.05rem;font-weight:900;margin-bottom:8px;color:var(--pq-text)">Nenhum cupom disponível</div>
+      <p style="font-size:.88rem">Quando uma loja liberar um cupom para você, ele aparecerá aqui.</p>
+      <a href="{{ url_for('index') }}" style="display:inline-flex;align-items:center;gap:8px;background:var(--pq-red);color:#fff;padding:12px 22px;border-radius:10px;font-weight:800;text-decoration:none;margin-top:14px">
+        <i class="fa fa-arrow-left"></i>Explorar produtos
+      </a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copiarCodigo(btn, codigo) {
+  navigator.clipboard.writeText(codigo).then(() => {
+    btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.innerHTML = '<i class="fa fa-copy me-1"></i>Copiar';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    prompt('Copie o código do cupom:', codigo);
+  });
+}
+</script>
+{% endblock %}

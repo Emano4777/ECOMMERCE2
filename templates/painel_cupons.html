@@ -1,0 +1,712 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Cupons e Descontos{% endblock %}
+
+{% block extra_style %}
+<style>
+/* ── Cards ─────────────────────────────────────────────────── */
+.cup-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; margin-bottom:24px; }
+.cup-card { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; overflow:hidden; }
+.cup-card.inativo { opacity:.55; }
+.cup-head { padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom:1px solid var(--pk-line); }
+.cup-code { font-size:1.1rem; font-weight:900; letter-spacing:2px; color:var(--pk-yellow); font-family:monospace; }
+.cup-type-badge { font-size:.7rem; font-weight:800; padding:3px 8px; border-radius:6px; display:flex; align-items:center; gap:5px; }
+.cup-type-codigo    { background:#0d2138; color:#60a5fa; border:1px solid #3b82f655; }
+.cup-type-pagamento { background:#1a1200; color:#fbbf24; border:1px solid #fbbf2455; }
+.cup-type-quantidade{ background:#0d2d1a; color:#22c55e; border:1px solid #22c55e55; }
+.cup-badge { font-size:.72rem; font-weight:700; padding:3px 8px; border-radius:6px; }
+.cup-badge.on  { background:#0d2d1a; color:#22c55e; border:1px solid #22c55e55; }
+.cup-badge.off { background:#1e0810; color:#f08090; border:1px solid #f0809055; }
+.cup-body { padding:12px 16px; }
+.cup-val { font-size:1.35rem; font-weight:900; color:var(--pk-txt); margin-bottom:4px; }
+.cup-val span { font-size:.78rem; font-weight:400; color:var(--pk-muted); }
+.cup-meta { font-size:.76rem; color:var(--pk-muted); display:flex; flex-direction:column; gap:2px; margin-bottom:12px; }
+.cup-actions { display:flex; gap:8px; }
+.cup-btn { flex:1; border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted); border-radius:8px; padding:7px 10px; font-size:.78rem; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s; }
+.cup-btn:hover { background:var(--pk-line); color:var(--pk-txt); }
+.cup-btn.danger:hover { background:#2a0810; color:#f08090; border-color:#f0809055; }
+
+/* ── Tabs ───────────────────────────────────────────────────── */
+.tab-bar { display:flex; gap:0; border-bottom:1px solid var(--pk-line); margin-bottom:24px; overflow-x:auto; }
+.tab-btn { background:none; border:none; border-bottom:2px solid transparent; padding:10px 20px; font-family:inherit; font-size:.84rem; font-weight:700; color:var(--pk-muted); cursor:pointer; white-space:nowrap; transition:all .15s; margin-bottom:-1px; }
+.tab-btn.active { color:var(--pk-yellow); border-bottom-color:var(--pk-yellow); }
+.tab-btn:hover:not(.active) { color:var(--pk-txt); }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+/* ── Form ───────────────────────────────────────────────────── */
+.new-cup-form { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; padding:20px; }
+.new-cup-form h3 { font-size:.95rem; font-weight:900; color:var(--pk-yellow); margin:0 0 16px; display:flex; align-items:center; gap:8px; }
+.nf-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.nf-field { margin-bottom:0; }
+.nf-field.full { grid-column:1 / -1; }
+.nf-field label { display:block; font-size:.74rem; font-weight:700; color:var(--pk-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
+.nf-field input, .nf-field select { width:100%; padding:10px 12px; background:#0a0d14; border:1px solid var(--pk-line); border-radius:8px; color:var(--pk-txt); font-family:inherit; font-size:.88rem; box-sizing:border-box; }
+.nf-field input:focus, .nf-field select:focus { outline:none; border-color:var(--pk-yellow); }
+@media(max-width:580px){ .nf-grid { grid-template-columns:1fr; } .nf-field.full { grid-column:auto; } }
+
+/* ── Pagamento badges no card ──────────────────────────────── */
+.pay-method-tag { display:inline-flex; align-items:center; gap:5px; background:#1a1200; color:#fbbf24; border:1px solid #fbbf2455; border-radius:6px; padding:3px 10px; font-size:.78rem; font-weight:800; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:20px">
+  <i class="fa fa-tag me-2" style="color:var(--pk-yellow)"></i>Cupons e Descontos
+</div>
+
+{% if cupons %}
+<div class="cup-grid">
+  {% for c in cupons %}
+  {% set tr = c.tipo_regra or 'codigo' %}
+  <div class="cup-card {% if not c.ativo %}inativo{% endif %}">
+    <div class="cup-head">
+      {% if tr == 'pagamento' %}
+        <span class="cup-type-badge cup-type-pagamento"><i class="fa fa-qrcode"></i>
+          {% if c.forma_pagamento == 'pix' %}PIX
+          {% elif c.forma_pagamento == 'mercadopago' %}Cartão
+          {% elif c.forma_pagamento == 'whatsapp' %}WhatsApp
+          {% else %}Qualquer pagamento{% endif %}
+        </span>
+      {% elif tr == 'quantidade' %}
+        <span class="cup-type-badge cup-type-quantidade"><i class="fa fa-layer-group"></i>{{ c.qtd_minima or 1 }}+ unidades</span>
+      {% else %}
+        <span class="cup-code">{{ c.codigo }}</span>
+      {% endif %}
+      <span class="cup-badge {% if c.ativo %}on{% else %}off{% endif %}">
+        {{ 'Ativo' if c.ativo else 'Inativo' }}
+      </span>
+    </div>
+    <div class="cup-body">
+      <div class="cup-val">
+        {% if c.desconto_tipo == 'pct' %}
+          {{ c.desconto_valor | int }}% <span>de desconto</span>
+        {% else %}
+          R$ {{ "%.2f"|format(c.desconto_valor) }} <span>de desconto fixo</span>
+        {% endif %}
+      </div>
+      <div class="cup-meta">
+        {% if tr == 'pagamento' %}
+          <span><i class="fa fa-bolt me-1" style="color:#fbbf24"></i>Aplicado automaticamente ao pagar</span>
+        {% elif tr == 'quantidade' %}
+          <span><i class="fa fa-bolt me-1" style="color:#22c55e"></i>Aplicado automaticamente ao atingir {{ c.qtd_minima }} itens</span>
+        {% else %}
+          <span><i class="fa fa-users me-1"></i>
+            {% if c.publico == 'primeira_compra' %}Somente primeira compra
+            {% elif c.publico == 'frequente' %}Frequentes (mín. {{ c.min_compras }} pedidos)
+            {% elif c.publico == 'especifico' %}Clientes específicos
+            {% else %}Todos os clientes{% endif %}
+          </span>
+        {% endif %}
+        <span><i class="fa fa-box me-1"></i>
+          {% set esc = c.escopo if c.escopo else 'todos' %}
+          {% if esc == 'categoria' %}Categorias: {{ c.escopo_categorias or '—' }}
+          {% elif esc == 'produto' %}Produtos específicos
+          {% else %}Todos os produtos{% endif %}
+        </span>
+        <span><i class="fa fa-chart-bar me-1"></i>Usos: {{ c.usos_count }}{% if c.uso_maximo %} / {{ c.uso_maximo }}{% else %} (ilimitado){% endif %}</span>
+        {% if c.valido_ate %}
+        <span><i class="fa fa-calendar me-1"></i>Válido até: {{ c.valido_ate.strftime('%d/%m/%Y') }}</span>
+        {% else %}
+        <span><i class="fa fa-infinity me-1"></i>Sem data de validade</span>
+        {% endif %}
+      </div>
+      <div class="cup-actions">
+        <button class="cup-btn"
+          onclick="abrirEdicao(this)"
+          data-id="{{ c.id }}"
+          data-tipo-regra="{{ tr }}"
+          data-codigo="{{ c.codigo or '' }}"
+          data-tipo="{{ c.desconto_tipo }}"
+          data-valor="{{ c.desconto_valor }}"
+          data-valido="{{ c.valido_ate.strftime('%Y-%m-%d') if c.valido_ate else '' }}"
+          data-uso-maximo="{{ c.uso_maximo or 0 }}"
+          data-publico="{{ c.publico or 'todos' }}"
+          data-min-compras="{{ c.min_compras or 1 }}"
+          data-escopo="{{ c.escopo or 'todos' }}"
+          data-escopo-categorias="{{ c.escopo_categorias or '' }}"
+          data-escopo-eans="{{ c.escopo_eans or '' }}"
+          data-forma-pagamento="{{ c.forma_pagamento or '' }}"
+          data-qtd-minima="{{ c.qtd_minima or 0 }}">
+          <i class="fa fa-pen me-1"></i>Editar
+        </button>
+        <form method="post" action="{{ url_for('painel_cupom_toggle', cupom_id=c.id) }}" style="flex:1">
+          <button class="cup-btn" style="width:100%">
+            <i class="fa {% if c.ativo %}fa-pause{% else %}fa-play{% endif %} me-1"></i>
+            {{ 'Desativar' if c.ativo else 'Ativar' }}
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('painel_cupom_excluir', cupom_id=c.id) }}"
+              onsubmit="return confirm('Excluir esta regra de desconto?')">
+          <button class="cup-btn danger" type="submit"><i class="fa fa-trash"></i></button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:40px 20px;color:var(--pk-muted);margin-bottom:24px">
+  <i class="fa fa-tag fa-2x mb-3" style="opacity:.3;display:block"></i>
+  Nenhuma regra criada ainda. Crie a primeira abaixo.
+</div>
+{% endif %}
+
+<!-- ── Tabs ───────────────────────────────────────────────────── -->
+<div class="new-cup-form">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="mudarAba('codigo',this)">
+      <i class="fa fa-ticket me-1"></i>Cupom por código
+    </button>
+    <button class="tab-btn" onclick="mudarAba('pagamento',this)">
+      <i class="fa fa-qrcode me-1"></i>Desconto por pagamento
+    </button>
+    <button class="tab-btn" onclick="mudarAba('quantidade',this)">
+      <i class="fa fa-layer-group me-1"></i>Desconto por quantidade
+    </button>
+  </div>
+
+  <!-- ─ Aba: Código ─ -->
+  <div id="tab-codigo" class="tab-panel active">
+    <h3><i class="fa fa-ticket"></i>Novo cupom por código</h3>
+    <form method="post" action="{{ url_for('painel_cupons_novo') }}" id="frmNovoCodigo">
+      <input type="hidden" name="tipo_regra" value="codigo">
+      <div class="nf-grid">
+        <div class="nf-field">
+          <label>Código do cupom</label>
+          <input type="text" name="codigo" id="inp-codigo" placeholder="Ex: FIEL10" maxlength="20"
+                 style="text-transform:uppercase" required>
+        </div>
+        <div class="nf-field">
+          <label>Tipo de desconto</label>
+          <select name="desconto_tipo" id="sel-tipo" onchange="atualizarPlaceholder('inp-valor','sel-tipo')">
+            <option value="pct">Percentual (%)</option>
+            <option value="fixo">Valor fixo (R$)</option>
+          </select>
+        </div>
+        <div class="nf-field">
+          <label>Valor do desconto</label>
+          <input type="number" name="desconto_valor" id="inp-valor" min="0.01" step="0.01"
+                 placeholder="Ex: 10 (para 10%)" required>
+        </div>
+        <div class="nf-field">
+          <label>Válido até <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+          <input type="date" name="valido_ate">
+        </div>
+        <div class="nf-field">
+          <label>Máx. de usos <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
+          <input type="number" name="uso_maximo" min="0" step="1" value="0">
+        </div>
+        <div class="nf-field full">
+          <label>Para quem é o cupom?</label>
+          <select name="publico" id="sel-publico" onchange="atualizarPublico()">
+            <option value="todos">Todos os clientes</option>
+            <option value="primeira_compra">Quem ainda não comprou (primeira compra)</option>
+            <option value="frequente">Clientes frequentes (mínimo de compras)</option>
+            <option value="especifico">Clientes específicos (selecionar abaixo)</option>
+          </select>
+        </div>
+        <div class="nf-field full" id="blk-min-compras" style="display:none">
+          <label>Mínimo de compras realizadas na sua loja</label>
+          <input type="number" name="min_compras" min="1" step="1" value="3">
+        </div>
+        <div class="nf-field full">
+          <label>Para quais produtos vale o cupom?</label>
+          <select name="escopo" id="sel-escopo" onchange="atualizarEscopoLegacy()">
+            <option value="todos">Todos os produtos da loja</option>
+            <option value="categoria">Categorias específicas</option>
+            <option value="produto">Produtos específicos</option>
+          </select>
+        </div>
+        <div class="nf-field full" id="blk-categorias" style="display:none">
+          <label>Selecione as categorias</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
+              <input type="checkbox" name="escopo_categorias" value="{{ cat }}" style="width:15px;height:15px;accent-color:var(--pk-yellow)">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="nf-field full" id="blk-produtos" style="display:none">
+          <label>Selecione os produtos</label>
+          <div style="font-size:.74rem;color:var(--pk-muted);margin-bottom:8px">Ctrl/Cmd para selecionar mais de um.</div>
+          <select name="escopo_eans" id="sel-produtos" multiple
+                  style="width:100%;min-height:130px;background:#0a0d14;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:6px;font-size:.84rem">
+            <option value="" disabled>Carregando produtos...</option>
+          </select>
+          <div id="produtos-load" style="font-size:.74rem;color:var(--pk-muted);margin-top:4px"></div>
+        </div>
+        <div class="nf-field full" id="blk-especifico" style="display:none">
+          <label>Selecione os clientes</label>
+          <div style="font-size:.74rem;color:var(--pk-muted);margin-bottom:8px">Ctrl/Cmd para selecionar mais de um.</div>
+          <select name="consumidores_ids" id="sel-clientes" multiple
+                  style="width:100%;min-height:120px;background:#0a0d14;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:6px;font-size:.84rem">
+            <option value="" disabled>Carregando clientes...</option>
+          </select>
+          <div id="clientes-load" style="font-size:.74rem;color:var(--pk-muted);margin-top:4px"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px">
+        <button type="submit" class="btn-pk-yellow"><i class="fa fa-plus me-1"></i>Criar cupom</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ─ Aba: Pagamento ─ -->
+  <div id="tab-pagamento" class="tab-panel">
+    <h3><i class="fa fa-qrcode"></i>Desconto automático por forma de pagamento</h3>
+    <p style="font-size:.82rem;color:var(--pk-muted);margin:-8px 0 16px">Aplicado automaticamente quando o cliente escolher a forma de pagamento configurada. Não requer código.</p>
+    <form method="post" action="{{ url_for('painel_cupons_novo') }}" id="frmNovoPagamento">
+      <input type="hidden" name="tipo_regra" value="pagamento">
+      <div class="nf-grid">
+        <div class="nf-field full">
+          <label>Forma de pagamento com desconto</label>
+          <select name="forma_pagamento" id="sel-forma-pag" required>
+            <option value="">Selecione...</option>
+            <option value="pix">PIX</option>
+            <option value="mercadopago">Cartão (Mercado Pago)</option>
+            <option value="whatsapp">WhatsApp / Dinheiro na entrega</option>
+            <option value="todos">Qualquer forma de pagamento</option>
+          </select>
+        </div>
+        <div class="nf-field">
+          <label>Tipo de desconto</label>
+          <select name="desconto_tipo" id="sel-tipo-pag" onchange="atualizarPlaceholder('inp-valor-pag','sel-tipo-pag')">
+            <option value="pct">Percentual (%)</option>
+            <option value="fixo">Valor fixo (R$)</option>
+          </select>
+        </div>
+        <div class="nf-field">
+          <label>Valor do desconto</label>
+          <input type="number" name="desconto_valor" id="inp-valor-pag" min="0.01" step="0.01"
+                 placeholder="Ex: 5 (para 5%)" required>
+        </div>
+        <div class="nf-field">
+          <label>Válido até <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+          <input type="date" name="valido_ate">
+        </div>
+        <div class="nf-field">
+          <label>Máx. de usos <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
+          <input type="number" name="uso_maximo" min="0" step="1" value="0">
+        </div>
+        <div class="nf-field full" style="margin-top:4px">
+          <label>Para quais produtos vale?</label>
+          <select name="escopo" id="sel-escopo-pag" onchange="atualizarEscopo('sel-escopo-pag','blk-cat-pag','blk-prod-pag','sel-prod-pag','prod-load-pag')">
+            <option value="todos">Todos os produtos</option>
+            <option value="categoria">Categorias específicas</option>
+            <option value="produto">Produtos específicos</option>
+          </select>
+        </div>
+        <div class="nf-field full" id="blk-cat-pag" style="display:none">
+          <label>Selecione as categorias</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
+              <input type="checkbox" name="escopo_categorias" value="{{ cat }}" style="width:15px;height:15px;accent-color:var(--pk-yellow)">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="nf-field full" id="blk-prod-pag" style="display:none">
+          <label>Selecione os produtos</label>
+          <div style="font-size:.74rem;color:var(--pk-muted);margin-bottom:8px">Ctrl/Cmd para selecionar mais de um.</div>
+          <select name="escopo_eans" id="sel-prod-pag" multiple
+                  style="width:100%;min-height:130px;background:#0a0d14;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:6px;font-size:.84rem">
+            <option value="" disabled>Carregando...</option>
+          </select>
+          <div id="prod-load-pag" style="font-size:.74rem;color:var(--pk-muted);margin-top:4px"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px">
+        <button type="submit" class="btn-pk-yellow"><i class="fa fa-plus me-1"></i>Criar desconto de pagamento</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ─ Aba: Quantidade ─ -->
+  <div id="tab-quantidade" class="tab-panel">
+    <h3><i class="fa fa-layer-group"></i>Desconto automático por quantidade</h3>
+    <p style="font-size:.82rem;color:var(--pk-muted);margin:-8px 0 16px">Aplicado automaticamente quando o cliente atingir a quantidade mínima de itens no carrinho. Não requer código.</p>
+    <form method="post" action="{{ url_for('painel_cupons_novo') }}" id="frmNovoQuantidade">
+      <input type="hidden" name="tipo_regra" value="quantidade">
+      <div class="nf-grid">
+        <div class="nf-field">
+          <label>Quantidade mínima de itens</label>
+          <input type="number" name="qtd_minima" min="1" step="1" placeholder="Ex: 3" required>
+          <div style="font-size:.73rem;color:var(--pk-muted);margin-top:4px">Total de itens no carrinho para este desconto ativar.</div>
+        </div>
+        <div class="nf-field">
+          <label>Tipo de desconto</label>
+          <select name="desconto_tipo" id="sel-tipo-qtd" onchange="atualizarPlaceholder('inp-valor-qtd','sel-tipo-qtd')">
+            <option value="pct">Percentual (%)</option>
+            <option value="fixo">Valor fixo (R$)</option>
+          </select>
+        </div>
+        <div class="nf-field">
+          <label>Valor do desconto</label>
+          <input type="number" name="desconto_valor" id="inp-valor-qtd" min="0.01" step="0.01"
+                 placeholder="Ex: 10 (para 10%)" required>
+        </div>
+        <div class="nf-field">
+          <label>Válido até <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+          <input type="date" name="valido_ate">
+        </div>
+        <div class="nf-field">
+          <label>Máx. de usos <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
+          <input type="number" name="uso_maximo" min="0" step="1" value="0">
+        </div>
+        <div class="nf-field full" style="margin-top:4px">
+          <label>Para quais produtos conta a quantidade?</label>
+          <select name="escopo" id="sel-escopo-qtd" onchange="atualizarEscopo('sel-escopo-qtd','blk-cat-qtd','blk-prod-qtd','sel-prod-qtd','prod-load-qtd')">
+            <option value="todos">Todos os produtos</option>
+            <option value="categoria">Categorias específicas</option>
+            <option value="produto">Produtos específicos</option>
+          </select>
+        </div>
+        <div class="nf-field full" id="blk-cat-qtd" style="display:none">
+          <label>Selecione as categorias</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
+              <input type="checkbox" name="escopo_categorias" value="{{ cat }}" style="width:15px;height:15px;accent-color:var(--pk-yellow)">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="nf-field full" id="blk-prod-qtd" style="display:none">
+          <label>Selecione os produtos</label>
+          <div style="font-size:.74rem;color:var(--pk-muted);margin-bottom:8px">Ctrl/Cmd para selecionar mais de um.</div>
+          <select name="escopo_eans" id="sel-prod-qtd" multiple
+                  style="width:100%;min-height:130px;background:#0a0d14;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:6px;font-size:.84rem">
+            <option value="" disabled>Carregando...</option>
+          </select>
+          <div id="prod-load-qtd" style="font-size:.74rem;color:var(--pk-muted);margin-top:4px"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px">
+        <button type="submit" class="btn-pk-yellow"><i class="fa fa-plus me-1"></i>Criar desconto por quantidade</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── MODAL EDIÇÃO ── -->
+<div id="modal-edit" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;overflow-y:auto;padding:24px 16px">
+  <div style="max-width:640px;margin:0 auto;background:#0d1016;border:1px solid var(--pk-line);border-radius:14px;padding:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px">
+      <div style="font-weight:900;font-size:1rem;color:var(--pk-yellow);display:flex;align-items:center;gap:8px">
+        <i class="fa fa-pen"></i>Editar regra de desconto
+      </div>
+      <button onclick="fecharEdicao()" style="background:none;border:none;color:var(--pk-muted);font-size:1.4rem;cursor:pointer;line-height:1;padding:0 4px">&times;</button>
+    </div>
+    <form method="post" id="frm-edit" action="">
+      <input type="hidden" name="tipo_regra" id="edit-tipo-regra" value="codigo">
+      <div class="nf-grid">
+
+        <!-- Código (só para tipo=codigo) -->
+        <div class="nf-field full" id="edit-blk-codigo">
+          <label>Código do cupom</label>
+          <input type="text" name="codigo" id="edit-codigo" maxlength="20"
+                 style="text-transform:uppercase;font-family:monospace;letter-spacing:2px;font-weight:900">
+        </div>
+
+        <!-- Forma de pagamento (só para tipo=pagamento) -->
+        <div class="nf-field full" id="edit-blk-forma-pag" style="display:none">
+          <label>Forma de pagamento</label>
+          <select name="forma_pagamento" id="edit-forma-pag">
+            <option value="pix">PIX</option>
+            <option value="mercadopago">Cartão (Mercado Pago)</option>
+            <option value="whatsapp">WhatsApp / Dinheiro</option>
+            <option value="todos">Qualquer forma de pagamento</option>
+          </select>
+        </div>
+
+        <!-- Quantidade mínima (só para tipo=quantidade) -->
+        <div class="nf-field" id="edit-blk-qtd" style="display:none">
+          <label>Qtd. mínima de itens</label>
+          <input type="number" name="qtd_minima" id="edit-qtd-minima" min="1" step="1" value="2">
+        </div>
+
+        <div class="nf-field">
+          <label>Tipo de desconto</label>
+          <select name="desconto_tipo" id="edit-tipo" onchange="editAtualizarPlaceholder()">
+            <option value="pct">Percentual (%)</option>
+            <option value="fixo">Valor fixo (R$)</option>
+          </select>
+        </div>
+        <div class="nf-field">
+          <label>Valor do desconto</label>
+          <input type="number" name="desconto_valor" id="edit-valor" min="0.01" step="0.01" required>
+        </div>
+        <div class="nf-field">
+          <label>Válido até <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+          <input type="date" name="valido_ate" id="edit-valido">
+        </div>
+        <div class="nf-field">
+          <label>Máx. de usos <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
+          <input type="number" name="uso_maximo" id="edit-uso-maximo" min="0" step="1">
+        </div>
+
+        <!-- Público (só para tipo=codigo) -->
+        <div class="nf-field full" id="edit-blk-publico">
+          <label>Para quem é o cupom?</label>
+          <select name="publico" id="edit-publico" onchange="editAtualizarPublico()">
+            <option value="todos">Todos os clientes</option>
+            <option value="primeira_compra">Quem ainda não comprou</option>
+            <option value="frequente">Clientes frequentes</option>
+            <option value="especifico">Clientes específicos</option>
+          </select>
+        </div>
+        <div class="nf-field full" id="edit-blk-min-compras" style="display:none">
+          <label>Mínimo de compras realizadas</label>
+          <input type="number" name="min_compras" id="edit-min-compras" min="1" step="1" value="3">
+        </div>
+
+        <!-- Escopo de produtos -->
+        <div class="nf-field full">
+          <label>Para quais produtos vale?</label>
+          <select name="escopo" id="edit-escopo" onchange="editAtualizarEscopo()">
+            <option value="todos">Todos os produtos da loja</option>
+            <option value="categoria">Categorias específicas</option>
+            <option value="produto">Produtos específicos</option>
+          </select>
+        </div>
+        <div class="nf-field full" id="edit-blk-categorias" style="display:none">
+          <label>Selecione as categorias</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+            {% for cat, lbl in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
+              <input type="checkbox" name="escopo_categorias" value="{{ cat }}" class="edit-cat-chk"
+                     style="width:15px;height:15px;accent-color:var(--pk-yellow)">
+              {{ lbl }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="nf-field full" id="edit-blk-produtos" style="display:none">
+          <label>Selecione os produtos</label>
+          <div style="font-size:.74rem;color:var(--pk-muted);margin-bottom:8px">Ctrl/Cmd para selecionar mais de um.</div>
+          <select name="escopo_eans" id="edit-sel-produtos" multiple
+                  style="width:100%;min-height:130px;background:#0a0d14;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:6px;font-size:.84rem">
+            <option value="" disabled>Carregando produtos...</option>
+          </select>
+          <div id="edit-produtos-load" style="font-size:.74rem;color:var(--pk-muted);margin-top:4px"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+        <button type="button" onclick="fecharEdicao()"
+                style="border:1px solid var(--pk-line);background:transparent;color:var(--pk-muted);border-radius:8px;padding:10px 18px;font-size:.84rem;font-weight:700;cursor:pointer;font-family:inherit">
+          Cancelar
+        </button>
+        <button type="submit" class="btn-pk-yellow"><i class="fa fa-floppy-disk me-1"></i>Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Tabs ────────────────────────────────────────────────────────────
+function mudarAba(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Helpers de formulário ───────────────────────────────────────────
+function atualizarPlaceholder(inpId, selId) {
+  const tipo = document.getElementById(selId).value;
+  const inp  = document.getElementById(inpId);
+  inp.placeholder = tipo === 'pct' ? 'Ex: 10 (para 10%)' : 'Ex: 15.00 (R$15)';
+  inp.max = tipo === 'pct' ? 100 : '';
+}
+
+document.getElementById('inp-codigo').addEventListener('input', function() {
+  this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+});
+
+let _clientesCarregados = false;
+function atualizarPublico() {
+  const v = document.getElementById('sel-publico').value;
+  document.getElementById('blk-min-compras').style.display = v === 'frequente' ? '' : 'none';
+  document.getElementById('blk-especifico').style.display  = v === 'especifico' ? '' : 'none';
+  if (v === 'especifico' && !_clientesCarregados) carregarClientes();
+}
+
+// Escopo genérico para novos forms
+const _prodCarregados = {};
+function atualizarEscopo(selId, blkCatId, blkProdId, selProdId, loadId) {
+  const v = document.getElementById(selId).value;
+  document.getElementById(blkCatId).style.display  = v === 'categoria' ? '' : 'none';
+  document.getElementById(blkProdId).style.display = v === 'produto' ? '' : 'none';
+  if (v === 'produto' && !_prodCarregados[selProdId]) carregarProdutosParaSelect(selProdId, loadId, []);
+}
+
+// Escopo para aba código (legacy)
+let _produtosCarregados = false;
+function atualizarEscopoLegacy() {
+  const v = document.getElementById('sel-escopo').value;
+  document.getElementById('blk-categorias').style.display = v === 'categoria' ? '' : 'none';
+  document.getElementById('blk-produtos').style.display   = v === 'produto' ? '' : 'none';
+  if (v === 'produto' && !_produtosCarregados) carregarProdutos();
+}
+
+async function carregarProdutosParaSelect(selId, loadId, pendingEans) {
+  const sel    = document.getElementById(selId);
+  const status = document.getElementById(loadId);
+  status.textContent = 'Carregando produtos...';
+  try {
+    const r    = await fetch('/api/painel/produtos-loja');
+    const data = await r.json();
+    sel.innerHTML = '';
+    data.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.ean;
+      opt.textContent = `${p.nome} (EAN: ${p.ean})`;
+      opt.selected = pendingEans.includes(p.ean);
+      sel.appendChild(opt);
+    });
+    status.textContent = `${data.length} produto(s). Ctrl+clique para selecionar vários.`;
+    _prodCarregados[selId] = true;
+  } catch {
+    status.textContent = 'Erro ao carregar produtos.';
+  }
+}
+
+async function carregarProdutos() {
+  await carregarProdutosParaSelect('sel-produtos', 'produtos-load', []);
+  _produtosCarregados = true;
+}
+
+async function carregarClientes() {
+  const sel    = document.getElementById('sel-clientes');
+  const status = document.getElementById('clientes-load');
+  status.textContent = 'Carregando...';
+  try {
+    const r    = await fetch('/api/painel/consumidores');
+    const data = await r.json();
+    sel.innerHTML = '';
+    if (!data.length) { sel.innerHTML = '<option disabled>Sem clientes ainda.</option>'; return; }
+    data.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.consumidor_id;
+      opt.textContent = `${c.cliente_nome} — ${c.cliente_email || 'sem e-mail'} (${c.n_pedidos} pedidos)`;
+      sel.appendChild(opt);
+    });
+    status.textContent = `${data.length} cliente(s).`;
+    _clientesCarregados = true;
+  } catch { status.textContent = 'Erro ao carregar clientes.'; }
+}
+
+// ── Edição ──────────────────────────────────────────────────────────
+let _editProdutosCarregados = false;
+let _editPendingEans = [];
+
+function abrirEdicao(btn) {
+  const d = btn.dataset;
+  const tr = d.tipoRegra || 'codigo';
+  document.getElementById('edit-tipo-regra').value = tr;
+  document.getElementById('frm-edit').action = `/painel/cupons/${d.id}/editar`;
+
+  // Campos comuns
+  document.getElementById('edit-tipo').value       = d.tipo;
+  document.getElementById('edit-valor').value      = d.valor;
+  document.getElementById('edit-valido').value     = d.valido || '';
+  document.getElementById('edit-uso-maximo').value = d.usoMaximo || 0;
+  document.getElementById('edit-escopo').value     = d.escopo || 'todos';
+
+  // Campos específicos por tipo
+  const blkCod = document.getElementById('edit-blk-codigo');
+  const blkPag = document.getElementById('edit-blk-forma-pag');
+  const blkQtd = document.getElementById('edit-blk-qtd');
+  const blkPub = document.getElementById('edit-blk-publico');
+  blkCod.style.display = tr === 'codigo'    ? '' : 'none';
+  blkPag.style.display = tr === 'pagamento' ? '' : 'none';
+  blkQtd.style.display = tr === 'quantidade'? '' : 'none';
+  blkPub.style.display = tr === 'codigo'    ? '' : 'none';
+  document.getElementById('edit-blk-min-compras').style.display = 'none';
+
+  if (tr === 'codigo') {
+    document.getElementById('edit-codigo').value      = d.codigo;
+    document.getElementById('edit-publico').value     = d.publico || 'todos';
+    document.getElementById('edit-min-compras').value = d.minCompras || 1;
+    editAtualizarPublico();
+  } else if (tr === 'pagamento') {
+    document.getElementById('edit-forma-pag').value = d.formaPagamento || 'pix';
+  } else if (tr === 'quantidade') {
+    document.getElementById('edit-qtd-minima').value = d.qtdMinima || 1;
+  }
+
+  editAtualizarPlaceholder();
+
+  // Categorias
+  const cats = (d.escopoCategorias || '').split(',').map(s => s.trim());
+  document.querySelectorAll('.edit-cat-chk').forEach(chk => { chk.checked = cats.includes(chk.value); });
+
+  // Produtos
+  _editPendingEans = (d.escopoEans || '').split(',').map(s => s.trim()).filter(Boolean);
+  editAtualizarEscopo();
+
+  document.getElementById('modal-edit').onclick = e => {
+    if (e.target === document.getElementById('modal-edit')) fecharEdicao();
+  };
+  document.getElementById('modal-edit').style.display = '';
+  document.body.style.overflow = 'hidden';
+}
+
+function fecharEdicao() {
+  document.getElementById('modal-edit').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function editAtualizarPlaceholder() {
+  const tipo = document.getElementById('edit-tipo').value;
+  const inp  = document.getElementById('edit-valor');
+  inp.placeholder = tipo === 'pct' ? 'Ex: 10%' : 'Ex: 15.00';
+  inp.max = tipo === 'pct' ? 100 : '';
+}
+
+function editAtualizarPublico() {
+  const v = document.getElementById('edit-publico').value;
+  document.getElementById('edit-blk-min-compras').style.display = v === 'frequente' ? '' : 'none';
+}
+
+function editAtualizarEscopo() {
+  const v = document.getElementById('edit-escopo').value;
+  document.getElementById('edit-blk-categorias').style.display = v === 'categoria' ? '' : 'none';
+  document.getElementById('edit-blk-produtos').style.display   = v === 'produto'   ? '' : 'none';
+  if (v === 'produto') carregarProdutosEdit();
+}
+
+async function carregarProdutosEdit() {
+  const sel    = document.getElementById('edit-sel-produtos');
+  const status = document.getElementById('edit-produtos-load');
+  if (_editProdutosCarregados) {
+    Array.from(sel.options).forEach(o => { o.selected = _editPendingEans.includes(o.value); });
+    return;
+  }
+  status.textContent = 'Carregando produtos...';
+  try {
+    const r    = await fetch('/api/painel/produtos-loja');
+    const data = await r.json();
+    sel.innerHTML = '';
+    data.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.ean;
+      opt.textContent = `${p.nome} (EAN: ${p.ean})`;
+      opt.selected = _editPendingEans.includes(p.ean);
+      sel.appendChild(opt);
+    });
+    status.textContent = `${data.length} produto(s).`;
+    _editProdutosCarregados = true;
+  } catch { status.textContent = 'Erro ao carregar.'; }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharEdicao(); });
+</script>
+{% endblock %}

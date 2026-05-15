@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{% block title %}Poupaqui - Produtos{% endblock %}</title>
+
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='poupaqui-logo.png') }}"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+
+  <style>
+    :root {
+      --pq-red:      #c8102e;
+      --pq-red-dk:   #9b0d22;
+      --pq-yellow:   #f5c842;
+      --pq-yellow-lt:#fef9dc;
+      --pq-bg:       #f5f5f5;
+      --pq-card:     #ffffff;
+      --pq-text:     #1a1a1a;
+      --pq-muted:    #717171;
+      --pq-border:   #e0e0e0;
+      --pq-radius:   14px;
+      --pq-shadow:   0 1px 6px rgba(0,0,0,.08), 0 2px 12px rgba(0,0,0,.04);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Nunito', system-ui, sans-serif; background: var(--pq-bg); color: var(--pq-text); }
+
+    /* ── TOPBAR iFood-style ─────────────────────────────── */
+    .pq-topbar {
+      background: #fff;
+      border-bottom: 1px solid var(--pq-border);
+      height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    }
+    .pq-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 1.4rem;
+      font-weight: 900;
+      color: var(--pq-red);
+      text-decoration: none;
+      white-space: nowrap;
+      letter-spacing: -.3px;
+    }
+    .pq-brand-logo {
+      width: 34px;
+      height: 34px;
+      margin-right: 8px;
+      border-radius: 10px;
+      background: #fff;
+      object-fit: contain;
+      flex: 0 0 auto;
+    }
+    .pq-brand-text { color: var(--pq-red); }
+    .pq-brand-highlight { color: var(--pq-yellow); }
+
+    /* ── LOCATION WIDGET ────────────────────────────────── */
+    .pq-loc-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border: 1.5px solid var(--pq-border);
+      border-radius: 50px;
+      cursor: pointer;
+      background: #fff;
+      transition: border-color .15s, box-shadow .15s;
+      min-width: 0;
+      flex: 1;
+      max-width: 360px;
+    }
+    .pq-loc-btn:hover { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
+    .pq-loc-icon { color: var(--pq-red); font-size: 1rem; flex-shrink: 0; }
+    .pq-loc-texts { min-width: 0; flex: 1; }
+    .pq-loc-label { font-size: .68rem; font-weight: 700; color: var(--pq-muted); text-transform: uppercase; letter-spacing: .3px; display: block; }
+    .pq-loc-addr  { font-size: .88rem; font-weight: 700; color: var(--pq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .pq-loc-arrow { color: var(--pq-muted); font-size: .7rem; flex-shrink: 0; }
+
+    .pq-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .pq-topbar-link {
+      color: var(--pq-muted);
+      text-decoration: none;
+      font-size: .82rem;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 8px;
+      white-space: nowrap;
+      transition: background .15s, color .15s;
+    }
+    .pq-topbar-link:hover { background: #f5f5f5; color: var(--pq-text); }
+    .pq-user-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--pq-muted);
+      text-decoration: none;
+      font-size: .82rem;
+      font-weight: 800;
+      padding: 7px 10px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .pq-user-link:hover { background:#f5f5f5; color:var(--pq-text); }
+    .pq-user-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--pq-red);
+      color: #fff;
+      font-size: .9rem;
+      flex: 0 0 auto;
+    }
+    .pq-user-menu { position: relative; }
+    .pq-user-dropdown {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 10px);
+      width: min(280px, calc(100vw - 24px));
+      background: #fff;
+      border: 1px solid var(--pq-border);
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.18);
+      overflow: hidden;
+      display: none;
+      z-index: 700;
+    }
+    .pq-user-dropdown.show { display: block; }
+    .pq-user-head { padding: 12px 14px; border-bottom: 1px solid var(--pq-border); background: #fafafa; }
+    .pq-user-head strong { display:block; color:var(--pq-text); font-size:.92rem; }
+    .pq-user-head span { display:block; color:var(--pq-muted); font-size:.76rem; margin-top:2px; overflow:hidden; text-overflow:ellipsis; }
+    .pq-user-item {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:12px 14px;
+      color:var(--pq-text);
+      text-decoration:none;
+      font-weight:800;
+      font-size:.88rem;
+      border-bottom:1px solid #f2f2f2;
+    }
+    .pq-user-item:last-child { border-bottom:0; }
+    .pq-user-item:hover { background:#fff7d6; color:var(--pq-text); }
+    .pq-user-item i { width:18px; color:var(--pq-red); text-align:center; }
+    .pq-user-item.danger { color:#b00020; }
+    @media(max-width:680px){
+      .pq-user-name, .pq-store-label { display:none; }
+      .pq-topbar { padding:0 12px; gap:8px; }
+    }
+
+    /* ── LOCATION MODAL ─────────────────────────────────── */
+    .pq-loc-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.4);
+      z-index: 300;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 70px;
+    }
+    .pq-loc-overlay.show { display: flex; }
+    .pq-loc-modal {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      animation: slideDown .2s ease;
+    }
+    @keyframes slideDown { from { opacity:0; transform:translateY(-10px) } to { opacity:1; transform:none } }
+    .pq-loc-modal h5 { font-weight: 800; margin-bottom: 16px; font-size: 1rem; }
+    .pq-loc-modal .btn-gps {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px;
+      background: var(--pq-red);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: .9rem;
+      cursor: pointer;
+      font-family: inherit;
+      margin-bottom: 14px;
+      transition: background .15s;
+    }
+    .pq-loc-modal .btn-gps:hover { background: var(--pq-red-dk); }
+    .pq-loc-modal .sep { display: flex; align-items: center; gap: 10px; color: var(--pq-muted); font-size: .8rem; margin-bottom: 14px; }
+    .pq-loc-modal .sep::before, .pq-loc-modal .sep::after { content:''; flex:1; height:1px; background:var(--pq-border); }
+    .pq-inp-row { display: flex; gap: 8px; }
+    .pq-inp-row input {
+      flex: 1;
+      padding: 11px 14px;
+      border: 1.5px solid var(--pq-border);
+      border-radius: 10px;
+      font-size: .9rem;
+      font-family: inherit;
+      outline: none;
+    }
+    .pq-inp-row input:focus { border-color: var(--pq-red); }
+    .pq-inp-row button {
+      background: var(--pq-yellow);
+      border: none;
+      border-radius: 10px;
+      padding: 0 16px;
+      font-weight: 800;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .pq-loc-results {
+      display: none;
+      margin-top: 12px;
+      border: 1px solid var(--pq-border);
+      border-radius: 12px;
+      overflow: hidden;
+      max-height: 260px;
+      overflow-y: auto;
+      background: #fff;
+    }
+    .pq-loc-results.show { display: block; }
+    .pq-loc-result {
+      width: 100%;
+      border: 0;
+      background: #fff;
+      padding: 11px 13px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      text-align: left;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+      font-family: inherit;
+    }
+    .pq-loc-result:last-child { border-bottom: 0; }
+    .pq-loc-result:hover { background: #fff7d6; }
+    .pq-loc-result i { color: var(--pq-red); margin-top: 3px; }
+    .pq-loc-result-title { font-weight: 900; color: var(--pq-text); font-size: .9rem; }
+    .pq-loc-result-sub { color: var(--pq-muted); font-size: .78rem; line-height: 1.35; margin-top: 2px; }
+    .pq-loc-recents {
+      display: none;
+      margin-top: 12px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pq-loc-recents.show { display: flex; }
+    .pq-loc-recent-title {
+      flex-basis: 100%;
+      color: var(--pq-muted);
+      font-size: .72rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .pq-loc-recent {
+      border: 1px solid var(--pq-border);
+      background: #fff;
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: var(--pq-text);
+      font-family: inherit;
+      font-size: .78rem;
+      font-weight: 800;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .pq-loc-recent:hover { border-color: var(--pq-red); color: var(--pq-red); background: #fff3f5; }
+
+    /* ── RED STRIP (hero) ───────────────────────────────── */
+    .pq-red-strip {
+      background: var(--pq-red);
+      color: #fff;
+      padding: 28px 20px 36px;
+      text-align: center;
+    }
+    .pq-red-strip h1 { font-size: 1.6rem; font-weight: 900; margin-bottom: 4px; }
+    .pq-red-strip p  { opacity: .85; margin: 0; font-size: .95rem; }
+
+    /* ── MAIN ───────────────────────────────────────────── */
+    .pq-main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 60px; }
+
+    /* ── ALERTS ─────────────────────────────────────────── */
+    .pq-alert { padding: 12px 16px; border-radius: 10px; margin-bottom: 14px; font-weight: 700; font-size: .88rem; display: flex; align-items: center; gap: 8px; }
+    .pq-alert-error   { background: #fff0f0; border-left: 4px solid var(--pq-red); color: #7a0019; }
+    .pq-alert-success { background: #f0fff4; border-left: 4px solid #22c55e; color: #15652e; }
+    .pq-alert-info    { background: var(--pq-yellow-lt); border-left: 4px solid var(--pq-yellow); color: #5a4a00; }
+
+    /* ── FOOTER ─────────────────────────────────────────── */
+    .pq-footer { background: #1a1a1a; color: rgba(255,255,255,.45); text-align: center; padding: 20px; font-size: .78rem; }
+    .pq-footer strong { color: var(--pq-yellow); }
+
+    /* ── PRODUCT DETAIL MODAL ───────────────────────────── */
+    .pq-prod-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.52);
+      z-index: 500;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .pq-prod-overlay.show { display: flex; }
+    .pq-prod-modal {
+      background: #fff;
+      border-radius: 18px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.28);
+      animation: slideDown .2s ease;
+      position: relative;
+      margin: auto;
+    }
+    .pq-prod-close {
+      position: absolute;
+      top: 12px; right: 12px;
+      background: rgba(0,0,0,.07);
+      border: none;
+      border-radius: 50%;
+      width: 34px; height: 34px;
+      cursor: pointer;
+      font-size: .95rem;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1;
+      transition: background .15s;
+    }
+    .pq-prod-close:hover { background: rgba(0,0,0,.14); }
+    .pq-prod-img-wrap {
+      background: #f4f4f4;
+      border-radius: 18px 18px 0 0;
+      height: 230px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .pq-prod-img-wrap img { max-height: 210px; max-width: 86%; object-fit: contain; }
+    .pq-prod-img-ph { color: #d5d5d5; font-size: 3.5rem; }
+    .pq-prod-info { padding: 18px 22px 26px; }
+    .pq-prod-info h4 { font-weight: 900; font-size: 1.05rem; line-height: 1.35; margin-bottom: 6px; }
+    .pq-prod-meta {
+      font-size: .76rem; color: var(--pq-muted);
+      display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+    }
+    .pq-prod-divider { height: 1px; background: var(--pq-border); margin: 14px 0; }
+    .pq-prod-sec { margin-bottom: 14px; }
+    .pq-prod-sec-title {
+      font-size: .7rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .5px;
+      color: var(--pq-red); margin-bottom: 5px;
+    }
+    .pq-prod-sec-title.warn { color: #c45e00; }
+    .pq-prod-sec-body { font-size: .86rem; line-height: 1.6; color: var(--pq-text); }
+    .pq-prod-loading { text-align: center; padding: 60px 20px; color: var(--pq-muted); }
+  </style>
+  {% block extra_style %}{% endblock %}
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header class="pq-topbar">
+  <a class="pq-brand" href="{{ url_for('index') }}"><img class="pq-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt=""><span class="pq-brand-text">Poupaqu<span class="pq-brand-highlight">i</span></span></a>
+
+  <div class="pq-loc-btn" id="loc-btn" onclick="abrirModalLoc()">
+    <i class="fa fa-location-dot pq-loc-icon"></i>
+    <div class="pq-loc-texts">
+      <span class="pq-loc-label">sua localização</span>
+      <span class="pq-loc-addr" id="loc-addr-text">Detectando…</span>
+    </div>
+    <i class="fa fa-chevron-down pq-loc-arrow"></i>
+  </div>
+
+  <div class="pq-topbar-right">
+    <a class="pq-topbar-link" href="{{ url_for('carrinho') }}" style="position:relative;padding:6px 10px">
+      <i class="fa fa-cart-shopping"></i>
+      <span id="cart-badge" style="position:absolute;top:-3px;right:-3px;background:var(--pq-red);color:#fff;font-size:.58rem;font-weight:800;min-width:17px;height:17px;border-radius:9px;padding:0 3px;display:none;align-items:center;justify-content:center;line-height:1">0</span>
+    </a>
+    {% if consumidor %}
+    <div class="pq-user-menu">
+      <button class="pq-user-link" type="button" onclick="toggleUserMenu(event)" title="Minha conta" style="border:0;background:transparent;font-family:inherit">
+        <span class="pq-user-avatar"><i class="fa fa-user"></i></span>
+        <span class="pq-user-name">{{ consumidor.nome.split()[0] if consumidor.nome else 'Conta' }}</span>
+        <i class="fa fa-chevron-down" style="font-size:.68rem"></i>
+      </button>
+      <div class="pq-user-dropdown" id="pq-user-dropdown">
+        <div class="pq-user-head">
+          <strong>{{ consumidor.nome }}</strong>
+          <span>{{ consumidor.email }}</span>
+        </div>
+        <a class="pq-user-item" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i>Meus pedidos</a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i>Meus cupons</a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i>Editar perfil</a>
+        <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i>Sair</a>
+      </div>
+    </div>
+    {% else %}
+    <a class="pq-user-link" href="{{ url_for('consumidor_login') }}" title="Entrar">
+      <span class="pq-user-avatar"><i class="fa fa-user"></i></span>
+      <span class="pq-user-name">Entrar</span>
+    </a>
+    {% endif %}
+    <a class="pq-topbar-link" href="{{ url_for('painel_login') }}">
+      <i class="fa fa-store me-1"></i><span class="pq-store-label">Painel da loja</span>
+    </a>
+  </div>
+</header>
+<div id="cart-toast" style="position:fixed;bottom:20px;right:20px;background:#1a1a1a;color:#fff;padding:10px 18px;border-radius:10px;font-size:.86rem;font-weight:700;opacity:0;transform:translateY(10px);transition:opacity .2s,transform .2s;z-index:600;pointer-events:none"></div>
+
+<!-- MODAL LOCALIZAÇÃO -->
+<div class="pq-loc-overlay" id="loc-overlay" onclick="if(event.target===this)fecharModalLoc()">
+  <div class="pq-loc-modal">
+    <h5><i class="fa fa-location-dot me-2" style="color:var(--pq-red)"></i>Onde você está?</h5>
+
+    <button class="btn-gps" onclick="usarGPS()">
+      <i class="fa fa-crosshairs"></i>
+      Usar minha localização atual
+    </button>
+
+    <div class="sep">ou busque por cidade ou endereço</div>
+
+    <div class="pq-inp-row">
+      <input type="search" id="modal-cidade-inp" name="pq_localizacao_busca"
+             placeholder="Ex: São Pedro - SP ou Rua..."
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+             oninput="buscarCidadeDebounced()"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();buscarCidade()}"/>
+      <button onclick="buscarCidade()"><i class="fa fa-search"></i></button>
+    </div>
+    <div id="modal-status" style="margin-top:10px;font-size:.8rem;color:var(--pq-muted)"></div>
+    <div id="modal-loc-results" class="pq-loc-results"></div>
+    <div id="modal-loc-recents" class="pq-loc-recents"></div>
+  </div>
+</div>
+
+<!-- MODAL PRODUTO -->
+<div class="pq-prod-overlay" id="prod-overlay" onclick="if(event.target===this)fecharModalProd()">
+  <div class="pq-prod-modal">
+    <button class="pq-prod-close" onclick="fecharModalProd()"><i class="fa fa-xmark"></i></button>
+    <div id="prod-modal-body"></div>
+  </div>
+</div>
+
+<!-- CONTENT -->
+{% block hero %}{% endblock %}
+
+<div class="pq-main">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      {% for cat, msg in msgs %}
+        <div class="pq-alert pq-alert-{{ cat }}">
+          <i class="fa fa-{% if cat=='error' %}triangle-exclamation{% elif cat=='success' %}check-circle{% else %}info-circle{% endif %}"></i>
+          {{ msg }}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</div>
+
+<footer class="pq-footer">
+  <strong>Poupaqui</strong> — Produtos nas farmácias da rede
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+/* ── GEOLOCALIZAÇÃO GLOBAL ──────────────────────────────── */
+const LOC_KEY_LAT  = 'pq_lat';
+const LOC_KEY_LNG  = 'pq_lng';
+const LOC_KEY_NOME = 'pq_loc_nome';
+const LOC_KEY_RECENTS = 'pq_loc_recents';
+
+function abrirModalLoc()  { document.getElementById('loc-overlay').classList.add('show'); renderRecentLocs(); document.getElementById('modal-cidade-inp').focus(); }
+function fecharModalLoc() { document.getElementById('loc-overlay').classList.remove('show'); }
+
+function setLocNome(nome) {
+  document.getElementById('loc-addr-text').textContent = nome;
+  localStorage.setItem(LOC_KEY_NOME, nome);
+}
+
+function reverseGeocode(lat, lng) {
+  fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+    headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'poupaqui/1.0' }
+  })
+  .then(r => r.json())
+  .then(d => {
+    const a = d.address || {};
+    const cidade = a.city || a.town || a.village || a.suburb || a.county || '';
+    const uf     = a.state_code || a.ISO3166_2_lvl4 || '';
+    const rua = a.road || '';
+    const numero = a.house_number || '';
+    const bairro = a.suburb || a.neighbourhood || '';
+    const endereco = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade].filter(Boolean).join(', ');
+    const nome   = endereco || (cidade ? `${cidade}${uf ? ', '+uf.replace('BR-','') : ''}` : 'Localização detectada');
+    setLocNome(nome);
+  })
+  .catch(() => setLocNome('Localização detectada'));
+}
+
+function aplicarLocalizacao(lat, lng) {
+  localStorage.setItem(LOC_KEY_LAT, lat);
+  localStorage.setItem(LOC_KEY_LNG, lng);
+  reverseGeocode(lat, lng);
+  fecharModalLoc();
+  if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
+}
+
+function usarGPS() {
+  document.getElementById('modal-status').textContent = 'Obtendo posição…';
+  if (!navigator.geolocation) {
+    document.getElementById('modal-status').textContent = 'GPS não disponível neste navegador.';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
+    err => {
+      const msgs = {1:'Permissão negada.', 2:'Posição indisponível.', 3:'Tempo esgotado.'};
+      document.getElementById('modal-status').textContent = msgs[err.code] || 'Erro ao obter posição.';
+    },
+    { timeout: 10000 }
+  );
+}
+
+function buscarCidadeLegacy() {
+  const cidade = document.getElementById('modal-cidade-inp').value.trim();
+  if (!cidade) return;
+  document.getElementById('modal-status').textContent = 'Buscando…';
+  fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+    q: cidade + ', Brasil', format: 'json', limit: '1', countrycodes: 'br'
+  }), { headers: { 'Accept-Language': 'pt-BR' } })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.length) { document.getElementById('modal-status').textContent = 'Cidade não encontrada.'; return; }
+    aplicarLocalizacao(parseFloat(data[0].lat), parseFloat(data[0].lon));
+  })
+  .catch(() => { document.getElementById('modal-status').textContent = 'Erro na busca.'; });
+}
+
+/* ── INICIALIZAÇÃO ──────────────────────────────────────── */
+const UF_NOMES = {
+  AC:'Acre', AL:'Alagoas', AP:'Amapa', AM:'Amazonas', BA:'Bahia', CE:'Ceara',
+  DF:'Distrito Federal', ES:'Espirito Santo', GO:'Goias', MA:'Maranhao',
+  MT:'Mato Grosso', MS:'Mato Grosso do Sul', MG:'Minas Gerais', PA:'Para',
+  PB:'Paraiba', PR:'Parana', PE:'Pernambuco', PI:'Piaui', RJ:'Rio de Janeiro',
+  RN:'Rio Grande do Norte', RS:'Rio Grande do Sul', RO:'Rondonia', RR:'Roraima',
+  SC:'Santa Catarina', SP:'Sao Paulo', SE:'Sergipe', TO:'Tocantins'
+};
+function normLoc(s) {
+  return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+function parseCidadeUf(raw) {
+  const clean = (raw || '').replace(/,?\s*\d{5}-?\d{3}\b/g, '').trim();
+  const m = clean.match(/^(.*?)(?:\s*[-,\/]\s*|\s+)([A-Za-z]{2})(?:\b|$)/);
+  return { cidade: (m ? m[1] : clean).trim(), uf: m ? m[2].toUpperCase() : '' };
+}
+function escolherCidade(data, parsed) {
+  const alvo = normLoc(parsed.cidade);
+  const uf = parsed.uf;
+  return (data || []).find(d => {
+    const a = d.address || {};
+    const nome = a.city || a.town || a.village || a.municipality || '';
+    const stateCode = (a.state_code || '').replace('BR-', '').toUpperCase();
+    const state = normLoc(a.state || '');
+    const ufOk = !uf || stateCode === uf || state === normLoc(UF_NOMES[uf]);
+    return ufOk && normLoc(nome) === alvo;
+  }) || (data || []).find(d => {
+    const a = d.address || {};
+    const stateCode = (a.state_code || '').replace('BR-', '').toUpperCase();
+    const state = normLoc(a.state || '');
+    return !uf || stateCode === uf || state === normLoc(UF_NOMES[uf]);
+  });
+}
+
+function ordenarLocResults(data, parsed) {
+  const uf = parsed.uf;
+  const alvo = normLoc(parsed.cidade);
+  const alvoTokens = new Set(alvo.split(' ').filter(t => t.length > 2));
+  return (data || [])
+    .filter(d => d && d.lat && d.lon)
+    .map(d => {
+      const a = d.address || {};
+      const nome = a.city || a.town || a.village || a.municipality || a.county || d.name || '';
+      const hay = normLoc([d.display_name, a.road, a.suburb, a.neighbourhood, a.city_district, nome, a.postcode].filter(Boolean).join(' '));
+      const stateCode = (a.state_code || '').replace('BR-', '').toUpperCase();
+      const state = normLoc(a.state || '');
+      const ufOk = !uf || stateCode === uf || state === normLoc(UF_NOMES[uf]);
+      let score = 0;
+      if (ufOk) score += 50;
+      if (normLoc(nome) === alvo) score += 40;
+      alvoTokens.forEach(t => { if (hay.includes(t)) score += 6; });
+      if (a.road || a.suburb || a.neighbourhood || a.postcode) score += 12;
+      if ((d.class || '') === 'place' || (d.type || '') === 'city' || (d.type || '') === 'town') score += 8;
+      return {...d, _score: score};
+    })
+    .sort((a, b) => b._score - a._score)
+    .slice(0, 8);
+}
+function formatLocResult(d) {
+  const a = d.address || {};
+  if ((d.place_id || '').toString().startsWith('user-')) {
+    const cep = a.postcode || '';
+    return { title: d.display_name || d.name || 'Endereço informado', sub: cep ? `CEP ${cep}` : 'Endereço padronizado', label: d.display_name || d.name || 'Endereço informado' };
+  }
+  const cidade = a.city || a.town || a.village || a.municipality || a.county || '';
+  const uf = (a.state_code || '').replace('BR-', '') || '';
+  const bairro = a.suburb || a.neighbourhood || a.city_district || '';
+  const rua = a.road || a.pedestrian || a.footway || '';
+  const numero = a.house_number || '';
+  const cep = a.postcode || '';
+  const title = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade].filter(Boolean).slice(0, 3).join(' - ') || cidade || d.name || 'Local encontrado';
+  const sub = [cidade, uf, cep, a.country].filter(Boolean).join(' - ');
+  return { title, sub, label: [title, sub].filter(Boolean).join(' - ') };
+}
+
+function getRecentLocs() {
+  try {
+    return JSON.parse(localStorage.getItem(LOC_KEY_RECENTS) || '[]')
+      .filter(x => x && x.lat && x.lng && x.label);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentLoc(lat, lng, label) {
+  const item = { lat: String(lat), lng: String(lng), label: label || 'Localização selecionada', ts: Date.now() };
+  const key = `${Number(item.lat).toFixed(5)},${Number(item.lng).toFixed(5)}`;
+  const recents = [item, ...getRecentLocs().filter(x => `${Number(x.lat).toFixed(5)},${Number(x.lng).toFixed(5)}` !== key)].slice(0, 5);
+  localStorage.setItem(LOC_KEY_RECENTS, JSON.stringify(recents));
+}
+
+function renderRecentLocs() {
+  const box = document.getElementById('modal-loc-recents');
+  if (!box) return;
+  const recents = getRecentLocs();
+  if (!recents.length) {
+    box.classList.remove('show');
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = '<div class="pq-loc-recent-title">Últimas localizações</div>' +
+    recents.map((r, idx) => `<button type="button" class="pq-loc-recent" data-idx="${idx}" title="${esc(r.label)}"><i class="fa fa-clock-rotate-left me-1"></i>${esc(r.label)}</button>`).join('');
+  box.classList.add('show');
+  box.querySelectorAll('.pq-loc-recent').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = recents[parseInt(btn.dataset.idx, 10)];
+      selecionarLocalizacao(r.lat, r.lng, r.label);
+    });
+  });
+}
+
+function selecionarLocalizacao(lat, lon, label) {
+  localStorage.setItem(LOC_KEY_LAT, lat);
+  localStorage.setItem(LOC_KEY_LNG, lon);
+  saveRecentLoc(lat, lon, label || localStorage.getItem(LOC_KEY_NOME) || 'Localização selecionada');
+  setLocNome(label || 'Localização selecionada');
+  fecharModalLoc();
+  if (typeof onLocationReady === 'function') onLocationReady(parseFloat(lat), parseFloat(lon));
+}
+
+function renderLocResults(data) {
+  const box = document.getElementById('modal-loc-results');
+  if (!box) return;
+  if (!data.length) {
+    box.classList.remove('show');
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = data.map((d, idx) => {
+    const f = formatLocResult(d);
+    return `<button type="button" class="pq-loc-result" data-idx="${idx}">
+      <i class="fa fa-location-dot"></i>
+      <span>
+        <span class="pq-loc-result-title">${esc(f.title)}</span>
+        <span class="pq-loc-result-sub">${esc(f.sub || d.display_name || '')}</span>
+      </span>
+    </button>`;
+  }).join('');
+  box.classList.add('show');
+  box.querySelectorAll('.pq-loc-result').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = data[parseInt(btn.dataset.idx, 10)];
+      const f = formatLocResult(d);
+      selecionarLocalizacao(d.lat, d.lon, f.label);
+    });
+  });
+}
+
+buscarCidade = function() {
+  const cidade = document.getElementById('modal-cidade-inp').value.trim();
+  if (!cidade) return;
+  document.getElementById('modal-status').textContent = 'Buscando...';
+  const parsed = parseCidadeUf(cidade);
+  fetchLocalizacao(cidade, parsed)
+  .then(rawResults => {
+    const results = ordenarLocResults(rawResults || [], parsed);
+    if (!results.length) {
+      document.getElementById('modal-status').textContent = 'Nada encontrado. Tente cidade + UF ou endereço completo.';
+      renderLocResults([]);
+      return;
+    }
+    document.getElementById('modal-status').textContent = 'Selecione uma opção abaixo.';
+    renderLocResults(results);
+  })
+  .catch(() => { document.getElementById('modal-status').textContent = 'Erro na busca.'; });
+}
+
+async function fetchLocalizacao(termo, parsed) {
+  try {
+    const local = await fetch('/api/localizacao?' + new URLSearchParams({ q: termo }));
+    const data = await local.json();
+    if (data.results && data.results.length) return data.results;
+  } catch {}
+
+  const queries = [];
+  const semCep = termo.replace(/,?\s*\d{5}-?\d{3}\b/g, '').trim();
+  if (parsed.uf && UF_NOMES[parsed.uf]) {
+    queries.push({ city: parsed.cidade, state: UF_NOMES[parsed.uf], country: 'Brasil' });
+    queries.push({ q: `${parsed.cidade}, ${UF_NOMES[parsed.uf]}, Brasil` });
+  }
+  queries.push({ q: `${termo}, Brasil` });
+  if (semCep && semCep !== termo) queries.push({ q: `${semCep}, Brasil` });
+  const parts = semCep.split(',').map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 2) queries.push({ q: `${parts[0]}, ${parts[1]}, Brasil` });
+
+  const all = [];
+  const seen = new Set();
+  for (const paramsObj of queries) {
+    const params = new URLSearchParams({
+      ...paramsObj,
+      format: 'json',
+      limit: '8',
+      addressdetails: '1',
+      countrycodes: 'br'
+    });
+    try {
+      const res = await fetch('https://nominatim.openstreetmap.org/search?' + params, { headers: { 'Accept-Language': 'pt-BR' } });
+      const data = await res.json();
+      data.forEach(item => {
+        const key = item.place_id || `${item.lat},${item.lon}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(item);
+        }
+      });
+      if (all.length) break;
+    } catch {}
+  }
+  return all;
+}
+
+let _locSearchTimer = null;
+function buscarCidadeDebounced() {
+  clearTimeout(_locSearchTimer);
+  const termo = document.getElementById('modal-cidade-inp').value.trim();
+  if (termo.length < 3) {
+    document.getElementById('modal-status').textContent = '';
+    renderLocResults([]);
+    return;
+  }
+  _locSearchTimer = setTimeout(buscarCidade, 450);
+}
+
+(function init() {
+  // Restaura localização salva
+  const savedNome = localStorage.getItem(LOC_KEY_NOME);
+  const savedLat  = localStorage.getItem(LOC_KEY_LAT);
+  const savedLng  = localStorage.getItem(LOC_KEY_LNG);
+
+  if (savedNome) {
+    document.getElementById('loc-addr-text').textContent = savedNome;
+  }
+
+  if (savedLat && savedLng) {
+    // Já tem localização salva — usa imediatamente
+    if (typeof onLocationReady === 'function') onLocationReady(parseFloat(savedLat), parseFloat(savedLng));
+  } else {
+    // Pede permissão automaticamente
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
+        () => { document.getElementById('loc-addr-text').textContent = 'Clique para definir'; }
+      );
+    }
+  }
+})();
+</script>
+
+<script>
+function toggleUserMenu(ev) {
+  ev.stopPropagation();
+  document.getElementById('pq-user-dropdown')?.classList.toggle('show');
+}
+document.addEventListener('click', () => document.getElementById('pq-user-dropdown')?.classList.remove('show'));
+
+/* ── UTILITÁRIO GLOBAL ──────────────────────────────────── */
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── CARRINHO (localStorage + banco) ───────────────────── */
+const CART_KEY = 'pq_cart';
+
+function getCart() {
+  try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; } catch { return []; }
+}
+
+let _syncCartTimer = null;
+function _syncCartToDB(cart) {
+  clearTimeout(_syncCartTimer);
+  _syncCartTimer = setTimeout(() => {
+    fetch('/api/carrinho/sync', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({items: cart}),
+    }).catch(() => {});
+  }, 600);
+}
+
+function saveCart(c) {
+  localStorage.setItem(CART_KEY, JSON.stringify(c));
+  updateCartBadge();
+  _syncCartToDB(c);
+}
+
+function addToCart(item) {
+  const cart = getCart();
+  const qty = Math.max(1, parseInt(item.qty) || 1);
+  const ex = cart.find(c => c.ean === item.ean && c.cnpjloja === item.cnpjloja);
+  if (ex) { ex.qty = (ex.qty||1) + qty; }
+  else     { cart.push({...item, qty}); }
+  saveCart(cart);
+  showCartToast(item.nome);
+}
+function addToCartFromData(btn) {
+  addToCart({
+    ean: btn.dataset.ean, nome: btn.dataset.nome,
+    preco: parseFloat(btn.dataset.preco)||0, imagem: btn.dataset.imagem||'',
+    cnpjloja: btn.dataset.cnpj, razao: btn.dataset.razao,
+    qty: parseInt(btn.dataset.qty)||1,
+  });
+}
+function removeFromCart(ean, cnpjloja) {
+  saveCart(getCart().filter(c => !(c.ean===ean && c.cnpjloja===cnpjloja)));
+}
+function updateCartBadge() {
+  const n = getCart().reduce((s,c) => s+(c.qty||1), 0);
+  const b = document.getElementById('cart-badge');
+  if (!b) return;
+  b.textContent = n;
+  b.style.display = n > 0 ? 'flex' : 'none';
+}
+function showCartToast(nome) {
+  const t = document.getElementById('cart-toast');
+  if (!t) return;
+  t.textContent = '✓ ' + (nome||'Produto') + ' adicionado';
+  t.style.opacity = '1'; t.style.transform = 'none';
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => { t.style.opacity='0'; t.style.transform='translateY(10px)'; }, 2200);
+}
+document.addEventListener('DOMContentLoaded', updateCartBadge);
+
+/* ── MODAL PRODUTO ──────────────────────────────────────── */
+function abrirModalProd()  { document.getElementById('prod-overlay').classList.add('show');    document.body.style.overflow='hidden'; }
+function fecharModalProd() { document.getElementById('prod-overlay').classList.remove('show'); document.body.style.overflow=''; }
+document.addEventListener('keydown', e => { if(e.key==='Escape') fecharModalProd(); });
+
+function _secHtml(titulo, texto, warn) {
+  const safe = esc(texto).replace(/\n/g,'<br>');
+  return `<div class="pq-prod-sec">
+    <div class="pq-prod-sec-title${warn?' warn':''}">${titulo}</div>
+    <div class="pq-prod-sec-body">${safe}</div>
+  </div>`;
+}
+
+function verProduto(ean, nome, imagem) {
+  const body = document.getElementById('prod-modal-body');
+  body.innerHTML = '<div class="pq-prod-loading"><i class="fa fa-spinner fa-spin me-2"></i>Carregando…</div>';
+  abrirModalProd();
+
+  fetch('/api/produto/' + encodeURIComponent(ean) + '?nome=' + encodeURIComponent(nome))
+    .then(r => r.json())
+    .then(d => _renderModal(body, d, nome, imagem))
+    .catch(() => _renderModal(body, {}, nome, imagem));
+}
+
+function _renderModal(body, d, nome, imagem) {
+  const img = d.imagem_med || imagem || '';
+  const imgHtml = img
+    ? `<img src="${esc(img)}" alt="${esc(nome)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    : '';
+  const phStyle = img ? 'display:none;' : '';
+
+  let metaHtml = '';
+  if (d.marca)       metaHtml += `<span><i class="fa fa-tag me-1"></i>${esc(d.marca)}</span>`;
+  if (d.laboratorio) metaHtml += `<span><i class="fa fa-flask me-1"></i>${esc(d.laboratorio)}</span>`;
+
+  let secsHtml = '';
+  const vt = d.vitnatu;
+  if (vt) {
+    if (vt.serve_para)     secsHtml += _secHtml('<i class="fa fa-circle-check me-1"></i>Para que serve', vt.serve_para);
+    if (vt.porque_comprar) secsHtml += _secHtml('<i class="fa fa-star me-1"></i>Por que comprar', vt.porque_comprar);
+    if (vt.como_usar)      secsHtml += _secHtml('<i class="fa fa-droplet me-1"></i>Como usar', vt.como_usar);
+    if (vt.alertas)        secsHtml += _secHtml('<i class="fa fa-triangle-exclamation me-1"></i>Alertas', vt.alertas, true);
+  }
+
+  body.innerHTML = `
+    <div class="pq-prod-img-wrap">
+      ${imgHtml}
+      <i class="fa fa-pills pq-prod-img-ph" style="${phStyle}align-items:center;justify-content:center;${img?'display:none':'display:flex'}"></i>
+    </div>
+    <div class="pq-prod-info">
+      <h4>${esc(nome)}</h4>
+      ${metaHtml ? `<div class="pq-prod-meta">${metaHtml}</div>` : ''}
+      ${secsHtml
+        ? `<div class="pq-prod-divider"></div>${secsHtml}`
+        : '<p style="font-size:.84rem;color:var(--pq-muted);margin:10px 0 0">Informações detalhadas não disponíveis para este produto.</p>'}
+    </div>`;
+}
+</script>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

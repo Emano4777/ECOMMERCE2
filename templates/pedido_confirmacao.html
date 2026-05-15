@@ -1,0 +1,267 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.conf-wrap { max-width:680px; margin:0 auto; padding:28px 16px 60px; }
+.conf-hero { text-align:center; padding:36px 20px 28px; background:#fff; border-radius:18px; box-shadow:var(--pq-shadow); margin-bottom:20px; }
+.conf-hero-icon { font-size:3.5rem; color:#22c55e; margin-bottom:14px; }
+.conf-hero h2 { font-weight:900; font-size:1.5rem; margin-bottom:6px; }
+.conf-hero p { color:var(--pq-muted); font-size:.92rem; margin:0; }
+.conf-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); margin-bottom:16px; overflow:hidden; }
+.conf-card-hd { padding:14px 20px; background:#fafafa; border-bottom:1px solid var(--pq-border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.conf-card-hd-left { display:flex; align-items:center; gap:10px; }
+.conf-card-hd i { color:var(--pq-red); }
+.conf-razao { font-weight:800; font-size:.95rem; }
+.conf-id { font-size:.72rem; color:var(--pq-muted); font-family:monospace; }
+.conf-items { padding:0; }
+.conf-item { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--pq-border); font-size:.88rem; }
+.conf-item:last-child { border-bottom:none; }
+.conf-item-img { width:48px; height:48px; border-radius:8px; background:#f5f5f5; object-fit:contain; padding:3px; flex-shrink:0; }
+.conf-item-img-ph { width:48px; height:48px; border-radius:8px; background:#f5f5f5; display:flex; align-items:center; justify-content:center; color:#ccc; font-size:1.2rem; flex-shrink:0; }
+.conf-item-info { flex:1; min-width:0; }
+.conf-item-nome { font-weight:700; line-height:1.3; }
+.conf-item-qty { font-size:.78rem; color:var(--pq-muted); }
+.conf-item-preco { font-weight:900; color:var(--pq-red); white-space:nowrap; }
+.conf-total { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-top:1px solid var(--pq-border); font-weight:700; }
+.conf-total strong { color:var(--pq-red); font-size:1.1rem; }
+.conf-pay { margin:0 20px 20px; padding:16px; border-radius:12px; }
+.conf-pay.wpp { background:#f0fff6; border:1px solid #a7f3d0; }
+.conf-pay.pix { background:#fffbe6; border:1px solid #fde68a; }
+.conf-pay.mp { background:#f0f4ff; border:1px solid #c7d2fe; }
+.conf-pay-title { font-weight:800; font-size:.88rem; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+.conf-pay.wpp .conf-pay-title { color:#15803d; }
+.conf-pay.pix .conf-pay-title { color:#854d0e; }
+.conf-pay.mp .conf-pay-title { color:#3730a3; }
+.conf-pix-chave { font-size:.82rem; font-family:monospace; background:#fff; padding:8px 12px; border-radius:8px; word-break:break-all; margin-bottom:8px; border:1px solid #e0e0e0; max-height:120px; overflow:auto; }
+.btn-copy { background:none; border:1px solid #ddd; border-radius:6px; padding:5px 12px; font-size:.78rem; font-weight:700; cursor:pointer; font-family:inherit; transition:background .15s; }
+.btn-copy:hover { background:#f5f5f5; }
+.btn-wpp-link, .btn-mp-link { display:inline-flex; align-items:center; gap:8px; color:#fff; border-radius:10px; padding:10px 18px; font-weight:700; font-size:.9rem; text-decoration:none; }
+.btn-wpp-link { background:#25d366; }
+.btn-wpp-link:hover { background:#1da851; color:#fff; }
+.btn-mp-link { background:#009ee3; }
+.btn-mp-link:hover { background:#007ab5; color:#fff; }
+.conf-qr-wrap { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; margin:10px 0; }
+.conf-qr { width:156px; height:156px; border-radius:12px; background:#fff; padding:8px; border:1px solid #e0e0e0; object-fit:contain; }
+.conf-pay-status { display:inline-flex; align-items:center; gap:6px; margin-top:8px; padding:6px 10px; border-radius:999px; background:#fff; border:1px solid rgba(0,0,0,.08); font-size:.78rem; font-weight:800; }
+.conf-pay-status.ok { color:#15803d; }
+.conf-pay-status.wait { color:#854d0e; }
+.conf-pay-status.bad { color:#b91c1c; }
+.conf-footer { text-align:center; margin-top:24px; }
+@media(max-width:520px){ .conf-qr { width:132px; height:132px; } .conf-pay { margin-left:14px; margin-right:14px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="conf-wrap">
+  {% if pedidos %}
+  <div class="conf-hero">
+    <div class="conf-hero-icon"><i class="fa fa-circle-check"></i></div>
+    <h2>Pedido realizado!</h2>
+    <p>Seu pedido foi registrado com sucesso. Siga as instruções abaixo para finalizar o pagamento.</p>
+  </div>
+
+  {% for entry in pedidos %}
+  {% set p = entry.pedido %}
+  {% set itens = entry.itens %}
+  {% set tel_wpp = (p.whatsapp_pedidos or p.telefone or '')|replace(' ','')|replace('-','')|replace('(','') |replace(')','') %}
+  <div class="conf-card">
+    <div class="conf-card-hd">
+      <div class="conf-card-hd-left">
+        <i class="fa fa-store"></i>
+        <div>
+          <div class="conf-razao">{{ p.razao }}</div>
+          <div class="conf-id">Pedido #{{ p.id[:8].upper() }}</div>
+        </div>
+      </div>
+      <span style="font-size:.78rem;font-weight:700;padding:4px 10px;border-radius:8px;background:#fef9e7;color:#8a6200">
+        <i class="fa fa-clock me-1"></i>{{ p.status | capitalize }}
+      </span>
+    </div>
+
+    <div class="conf-items">
+      {% for item in itens %}
+      <div class="conf-item">
+        {% if item.imagem %}
+          <img class="conf-item-img" src="{{ item.imagem }}" alt="{{ item.nome }}" onerror="this.outerHTML='<div class=conf-item-img-ph><i class=fa fa-pills></i></div>'"/>
+        {% else %}
+          <div class="conf-item-img-ph"><i class="fa fa-pills"></i></div>
+        {% endif %}
+        <div class="conf-item-info">
+          <div class="conf-item-nome">{{ item.nome }}</div>
+          <div class="conf-item-qty">{{ item.qty }}x {{ money(item.preco_unitario) }}</div>
+        </div>
+        <div class="conf-item-preco">{{ money(item.preco_unitario * item.qty) }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="conf-total">
+      <span>Total</span>
+      <strong>{{ money(p.total) }}</strong>
+    </div>
+
+    {% if p.receita_status == 'pendente' %}
+    <!-- Receita pendente: bloqueia pagamento e código de entrega -->
+    <div style="margin:0 20px 20px;padding:18px 20px;background:#fffbeb;border:2px solid #fbbf24;border-radius:14px;display:flex;gap:14px;align-items:flex-start">
+      <i class="fa fa-file-prescription fa-lg" style="color:#d97706;margin-top:2px;flex-shrink:0"></i>
+      <div>
+        <div style="font-weight:900;font-size:1rem;margin-bottom:6px;color:#78350f">Aguardando aprovação da receita</div>
+        <p style="font-size:.85rem;color:#92400e;margin-bottom:10px;line-height:1.5">
+          Sua receita médica foi enviada e está sendo analisada pela farmácia.
+          A entrega so sera liberada se o arquivo for uma receita digital original, com assinatura eletronica verificavel. Foto, print ou receita escaneada serao reprovados.
+          Você poderá efetuar o pagamento assim que a farmácia liberar.
+        </p>
+        <a href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:#d97706;color:#fff;border-radius:8px;padding:9px 16px;font-weight:800;font-size:.84rem;text-decoration:none">
+          <i class="fa fa-clock"></i>Acompanhar status
+        </a>
+      </div>
+    </div>
+
+    {% elif p.forma_pagamento == 'whatsapp' %}
+    <div class="conf-pay wpp">
+      <div class="conf-pay-title"><i class="fa-brands fa-whatsapp"></i>Enviar pedido via WhatsApp</div>
+      <p style="font-size:.84rem;margin-bottom:10px">Clique abaixo para enviar seu pedido diretamente para a farmácia via WhatsApp.</p>
+      {% set wpp_msg = "Olá! Fiz um pedido pelo Poupaqui (pedido #" ~ p.id[:8].upper() ~ "):\n" ~ itens|map(attribute='nome')|join(', ') ~ "\nTotal: R$ " ~ "%.2f"|format(p.total|float) %}
+      {% if tel_wpp %}
+      <a class="btn-wpp-link" href="https://wa.me/55{{ tel_wpp }}?text={{ wpp_msg | urlencode }}" target="_blank">
+        <i class="fa-brands fa-whatsapp"></i>Enviar pelo WhatsApp
+      </a>
+      {% else %}
+      <p style="font-size:.82rem;color:#15803d">Entre em contato com a farmácia para finalizar seu pedido.</p>
+      {% endif %}
+    </div>
+
+    {% elif p.forma_pagamento == 'pix' %}
+    <div class="conf-pay pix">
+      <div class="conf-pay-title"><i class="fa fa-qrcode"></i>Pagamento via PIX</div>
+      {% if p.pagamento_status == 'approved' %}
+      <div class="conf-pay-status ok">
+        <i class="fa fa-circle-check"></i><span>Pagamento confirmado</span>
+      </div>
+      <div style="font-size:.78rem;color:#15803d;margin-top:8px">A farmácia já recebeu a confirmação e pode seguir com o pedido.</div>
+      {% elif p.pix_qr_code or p.pix_qr_base64 %}
+      <div style="font-size:.84rem;margin-bottom:8px">Pague <strong>{{ money(p.total) }}</strong> usando o QR Code ou o PIX copia e cola.</div>
+      <div class="conf-qr-wrap">
+        {% if p.pix_qr_base64 %}
+        <img class="conf-qr" src="data:image/png;base64,{{ p.pix_qr_base64 }}" alt="QR Code PIX">
+        {% endif %}
+        <div style="flex:1;min-width:220px">
+          {% if p.pix_qr_code %}
+          <div class="conf-pix-chave" id="pix-key-{{ loop.index }}">{{ p.pix_qr_code }}</div>
+          <button class="btn-copy" onclick="copiarPix('pix-key-{{ loop.index }}')">
+            <i class="fa fa-copy me-1"></i>Copiar PIX copia e cola
+          </button>
+          {% endif %}
+          <div id="pay-status-{{ p.id }}" class="conf-pay-status {% if p.pagamento_status == 'approved' %}ok{% elif p.pagamento_status in ['rejected','cancelled','refunded','charged_back'] %}bad{% else %}wait{% endif %}">
+            <i class="fa {% if p.pagamento_status == 'approved' %}fa-circle-check{% else %}fa-clock{% endif %}"></i>
+            <span>{{ 'Pagamento confirmado' if p.pagamento_status == 'approved' else 'Aguardando pagamento' }}</span>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:.78rem;color:#854d0e;margin-top:8px">A confirmação é automática. Assim que o pagamento for aprovado, a farmácia verá o pedido como pago no painel.</div>
+      {% elif p.pix_chave %}
+      <div style="font-size:.84rem;margin-bottom:8px">PIX automático indisponível nesta loja. Use a chave PIX abaixo enquanto a loja finaliza a configuração.</div>
+      {% if p.pix_nome %}<div style="font-size:.82rem;margin-bottom:6px;color:#854d0e"><strong>Nome:</strong> {{ p.pix_nome }}</div>{% endif %}
+      <div class="conf-pix-chave" id="pix-key-{{ loop.index }}">{{ p.pix_chave }}</div>
+      <button class="btn-copy" onclick="copiarPix('pix-key-{{ loop.index }}')">
+        <i class="fa fa-copy me-1"></i>Copiar chave PIX
+      </button>
+      {% else %}
+      <p style="font-size:.84rem">A farmácia ainda não configurou PIX automático.</p>
+      {% endif %}
+    </div>
+
+    {% elif p.forma_pagamento == 'mercadopago' %}
+    <div class="conf-pay mp">
+      <div class="conf-pay-title"><i class="fa fa-credit-card"></i>Pagamento com cartão</div>
+      <p style="font-size:.84rem;margin-bottom:10px">Pague com cartão na página segura. A confirmação também aparece automaticamente no painel da loja.</p>
+      {% if p.mp_init_point %}
+      <a class="btn-mp-link" href="{{ p.mp_init_point }}" target="_blank">
+        <i class="fa fa-external-link me-1"></i>Pagar com cartão
+      </a>
+      {% else %}
+      <div style="font-size:.84rem;color:#3730a3">Pagamento com cartão indisponível nesta loja no momento.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if p.tipo_entrega == 'entrega' and p.codigo_entrega and p.receita_status != 'pendente' %}
+    <div style="margin:0 20px 20px;padding:14px 18px;background:#fef9e7;border:1.5px solid #fde68a;border-radius:12px;display:flex;align-items:center;gap:12px">
+      <i class="fa fa-key fa-lg" style="color:#b45309;flex-shrink:0"></i>
+      <div>
+        <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;color:#92400e;margin-bottom:2px">Código de confirmação de entrega</div>
+        <div style="font-size:1.6rem;font-weight:900;letter-spacing:6px;color:#b45309">{{ p.codigo_entrega }}</div>
+        <div style="font-size:.78rem;color:#92400e;margin-top:3px">Informe esse código ao entregador <strong>apenas quando receber</strong> o pedido.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div class="conf-footer">
+    <a href="{{ url_for('index') }}" style="color:var(--pq-red);font-weight:700;text-decoration:none">
+      <i class="fa fa-arrow-left me-1"></i>Continuar comprando
+    </a>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:80px 20px;color:var(--pq-muted)">
+    <i class="fa fa-circle-xmark fa-3x mb-3" style="opacity:.3"></i>
+    <h5>Pedido não encontrado.</h5>
+    <a href="{{ url_for('index') }}">Voltar ao início</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copiarPix(id) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.textContent.trim())
+    .then(() => alert('PIX copiado!'))
+    .catch(() => { el.select?.(); document.execCommand('copy'); alert('PIX copiado!'); });
+}
+
+const pedidosPagamento = [
+  {% for entry in pedidos %}
+    {% set p = entry.pedido %}
+    {% if p.forma_pagamento in ['pix','mercadopago'] and p.pagamento_status != 'approved' %}
+      "{{ p.id }}",
+    {% endif %}
+  {% endfor %}
+];
+
+function labelPagamento(status) {
+  if (status === 'approved') return 'Pagamento confirmado';
+  if (['rejected','cancelled','refunded','charged_back'].includes(status)) return 'Pagamento nao aprovado';
+  return 'Aguardando pagamento';
+}
+
+async function consultarPagamento(id) {
+  try {
+    const r = await fetch(`/api/pedido/${id}/pagamento-status`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const el = document.getElementById(`pay-status-${id}`);
+    if (!el) return;
+    const status = data.pagamento_status || 'pending';
+    const bad = ['rejected','cancelled','refunded','charged_back'].includes(status);
+    el.classList.toggle('ok', status === 'approved');
+    el.classList.toggle('bad', bad);
+    el.classList.toggle('wait', status !== 'approved' && !bad);
+    el.innerHTML = `<i class="fa ${status === 'approved' ? 'fa-circle-check' : 'fa-clock'}"></i><span>${labelPagamento(status)}</span>`;
+    if (status === 'approved' && !sessionStorage.getItem(`pay-reloaded-${id}`)) {
+      sessionStorage.setItem(`pay-reloaded-${id}`, '1');
+      window.location.reload();
+    }
+  } catch (e) {}
+}
+
+if (pedidosPagamento.length) {
+  pedidosPagamento.forEach(consultarPagamento);
+  setInterval(() => pedidosPagamento.forEach(consultarPagamento), 10000);
+}
+</script>
+{% endblock %}

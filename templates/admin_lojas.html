@@ -1,0 +1,212 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.al-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.al-table thead tr { background: #0d1016; }
+.al-table th {
+  padding: 9px 12px;
+  text-align: left;
+  color: var(--pk-muted);
+  font-weight: 700;
+  font-size: .78rem;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--pk-line);
+}
+.al-table td { padding: 9px 12px; border-bottom: 1px solid var(--pk-line); vertical-align: middle; }
+.al-table tr:hover td { background: rgba(255,255,255,.02); }
+
+.geo-ok   { color: #22c55e; font-size: .78rem; font-weight: 700; }
+.geo-miss { color: #e8760a; font-size: .78rem; font-weight: 700; }
+
+.al-stats { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.al-stat {
+  background: #0d1016;
+  border: 1px solid var(--pk-line);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: .82rem;
+  color: var(--pk-muted);
+}
+.al-stat strong { color: var(--pk-yellow); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+  <div style="font-weight:900;font-size:1.25rem">
+    <i class="fa fa-store me-2" style="color:var(--pk-yellow)"></i>Gestão de Lojas
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <form method="post" action="{{ url_for('admin_geocodificar_todos') }}"
+          onsubmit="return confirm('Geocodificar todas as lojas sem coordenadas? Pode demorar 1–2 min.')">
+      <button type="submit" class="btn-pk">
+        <i class="fa fa-location-dot me-1"></i>Geocodificar sem coordenadas
+      </button>
+    </form>
+    <button type="button" class="btn-pk-yellow" onclick="iniciarSyncAnvisa(false)" id="btn-anvisa-sync">
+      <i class="fa fa-shield-halved me-1"></i>Sincronizar ANVISA
+    </button>
+    <button type="button" class="btn-pk-ghost" onclick="iniciarSyncAnvisa(true)" id="btn-anvisa-sync2" title="Apaga registros 'não encontrado' e rebusca todos">
+      <i class="fa fa-rotate-right me-1"></i>Re-sincronizar (forçar)
+    </button>
+  </div>
+</div>
+
+<!-- Card de progresso ANVISA -->
+<div id="anvisa-sync-card" class="pk-card" style="display:none;margin-bottom:18px">
+  <div class="pk-card-title"><i class="fa fa-shield-halved"></i>Sincronização ANVISA — Bulário Eletrônico</div>
+  <div style="font-size:.85rem;color:var(--pk-muted);margin-bottom:12px">
+    Buscando dados de indicações, posologia e alertas para cada produto em estoque. Pode demorar vários minutos.
+  </div>
+  <div style="background:#0d1016;border-radius:8px;height:8px;overflow:hidden;margin-bottom:10px">
+    <div id="anvisa-prog-bar" style="height:100%;background:var(--pk-yellow);width:0%;transition:width .4s"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--pk-muted)">
+    <span id="anvisa-prog-txt">Iniciando…</span>
+    <span id="anvisa-prog-pct">0%</span>
+  </div>
+  <div id="anvisa-prog-detail" style="font-size:.75rem;color:var(--pk-muted);margin-top:6px"></div>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{{ url_for('admin_anvisa_cache') }}" class="btn-pk-ghost" style="font-size:.8rem;padding:6px 12px;text-decoration:none;display:inline-flex;align-items:center;gap:6px">
+      <i class="fa fa-table"></i>Ver resultados detalhados
+    </a>
+    <a href="/painel/admin/anvisa-debug?nome=DIPIRONA" target="_blank" class="btn-pk-ghost" style="font-size:.8rem;padding:6px 12px;text-decoration:none;display:inline-flex;align-items:center;gap:6px">
+      <i class="fa fa-bug"></i>Debug API ANVISA
+    </a>
+  </div>
+</div>
+
+{% set geo_ok   = lojas | selectattr('lat') | list | length %}
+{% set geo_miss = lojas | length - geo_ok %}
+
+<div class="al-stats">
+  <div class="al-stat"><strong>{{ lojas | length }}</strong> lojas cadastradas</div>
+  <div class="al-stat"><strong style="color:#22c55e">{{ geo_ok }}</strong> geocodificadas</div>
+  <div class="al-stat"><strong style="color:#e8760a">{{ geo_miss }}</strong> sem coordenadas</div>
+</div>
+
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <table class="al-table">
+    <thead>
+      <tr>
+        <th>Razão social</th>
+        <th>CNPJ</th>
+        <th>Endereço</th>
+        <th>UF</th>
+        <th>Geo</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lojas %}
+      <tr>
+        <td style="font-weight:700;max-width:220px">{{ l.razao or '—' }}</td>
+        <td><code style="font-size:.75rem;color:var(--pk-muted)">{{ l.cnpjloja }}</code></td>
+        <td style="max-width:200px;font-size:.82rem;color:var(--pk-muted)">{{ l.endereco or '—' }}</td>
+        <td>{{ l.uf or '—' }}</td>
+        <td>
+          {% if l.lat %}
+            <span class="geo-ok"><i class="fa fa-circle-check me-1"></i>{{ "%.4f"|format(l.lat|float) }}, {{ "%.4f"|format(l.lng|float) }}</span>
+          {% else %}
+            <span class="geo-miss"><i class="fa fa-circle-xmark me-1"></i>Sem coordenadas</span>
+          {% endif %}
+        </td>
+        <td>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <!-- Geocodificar -->
+            <form method="post" action="{{ url_for('admin_geocodificar') }}" style="display:inline">
+              <input type="hidden" name="cnpjloja" value="{{ l.cnpjloja }}"/>
+              <button type="submit" class="btn-pk-ghost" style="padding:5px 10px;font-size:.78rem"
+                      title="Geocodificar endereço">
+                <i class="fa fa-location-dot"></i>
+              </button>
+            </form>
+            <!-- Operar como esta loja -->
+            <form method="post" action="{{ url_for('admin_operar_loja') }}" style="display:inline">
+              <input type="hidden" name="cnpjloja" value="{{ l.cnpjloja }}"/>
+              <button type="submit" class="btn-pk" style="padding:5px 10px;font-size:.78rem"
+                      title="Operar precificador desta loja">
+                <i class="fa fa-tags"></i> Preços
+              </button>
+            </form>
+            <!-- Ver catálogo público -->
+            <a href="{{ url_for('catalogo_loja', cnpjloja=l.cnpjloja) }}" target="_blank"
+               style="display:inline-flex;align-items:center;padding:5px 10px;font-size:.78rem;text-decoration:none"
+               class="btn-pk-ghost" title="Ver catálogo público">
+              <i class="fa fa-globe"></i>
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let _anvisaPollTimer = null;
+
+function iniciarSyncAnvisa(forcar) {
+  const btn   = document.getElementById('btn-anvisa-sync');
+  const btn2  = document.getElementById('btn-anvisa-sync2');
+  const card  = document.getElementById('anvisa-sync-card');
+  btn.disabled  = true;
+  btn2.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Iniciando…';
+  card.style.display = '';
+
+  const body = new URLSearchParams();
+  if (forcar) body.set('forcar', '1');
+
+  fetch('/painel/admin/anvisa-sync', {method:'POST', body})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok && d.msg) {
+        alert(d.msg);
+        btn.disabled  = false;
+        btn2.disabled = false;
+        btn.innerHTML = '<i class="fa fa-shield-halved me-1"></i>Sincronizar ANVISA';
+        return;
+      }
+      document.getElementById('anvisa-prog-txt').textContent =
+        `Processando ${d.total || '?'} produtos…`;
+      _anvisaPollTimer = setInterval(pollAnvisaStatus, 2000);
+    })
+    .catch(() => {
+      btn.disabled  = false;
+      btn2.disabled = false;
+      btn.innerHTML = '<i class="fa fa-shield-halved me-1"></i>Sincronizar ANVISA';
+      alert('Erro ao iniciar sincronização.');
+    });
+}
+
+function pollAnvisaStatus() {
+  fetch('/painel/admin/anvisa-sync-status')
+    .then(r => r.json())
+    .then(d => {
+      const pct = d.total > 0 ? Math.round(d.feitos / d.total * 100) : 0;
+      document.getElementById('anvisa-prog-bar').style.width = pct + '%';
+      document.getElementById('anvisa-prog-pct').textContent = pct + '%';
+      document.getElementById('anvisa-prog-txt').textContent =
+        `${d.feitos} de ${d.total} processados`;
+      document.getElementById('anvisa-prog-detail').textContent =
+        `✔ Encontrados: ${d.ok}   ✘ Não encontrados: ${d.falha}`;
+
+      if (!d.rodando) {
+        clearInterval(_anvisaPollTimer);
+        const btn  = document.getElementById('btn-anvisa-sync');
+        const btn2 = document.getElementById('btn-anvisa-sync2');
+        btn.disabled  = false;
+        btn2.disabled = false;
+        btn.innerHTML = '<i class="fa fa-shield-halved me-1"></i>Sincronizar ANVISA';
+        document.getElementById('anvisa-prog-txt').textContent =
+          `Concluído! ${d.ok} produtos com dados ANVISA.`;
+      }
+    });
+}
+</script>
+{% endblock %}

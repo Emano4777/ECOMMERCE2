@@ -1,0 +1,199 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Mercado Livre{% endblock %}
+
+{% block extra_style %}
+<style>
+.ml-card {
+  background:var(--pk-card);
+  border:1px solid var(--pk-line);
+  border-radius:12px;
+  padding:28px;
+  margin-bottom:20px;
+}
+.ml-status-dot {
+  width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px;
+}
+.ml-status-dot.connected { background:#22c55e; box-shadow:0 0 6px #22c55e88; }
+.ml-status-dot.disconnected { background:#f08090; }
+
+.ml-stat { text-align:center; padding:18px; }
+.ml-stat .val { font-size:2rem; font-weight:900; color:var(--pk-yellow); }
+.ml-stat .lbl { font-size:.78rem; color:var(--pk-muted); margin-top:4px; }
+
+.ml-btn-connect {
+  display:inline-flex; align-items:center; gap:8px;
+  background:#fff200; color:#111; font-weight:800;
+  border:none; border-radius:8px; padding:12px 24px;
+  font-size:.95rem; cursor:pointer; text-decoration:none;
+  transition:opacity .15s;
+}
+.ml-btn-connect:hover { opacity:.85; color:#111; }
+.ml-btn-disconnect {
+  display:inline-flex; align-items:center; gap:8px;
+  background:transparent; color:#f08090; font-weight:700;
+  border:1px solid #f08090; border-radius:8px; padding:8px 18px;
+  font-size:.82rem; cursor:pointer; text-decoration:none;
+}
+.ml-btn-disconnect:hover { background:#2a0810; }
+
+.ml-steps { counter-reset:step; list-style:none; padding:0; }
+.ml-steps li {
+  counter-increment:step;
+  display:flex; gap:14px; align-items:flex-start;
+  padding:12px 0; border-bottom:1px solid var(--pk-line);
+  font-size:.87rem; color:var(--pk-muted);
+}
+.ml-steps li:last-child { border-bottom:none; }
+.ml-steps li::before {
+  content:counter(step);
+  min-width:26px; height:26px;
+  background:var(--pk-yellow); color:#111;
+  border-radius:50%; font-weight:900; font-size:.78rem;
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; margin-top:1px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:24px">
+  <svg width="22" height="22" viewBox="0 0 48 48" style="vertical-align:-4px;margin-right:8px">
+    <rect width="48" height="48" rx="8" fill="#fff200"/>
+    <text x="24" y="32" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text>
+  </svg>
+  Integração Mercado Livre
+</div>
+
+<!-- STATUS DA CONEXÃO -->
+<div class="ml-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:.78rem;color:var(--pk-muted);text-transform:uppercase;font-weight:700;margin-bottom:6px">
+        Status da conexão
+      </div>
+      <div style="font-size:1.1rem;font-weight:800;display:flex;align-items:center">
+        <span class="ml-status-dot {{ 'connected' if connected else 'disconnected' }}"></span>
+        {% if connected %}
+          Conta conectada
+          {% if token_row and token_row.ml_user_id %}
+            <span style="font-size:.8rem;color:var(--pk-muted);margin-left:8px">· user #{{ token_row.ml_user_id }}</span>
+          {% endif %}
+        {% else %}
+          Não conectado
+        {% endif %}
+      </div>
+      {% if token_row and token_row.updated_at %}
+      <div style="font-size:.74rem;color:var(--pk-muted);margin-top:4px">
+        Última sincronização: {{ token_row.updated_at.strftime('%d/%m/%Y %H:%M') }}
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center">
+      {% if connected %}
+        <a href="{{ url_for('ml_auth') }}" class="ml-btn-connect" style="font-size:.82rem;padding:8px 16px">
+          <i class="fa fa-rotate"></i>Reconectar
+        </a>
+        <form method="post" action="{{ url_for('painel_ml_desconectar') }}"
+              onsubmit="return confirm('Desconectar a conta do Mercado Livre?')">
+          <button type="submit" class="ml-btn-disconnect">
+            <i class="fa fa-link-slash"></i>Desconectar
+          </button>
+        </form>
+      {% else %}
+        <a href="{{ url_for('ml_auth') }}" class="ml-btn-connect">
+          <i class="fa fa-plug"></i>Conectar conta Mercado Livre
+        </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if connected %}
+<!-- ESTATÍSTICAS -->
+<div class="ml-card" style="padding:0;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--pk-line);font-weight:700;font-size:.88rem">
+    <i class="fa fa-chart-bar me-2" style="color:var(--pk-yellow)"></i>Pedidos via Mercado Livre nesta loja
+  </div>
+  <div style="display:flex;flex-wrap:wrap">
+    <div class="ml-stat" style="flex:1;border-right:1px solid var(--pk-line)">
+      <div class="val">{{ ml_stats.total or 0 }}</div>
+      <div class="lbl">Pedidos recebidos</div>
+    </div>
+    <div class="ml-stat" style="flex:1">
+      <div class="val" style="font-size:1.1rem">
+        {{ ml_stats.ultimo.strftime('%d/%m/%Y') if ml_stats.ultimo else '—' }}
+      </div>
+      <div class="lbl">Último pedido</div>
+    </div>
+  </div>
+</div>
+
+<!-- INFORMAÇÕES DO APP -->
+<div class="ml-card">
+  <div style="font-weight:700;font-size:.88rem;margin-bottom:14px">
+    <i class="fa fa-code me-2" style="color:var(--pk-yellow)"></i>Dados da aplicação
+  </div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:.84rem;color:var(--pk-muted)">
+    <div>
+      <span style="color:white;font-weight:700">APP ID:</span>
+      <code style="color:var(--pk-yellow);margin-left:6px">{{ ml_app_id }}</code>
+    </div>
+    <div>
+      <span style="color:white;font-weight:700">Webhook URL:</span>
+      <code style="color:var(--pk-yellow);margin-left:6px">{{ request.host_url }}ml/webhook</code>
+    </div>
+    <div>
+      <span style="color:white;font-weight:700">Callback URL:</span>
+      <code style="color:var(--pk-yellow);margin-left:6px">https://ecommerce-2-rosy.vercel.app/ml/callback</code>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- COMO FUNCIONA -->
+<div class="ml-card">
+  <div style="font-weight:700;font-size:.88rem;margin-bottom:16px">
+    <i class="fa fa-circle-info me-2" style="color:var(--pk-yellow)"></i>Como funciona (Modelo C — Conta única PoupáQui)
+  </div>
+  <ul class="ml-steps">
+    <li>
+      <div>
+        <strong style="color:white">Conta central</strong><br>
+        A rede PoupáQui tem uma única conta no Mercado Livre. Todos os produtos aparecem sob essa conta.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong style="color:white">Produtos publicados</strong><br>
+        Os produtos do catálogo PoupáQui são publicados no ML via API. O estoque é sincronizado automaticamente.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong style="color:white">Pedido chega no ML</strong><br>
+        O Mercado Livre notifica o sistema via webhook quando um pedido é feito.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong style="color:white">Sistema atribui a loja</strong><br>
+        O sistema geocodifica o CEP do comprador e encontra a loja mais próxima com estoque disponível.
+      </div>
+    </li>
+    <li>
+      <div>
+        <strong style="color:white">Pedido no painel</strong><br>
+        O pedido aparece automaticamente na lista de pedidos da loja atribuída,
+        marcado com a badge <strong style="color:#fff200">Mercado Livre</strong>.
+      </div>
+    </li>
+  </ul>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+  <div class="alert alert-{{ 'success' if cat=='success' else 'danger' }} mt-3" role="alert">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+{% endblock %}

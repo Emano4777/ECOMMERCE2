@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Poupaqui - Produtos</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='poupaqui-logo.png') }}"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Nunito', sans-serif;
+      background: linear-gradient(135deg, #0f1117 0%, #1a0a0d 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .box {
+      background: #181c26;
+      border: 1px solid #1e2435;
+      border-radius: 18px;
+      padding: 44px 40px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -.5px;
+    }
+    .brand-logo img {
+      width: 46px;
+      height: 46px;
+      border-radius: 13px;
+      background: #fff;
+      object-fit: contain;
+      flex: 0 0 auto;
+    }
+    .brand-logo-text { color: #fff; }
+    .brand-logo-highlight { color: #f5c842; }
+    .brand-sub {
+      font-size: .82rem;
+      color: #6c7a95;
+      margin-top: 2px;
+    }
+
+    label { display: block; font-size: .82rem; font-weight: 700; color: #8a95b0; margin-bottom: 5px; margin-top: 14px; }
+    input {
+      width: 100%;
+      padding: 11px 14px;
+      background: #0d1016;
+      border: 1.5px solid #1e2435;
+      border-radius: 10px;
+      color: #dde3f0;
+      font-size: .95rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: #f5c842; }
+
+    .btn-login {
+      width: 100%;
+      margin-top: 22px;
+      padding: 13px;
+      background: #c8102e;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 800;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s, transform .1s;
+    }
+    .btn-login:hover { background: #9b0d22; transform: translateY(-1px); }
+
+    .alert-err {
+      background: #2a0810;
+      border: 1px solid #c8102e;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #f08090;
+      font-size: .85rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 18px;
+      font-size: .82rem;
+      color: #6c7a95;
+      text-decoration: none;
+    }
+    .back-link:hover { color: #f5c842; }
+  </style>
+</head>
+<body>
+<div class="box">
+  <div class="brand">
+    <div class="brand-logo">
+      <img src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+      <span class="brand-logo-text">Poupaqu<span class="brand-logo-highlight">i</span></span>
+    </div>
+    <div class="brand-sub">Painel da Loja</div>
+  </div>
+
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}
+      <div class="alert-err">⚠ {{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <form method="post" action="{{ url_for('painel_login_post') }}">
+    <label for="usuario">Usuário</label>
+    <input type="text" id="usuario" name="usuario" autocomplete="username"
+           placeholder="seu usuário" autofocus required/>
+
+    <label for="senha">Senha</label>
+    <input type="password" id="senha" name="senha" autocomplete="current-password"
+           placeholder="••••••••" required/>
+
+    <button type="submit" class="btn-login">
+      Entrar no Painel
+    </button>
+  </form>
+
+  <a class="back-link" href="{{ url_for('index') }}">
+    ← Voltar ao site
+  </a>
+</div>
+</body>
+</html>

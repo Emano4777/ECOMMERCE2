@@ -1,0 +1,873 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.cart-wrap { max-width:820px; margin:0 auto; padding:28px 16px 60px; }
+.cart-title { font-size:1.5rem; font-weight:900; margin-bottom:24px; display:flex; align-items:center; gap:10px; }
+
+/* GRUPO FARMÁCIA */
+.cart-group {
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:16px;
+  box-shadow:var(--pq-shadow);
+  margin-bottom:20px;
+  overflow:hidden;
+}
+.cart-group-hd {
+  padding:14px 18px;
+  background:#fafafa;
+  border-bottom:1px solid var(--pq-border);
+  display:flex; align-items:center; gap:10px;
+  font-weight:800; font-size:.92rem;
+}
+.cart-group-hd i { color:var(--pq-red); }
+
+/* ITEM */
+.cart-item {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 18px;
+  border-bottom:1px solid var(--pq-border);
+}
+.cart-item:last-child { border-bottom:none; }
+.cart-item-img {
+  width:64px; height:64px;
+  border-radius:10px;
+  background:#f5f5f5;
+  object-fit:contain;
+  padding:4px;
+  flex-shrink:0;
+}
+.cart-item-img-ph {
+  width:64px; height:64px;
+  border-radius:10px;
+  background:#f5f5f5;
+  display:flex; align-items:center; justify-content:center;
+  color:#ccc; font-size:1.6rem;
+  flex-shrink:0;
+}
+.cart-item-info { flex:1; min-width:0; }
+.cart-item-nome { font-weight:800; font-size:.88rem; line-height:1.3; }
+.cart-item-preco { color:var(--pq-red); font-weight:900; font-size:1rem; margin-top:2px; }
+.cart-item-sub { font-size:.75rem; color:var(--pq-muted); margin-top:2px; }
+.cart-item-right { display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex-shrink:0; }
+
+.qty-ctrl { display:flex; align-items:center; gap:6px; }
+.qty-btn {
+  width:28px; height:28px;
+  border:1.5px solid var(--pq-border);
+  border-radius:6px;
+  background:#fff;
+  font-size:.9rem; font-weight:900;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.qty-btn:hover { border-color:var(--pq-red); color:var(--pq-red); }
+.qty-num { width:32px; text-align:center; font-weight:800; font-size:.9rem; }
+.btn-remove {
+  background:none; border:none; cursor:pointer;
+  color:var(--pq-muted); font-size:.8rem;
+  padding:2px 4px; border-radius:4px;
+}
+.btn-remove:hover { color:var(--pq-red); background:#fff0f2; }
+
+/* PAGAMENTO */
+.pay-section {
+  padding:14px 18px;
+  background:#f9fafb;
+  border-top:1px solid var(--pq-border);
+}
+.pay-label { font-size:.75rem; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--pq-muted); margin-bottom:8px; }
+.pay-options { display:flex; gap:8px; flex-wrap:wrap; }
+.pay-opt {
+  display:flex; align-items:center; gap:6px;
+  padding:8px 14px;
+  border:2px solid var(--pq-border);
+  border-radius:10px;
+  cursor:pointer;
+  font-size:.84rem;
+  font-weight:700;
+  background:#fff;
+  transition:border-color .15s, background .15s;
+  user-select:none;
+}
+.pay-opt input { display:none; }
+.pay-opt.selected { border-color:var(--pq-red); background:#fff5f7; color:var(--pq-red); }
+.pay-opt:hover { border-color:var(--pq-red); }
+.delivery-note { font-size:.78rem; color:var(--pq-muted); margin-top:8px; }
+.delivery-address { font-size:.82rem; font-weight:800; color:var(--pq-text); margin-top:6px; display:flex; gap:6px; align-items:center; }
+
+/* SUBTOTAL */
+.cart-subtotal {
+  padding:12px 18px;
+  background:#fff;
+  display:flex; justify-content:space-between; align-items:center;
+  border-top:1px solid var(--pq-border);
+  font-size:.9rem;
+}
+.cart-subtotal strong { color:var(--pq-red); font-size:1.05rem; }
+
+/* CHECKOUT FORM */
+.checkout-card {
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:16px;
+  box-shadow:var(--pq-shadow);
+  padding:24px;
+  margin-bottom:20px;
+}
+.checkout-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:18px; display:flex; align-items:center; gap:8px; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+@media(max-width:520px){ .form-row { grid-template-columns:1fr; } }
+.form-field { display:flex; flex-direction:column; gap:4px; }
+.form-field label { font-size:.76rem; font-weight:800; text-transform:uppercase; letter-spacing:.3px; color:var(--pq-muted); }
+.form-field input {
+  padding:10px 14px;
+  border:1.5px solid var(--pq-border);
+  border-radius:10px;
+  font-size:.92rem;
+  font-family:inherit;
+  outline:none;
+  transition:border-color .15s;
+}
+.form-field input:focus { border-color:var(--pq-red); }
+
+/* GRAND TOTAL */
+.grand-total-card {
+  background:var(--pq-red);
+  color:#fff;
+  border-radius:16px;
+  padding:20px 24px;
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+}
+.grand-total-label { font-size:.88rem; opacity:.85; }
+.grand-total-value { font-size:1.8rem; font-weight:900; }
+.btn-finalizar {
+  background:#fff;
+  color:var(--pq-red);
+  border:none;
+  border-radius:12px;
+  padding:14px 28px;
+  font-size:1rem;
+  font-weight:900;
+  cursor:pointer;
+  font-family:inherit;
+  transition:background .15s;
+}
+.btn-finalizar:hover { background:#f5f5f5; }
+.btn-finalizar:disabled { opacity:.5; cursor:not-allowed; }
+
+/* EMPTY */
+.cart-empty { text-align:center; padding:64px 20px; color:var(--pq-muted); background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); }
+.cart-empty > i { font-size:4rem; opacity:.18; display:block; margin-bottom:18px; color:#777; }
+.cart-empty .empty-title { font-size:1.15rem; font-weight:900; margin-bottom:8px; color:var(--pq-text); }
+.cart-empty .empty-btn { display:inline-flex; align-items:center; gap:8px; background:var(--pq-red); color:#fff; padding:12px 22px; border-radius:10px; font-weight:800; text-decoration:none; }
+.login-required-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:24px; margin-bottom:20px; }
+.login-required-card h3 { font-weight:900; font-size:1.08rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.login-required-card p { color:var(--pq-muted); font-size:.9rem; margin-bottom:16px; }
+.login-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.login-actions a { display:inline-flex; align-items:center; gap:8px; border-radius:10px; padding:11px 16px; font-weight:900; text-decoration:none; }
+.login-primary { background:var(--pq-red); color:#fff; }
+.login-secondary { background:#fff; color:var(--pq-red); border:1.5px solid var(--pq-red); }
+.account-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:20px 24px; margin-bottom:20px; }
+.account-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+.account-info { display:flex; gap:12px; flex-wrap:wrap; color:var(--pq-muted); font-size:.88rem; }
+.account-info strong { color:var(--pq-text); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cart-wrap">
+  <div class="cart-title">
+    <i class="fa fa-cart-shopping" style="color:var(--pq-red)"></i>
+    Meu Carrinho
+  </div>
+
+  <div id="cart-container">
+    <div class="cart-empty">
+      <i class="fa fa-cart-shopping"></i>
+      <div class="empty-title">Seu carrinho está vazio</div>
+      <p style="margin-bottom:20px">Adicione produtos e encontre as melhores ofertas perto de você.</p>
+      <a class="empty-btn" href="{{ url_for('index') }}">
+        <i class="fa fa-arrow-left me-2"></i>Ver produtos
+      </a>
+    </div>
+  </div>
+
+  <div id="checkout-section" style="display:none">
+    {% if consumidor %}
+    <div class="account-card">
+      <h3><i class="fa fa-user-check" style="color:var(--pq-red)"></i>Pedido em nome de {{ consumidor.nome }}</h3>
+      <div class="account-info">
+        <span><strong>WhatsApp:</strong> {{ consumidor.telefone }}</span>
+        <span><strong>E-mail:</strong> {{ consumidor.email }}</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="login-required-card">
+      <h3><i class="fa fa-user-lock" style="color:var(--pq-red)"></i>Faça login para enviar o pedido</h3>
+      <p>Entre ou crie uma conta rápida para salvar seus dados, acompanhar o status e consultar seu histórico.</p>
+      <div class="login-actions">
+        <a class="login-primary" href="{{ url_for('consumidor_login', next=request.path) }}"><i class="fa fa-right-to-bracket"></i>Fazer login</a>
+        <a class="login-secondary" href="{{ url_for('consumidor_criar_conta', next=request.path) }}"><i class="fa fa-user-plus"></i>Criar conta</a>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Total geral + botão -->
+    <div class="grand-total-card">
+      <div>
+        <div class="grand-total-label">Total do pedido</div>
+        <div class="grand-total-value" id="grand-total">R$ 0,00</div>
+      </div>
+      <button class="btn-finalizar" id="btn-finalizar" onclick="finalizarPedido()" {% if not consumidor %}disabled{% endif %}>
+        <i class="fa fa-lock me-2"></i>Finalizar pedido
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const _configLojas = {};
+const _cuponsDisponiveis = {};  // cupons disponíveis por cnpjloja
+const _cupomAplicado = {};     // {cnpjloja: {codigo, desconto, msg}}
+const _descontosAuto = {};     // {cnpjloja: {pagamento:[], quantidade:[]}}
+const _receitaUrl = {};        // {cnpjloja: url} — receita médica anexada
+const _receitaDeclaracaoOk = {}; // {cnpjloja: true} — cliente confirmou receita digital original
+const CONSUMIDOR_ENDERECO = {{ (consumidor.endereco if consumidor else '')|tojson }};
+const CONSUMIDOR_LAT = {{ (consumidor.lat if consumidor else none)|tojson }};
+const CONSUMIDOR_LNG = {{ (consumidor.lng if consumidor else none)|tojson }};
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad) * Math.cos(lat2*rad) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a)) * 1.3;
+}
+
+function distanciaParaLoja(cfg) {
+  const uLat = parseFloat(CONSUMIDOR_LAT || localStorage.getItem('pq_lat'));
+  const uLng = parseFloat(CONSUMIDOR_LNG || localStorage.getItem('pq_lng'));
+  const lLat = parseFloat(cfg.loja_lat);
+  const lLng = parseFloat(cfg.loja_lng);
+  if (!uLat || !uLng || !lLat || !lLng) return undefined;
+  return haversineKm(uLat, uLng, lLat, lLng);
+}
+
+function brl(v) {
+  const n = parseFloat(v)||0;
+  return 'R$ ' + n.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+}
+
+function renderDescontoQuantidade(cnpjloja, itens) {
+  const regras = ((_descontosAuto[cnpjloja] || {}).quantidade || []);
+  if (!regras.length) return '';
+  const totalQty = itens.reduce((s, i) => s + (i.qty || 1), 0);
+  let html = '';
+  regras.forEach(r => {
+    const falta = r.qtd_minima - totalQty;
+    const label = r.desconto_tipo === 'pct' ? `${parseInt(r.desconto_valor)}% OFF` : `R$${parseFloat(r.desconto_valor).toFixed(2).replace('.',',')} OFF`;
+    if (falta <= 0) {
+      html += `<div style="display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#166534;margin-bottom:2px">
+        <i class="fa fa-circle-check" style="color:#16a34a;flex-shrink:0"></i>
+        <span><strong>${label}</strong> de desconto aplicado automaticamente por quantidade!</span>
+      </div>`;
+    } else {
+      html += `<div style="display:flex;align-items:center;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#92400e;margin-bottom:2px">
+        <i class="fa fa-layer-group" style="color:#d97706;flex-shrink:0"></i>
+        <span>Adicione mais <strong>${falta} item${falta>1?'s':''}</strong> e ganhe <strong>${label}</strong> de desconto!</span>
+      </div>`;
+    }
+  });
+  return html ? `<div style="padding:10px 16px 0;border-top:1px solid var(--pq-border)">${html}</div>` : '';
+}
+
+function renderCuponsDisponiveis(cnpjloja) {
+  const cupons = _cuponsDisponiveis[cnpjloja];
+  if (!cupons || !cupons.length) return '';
+  const chips = cupons.map(c => {
+    const label = c.desconto_tipo === 'pct'
+      ? `${parseInt(c.desconto_valor)}% OFF`
+      : `R$${parseFloat(c.desconto_valor).toFixed(2).replace('.',',')} OFF`;
+    return `<button type="button" onclick="usarCupom('${esc(cnpjloja)}','${esc(c.codigo)}')"
+      style="border:1.5px dashed var(--pq-red);background:#fff5f7;color:var(--pq-red);border-radius:8px;padding:6px 12px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;white-space:nowrap">
+      <i class="fa fa-tag"></i>${esc(c.codigo)} &mdash; ${label}
+    </button>`;
+  }).join('');
+  return `<div style="margin-bottom:8px">
+    <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--pq-muted);margin-bottom:6px"><i class="fa fa-ticket me-1"></i>Cupons disponíveis para você</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>
+  </div>`;
+}
+
+function usarCupom(cnpjloja, codigo) {
+  const inp = document.getElementById(`cupom-inp-${cnpjloja}`);
+  if (inp) { inp.value = codigo; aplicarCupom(cnpjloja); }
+}
+
+function renderCart() {
+  const cart = getCart();
+  const container = document.getElementById('cart-container');
+  const checkoutSec = document.getElementById('checkout-section');
+
+  if (!cart.length) {
+    container.innerHTML = `<div class="cart-empty">
+      <i class="fa fa-cart-shopping"></i>
+      <div class="empty-title">Seu carrinho está vazio</div>
+      <p style="margin-bottom:20px">Adicione produtos e encontre as melhores ofertas perto de você.</p>
+      <a class="empty-btn" href="/">
+        <i class="fa fa-arrow-left me-2"></i>Ver produtos
+      </a>
+    </div>`;
+    checkoutSec.style.display = 'none';
+    return;
+  }
+
+  // Agrupar por farmácia
+  const groups = {};
+  cart.forEach(item => {
+    if (!groups[item.cnpjloja]) groups[item.cnpjloja] = {razao: item.razao, itens: []};
+    groups[item.cnpjloja].itens.push(item);
+  });
+
+  let html = '';
+  let grandTotal = 0;
+  const cnpjs = Object.keys(groups);
+
+  cnpjs.forEach(cnpj => {
+    const g = groups[cnpj];
+    const cfg = _configLojas[cnpj] || {};
+    const sub = g.itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
+    
+
+    let itensHtml = g.itens.map(item => {
+      const imgTag = item.imagem
+        ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
+        : `<div class="cart-item-img-ph"><i class="fa fa-pills"></i></div>`;
+      return `<div class="cart-item">
+        ${imgTag}
+        <div class="cart-item-info">
+          <div class="cart-item-nome">${esc(item.nome)}</div>
+          <div class="cart-item-preco">${brl(item.preco)}</div>
+          <div class="cart-item-sub">Subtotal: ${brl((item.preco||0)*(item.qty||1))}</div>
+        </div>
+        <div class="cart-item-right">
+          <div class="qty-ctrl">
+            <button class="qty-btn" onclick="alterarQty('${esc(item.ean)}','${esc(cnpj)}',-1)">−</button>
+            <span class="qty-num">${item.qty||1}</span>
+            <button class="qty-btn" onclick="alterarQty('${esc(item.ean)}','${esc(cnpj)}',1)">+</button>
+          </div>
+          <button class="btn-remove" onclick="removerItem('${esc(item.ean)}','${esc(cnpj)}')">
+            <i class="fa fa-trash me-1"></i>Remover
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Opções de pagamento
+    const showWpp = cfg.aceita_whatsapp !== false;
+    const showPix = cfg.aceita_pix !== false;
+    const showMp  = cfg.aceita_mp === true;
+    const distDinamica = distanciaParaLoja(cfg);
+    const distItem = g.itens.find(i => i.distancia_km !== null && i.distancia_km !== undefined)?.distancia_km;
+    const dist = distDinamica !== undefined ? distDinamica : (distItem !== undefined ? parseFloat(distItem) * 1.3 : undefined);
+    const raio = parseFloat(cfg.raio_entrega_km || 0);
+    const minPedido = parseFloat(cfg.pedido_minimo_entrega || 0);
+    const temReceita = g.itens.some(i => i.requer_receita);
+    const entregaOk = cfg.aceita_entrega === true && dist !== undefined && dist <= raio && (minPedido === 0 || sub >= minPedido);
+    const frete = entregaOk && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    grandTotal += sub;
+    let payOpts = '';
+    if (showWpp) payOpts += payOptHtml(cnpj, 'whatsapp', '<i class="fa-brands fa-whatsapp"></i>WhatsApp', true);
+    if (showPix) payOpts += payOptHtml(cnpj, 'pix',       '<i class="fa fa-qrcode"></i>PIX', !showWpp);
+    if (showMp)  payOpts += payOptHtml(cnpj, 'mercadopago','<i class="fa fa-credit-card"></i>Cartão', false);
+
+    let entregaOpts = deliveryOptHtml(cnpj, 'retirada', '<i class="fa fa-store"></i>Retirada na loja', true);
+    if (entregaOk) entregaOpts += deliveryOptHtml(cnpj, 'entrega', '<i class="fa fa-motorcycle"></i>Entrega', false);
+    let entregaMsg = 'Esta loja não oferece entrega. Disponível apenas retirada.';
+    let minPedidoAvisoHtml = '';
+    if (cfg.aceita_entrega === true) {
+      if (entregaOk) {
+        if (temReceita) {
+          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete grátis'}. <strong>Receita digital original exigida — anexe o PDF ao escolher Entrega.</strong>`;
+        } else {
+          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete grátis'}.`;
+        }
+      } else if (minPedido > 0 && sub < minPedido) {
+        entregaMsg = '';
+        minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px">
+          <i class="fa fa-triangle-exclamation" style="color:#ea580c;font-size:1.25rem;margin-top:1px;flex-shrink:0"></i>
+          <div>
+            <div style="font-weight:900;color:#9a3412;font-size:.92rem;margin-bottom:4px">Pedido mínimo para entrega: ${brl(minPedido)}</div>
+            <div style="font-size:.84rem;color:#c2410c">Faltam <strong>${brl(minPedido - sub)}</strong> em produtos para desbloquear a opção de entrega.</div>
+          </div>
+        </div>`;
+      } else {
+        entregaMsg = 'Entrega fora do raio desta loja. Disponível apenas retirada.';
+      }
+    }
+    const receitaAviso = temReceita
+      ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px">
+           <i class="fa fa-file-prescription" style="color:#d97706;margin-top:2px;flex-shrink:0"></i>
+           <span><strong>Medicamento(s) com tarja.</strong> ${entregaOk ? 'Para <em>entrega</em>, a farmácia só pode aceitar receita digital original em PDF, com assinatura verificável. Foto, print ou receita escaneada não serão aceitos. Para <em>retirada</em>, apresente a receita na farmácia.' : 'Apresente a receita ao retirar o pedido na farmácia.'}</span>
+         </div>`
+      : '';
+    // Seção de upload de receita (exibida quando entrega é selecionada + tem tarja)
+    const tarjaItens = g.itens.filter(i => i.requer_receita);
+    const tarjaCount = tarjaItens.length;
+    const receitaUploadHtml = temReceita && entregaOk
+      ? `<div id="receita-upload-${esc(cnpj)}" style="display:none;padding:14px 18px;border-top:1px solid var(--pq-border);background:#fffbeb">
+           <div style="font-size:.8rem;font-weight:800;color:#92400e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+             <i class="fa fa-file-prescription" style="color:#d97706"></i>Receita médica obrigatória para entrega
+           </div>
+           ${tarjaCount > 1 ? `<div style="font-size:.77rem;color:#78350f;margin-bottom:10px;background:#fff3cd;border:1px solid #fcd34d;border-radius:8px;padding:9px 12px">
+             <strong>${tarjaCount} medicamentos com tarja</strong> nesta farmácia — anexe a receita de cada um:
+             <ul style="margin:5px 0 0 16px;padding:0">${tarjaItens.map(i => `<li>${esc(i.nome)}</li>`).join('')}</ul>
+           </div>` : ''}
+           <p style="font-size:.77rem;color:#78350f;margin-bottom:10px;line-height:1.45">
+             Envie o PDF original da receita digital assinada eletronicamente. Para medicamentos controlados, a assinatura deve ser qualificada ICP-Brasil. Foto, print ou receita escaneada não são aceitos para entrega.
+           </p>
+           <label style="display:flex;gap:8px;align-items:flex-start;font-size:.77rem;color:#78350f;line-height:1.35;margin-bottom:10px;cursor:pointer">
+             <input type="checkbox" id="receita-declaracao-${esc(cnpj)}" onchange="_receitaDeclaracaoOk['${esc(cnpj)}']=this.checked" style="margin-top:2px;flex-shrink:0">
+             <span>Confirmo que os arquivos são receitas digitais originais, com assinatura eletrônica verificável, e não são foto, print ou receita em papel escaneada.</span>
+           </label>
+           <div id="receita-lista-${esc(cnpj)}" style="margin-bottom:8px"></div>
+           <input type="file" id="receita-file-${esc(cnpj)}" accept="application/pdf,.pdf" style="display:none" onchange="uploadReceita('${esc(cnpj)}',this)">
+           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+             <button type="button" onclick="document.getElementById('receita-file-${esc(cnpj)}').click()"
+               style="border:1.5px solid #d97706;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 14px;font-size:.82rem;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit">
+               <i class="fa fa-paperclip"></i><span id="receita-btn-label-${esc(cnpj)}">${tarjaCount > 1 ? 'Anexar primeira receita' : 'Anexar receita'}</span>
+             </button>
+             <span id="receita-status-${esc(cnpj)}" style="font-size:.78rem"></span>
+           </div>
+         </div>`
+      : '';
+
+    html += `<div class="cart-group">
+      <div class="cart-group-hd">
+        <i class="fa fa-store"></i>${esc(g.razao)}
+      </div>
+      ${itensHtml}
+      ${receitaAviso}
+      <div class="pay-section">
+        <div class="pay-label">Forma de pagamento</div>
+        <div class="pay-options" id="pay-opts-${esc(cnpj)}">${payOpts}</div>
+      </div>
+      <div class="pay-section">
+        <div class="pay-label">Recebimento</div>
+        <div class="pay-options" id="delivery-opts-${esc(cnpj)}">${entregaOpts}</div>
+        ${entregaMsg ? `<div class="delivery-note">${entregaMsg}</div>` : ''}
+        ${minPedidoAvisoHtml}
+        <div class="delivery-address"><i class="fa fa-location-dot"></i>${esc(CONSUMIDOR_ENDERECO || localStorage.getItem('pq_loc_nome') || 'Endereço não informado')}</div>
+      </div>
+      ${receitaUploadHtml}
+      ${renderDescontoQuantidade(cnpj, g.itens)}
+      <div style="padding:10px 16px;border-top:1px solid var(--pq-border)">
+        ${renderCuponsDisponiveis(cnpj)}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+          <input id="cupom-inp-${esc(cnpj)}" type="text" placeholder="Código do cupom"
+            style="flex:1;padding:9px 12px;border:1px solid var(--pq-border);border-radius:8px;font-family:inherit;font-size:.84rem;background:#fafafa;text-transform:uppercase"
+            oninput="this.value=this.value.toUpperCase()"
+            value="${esc(_cupomAplicado[cnpj]?.codigo || '')}">
+          <button type="button" onclick="aplicarCupom('${esc(cnpj)}')"
+            style="border:1px solid var(--pq-red);background:none;color:var(--pq-red);border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit">
+            Aplicar
+          </button>
+        </div>
+        <div id="cupom-msg-${esc(cnpj)}" style="font-size:.78rem;margin-top:5px;min-height:18px;${_cupomAplicado[cnpj] ? 'color:#16a34a' : ''}">
+          ${_cupomAplicado[cnpj] ? '<i class="fa fa-circle-check me-1"></i>' + _cupomAplicado[cnpj].msg : ''}
+        </div>
+      </div>
+      <div class="cart-subtotal">
+        <span>Subtotal desta farmácia</span>
+        <strong id="subtotal-${esc(cnpj)}" style="color:var(--pq-red)">${brl(sub)}</strong>
+      </div>
+      ${_cupomAplicado[cnpj] ? `<div style="padding:0 16px 10px;display:flex;justify-content:space-between;font-size:.84rem;color:#16a34a;font-weight:700">
+        <span><i class="fa fa-tag me-1"></i>Desconto cupom ${esc(_cupomAplicado[cnpj].codigo)}</span>
+        <span>- ${brl(_cupomAplicado[cnpj].desconto)}</span>
+      </div>
+      <div style="padding:6px 16px 12px;display:flex;justify-content:space-between;font-weight:900;border-top:1px solid var(--pq-border)">
+        <span>Total desta farmácia</span>
+        <strong style="color:var(--pq-red)">${brl(Math.max(0, sub - _cupomAplicado[cnpj].desconto))}</strong>
+      </div>` : ''}
+    </div>`;
+  });
+
+  container.innerHTML = html;
+  document.getElementById('grand-total').textContent = brl(grandTotal);
+  checkoutSec.style.display = '';
+
+  // Inicializa seleção de pagamento
+  document.querySelectorAll('.pay-opt').forEach(el => {
+    el.addEventListener('click', () => {
+      const grp = el.closest('.pay-options');
+      grp.querySelectorAll('.pay-opt').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      el.querySelector('input').checked = true;
+      atualizarTotaisComFrete();
+    });
+  });
+  atualizarTotaisComFrete();
+}
+
+function atualizarTotaisComFrete() {
+  const cart = getCart();
+  const groups = {};
+  cart.forEach(item => {
+    if (!groups[item.cnpjloja]) groups[item.cnpjloja] = {itens: []};
+    groups[item.cnpjloja].itens.push(item);
+  });
+  let total = 0;
+  Object.keys(groups).forEach(cnpj => {
+    const sub = groups[cnpj].itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
+    const cfg = _configLojas[cnpj] || {};
+    const delivery = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
+    const frete = delivery === 'entrega' && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    const desconto = _cupomAplicado[cnpj]?.desconto || 0;
+    total += Math.max(0, sub - desconto) + frete;
+    const el = document.getElementById(`subtotal-${cnpj}`);
+    if (el) el.textContent = frete ? `${brl(sub)} + frete ${brl(frete)}` : brl(sub);
+  });
+  document.getElementById('grand-total').textContent = brl(total);
+}
+
+function payOptHtml(cnpj, val, label, checked) {
+  const auto = (_descontosAuto[cnpj] || {}).pagamento || [];
+  const regra = auto.find(r => r.forma_pagamento === val || r.forma_pagamento === 'todos');
+  const badge = regra
+    ? ` <span style="background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:5px;padding:1px 7px;font-size:.7rem;font-weight:800;white-space:nowrap">${regra.desconto_tipo==='pct'?parseInt(regra.desconto_valor)+'% OFF':'R$'+parseFloat(regra.desconto_valor).toFixed(2)+' OFF'}</span>`
+    : '';
+  return `<label class="pay-opt${checked?' selected':''}" id="pay-${esc(cnpj)}-${val}">
+    <input type="radio" name="pay-${esc(cnpj)}" value="${val}"${checked?' checked':''}/>
+    ${label}${badge}
+  </label>`;
+}
+
+function deliveryOptHtml(cnpj, val, label, checked) {
+  return `<label class="pay-opt${checked?' selected':''}" id="delivery-${esc(cnpj)}-${val}"
+    onclick="onDeliveryChange('${esc(cnpj)}','${val}')">
+    <input type="radio" name="delivery-${esc(cnpj)}" value="${val}"${checked?' checked':''}/>
+    ${label}
+  </label>`;
+}
+
+function onDeliveryChange(cnpj, val) {
+  const uploadDiv = document.getElementById(`receita-upload-${cnpj}`);
+  if (uploadDiv) {
+    uploadDiv.style.display = val === 'entrega' ? '' : 'none';
+    if (val !== 'entrega') {
+      _receitaUrl[cnpj] = [];
+      delete _receitaDeclaracaoOk[cnpj];
+      const statusEl = document.getElementById(`receita-status-${cnpj}`);
+      if (statusEl) statusEl.innerHTML = '';
+      const fileInp = document.getElementById(`receita-file-${cnpj}`);
+      if (fileInp) fileInp.value = '';
+      const declaracaoInp = document.getElementById(`receita-declaracao-${cnpj}`);
+      if (declaracaoInp) declaracaoInp.checked = false;
+      _renderReceitaLista(cnpj);
+    }
+  }
+  atualizarTotaisComFrete();
+}
+
+function _renderReceitaLista(cnpj) {
+  const listaEl = document.getElementById(`receita-lista-${cnpj}`);
+  const btnLabel = document.getElementById(`receita-btn-label-${cnpj}`);
+  const arquivos = _receitaUrl[cnpj] || [];
+  if (!listaEl) return;
+  listaEl.innerHTML = arquivos.map((f, idx) =>
+    `<div style="display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:7px 12px;margin-bottom:6px;font-size:.8rem">
+      <i class="fa fa-circle-check" style="color:#16a34a;flex-shrink:0"></i>
+      <span style="flex:1;color:#166534;font-weight:700;word-break:break-all">${esc(f.name)}</span>
+      <button type="button" onclick="removeReceita('${esc(cnpj)}',${idx})"
+        style="background:none;border:none;cursor:pointer;color:#dc2626;font-size:.82rem;padding:2px 6px;border-radius:4px;font-family:inherit" title="Remover">
+        <i class="fa fa-xmark"></i>
+      </button>
+    </div>`
+  ).join('');
+  if (btnLabel) btnLabel.textContent = arquivos.length > 0 ? 'Adicionar outra receita' : 'Anexar receita';
+}
+
+function removeReceita(cnpj, idx) {
+  if (!_receitaUrl[cnpj]) return;
+  _receitaUrl[cnpj].splice(idx, 1);
+  _renderReceitaLista(cnpj);
+}
+
+async function uploadReceita(cnpj, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById(`receita-status-${cnpj}`);
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    input.value = '';
+    statusEl.innerHTML = '<i class="fa fa-circle-xmark me-1" style="color:#dc2626"></i><span style="color:#991b1b">Envie apenas PDF original da receita digital. Foto, print ou imagem não são aceitos.</span>';
+    return;
+  }
+  statusEl.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Enviando…';
+  const formData = new FormData();
+  formData.append('receita', file);
+  try {
+    const r = await fetch('/api/receita/upload', { method: 'POST', body: formData });
+    const data = await r.json();
+    if (data.url) {
+      if (!Array.isArray(_receitaUrl[cnpj])) _receitaUrl[cnpj] = [];
+      _receitaUrl[cnpj].push({ name: file.name, url: data.url });
+      input.value = '';
+      statusEl.innerHTML = '';
+      _renderReceitaLista(cnpj);
+    } else {
+      statusEl.innerHTML = `<i class="fa fa-circle-xmark me-1" style="color:#dc2626"></i><span style="color:#991b1b">${data.error || 'Erro ao enviar'}</span>`;
+    }
+  } catch {
+    statusEl.innerHTML = '<i class="fa fa-circle-xmark me-1" style="color:#dc2626"></i><span style="color:#991b1b">Erro ao enviar. Tente novamente.</span>';
+  }
+}
+
+function alterarQty(ean, cnpjloja, delta) {
+  const cart = getCart();
+  const item = cart.find(c => c.ean===ean && c.cnpjloja===cnpjloja);
+  if (item) {
+    item.qty = Math.max(1, (item.qty||1) + delta);
+    saveCart(cart);
+    renderCart();
+  }
+}
+
+function removerItem(ean, cnpjloja) {
+  removeFromCart(ean, cnpjloja);
+  renderCart();
+}
+
+function _calcApplicableTotal(cnpjloja, codigo) {
+  const cart = getCart().filter(i => i.cnpjloja === cnpjloja);
+  const cupomInfo = (_cuponsDisponiveis[cnpjloja] || []).find(c => c.codigo === codigo);
+  if (!cupomInfo || (cupomInfo.escopo || 'todos') === 'todos') {
+    return cart.reduce((s, i) => s + (parseFloat(i.preco||0) * (i.qty||1)), 0);
+  }
+  const escopo = cupomInfo.escopo;
+  const escCats = (cupomInfo.escopo_categorias || '').split(',').map(s => s.trim()).filter(Boolean);
+  const escEans = (cupomInfo.escopo_eans || '').split(',').map(s => s.trim()).filter(Boolean);
+  return cart.reduce((s, i) => {
+    if (escopo === 'categoria') {
+      const cat = _prodCat(i.nome || '');
+      if (!escCats.includes(cat)) return s;
+    } else if (escopo === 'produto') {
+      if (!escEans.includes((i.ean || '').trim())) return s;
+    }
+    return s + (parseFloat(i.preco||0) * (i.qty||1));
+  }, 0);
+}
+
+function _prodCat(nome) {
+  const n = (nome || '').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega)\b/.test(n)) return 'suplemento';
+  if (/\b(fps|protetor|facial|creme|locao|gel|shampoo|sabonete|solar|hidratante)\b/.test(n)) return 'cosmetico';
+  if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(n)) return 'medicamento';
+  return '';
+}
+
+async function aplicarCupom(cnpjloja) {
+  const inp = document.getElementById(`cupom-inp-${cnpjloja}`);
+  const msg = document.getElementById(`cupom-msg-${cnpjloja}`);
+  const codigo = (inp?.value || '').trim().toUpperCase();
+  if (!codigo) {
+    delete _cupomAplicado[cnpjloja];
+    renderCart();
+    return;
+  }
+
+  const total = _calcApplicableTotal(cnpjloja, codigo);
+
+  if (msg) { msg.style.color = 'var(--pq-muted)'; msg.textContent = 'Verificando…'; }
+  try {
+    const r = await fetch(`/api/cupom/validar?cnpj=${encodeURIComponent(cnpjloja)}&codigo=${encodeURIComponent(codigo)}&total=${total.toFixed(2)}`);
+    const d = await r.json();
+    if (d.valido) {
+      const escopoMsg = (() => {
+        const esc = d.escopo || 'todos';
+        if (esc === 'categoria') return ` (categorias: ${d.escopo_categorias || '?'})`;
+        if (esc === 'produto') return ' (produtos específicos)';
+        return '';
+      })();
+      _cupomAplicado[cnpjloja] = {
+        codigo, desconto: d.desconto,
+        msg: d.msg + escopoMsg,
+        escopo: d.escopo || 'todos',
+        escopo_categorias: d.escopo_categorias || '',
+        escopo_eans: d.escopo_eans || '',
+      };
+      renderCart();
+    } else {
+      delete _cupomAplicado[cnpjloja];
+      if (msg) {
+        msg.style.color = 'var(--pq-red)';
+        msg.innerHTML = `<i class="fa fa-xmark me-1"></i>${d.msg}`;
+      }
+    }
+  } catch {
+    if (msg) { msg.style.color = 'var(--pq-muted)'; msg.textContent = 'Erro ao verificar cupom.'; }
+  }
+}
+
+async function carregarConfigLojas() {
+  const cart = getCart();
+  const cnpjs = [...new Set(cart.map(i => i.cnpjloja))].filter(Boolean);
+  if (!cnpjs.length) return;
+  try {
+    const r = await fetch('/api/config-lojas?cnpjs=' + cnpjs.join(','));
+    const data = await r.json();
+    Object.assign(_configLojas, data);
+  } catch {}
+  // Buscar cupons disponíveis (retorna vazio se não logado)
+  await Promise.all(cnpjs.flatMap(cnpj => [
+    fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
+      .then(r => r.json()).then(d => { _cuponsDisponiveis[cnpj] = d.cupons || []; }).catch(() => { _cuponsDisponiveis[cnpj] = []; }),
+    fetch(`/api/descontos-auto?cnpj=${encodeURIComponent(cnpj)}`)
+      .then(r => r.json()).then(d => { _descontosAuto[cnpj] = d; }).catch(() => { _descontosAuto[cnpj] = {}; }),
+  ]));
+}
+
+async function finalizarPedido() {
+  const btn = document.getElementById('btn-finalizar');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = 'Processando…';
+
+  const cart = getCart();
+  const groups = {};
+  cart.forEach(item => {
+    if (!groups[item.cnpjloja]) groups[item.cnpjloja] = {cnpjloja: item.cnpjloja, razao: item.razao, itens: []};
+    groups[item.cnpjloja].itens.push(item);
+  });
+
+  const farmaciasPedidos = Object.values(groups).map(g => {
+    const radio = document.querySelector(`input[name="pay-${g.cnpjloja}"]:checked`);
+    const delivery = document.querySelector(`input[name="delivery-${g.cnpjloja}"]:checked`);
+    const cfg = _configLojas[g.cnpjloja] || {};
+    const frete = delivery && delivery.value === 'entrega' && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    const cupomInp = document.getElementById(`cupom-inp-${g.cnpjloja}`);
+    const cupomCodigo = (cupomInp?.value || '').trim().toUpperCase();
+    const tipoEntrega = delivery ? delivery.value : 'retirada';
+    return {
+      cnpjloja: g.cnpjloja,
+      razao: g.razao,
+      pagamento: radio ? radio.value : 'whatsapp',
+      tipo_entrega: tipoEntrega,
+      endereco_entrega: CONSUMIDOR_ENDERECO || localStorage.getItem('pq_loc_nome') || '',
+      entrega_lat: CONSUMIDOR_LAT || localStorage.getItem('pq_lat') || '',
+      entrega_lng: CONSUMIDOR_LNG || localStorage.getItem('pq_lng') || '',
+      frete_valor: frete,
+      cupom_codigo: cupomCodigo,
+      receita_urls: tipoEntrega === 'entrega' ? (_receitaUrl[g.cnpjloja] || []).map(f => f.url) : [],
+      receita_declaracao_digital_valida: tipoEntrega === 'entrega' ? (_receitaDeclaracaoOk[g.cnpjloja] === true) : false,
+      itens: g.itens.map(i => ({ean:i.ean, nome:i.nome, preco:i.preco||0, qty:i.qty||1, imagem:i.imagem||'', requer_receita:!!i.requer_receita})),
+    };
+  });
+  // Valida receita para entrega com tarja
+  for (const fp of farmaciasPedidos) {
+    const temTarja = fp.itens.some(i => i.requer_receita);
+    const tarjaCount = fp.itens.filter(i => i.requer_receita).length;
+    if (temTarja && fp.tipo_entrega === 'entrega' && !(fp.receita_urls && fp.receita_urls.length > 0)) {
+      alert(`Anexe o PDF original da receita digital para a entrega do pedido de "${fp.razao || 'farmácia'}".`);
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
+      return;
+    }
+    if (temTarja && fp.tipo_entrega === 'entrega' && fp.receita_urls.length < tarjaCount) {
+      const faltam = tarjaCount - fp.receita_urls.length;
+      alert(`Você tem ${tarjaCount} medicamento(s) com tarja em "${fp.razao || 'farmácia'}". Falta(m) ${faltam} receita(s) para anexar.`);
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
+      return;
+    }
+    if (temTarja && fp.tipo_entrega === 'entrega' && !fp.receita_declaracao_digital_valida) {
+      alert(`Confirme que as receitas enviadas para "${fp.razao || 'farmácia'}" são digitais originais, com assinatura eletrônica verificável, e não foto, print ou receita escaneada.`);
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
+      return;
+    }
+  }
+  if (farmaciasPedidos.some(p => p.tipo_entrega === 'entrega' && (!p.entrega_lat || !p.entrega_lng))) {
+    alert('Para escolher entrega, informe sua localização/endereço no topo do site ou no seu perfil.');
+    btn.disabled = false;
+    btn.textContent = 'Finalizar pedido';
+    return;
+  }
+  const semNumero = farmaciasPedidos.find(p =>
+    p.tipo_entrega === 'entrega' && !/,\s*\d+/.test(p.endereco_entrega || '')
+  );
+  if (semNumero) {
+    alert('Seu endereço de entrega não tem número. Acesse seu perfil e informe o número da sua residência para que o entregador consiga encontrar você.');
+    btn.disabled = false;
+    btn.textContent = 'Finalizar pedido';
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/checkout', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        farmaciasPedidos,
+      }),
+    });
+    const data = await r.json();
+    if (data.login_required) { window.location.href = '/entrar?next=/carrinho'; return; }
+    if (data.error) { alert(data.error); btn.disabled=false; btn.textContent='Finalizar pedido'; return; }
+
+    // Verificar se algum pedido é MP com init_point
+    const cardError = (data.pedidos||[]).find(p => p.pagamento === 'mercadopago' && !p.mp_init_point);
+    if (cardError) {
+      alert(cardError.mp_erro || 'Não foi possível abrir o pagamento por cartão agora. Verifique o Access Token da loja no painel.');
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
+      return;
+    }
+    const mpPedido = (data.pedidos||[]).find(p => p.mp_init_point);
+    if (mpPedido && data.pedidos.length === 1) {
+      // Único pedido MP: redirecionar direto
+      localStorage.removeItem('pq_cart');
+      updateCartBadge();
+      window.location.href = mpPedido.mp_init_point;
+      return;
+    }
+
+    // Limpa carrinho e vai para confirmação
+    localStorage.removeItem('pq_cart');
+    updateCartBadge();
+    const ids = (data.pedidos||[]).map(p => p.id).join(',');
+    window.location.href = '/pedido/confirmacao?ids=' + ids;
+  } catch(e) {
+    alert('Erro ao processar pedido. Tente novamente.');
+    btn.disabled = false;
+    btn.textContent = 'Finalizar pedido';
+  }
+}
+
+// Init — carrega do banco (se logado) e faz merge com localStorage
+(async () => {
+  try {
+    const r = await fetch('/api/carrinho');
+    if (r.ok) {
+      const data = await r.json();
+      const dbItems = data.items || [];
+      if (dbItems.length) {
+        const local = getCart();
+        const merged = [...dbItems];
+        local.forEach(li => {
+          if (!merged.find(m => m.ean === li.ean && m.cnpjloja === li.cnpjloja))
+            merged.push(li);
+        });
+        // saveCart sem disparar sync de volta ao banco (evita loop)
+        localStorage.setItem('pq_cart', JSON.stringify(merged));
+        updateCartBadge();
+      }
+    }
+  } catch {}
+  await carregarConfigLojas();
+  renderCart();
+})();
+</script>
+{% endblock %}

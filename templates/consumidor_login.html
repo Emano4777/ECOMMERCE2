@@ -1,0 +1,43 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.auth-wrap { max-width:460px; margin:0 auto; padding:36px 16px 70px; }
+.auth-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
+.auth-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+.auth-card p { color:var(--pq-muted); margin:0 0 22px; font-size:.92rem; }
+.auth-field { margin-bottom:14px; }
+.auth-field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
+.auth-field input { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; outline:none; }
+.auth-field input:focus { border-color:var(--pq-red); }
+.auth-check { display:flex; align-items:center; gap:8px; font-size:.86rem; color:var(--pq-muted); margin:2px 0 18px; }
+.auth-btn { width:100%; border:0; background:var(--pq-red); color:#fff; border-radius:12px; padding:13px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
+.auth-link { display:block; text-align:center; margin-top:16px; color:var(--pq-red); font-weight:800; text-decoration:none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <form class="auth-card" method="post" action="{{ url_for('consumidor_login_post') }}">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <h1><i class="fa fa-user" style="color:var(--pq-red)"></i>Entrar na sua conta</h1>
+    <p>Acesse para finalizar pedidos, acompanhar status e ver seu histórico.</p>
+
+    <div class="auth-field">
+      <label for="email">E-mail</label>
+      <input id="email" name="email" type="email" autocomplete="email" required>
+    </div>
+    <div class="auth-field">
+      <label for="senha">Senha</label>
+      <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+    </div>
+    <label class="auth-check">
+      <input type="checkbox" name="lembrar" checked>
+      Manter conectado neste dispositivo
+    </label>
+    <button class="auth-btn" type="submit">Entrar</button>
+    <a class="auth-link" href="{{ url_for('consumidor_criar_conta', next=next_url) }}">Criar minha conta</a>
+  </form>
+</div>
+{% endblock %}

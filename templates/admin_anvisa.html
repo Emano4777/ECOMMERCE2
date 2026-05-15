@@ -1,0 +1,169 @@
+{% extends "painel_base.html" %}
+{% block title %}ANVISA Cache — Painel Poupaqui{% endblock %}
+
+{% block extra_style %}
+<style>
+.av-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+.av-filter-btn {
+  padding:6px 14px; border-radius:20px; font-size:.8rem; font-weight:700;
+  text-decoration:none; border:1px solid var(--pk-line);
+  color:var(--pk-muted); background:transparent; transition:all .15s;
+}
+.av-filter-btn:hover, .av-filter-btn.active { background:var(--pk-yellow); color:#111; border-color:var(--pk-yellow); }
+
+.av-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.av-table thead tr { background:#0d1016; position:sticky; top:57px; z-index:5; }
+.av-table th { padding:9px 12px; text-align:left; color:var(--pk-muted); font-weight:700;
+               font-size:.75rem; text-transform:uppercase; border-bottom:1px solid var(--pk-line); }
+.av-table td { padding:9px 12px; border-bottom:1px solid var(--pk-line); vertical-align:top; }
+.av-table tr:hover td { background:rgba(255,255,255,.02); }
+
+.badge-ok   { background:#0d2d1a; color:#22c55e; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.badge-fail { background:#2a0810; color:#f08090; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.badge-txt  { background:#1e1a08; color:#f5c842; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.badge-no   { background:#14181f; color:#5a6480; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+
+.av-excerpt {
+  color:var(--pk-muted); font-size:.75rem; line-height:1.4;
+  max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+  <div style="font-weight:900;font-size:1.25rem">
+    <i class="fa fa-shield-halved me-2" style="color:var(--pk-yellow)"></i>Cache ANVISA — Bulário Eletrônico
+  </div>
+  <a href="{{ url_for('admin_lojas') }}" style="color:var(--pk-muted);text-decoration:none;font-size:.85rem">
+    <i class="fa fa-arrow-left me-1"></i>Voltar às lojas
+  </a>
+</div>
+
+<!-- STATS -->
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+  <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:10px 16px;font-size:.82rem;color:var(--pk-muted)">
+    <strong style="color:var(--pk-yellow)">{{ total }}</strong> produtos consultados
+  </div>
+  <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:10px 16px;font-size:.82rem;color:var(--pk-muted)">
+    <strong style="color:#22c55e">{{ total_ok }}</strong> encontrados na ANVISA
+  </div>
+  <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:10px 16px;font-size:.82rem;color:var(--pk-muted)">
+    <strong style="color:#f08090">{{ total - total_ok }}</strong> não encontrados
+  </div>
+</div>
+
+<!-- FILTROS -->
+<div class="av-filters">
+  <a href="{{ url_for('admin_anvisa_cache') }}?f=todos"
+     class="av-filter-btn {% if filtro=='todos' %}active{% endif %}">Todos ({{ total }})</a>
+  <a href="{{ url_for('admin_anvisa_cache') }}?f=encontrado"
+     class="av-filter-btn {% if filtro=='encontrado' %}active{% endif %}">
+    <i class="fa fa-circle-check me-1" style="color:#22c55e"></i>Encontrados ({{ total_ok }})
+  </a>
+  <a href="{{ url_for('admin_anvisa_cache') }}?f=nao_encontrado"
+     class="av-filter-btn {% if filtro=='nao_encontrado' %}active{% endif %}">
+    <i class="fa fa-circle-xmark me-1" style="color:#f08090"></i>Não encontrados ({{ total - total_ok }})
+  </a>
+</div>
+
+{% if rows %}
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <table class="av-table">
+    <thead>
+      <tr>
+        <th>Chave de busca</th>
+        <th>Nome ANVISA</th>
+        <th>Laboratório</th>
+        <th>Status</th>
+        <th style="text-align:center">Para que serve</th>
+        <th style="text-align:center">Como usar</th>
+        <th style="text-align:center">Alertas</th>
+        <th style="text-align:center">Bula</th>
+        <th>Consultado em</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>
+          <code style="font-size:.75rem;color:var(--pk-yellow)">{{ r.chave }}</code>
+        </td>
+        <td style="max-width:200px">
+          {% if r.encontrado %}
+            <div style="font-weight:700;font-size:.82rem">{{ r.nome_anvisa or '—' }}</div>
+            {% if r.principio_ativo %}
+              <div style="font-size:.72rem;color:var(--pk-muted)">{{ r.principio_ativo }}</div>
+            {% endif %}
+          {% else %}
+            <span style="color:var(--pk-muted);font-size:.78rem">Não encontrado</span>
+          {% endif %}
+        </td>
+        <td style="font-size:.78rem;color:var(--pk-muted)">{{ r.laboratorio or '—' }}</td>
+        <td>
+          {% if not r.encontrado %}
+            <span class="badge-fail">Não encontrado</span>
+          {% elif 'ativ' in (r.situacao or '')|lower %}
+            <span class="badge-ok">{{ r.situacao or 'Ativo' }}</span>
+          {% else %}
+            <span class="badge-fail">{{ r.situacao or 'Inativo' }}</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center">
+          {% if r.serve_para %}
+            <span class="badge-ok" title="{{ r.serve_para[:200] }}">✔ Sim</span>
+          {% else %}
+            <span class="badge-no">—</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center">
+          {% if r.como_usar %}
+            <span class="badge-ok" title="{{ r.como_usar[:200] }}">✔ Sim</span>
+          {% else %}
+            <span class="badge-no">—</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center">
+          {% if r.alertas %}
+            <span class="badge-ok" title="{{ r.alertas[:200] }}">✔ Sim</span>
+          {% else %}
+            <span class="badge-no">—</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center">
+          {% if r.url_bula %}
+            <a href="{{ url_for('bula_download', chave=r.chave) }}" target="_blank"
+               title="Baixar bula" style="color:var(--pk-yellow)">
+              <i class="fa fa-file-arrow-down"></i>
+            </a>
+          {% else %}
+            <span class="badge-no">—</span>
+          {% endif %}
+        </td>
+        <td style="font-size:.74rem;color:var(--pk-muted);white-space:nowrap">
+          {{ r.criado_em.strftime('%d/%m/%Y %H:%M') if r.criado_em else '—' }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if rows|length == 500 %}
+<div style="text-align:center;padding:12px;font-size:.8rem;color:var(--pk-muted)">
+  Exibindo os 500 mais recentes. Use os filtros para navegar.
+</div>
+{% endif %}
+
+{% else %}
+<div class="pk-card" style="text-align:center;padding:60px 20px;color:var(--pk-muted)">
+  <i class="fa fa-shield-halved fa-3x mb-3" style="opacity:.25"></i>
+  <div style="font-weight:700">Nenhum dado ANVISA encontrado.</div>
+  <div style="font-size:.85rem;margin-top:8px">
+    Volte para <a href="{{ url_for('admin_lojas') }}" style="color:var(--pk-yellow)">Gestão de Lojas</a>
+    e clique em <strong>Sincronizar ANVISA</strong>.
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

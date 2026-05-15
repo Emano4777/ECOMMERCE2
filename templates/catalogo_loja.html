@@ -1,0 +1,310 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block hero %}
+<div class="pq-hero-strip" style="padding:24px 20px 30px;text-align:left">
+  <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:.8rem;opacity:.7;margin-bottom:2px">
+        <a href="{{ url_for('index') }}" style="color:rgba(255,255,255,.7);text-decoration:none">
+          <i class="fa fa-chevron-left me-1"></i>Todas as farmácias
+        </a>
+      </div>
+      <h2 style="margin:0;font-weight:900;font-size:1.4rem">{{ loja.razao }}</h2>
+      <div style="opacity:.8;font-size:.88rem;margin-top:4px">
+        <i class="fa fa-map-pin me-1"></i>{{ loja.endereco or '—' }}{% if loja.uf %} — {{ loja.uf }}{% endif %}
+      </div>
+    </div>
+    {% if loja.telefone %}
+    <a href="https://wa.me/55{{ loja.telefone | replace(' ','') | replace('-','') | replace('(','') | replace(')','') }}"
+       target="_blank"
+       style="background:var(--pq-yellow);color:#1a1a1a;font-weight:800;padding:10px 18px;border-radius:10px;text-decoration:none;white-space:nowrap;font-size:.9rem">
+      <i class="fa-brands fa-whatsapp me-1"></i>Contato via WhatsApp
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_style %}
+<style>
+/* ── SEARCH ─────────────────── */
+.pq-search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.pq-search input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 10px;
+  font-size: .95rem;
+  font-family: inherit;
+  outline: none;
+  background: #fff;
+}
+.pq-search input:focus { border-color: var(--pq-red); }
+
+/* ── PRODUCTS GRID ───────────── */
+.prod-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 480px) { .prod-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── PRODUCT CARD ────────────── */
+.prod-card {
+  background: #fff;
+  border: 1px solid var(--pq-border);
+  border-radius: var(--pq-radius);
+  box-shadow: var(--pq-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow .2s, transform .2s;
+}
+.prod-card:hover {
+  box-shadow: 0 8px 28px rgba(200,16,46,.14);
+  transform: translateY(-3px);
+}
+.prod-img {
+  height: 160px;
+  background: #f3ede8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.prod-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 8px;
+}
+.prod-img-ph {
+  color: #c9b8ae;
+  font-size: 2rem;
+}
+.prod-body { padding: 12px; flex: 1; display: flex; flex-direction: column; }
+.prod-nome {
+  font-weight: 800;
+  font-size: .88rem;
+  line-height: 1.3;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prod-preco {
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: var(--pq-red);
+  margin-bottom: 4px;
+}
+.prod-estoque {
+  font-size: .75rem;
+  color: var(--pq-muted);
+  margin-bottom: 10px;
+}
+.prod-qty-ok  { color: #2d8a4e; }
+.prod-qty-low { color: #e8760a; }
+.btn-add-cart {
+  background: var(--pq-red);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: .82rem;
+  font-weight: 700;
+  text-align: center;
+  margin-top: auto;
+  display: block;
+  width: 100%;
+  transition: background .15s;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-add-cart:hover { background: #a50d22; }
+.prod-buy-row {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  align-items: stretch;
+}
+.prod-qty-ctrl {
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 26px 1fr 26px;
+  align-items: center;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.prod-qty-ctrl button {
+  height: 100%;
+  border: 0;
+  background: #fff;
+  color: var(--pq-red);
+  font-weight: 900;
+  cursor: pointer;
+  font-family: inherit;
+}
+.prod-qty-ctrl input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  text-align: center;
+  font-weight: 900;
+  font-size: .84rem;
+  font-family: inherit;
+  appearance: textfield;
+}
+.prod-qty-ctrl input::-webkit-outer-spin-button,
+.prod-qty-ctrl input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ── STATS BAR ───────────────── */
+.stats-bar {
+  background: var(--pq-yellow-lt);
+  border: 1px solid #e8d87a;
+  border-radius: 10px;
+  padding: 10px 16px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: .88rem;
+}
+.stats-bar strong { color: var(--pq-red); }
+
+/* ── EMPTY ───────────────────── */
+.empty-box {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--pq-muted);
+}
+.empty-box i { font-size: 3rem; margin-bottom: 16px; opacity: .4; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- BUSCA -->
+<form class="pq-search" method="get">
+  <input type="text" name="q" value="{{ q }}"
+         placeholder="Buscar produto DNS/Vitnatu…"
+         autofocus/>
+  <button type="submit" class="btn-pq">
+    <i class="fa fa-search"></i>
+  </button>
+  {% if q %}
+  <a href="{{ url_for('catalogo_loja', cnpjloja=loja.cnpjloja) }}" class="btn-pq" style="background:#6c757d">
+    <i class="fa fa-xmark"></i>
+  </a>
+  {% endif %}
+</form>
+
+<!-- STATS -->
+{% if produtos %}
+<div class="stats-bar">
+  <span><i class="fa fa-boxes-stacked me-1"></i><strong>{{ produtos | length }}</strong> produto(s) DNS/Vitnatu em estoque</span>
+  {% if q %}<span>Busca: <strong>{{ q }}</strong></span>{% endif %}
+  <span style="margin-left:auto;color:var(--pq-muted);font-size:.78rem">Preços sujeitos a alteração</span>
+</div>
+
+<!-- GRID DE PRODUTOS -->
+<div class="prod-grid">
+  {% for p in produtos %}
+  {% set tel = loja.telefone | replace(' ','') | replace('-','') | replace('(','') | replace(')','') if loja.telefone else '' %}
+  {% set wpp_msg = "Olá! Tenho interesse no produto: " ~ p.nome ~ " (R$ " ~ "%.2f"|format(p.preco|float) ~ "). Vi no Poupaqui." %}
+  <div class="prod-card" onclick="location.href='/produto/{{ p.ean|urlencode }}?cnpj={{ loja.cnpjloja|urlencode }}&nome={{ p.nome|urlencode }}'" style="cursor:pointer">
+    <!-- IMAGEM -->
+    <div class="prod-img">
+      {% if p.imagem %}
+        <img src="{{ p.imagem }}" alt="{{ p.nome }}" loading="lazy"
+             onerror="this.parentElement.innerHTML='<i class=\'fa fa-pills prod-img-ph\'></i>'"/>
+      {% else %}
+        <i class="fa fa-pills prod-img-ph"></i>
+      {% endif %}
+    </div>
+
+    <!-- CORPO -->
+    <div class="prod-body">
+      <div class="prod-nome">{{ p.nome }}</div>
+
+      {% if p.tarja == 'preta' %}
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px">
+        <i class="fa fa-prescription"></i>Tarja Preta — Controle Especial
+      </span>
+      {% elif p.tarja == 'vermelha' %}
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px">
+        <i class="fa fa-prescription"></i>Tarja Vermelha — Prescrição Médica
+      </span>
+      {% endif %}
+
+      <div class="prod-preco">
+        {% if p.preco %}
+          {{ money(p.preco) }}
+        {% else %}
+          <span style="font-size:.85rem;color:var(--pq-muted)">Consultar</span>
+        {% endif %}
+      </div>
+
+      <div class="prod-estoque">
+        {% if p.qty and p.qty > 5 %}
+          <span class="prod-qty-ok"><i class="fa fa-circle-check me-1"></i>Em estoque ({{ p.qty }} un)</span>
+        {% elif p.qty and p.qty > 0 %}
+          <span class="prod-qty-low"><i class="fa fa-triangle-exclamation me-1"></i>Últimas unidades ({{ p.qty }})</span>
+        {% else %}
+          <span style="color:var(--pq-red)"><i class="fa fa-circle-xmark me-1"></i>Indisponível</span>
+        {% endif %}
+      </div>
+
+      <div class="prod-buy-row" onclick="event.stopPropagation()">
+        <div class="prod-qty-ctrl">
+          <button type="button" onclick="changeCatalogQty('{{ loop.index }}', -1)">−</button>
+          <input type="number" id="cat-qty-{{ loop.index }}" value="1" min="1" max="{{ p.qty or 99 }}">
+          <button type="button" onclick="changeCatalogQty('{{ loop.index }}', 1)">+</button>
+        </div>
+        <button class="btn-add-cart"
+                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }}})">
+          <i class="fa fa-cart-plus me-1"></i>{% if p.requer_receita %}Reservar{% else %}Adicionar{% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-box">
+  <div><i class="fa fa-box-open"></i></div>
+  {% if q %}
+    <h5>Nenhum produto DNS encontrado para "{{ q }}"</h5>
+    <p><a href="{{ url_for('catalogo_loja', cnpjloja=loja.cnpjloja) }}">Limpar busca</a></p>
+  {% else %}
+    <h5>Nenhum produto DNS/Vitnatu em estoque nesta farmácia no momento.</h5>
+    <p><a href="{{ url_for('index') }}">Ver outras farmácias</a></p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function changeCatalogQty(id, delta) {
+  const inp = document.getElementById('cat-qty-' + id);
+  if (!inp) return;
+  const max = parseInt(inp.max) || 99;
+  inp.value = Math.max(1, Math.min(max, (parseInt(inp.value)||1) + delta));
+}
+function addCatalogToCart(id, item) {
+  const qty = parseInt(document.getElementById('cat-qty-' + id)?.value) || 1;
+  addToCart({...item, qty});
+}
+</script>
+{% endblock %}

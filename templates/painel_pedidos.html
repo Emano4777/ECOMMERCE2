@@ -1,0 +1,172 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.ped-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+.ped-filter-btn {
+  padding:6px 14px;
+  border-radius:20px;
+  font-size:.8rem;
+  font-weight:700;
+  text-decoration:none;
+  border:1px solid var(--pk-line);
+  color:var(--pk-muted);
+  background:transparent;
+  transition:all .15s;
+}
+.ped-filter-btn:hover, .ped-filter-btn.active {
+  background:var(--pk-yellow);
+  color:#111;
+  border-color:var(--pk-yellow);
+}
+.ped-table { width:100%; border-collapse:collapse; font-size:.86rem; }
+.ped-table thead tr { background:#0d1016; }
+.ped-table th {
+  padding:10px 12px; text-align:left;
+  color:var(--pk-muted); font-weight:700; font-size:.78rem; text-transform:uppercase;
+  border-bottom:1px solid var(--pk-line);
+}
+.ped-table td { padding:10px 12px; border-bottom:1px solid var(--pk-line); vertical-align:middle; }
+.ped-table tr { cursor:pointer; }
+.ped-table tr:hover td { background:rgba(255,255,255,.03); }
+.ped-table a { text-decoration:none; color:inherit; }
+
+.status-badge {
+  padding:3px 10px; border-radius:20px; font-size:.74rem; font-weight:700; white-space:nowrap;
+}
+.s-pendente  { background:#1e1a08; color:#f5c842; }
+.s-pago      { background:#0d2d1a; color:#22c55e; }
+.s-enviado   { background:#0d1e2d; color:#38bdf8; }
+.s-entregue  { background:#0d2d1a; color:#22c55e; }
+.s-cancelado { background:#2a0810; color:#f08090; }
+
+.pay-badge { font-size:.75rem; color:var(--pk-muted); display:flex; align-items:center; gap:4px; }
+.pay-state { margin-top:4px; font-size:.72rem; font-weight:800; }
+.pay-state.approved { color:#22c55e; }
+.pay-state.pending, .pay-state.in_process { color:#f5c842; }
+.pay-state.rejected, .pay-state.cancelled, .pay-state.refunded, .pay-state.charged_back { color:#f08090; }
+
+.ped-empty { text-align:center; padding:60px 20px; color:var(--pk-muted); }
+.ped-empty i { font-size:3rem; opacity:.25; display:block; margin-bottom:14px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+  <div style="font-weight:900;font-size:1.25rem">
+    <i class="fa fa-bag-shopping me-2" style="color:var(--pk-yellow)"></i>Pedidos recebidos
+  </div>
+  {% if receitas_pendentes %}
+  <a href="{{ url_for('painel_pedidos') }}?receita_pendente=1"
+     style="display:inline-flex;align-items:center;gap:6px;background:#1e1a08;border:1px solid #f5c842;color:#f5c842;border-radius:20px;padding:6px 14px;font-size:.8rem;font-weight:800;text-decoration:none">
+    <i class="fa fa-file-prescription"></i>
+    {{ receitas_pendentes }} receita{{ 's' if receitas_pendentes > 1 else '' }} pendente{{ 's' if receitas_pendentes > 1 else '' }}
+  </a>
+  {% endif %}
+</div>
+
+<!-- FILTROS -->
+<div class="ped-filters">
+  {% for s, label in [('','Todos'),('pendente','Pendente'),('pago','Pago'),('enviado','Enviado'),('entregue','Entregue'),('cancelado','Cancelado')] %}
+  <a href="{{ url_for('painel_pedidos') }}{% if s %}?status={{ s }}{% endif %}"
+     class="ped-filter-btn {% if sf == s and not sf_receita %}active{% endif %}">
+    {{ label }}
+  </a>
+  {% endfor %}
+  {% if receitas_pendentes %}
+  <a href="{{ url_for('painel_pedidos') }}?receita_pendente=1"
+     class="ped-filter-btn {% if sf_receita %}active{% endif %}"
+     style="{% if sf_receita %}background:#f5c842;color:#111;border-color:#f5c842{% endif %}">
+    <i class="fa fa-file-prescription me-1"></i>Receita pendente
+  </a>
+  {% endif %}
+</div>
+
+{% if pedidos %}
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <table class="ped-table">
+    <thead>
+      <tr>
+        <th>Pedido</th>
+        <th>Cliente</th>
+        <th>Pagamento</th>
+        <th>Total</th>
+        <th>Data</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pedidos %}
+      <tr onclick="location.href='{{ url_for('painel_pedido_detalhe', pedido_id=p.id) }}'">
+        <td>
+          <code style="font-size:.78rem;color:var(--pk-yellow)">#{{ p.id|string|slice(8)|first|upper }}</code>
+        </td>
+        <td>
+          <div style="font-weight:700">{{ p.cliente_nome }}</div>
+          {% if p.cliente_telefone %}
+          <div style="font-size:.76rem;color:var(--pk-muted)">{{ p.cliente_telefone }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.origem == 'mercado_livre' %}
+          <div style="display:inline-flex;align-items:center;gap:5px;background:#1a1900;border:1px solid #fff200;border-radius:6px;padding:3px 9px;font-size:.74rem;font-weight:800;color:#fff200;margin-bottom:4px">
+            <svg width="13" height="13" viewBox="0 0 48 48"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>
+            Mercado Livre
+          </div>
+          {% endif %}
+          <div class="pay-badge">
+            {% if p.forma_pagamento == 'whatsapp' %}
+              <i class="fa-brands fa-whatsapp" style="color:#25d366"></i>WhatsApp
+            {% elif p.forma_pagamento == 'pix' %}
+              <i class="fa fa-qrcode" style="color:#f5c842"></i>PIX
+            {% elif p.forma_pagamento == 'mercado_livre' %}
+              <svg width="13" height="13" viewBox="0 0 48 48" style="vertical-align:-1px"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>Mercado Livre
+            {% else %}
+              <i class="fa fa-credit-card" style="color:#009ee3"></i>Mercado Pago
+            {% endif %}
+          </div>
+          {% if p.forma_pagamento in ['pix','mercadopago'] %}
+          <div class="pay-state {{ p.pagamento_status or 'pending' }}">
+            {% if p.pagamento_status == 'approved' %}
+              Pagamento confirmado
+            {% elif p.pagamento_status in ['rejected','cancelled','refunded','charged_back'] %}
+              Pagamento não aprovado
+            {% else %}
+              Aguardando pagamento
+            {% endif %}
+          </div>
+          {% endif %}
+        </td>
+        <td style="font-weight:800;color:var(--pk-yellow)">{{ money(p.total) }}</td>
+        <td style="font-size:.78rem;color:var(--pk-muted)">
+          {{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '—' }}
+        </td>
+        <td>
+          <span class="status-badge s-{{ p.status }}">{{ p.status | capitalize }}</span>
+          {% if p.receita_status == 'pendente' %}
+          <div style="margin-top:4px">
+            <span style="background:#1e1a08;color:#f5c842;border-radius:10px;padding:2px 8px;font-size:.7rem;font-weight:700">
+              <i class="fa fa-file-prescription me-1"></i>Receita pendente
+            </span>
+          </div>
+          {% elif p.receita_status == 'reprovada' %}
+          <div style="margin-top:4px">
+            <span style="background:#2a0810;color:#f08090;border-radius:10px;padding:2px 8px;font-size:.7rem;font-weight:700">
+              <i class="fa fa-circle-xmark me-1"></i>Receita reprovada
+            </span>
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="ped-empty">
+  <i class="fa fa-bag-shopping"></i>
+  <div>Nenhum pedido encontrado{% if sf %} com status "{{ sf }}"{% endif %}.</div>
+</div>
+{% endif %}
+{% endblock %}

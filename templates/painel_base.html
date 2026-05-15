@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{% block title %}Poupaqui - Produtos{% endblock %}</title>
+
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='poupaqui-logo.png') }}"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+
+  <style>
+    :root {
+      --pk-bg:     #0f1117;
+      --pk-card:   #181c26;
+      --pk-line:   #1e2435;
+      --pk-txt:    #dde3f0;
+      --pk-muted:  #8a95b0;
+      --pk-red:    #c8102e;
+      --pk-red-lt: #fde8ec;
+      --pk-yellow: #f5c842;
+      --pk-green:  #22c55e;
+      --pk-radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Nunito', sans-serif; background: var(--pk-bg); color: var(--pk-txt); }
+
+    /* ── TOPBAR ──────────────────── */
+    .pk-topbar {
+      background: var(--pk-card);
+      border-bottom: 1px solid var(--pk-line);
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .pk-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 900; font-size: 1.2rem; color: var(--pk-yellow); }
+    .pk-brand-logo { width: 32px; height: 32px; border-radius: 10px; background: #fff; object-fit: contain; flex: 0 0 auto; }
+    .pk-brand-text { color: var(--pk-yellow); }
+    .pk-brand-highlight { color: #fff; }
+    .pk-brand-panel { color: #fff; font-size:.7rem; opacity:.5; font-weight:400; }
+    .pk-nav { display: flex; gap: 4px; }
+    .pk-nav a {
+      color: var(--pk-muted);
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: .85rem;
+      font-weight: 700;
+      transition: background .15s, color .15s;
+    }
+    .pk-nav a:hover, .pk-nav a.active { background: var(--pk-line); color: var(--pk-txt); }
+    .pk-nav a.danger { color: #e05555; }
+    .pk-user { font-size: .8rem; color: var(--pk-muted); }
+    .pk-user strong { color: var(--pk-yellow); }
+
+    /* ── LAYOUT ──────────────────── */
+    .pk-main { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }
+
+    /* ── CARDS ───────────────────── */
+    .pk-card {
+      background: var(--pk-card);
+      border: 1px solid var(--pk-line);
+      border-radius: var(--pk-radius);
+      padding: 20px;
+      margin-bottom: 18px;
+    }
+    .pk-card-title {
+      font-weight: 800;
+      font-size: 1rem;
+      color: var(--pk-yellow);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── BUTTONS ─────────────────── */
+    .btn-pk { background: var(--pk-red); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: .88rem; transition: background .15s; }
+    .btn-pk:hover { background: #9b0d22; }
+    .btn-pk-yellow { background: var(--pk-yellow); color: #111; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 800; cursor: pointer; font-family: inherit; font-size: .88rem; }
+    .btn-pk-ghost { background: transparent; border: 1px solid var(--pk-line); color: var(--pk-muted); border-radius: 8px; padding: 8px 16px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: .88rem; }
+    .btn-pk-ghost:hover { background: var(--pk-line); color: var(--pk-txt); }
+
+    /* ── ALERTS ──────────────────── */
+    .pk-alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: .88rem; font-weight: 600; }
+    .pk-alert-success { background: #0d2d1a; border-left: 3px solid var(--pk-green); color: #6ee79a; }
+    .pk-alert-error   { background: #2a0810; border-left: 3px solid var(--pk-red); color: #f08090; }
+    .pk-alert-info    { background: #1e1a08; border-left: 3px solid var(--pk-yellow); color: #e8c94a; }
+
+    /* ── INPUTS ──────────────────── */
+    .pk-input {
+      width: 100%;
+      padding: 9px 12px;
+      background: #0d1016;
+      border: 1px solid var(--pk-line);
+      border-radius: 8px;
+      color: var(--pk-txt);
+      font-family: inherit;
+      font-size: .9rem;
+    }
+    .pk-input:focus { outline: none; border-color: var(--pk-yellow); }
+  </style>
+  {% block extra_style %}{% endblock %}
+</head>
+<body>
+
+<header class="pk-topbar">
+  <div class="pk-brand">
+    <img class="pk-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+    <span class="pk-brand-text">Poupaqu<span class="pk-brand-highlight">i</span> <span class="pk-brand-panel">painel</span></span>
+  </div>
+  <nav class="pk-nav">
+    <a href="{{ url_for('precificador') }}" {% if request.endpoint == 'precificador' %}class="active"{% endif %}>
+      <i class="fa fa-tags me-1"></i>Precificador
+    </a>
+    <a href="{{ url_for('painel_pedidos') }}" {% if request.endpoint in ('painel_pedidos','painel_pedido_detalhe') %}class="active"{% endif %}>
+      <i class="fa fa-bag-shopping me-1"></i>Pedidos
+    </a>
+    <a href="{{ url_for('painel_cupons') }}" {% if request.endpoint in ('painel_cupons',) %}class="active"{% endif %}>
+      <i class="fa fa-ticket me-1"></i>Cupons
+    </a>
+    <a href="{{ url_for('painel_ml') }}" {% if request.endpoint in ('painel_ml',) %}class="active"{% endif %}>
+      <svg width="13" height="13" viewBox="0 0 48 48" style="vertical-align:-1px;margin-right:4px"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>Mercado Livre
+    </a>
+    <a href="{{ url_for('painel_config') }}" {% if request.endpoint == 'painel_config' %}class="active"{% endif %}>
+      <i class="fa fa-gear me-1"></i>Config
+    </a>
+    {% if session.is_admin %}
+    <a href="{{ url_for('admin_lojas') }}" {% if request.endpoint == 'admin_lojas' %}class="active"{% endif %}>
+      <i class="fa fa-store me-1"></i>Lojas
+    </a>
+    {% endif %}
+    <a href="{{ url_for('index') }}" target="_blank">
+      <i class="fa fa-globe me-1"></i>Ver site
+    </a>
+    <a href="{{ url_for('painel_logout') }}" class="danger">
+      <i class="fa fa-right-from-bracket me-1"></i>Sair
+    </a>
+  </nav>
+  <div class="pk-user">
+    <strong>{{ session.razao or session.cnpjloja }}</strong>
+  </div>
+</header>
+
+<div class="pk-main">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      {% for cat, msg in msgs %}
+        <div class="pk-alert pk-alert-{{ cat }}">
+          <i class="fa fa-{% if cat == 'success' %}check-circle{% elif cat == 'error' %}triangle-exclamation{% else %}info-circle{% endif %} me-2"></i>{{ msg }}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

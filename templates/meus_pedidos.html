@@ -1,0 +1,60 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.orders-wrap { max-width:860px; margin:0 auto; padding:28px 16px 70px; }
+.orders-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; }
+.orders-head h1 { font-size:1.45rem; font-weight:900; margin:0; display:flex; align-items:center; gap:10px; }
+.order-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:16px 18px; margin-bottom:12px; display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; text-decoration:none; color:inherit; transition:transform .15s, box-shadow .15s; }
+.order-card:hover { color:inherit; transform:translateY(-1px); box-shadow:0 8px 28px rgba(0,0,0,.12); }
+.order-main { min-width:0; }
+.order-store { font-weight:900; margin-bottom:3px; }
+.order-meta { color:var(--pq-muted); font-size:.82rem; display:flex; gap:12px; flex-wrap:wrap; }
+.order-side { text-align:right; }
+.order-total { color:var(--pq-red); font-weight:900; font-size:1.05rem; }
+.order-hint { color:var(--pq-red); font-size:.78rem; font-weight:900; margin-top:3px; }
+.status { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.78rem; font-weight:900; background:#fff7dd; color:#8a6200; margin-bottom:6px; }
+.status.pago { background:#e9fff0; color:#15803d; }
+.status.enviado { background:#eaf6ff; color:#0369a1; }
+.status.cancelado { background:#fff0f0; color:#b00020; }
+.orders-empty { text-align:center; background:#fff; border:1px solid var(--pq-border); border-radius:16px; padding:54px 20px; color:var(--pq-muted); }
+.orders-empty i { font-size:3rem; opacity:.25; margin-bottom:12px; }
+@media(max-width:620px){ .order-card { grid-template-columns:1fr; } .order-side { text-align:left; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="orders-wrap">
+  <div class="orders-head">
+    <h1><i class="fa fa-receipt" style="color:var(--pq-red)"></i>Meus pedidos</h1>
+    <a href="{{ url_for('index') }}" style="color:var(--pq-red);font-weight:800;text-decoration:none">Comprar produtos</a>
+  </div>
+
+  {% if pedidos %}
+    {% for p in pedidos %}
+    <a class="order-card" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
+      <div class="order-main">
+        <div class="order-store">{{ p.razao }}</div>
+        <div class="order-meta">
+          <span>Pedido #{{ p.id[:8].upper() }}</span>
+          <span>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '' }}</span>
+          <span>{{ 'Cartão' if p.forma_pagamento == 'mercadopago' else p.forma_pagamento|capitalize }}</span>
+        </div>
+      </div>
+      <div class="order-side">
+        <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ p.status|capitalize }}</div>
+        <div class="order-total">{{ money(p.total) }}</div>
+        <div class="order-hint">Ver detalhes</div>
+      </div>
+    </a>
+    {% endfor %}
+  {% else %}
+    <div class="orders-empty">
+      <i class="fa fa-bag-shopping"></i>
+      <h5>Nenhum pedido ainda</h5>
+      <p>Quando você finalizar uma compra, ela aparece aqui.</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

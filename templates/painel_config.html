@@ -1,0 +1,254 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.cfg-section { margin-bottom:24px; }
+.cfg-section-title {
+  font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--pk-yellow); margin-bottom:14px; padding-bottom:8px;
+  border-bottom:1px solid var(--pk-line);
+  display:flex; align-items:center; gap:8px;
+}
+.cfg-field { margin-bottom:14px; }
+.cfg-field label { display:block; font-size:.78rem; font-weight:700; color:var(--pk-muted); margin-bottom:6px; }
+.cfg-toggle {
+  display:flex; align-items:center; gap:10px;
+  padding:12px 14px;
+  background:#0d1016; border:1px solid var(--pk-line);
+  border-radius:8px; cursor:pointer;
+}
+.cfg-toggle input[type=checkbox] { display:none; }
+.cfg-switch {
+  width:44px; height:24px; border-radius:12px;
+  background:#2d3748; border:2px solid #3a4560;
+  position:relative; flex-shrink:0;
+  transition:background .22s, border-color .22s;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.4);
+}
+.cfg-switch::after {
+  content:''; position:absolute; top:2px; left:2px;
+  width:16px; height:16px; border-radius:50%;
+  background:#8899aa;
+  transition:transform .22s, background .22s;
+  box-shadow:0 1px 3px rgba(0,0,0,.4);
+}
+.cfg-toggle input:checked + .cfg-switch {
+  background:#16a34a; border-color:#22c55e;
+}
+.cfg-toggle input:checked + .cfg-switch::after {
+  transform:translateX(20px); background:#fff;
+}
+.cfg-toggle:has(input:checked) { border-color:rgba(34,197,94,.3); background:#091a10; }
+.cfg-toggle-label { font-weight:700; font-size:.88rem; }
+.cfg-toggle-desc { font-size:.75rem; color:var(--pk-muted); margin-left:auto; }
+.cfg-help { font-size:.74rem; color:var(--pk-muted); margin-top:4px; line-height:1.45; }
+.cfg-warn { font-size:.74rem; color:var(--pk-yellow); margin-top:4px; line-height:1.45; }
+.mp-guide { margin-top:16px; border:1px solid rgba(245,200,66,.35); background:linear-gradient(135deg, rgba(245,200,66,.10), rgba(0,158,227,.08)); border-radius:10px; overflow:hidden; }
+.mp-guide-head { padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; border-bottom:1px solid rgba(255,255,255,.08); }
+.mp-guide-title { font-weight:900; color:var(--pk-txt); display:flex; align-items:center; gap:8px; }
+.mp-guide-link { display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border-radius:8px; background:#009ee3; color:#fff; text-decoration:none; font-size:.78rem; font-weight:900; }
+.mp-guide-link:hover { color:#fff; background:#007ab5; }
+.mp-steps { display:grid; grid-template-columns:repeat(4,1fr); }
+.mp-step { padding:14px; border-right:1px solid rgba(255,255,255,.08); }
+.mp-step:last-child { border-right:none; }
+.mp-step-num { width:26px; height:26px; border-radius:50%; background:var(--pk-yellow); color:#111; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:.78rem; margin-bottom:9px; }
+.mp-step strong { display:block; font-size:.84rem; margin-bottom:5px; color:var(--pk-txt); }
+.mp-step span { display:block; font-size:.76rem; line-height:1.4; color:var(--pk-muted); }
+.mp-note { padding:12px 14px; border-top:1px solid rgba(255,255,255,.08); font-size:.76rem; color:var(--pk-muted); display:flex; gap:8px; align-items:flex-start; line-height:1.45; }
+@media(max-width:900px){ .mp-steps { grid-template-columns:1fr 1fr; } .mp-step:nth-child(2) { border-right:none; } }
+@media(max-width:560px){ .mp-steps { grid-template-columns:1fr; } .mp-step { border-right:none; border-bottom:1px solid rgba(255,255,255,.08); } .cfg-toggle { align-items:flex-start; } .cfg-toggle-desc { margin-left:0; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:24px">
+  <i class="fa fa-gear me-2" style="color:var(--pk-yellow)"></i>Configurações da loja
+</div>
+
+<form method="post" action="{{ url_for('painel_config_salvar') }}">
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-bell"></i>Notificações de pedidos
+    </div>
+    <div class="cfg-field">
+      <label>WhatsApp para receber alertas de novos pedidos</label>
+      <input class="pk-input" type="tel" name="whatsapp_pedidos"
+             value="{{ config.whatsapp_pedidos or '' }}"
+             placeholder="Ex: 11999999999 (somente números)"/>
+      <div class="cfg-help">
+        Este número receberá o link de WhatsApp gerado no pedido do cliente. Pode ser diferente do telefone de contato da loja.
+      </div>
+    </div>
+    <div class="cfg-field">
+      <label>WhatsApp para notificações de receita médica <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; opcional</span></label>
+      <input class="pk-input" type="tel" name="whatsapp_receita"
+             value="{{ config.whatsapp_receita or '' }}"
+             placeholder="Ex: 11999999999 (deixe em branco para usar o mesmo acima)"/>
+      <div class="cfg-help">
+        Quando um cliente anexar uma receita médica para entrega, este número receberá a notificação via WhatsApp. Se vazio, usa o número de pedidos acima.
+      </div>
+    </div>
+  </div>
+
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-credit-card"></i>Formas de pagamento aceitas
+    </div>
+
+    <div class="cfg-field">
+      <label class="cfg-toggle">
+        <input type="checkbox" name="aceita_whatsapp" id="chk-wpp"
+               {% if config.aceita_whatsapp is not false %}checked{% endif %}>
+        <span class="cfg-switch"></span>
+        <span class="cfg-toggle-label"><i class="fa-brands fa-whatsapp" style="color:#25d366"></i> WhatsApp</span>
+        <span class="cfg-toggle-desc">Pedido via mensagem</span>
+      </label>
+    </div>
+
+    <div class="cfg-field">
+      <label class="cfg-toggle">
+        <input type="checkbox" name="aceita_pix" id="chk-pix"
+               {% if config.aceita_pix is not false %}checked{% endif %}>
+        <span class="cfg-switch"></span>
+        <span class="cfg-toggle-label"><i class="fa fa-qrcode" style="color:#f5c842"></i> PIX</span>
+        <span class="cfg-toggle-desc">QR Code e copia e cola</span>
+      </label>
+    </div>
+
+    <div class="cfg-field">
+      <label class="cfg-toggle">
+        <input type="checkbox" name="aceita_mp" id="chk-mp"
+               {% if config.aceita_mp %}checked{% endif %}>
+        <span class="cfg-switch"></span>
+        <span class="cfg-toggle-label"><i class="fa fa-credit-card" style="color:#009ee3"></i> Cartão</span>
+        <span class="cfg-toggle-desc">Processado pelo Mercado Pago</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-motorcycle"></i>Entrega
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-toggle">
+        <input type="checkbox" name="aceita_entrega" id="chk-entrega"
+               {% if config.aceita_entrega %}checked{% endif %}>
+        <span class="cfg-switch"></span>
+        <span class="cfg-toggle-label"><i class="fa fa-truck" style="color:#38bdf8"></i> Oferecer entrega</span>
+        <span class="cfg-toggle-desc">Cliente escolhe entrega se estiver no raio</span>
+      </label>
+    </div>
+    <div class="cfg-field">
+      <label>Raio máximo de entrega (km)</label>
+      <input class="pk-input" type="number" min="0" step="0.1" name="raio_entrega_km"
+             value="{{ config.raio_entrega_km or 0 }}" placeholder="Ex: 5">
+      <div class="cfg-help">Se o endereço do cliente estiver fora desse raio, o checkout oferece apenas retirada na loja.</div>
+    </div>
+    <div class="cfg-field">
+      <label>Pedido mínimo para entrega (R$) <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; 0 = sem mínimo</span></label>
+      <input class="pk-input" type="number" min="0" step="0.01" name="pedido_minimo_entrega"
+             value="{{ config.pedido_minimo_entrega or 0 }}" placeholder="Ex: 50.00">
+      <div class="cfg-help">O cliente só poderá escolher entrega se o valor dos produtos atingir esse mínimo.</div>
+    </div>
+  </div>
+
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-coins"></i>Frete
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-toggle">
+        <input type="checkbox" name="cobra_frete" id="chk-frete"
+               {% if config.cobra_frete %}checked{% endif %}>
+        <span class="cfg-switch"></span>
+        <span class="cfg-toggle-label"><i class="fa fa-coins" style="color:#f5c842"></i> Cobrar frete</span>
+        <span class="cfg-toggle-desc">Se desligado, a entrega fica grátis</span>
+      </label>
+    </div>
+    <div class="cfg-field">
+      <label>Valor do frete</label>
+      <input class="pk-input" type="number" min="0" step="0.01" name="valor_frete"
+             value="{{ config.valor_frete or 0 }}" placeholder="Ex: 7.00">
+    </div>
+  </div>
+
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-qrcode"></i>Dados PIX
+    </div>
+    <div class="cfg-field">
+      <label>Chave PIX</label>
+      <input class="pk-input" type="text" name="pix_chave"
+             value="{{ config.pix_chave or '' }}"
+             placeholder="CPF, CNPJ, e-mail, telefone ou chave aleatória"/>
+    </div>
+    <div class="cfg-field">
+      <label>Nome do titular</label>
+      <input class="pk-input" type="text" name="pix_nome"
+             value="{{ config.pix_nome or '' }}"
+             placeholder="Nome que aparece no banco"/>
+    </div>
+  </div>
+
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-key"></i>Mercado Pago
+    </div>
+    <div class="cfg-field">
+      <label>Access Token da sua conta Mercado Pago</label>
+      <input class="pk-input" type="password" name="mp_access_token"
+             value="{{ config.mp_access_token or '' }}"
+             placeholder="APP_USR-..."/>
+      <div class="cfg-warn">
+        Necessário para PIX com QR Code, pagamento por cartão e confirmação automática no painel.
+      </div>
+      <div class="cfg-help">
+        O token fica armazenado e é usado apenas para criar cobranças e consultar o status dos pagamentos da loja.
+      </div>
+
+      <div class="mp-guide">
+        <div class="mp-guide-head">
+          <div class="mp-guide-title"><i class="fa fa-route" style="color:var(--pk-yellow)"></i>Como pegar o Access Token</div>
+          <a class="mp-guide-link" href="https://www.mercadopago.com.br/developers/panel/app" target="_blank">
+            <i class="fa fa-arrow-up-right-from-square"></i>Abrir Mercado Pago
+          </a>
+        </div>
+        <div class="mp-steps">
+          <div class="mp-step">
+            <div class="mp-step-num">1</div>
+            <strong>Entre no painel</strong>
+            <span>Acesse sua conta do Mercado Pago Developers com o mesmo login da loja.</span>
+          </div>
+          <div class="mp-step">
+            <div class="mp-step-num">2</div>
+            <strong>Crie ou abra um app</strong>
+            <span>Em Suas integrações, abra uma aplicação existente ou crie uma nova.</span>
+          </div>
+          <div class="mp-step">
+            <div class="mp-step-num">3</div>
+            <strong>Vá em credenciais</strong>
+            <span>Abra Credenciais de produção e copie o campo Access Token.</span>
+          </div>
+          <div class="mp-step">
+            <div class="mp-step-num">4</div>
+            <strong>Cole aqui e salve</strong>
+            <span>Depois de salvar, o Poupaqui gera QR Code PIX, cartão e confirmação automática.</span>
+          </div>
+        </div>
+        <div class="mp-note">
+          <i class="fa fa-shield-halved" style="color:var(--pk-yellow);margin-top:2px"></i>
+          <span>Use o token de produção, normalmente começando com <strong>APP_USR-</strong>. Não compartilhe esse token fora do painel da sua loja.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end">
+    <button type="submit" class="btn-pk-yellow">
+      <i class="fa fa-floppy-disk me-1"></i>Salvar configurações
+    </button>
+  </div>
+</form>
+{% endblock %}

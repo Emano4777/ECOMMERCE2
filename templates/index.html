@@ -1,0 +1,755 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+/* ── SEARCH BAR ─────────────────────────────────── */
+.idx-search {
+  position: relative;
+  margin-bottom: 20px;
+}
+.idx-search input {
+  width: 100%;
+  padding: 12px 18px 12px 46px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 50px;
+  font-size: .92rem;
+  font-family: inherit;
+  outline: none;
+  background: #fff;
+  box-shadow: var(--pq-shadow);
+  transition: border-color .15s, box-shadow .15s;
+}
+.idx-search input:focus {
+  border-color: var(--pq-red);
+  box-shadow: 0 0 0 3px rgba(200,16,46,.09);
+}
+.idx-search .srch-icon {
+  position: absolute;
+  left: 17px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--pq-muted);
+  pointer-events: none;
+}
+.idx-filter-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.25fr) minmax(150px, .9fr) minmax(165px, .9fr) minmax(120px, .6fr) auto;
+  gap: 10px;
+  align-items: end;
+  background: #fff;
+  border: 1px solid var(--pq-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgba(16,24,40,.07);
+  padding: 12px;
+  margin: -8px 0 18px;
+}
+.idx-filter-field label {
+  display: block;
+  color: var(--pq-muted);
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  margin: 0 0 5px 2px;
+}
+.idx-filter-field select {
+  width: 100%;
+  height: 40px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--pq-text);
+  font-family: inherit;
+  font-size: .84rem;
+  font-weight: 700;
+  padding: 0 10px;
+  outline: none;
+}
+.idx-filter-field select:focus {
+  border-color: var(--pq-red);
+  box-shadow: 0 0 0 3px rgba(200,16,46,.08);
+}
+.idx-filter-clear {
+  height: 40px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--pq-red);
+  font-family: inherit;
+  font-size: .8rem;
+  font-weight: 900;
+  padding: 0 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.idx-filter-clear:hover { background: #fff3f5; border-color: #ffd0d8; }
+@media(max-width:900px) {
+  .idx-filter-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .idx-filter-clear { grid-column: 1/-1; }
+}
+@media(max-width:520px) {
+  .idx-filter-panel { grid-template-columns: 1fr; padding: 10px; }
+  .idx-filter-clear { grid-column: auto; width: 100%; }
+}
+
+/* ── SECTION HEADER ─────────────────────────────── */
+.idx-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.idx-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.idx-badge {
+  font-size: .75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.idx-badge-ok   { background: var(--pq-yellow-lt); color: #5a4a00; }
+.idx-badge-warn { background: #fff4ec; color: #c45e00; border: 1px solid #ffd6a5; }
+
+/* ── PRODUCT GRID ───────────────────────────────── */
+.prod-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  gap: 14px;
+}
+@media(max-width:500px) {
+  .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+}
+
+/* ── PRODUCT CARD ───────────────────────────────── */
+.prod-card {
+  background: #fff;
+  border: 1px solid var(--pq-border);
+  border-radius: var(--pq-radius);
+  box-shadow: var(--pq-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow .2s, transform .18s;
+}
+.prod-card:hover {
+  box-shadow: 0 6px 24px rgba(200,16,46,.13);
+  transform: translateY(-2px);
+  color: inherit;
+}
+.prod-img {
+  background: #f7f7f7;
+  height: 148px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.prod-img img { max-height: 128px; max-width: 88%; object-fit: contain; }
+.prod-placeholder { color: #ddd; font-size: 2.8rem; }
+
+.prod-body {
+  padding: 10px 12px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prod-nome {
+  font-weight: 700;
+  font-size: .82rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.25em;
+}
+.prod-preco {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--pq-red);
+}
+.prod-cupom-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff0f2;
+  color: var(--pq-red);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: .68rem;
+  font-weight: 800;
+  max-width: 100%;
+  overflow: hidden;
+}
+.prod-loja-row {
+  margin-top: auto;
+  padding-top: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.prod-loja-nome {
+  font-size: .72rem;
+  color: var(--pq-muted);
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+}
+.prod-dist {
+  font-size: .68rem;
+  font-weight: 800;
+  color: var(--pq-red);
+  background: #fff3f5;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.prod-add-btn {
+  margin-top: 8px;
+  background: var(--pq-red);
+  color: #fff;
+  text-align: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: .78rem;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+  transition: background .15s;
+}
+.prod-card:hover .prod-add-btn { background: var(--pq-red-dk); }
+.prod-buy-row {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  gap: 8px;
+}
+.prod-qty-ctrl {
+  height: 34px;
+  display: grid;
+  grid-template-columns: 24px 1fr 24px;
+  align-items: center;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.prod-qty-ctrl button {
+  border: 0;
+  background: #fff;
+  height: 100%;
+  font-weight: 900;
+  color: var(--pq-red);
+  cursor: pointer;
+  font-family: inherit;
+}
+.prod-qty-ctrl input {
+  width: 100%;
+  border: 0;
+  text-align: center;
+  font-weight: 900;
+  font-size: .82rem;
+  outline: none;
+  appearance: textfield;
+}
+.prod-qty-ctrl input::-webkit-outer-spin-button,
+.prod-qty-ctrl input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ── SKELETON ───────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg,#eee 25%,#f5f5f5 50%,#eee 75%);
+  background-size: 200% 100%;
+  animation: skel 1.2s infinite;
+  border-radius: var(--pq-radius);
+}
+@keyframes skel { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+.skel-prod { height: 268px; }
+
+/* ── EMPTY ──────────────────────────────────────── */
+.idx-empty {
+  grid-column: 1/-1;
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--pq-muted);
+}
+.idx-empty i { font-size: 3rem; opacity: .2; display: block; margin-bottom: 14px; }
+.idx-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+.idx-pager button,
+.idx-pager span {
+  min-width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1.5px solid var(--pq-border);
+  background: #fff;
+  color: var(--pq-text);
+  font-family: inherit;
+  font-weight: 900;
+  font-size: .82rem;
+  padding: 0 10px;
+}
+.idx-pager button { cursor: pointer; }
+.idx-pager button:hover { border-color: var(--pq-red); color: var(--pq-red); }
+.idx-pager button.active {
+  background: var(--pq-red);
+  border-color: var(--pq-red);
+  color: #fff;
+}
+.idx-pager button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.idx-pager-info {
+  min-width: auto !important;
+  display: inline-flex;
+  align-items: center;
+  color: var(--pq-muted) !important;
+  font-weight: 800 !important;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Busca -->
+<div class="idx-search">
+  <i class="fa fa-magnifying-glass srch-icon"></i>
+  <input type="text" id="search-inp"
+         placeholder="Buscar produtos ..."
+         oninput="filtrar(this.value)"
+         autocomplete="off"/>
+</div>
+
+<!-- Filtros -->
+<div class="idx-filter-panel" id="idx-filter-panel">
+  <div class="idx-filter-field">
+    <label for="filter-store">Loja</label>
+    <select id="filter-store" onchange="filterAndRender(true)">
+      <option value="">Todas as lojas</option>
+    </select>
+  </div>
+  <div class="idx-filter-field">
+    <label for="filter-category">Categoria</label>
+    <select id="filter-category" onchange="filterAndRender(true)">
+      <option value="">Todas as categorias</option>
+    </select>
+  </div>
+  <div class="idx-filter-field">
+    <label for="sort-select">Ordenar</label>
+    <select id="sort-select" onchange="filterAndRender(true)">
+      <option value="distance_asc">Mais perto</option>
+      <option value="price_asc">Menor preço</option>
+      <option value="price_desc">Maior preço</option>
+      <option value="name_asc">Nome A-Z</option>
+    </select>
+  </div>
+  <div class="idx-filter-field">
+    <label for="page-size">Exibir</label>
+    <select id="page-size" onchange="setPageSize(this.value)">
+      <option value="25">25 por página</option>
+      <option value="50">50 por página</option>
+      <option value="100">100 por página</option>
+    </select>
+  </div>
+  <button type="button" class="idx-filter-clear" onclick="clearFilters()">
+    <i class="fa fa-rotate-left me-1"></i>Limpar
+  </button>
+</div>
+
+<!-- Cabeçalho da seção -->
+<div class="idx-header">
+  <div class="idx-title">
+    <i class="fa fa-location-dot" style="color:var(--pq-red)"></i>
+    <span id="idx-title-txt">Carregando produtos…</span>
+  </div>
+  <span id="idx-badge-ok"   class="idx-badge idx-badge-ok"   style="display:none"></span>
+  <span id="idx-badge-warn" class="idx-badge idx-badge-warn" style="display:none"></span>
+</div>
+
+<!-- Skeletons -->
+<div class="prod-grid" id="skel-grid">
+  {% for _ in range(8) %}<div class="skeleton skel-prod"></div>{% endfor %}
+</div>
+
+<!-- Grade de produtos -->
+<div class="prod-grid" id="prod-grid" style="display:none"></div>
+<div class="idx-pager" id="idx-pager" style="display:none"></div>
+
+<noscript>
+  <p style="text-align:center;color:var(--pq-muted);padding:50px 20px;font-size:.9rem">
+    <i class="fa fa-circle-info me-2"></i>
+    Ative o JavaScript para ver os produtos próximos a você.
+  </p>
+</noscript>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const skelGrid = document.getElementById('skel-grid');
+const prodGrid = document.getElementById('prod-grid');
+const titleEl  = document.getElementById('idx-title-txt');
+const badgeOk  = document.getElementById('idx-badge-ok');
+const badgeWrn = document.getElementById('idx-badge-warn');
+const storeSel = document.getElementById('filter-store');
+const catSel = document.getElementById('filter-category');
+const sortSel = document.getElementById('sort-select');
+const pageSizeSel = document.getElementById('page-size');
+const pagerEl = document.getElementById('idx-pager');
+
+let allProdutos = [];
+let filteredProdutos = [];
+let currentPage = 1;
+let _cards = {};
+const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
+const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
+
+const CAT_LABELS = {
+  cosmetico: 'Dermocosméticos',
+  suplemento: 'Suplementos',
+  medicamento: 'Medicamentos',
+  outros: 'Outros produtos'
+};
+
+function brl(v) {
+  const n = parseFloat(v)||0;
+  return 'R$ ' + n.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+}
+
+function normTxt(s) {
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function productCategory(p) {
+  const cat = (p.categoria || '').trim();
+  if (cat) return cat;
+  const nome = normTxt(p.nome);
+  if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|calm)\b/.test(nome)) return 'suplemento';
+  if (/\b(fps|protetor|facial|creme|locao|gel|shampoo|sabonete|solar|hidratante)\b/.test(nome)) return 'cosmetico';
+  if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
+  return 'outros';
+}
+
+function priceOf(p) {
+  return parseFloat(p.preco) || 0;
+}
+
+function melhorCupomParaProduto(p) {
+  const cupons = _cuponsIndex[p.cnpjloja] || [];
+  let melhor = null;
+  let melhorDesconto = 0;
+  const pcat = productCategory(p);
+  for (const c of cupons) {
+    const escopo = c.escopo || 'todos';
+    let aplica = false;
+    if (escopo === 'todos') {
+      aplica = true;
+    } else if (escopo === 'categoria') {
+      const cats = (c.escopo_categorias || '').split(',').map(s => s.trim()).filter(Boolean);
+      aplica = cats.includes(pcat);
+    } else if (escopo === 'produto') {
+      const eans = (c.escopo_eans || '').split(',').map(s => s.trim()).filter(Boolean);
+      aplica = eans.includes((p.ean || '').trim());
+    }
+    if (!aplica) continue;
+    const preco = priceOf(p);
+    const desc = c.desconto_tipo === 'pct'
+      ? preco * c.desconto_valor / 100
+      : Math.min(c.desconto_valor, preco);
+    if (desc > melhorDesconto) { melhorDesconto = desc; melhor = c; }
+  }
+  return melhor ? { cupom: melhor, desconto: melhorDesconto } : null;
+}
+
+function distanceOf(p) {
+  const d = parseFloat(p.distancia_km);
+  return Number.isFinite(d) ? d : 999999;
+}
+
+function hydrateFilters() {
+  const currentStore = storeSel.value;
+  const currentCat = catSel.value;
+  const stores = new Map();
+  const cats = new Set();
+  allProdutos.forEach(p => {
+    if (p.cnpjloja) stores.set(p.cnpjloja, p.razao || 'Loja');
+    cats.add(productCategory(p));
+  });
+  storeSel.innerHTML = '<option value="">Todas as lojas</option>' +
+    [...stores.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+      .map(([cnpj, nome]) => `<option value="${esc(cnpj)}">${esc(nome)}</option>`)
+      .join('');
+  catSel.innerHTML = '<option value="">Todas as categorias</option>' +
+    [...cats]
+      .sort((a, b) => (CAT_LABELS[a] || a).localeCompare(CAT_LABELS[b] || b, 'pt-BR'))
+      .map(cat => `<option value="${esc(cat)}">${esc(CAT_LABELS[cat] || cat)}</option>`)
+      .join('');
+  if ([...stores.keys()].includes(currentStore)) storeSel.value = currentStore;
+  if (cats.has(currentCat)) catSel.value = currentCat;
+}
+
+function cardHtml(p, idx) {
+  _cards[idx] = p;
+  const prodUrl = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
+  const imgTag = p.imagem
+    ? `<img src="${esc(p.imagem)}" alt="${esc(p.nome)}" loading="lazy"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    : '';
+  const phStyle = p.imagem ? 'display:none' : '';
+  const distBadge = (p.distancia_km !== null && p.distancia_km !== undefined)
+    ? `<span class="prod-dist"><i class="fa fa-route me-1"></i>${p.distancia_km} km</span>`
+    : '';
+  const entregaBadge = p.entrega_disponivel
+    ? `<span class="prod-dist"><i class="fa fa-motorcycle me-1"></i>${p.requer_receita ? 'Entrega com receita digital' : (p.valor_frete ? 'Entrega ' + brl(p.valor_frete) : 'Entrega grátis')}</span>`
+    : '';
+  return `
+    <div class="prod-card" onclick="location.href='${prodUrl}'" style="cursor:pointer">
+      <div class="prod-img">
+        ${imgTag}
+        <div class="prod-placeholder" style="${phStyle}"><i class="fa fa-pills"></i></div>
+      </div>
+      <div class="prod-body">
+        <div class="prod-nome">${esc(p.nome)}</div>
+        ${(() => {
+          const cp = melhorCupomParaProduto(p);
+          if (cp) {
+            const precoFinal = Math.max(0, priceOf(p) - cp.desconto);
+            const label = cp.cupom.desconto_tipo === 'pct' ? `${parseInt(cp.cupom.desconto_valor)}% OFF` : `R$${cp.cupom.desconto_valor.toFixed(2).replace('.',',')} OFF`;
+            return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
+              <span class="prod-preco">${brl(precoFinal)}</span>
+              <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(p.preco)}</span>
+            </div>
+            <div class="prod-cupom-badge">
+              <i class="fa fa-tag" style="flex-shrink:0"></i>
+              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(cp.cupom.codigo)} ${label}</span>
+            </div>`;
+          }
+          return `<div class="prod-preco">${brl(p.preco)}</div>
+          <div class="prod-cupom-badge" style="visibility:hidden" aria-hidden="true">
+            <i class="fa fa-tag"></i><span>-</span>
+          </div>`;
+        })()}
+        ${p.tarja === 'preta' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Preta — Controle Especial</span>` : p.tarja === 'vermelha' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Vermelha — Prescrição Médica</span>` : ''}
+        <div class="prod-loja-row">
+          <span class="prod-loja-nome"><i class="fa fa-store me-1"></i>${esc(p.razao)}</span>
+          ${distBadge}
+          ${entregaBadge}
+        </div>
+        <div class="prod-buy-row" onclick="event.stopPropagation()">
+          <div class="prod-qty-ctrl">
+            <button type="button" onclick="changeCardQty(${idx},-1)">−</button>
+            <input type="number" id="qty-${idx}" value="1" min="1" max="${parseInt(p.qty)||99}" onclick="event.stopPropagation()">
+            <button type="button" onclick="changeCardQty(${idx},1)">+</button>
+          </div>
+          <button class="prod-add-btn" onclick="addFromCard(${idx})">
+            <i class="fa fa-cart-plus me-1"></i>${p.requer_receita ? 'Reservar' : 'Adicionar'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function changeCardQty(idx, delta) {
+  const inp = document.getElementById('qty-' + idx);
+  if (!inp) return;
+  const max = parseInt(inp.max) || 99;
+  inp.value = Math.max(1, Math.min(max, (parseInt(inp.value)||1) + delta));
+}
+
+function addFromCard(idx) {
+  const p = _cards[idx];
+  if (!p) return;
+  const qty = parseInt(document.getElementById('qty-' + idx)?.value) || 1;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', distancia_km:p.distancia_km, aceita_entrega:p.aceita_entrega, raio_entrega_km:p.raio_entrega_km, entrega_disponivel:p.entrega_disponivel, valor_frete:p.valor_frete||0, qty, requer_receita: p.requer_receita||false, tarja: p.tarja||null});
+}
+
+function renderProdutos(lista) {
+  _cards = {};
+  skelGrid.style.display = 'none';
+  prodGrid.style.display = '';
+  if (!lista.length) {
+    prodGrid.innerHTML = `<div class="idx-empty">
+      <i class="fa fa-box-open"></i>
+      <div>Nenhum produto encontrado com esses filtros.</div>
+    </div>`;
+    return;
+  }
+  prodGrid.innerHTML = lista.map((p,i) => cardHtml(p,i)).join('');
+}
+
+function filtrar(q) {
+  filterAndRender(true);
+}
+
+function filterAndRender(resetPage=false) {
+  if (resetPage) currentPage = 1;
+  const q = normTxt(document.getElementById('search-inp')?.value || '').trim();
+  const store = storeSel.value;
+  const cat = catSel.value;
+  const sort = sortSel.value;
+  const pageSize = parseInt(pageSizeSel.value, 10) || 25;
+
+  filteredProdutos = allProdutos.filter(p => {
+    const hay = normTxt([p.nome, p.razao, p.ean].filter(Boolean).join(' '));
+    return (!q || hay.includes(q)) &&
+           (!store || p.cnpjloja === store) &&
+           (!cat || productCategory(p) === cat);
+  });
+
+  filteredProdutos.sort((a, b) => {
+    if (sort === 'price_asc') return priceOf(a) - priceOf(b) || distanceOf(a) - distanceOf(b);
+    if (sort === 'price_desc') return priceOf(b) - priceOf(a) || distanceOf(a) - distanceOf(b);
+    if (sort === 'name_asc') return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    return distanceOf(a) - distanceOf(b) || priceOf(a) - priceOf(b);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredProdutos.length / pageSize));
+  currentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const start = (currentPage - 1) * pageSize;
+  renderProdutos(filteredProdutos.slice(start, start + pageSize));
+  renderPager(totalPages, pageSize);
+
+  if (allProdutos.length && badgeOk.style.display !== 'none') {
+    const lojas = new Set(filteredProdutos.map(p => p.cnpjloja).filter(Boolean)).size;
+    badgeOk.textContent = `${filteredProdutos.length} de ${allProdutos.length} produto(s) · ${lojas || 0} farmácia(s)`;
+  }
+}
+
+function renderPager(totalPages, pageSize) {
+  if (!filteredProdutos.length || totalPages <= 1) {
+    pagerEl.style.display = 'none';
+    pagerEl.innerHTML = '';
+    return;
+  }
+  const pages = new Set([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  const ordered = [...pages].filter(p => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+  pagerEl.innerHTML = `
+    <button type="button" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}><i class="fa fa-chevron-left"></i></button>
+    ${ordered.map((p, i) => `${i && p - ordered[i-1] > 1 ? '<span class="idx-pager-info">...</span>' : ''}<button type="button" class="${p === currentPage ? 'active' : ''}" onclick="goPage(${p})">${p}</button>`).join('')}
+    <button type="button" onclick="goPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}><i class="fa fa-chevron-right"></i></button>
+    <span class="idx-pager-info">${filteredProdutos.length} itens · ${pageSize}/página</span>`;
+  pagerEl.style.display = 'flex';
+}
+
+function goPage(page) {
+  currentPage = page;
+  filterAndRender(false);
+  document.getElementById('idx-filter-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setPageSize(value) {
+  localStorage.setItem('pq_page_size', value);
+  filterAndRender(true);
+}
+
+function clearFilters() {
+  document.getElementById('search-inp').value = '';
+  storeSel.value = '';
+  catSel.value = '';
+  sortSel.value = 'distance_asc';
+  filterAndRender(true);
+}
+
+function carregarProdutos(lat, lng) {
+  fetch(`/api/produtos-proximos?lat=${lat}&lng=${lng}`)
+    .then(r => r.json())
+    .then(data => {
+      allProdutos = data.produtos || [];
+
+      if (allProdutos.length) {
+        if (data.sem_geocode) {
+          titleEl.textContent    = 'Produtos da rede Poupaqui';
+          badgeWrn.innerHTML     = '<i class="fa fa-triangle-exclamation me-1"></i>Geocodifique as lojas no <a href="/painel/admin/lojas" style="color:inherit;font-weight:800">painel admin</a> para exibir por proximidade';
+          badgeWrn.style.display = '';
+          badgeOk.style.display  = 'none';
+        } else if (lat === 0 && lng === 0) {
+          titleEl.textContent   = 'Produtos disponíveis na rede';
+          badgeOk.textContent   = `${allProdutos.length} produto(s) · ${data.n_lojas} farmácia(s)`;
+          badgeOk.style.display = '';
+          badgeWrn.style.display = 'none';
+        } else {
+          titleEl.textContent   = 'Produtos perto de você';
+          badgeOk.textContent   = `${allProdutos.length} produto(s) · ${data.n_lojas} farmácia(s)`;
+          badgeOk.style.display = '';
+          if (data.fora_raio) {
+            badgeWrn.textContent   = `Farmácia mais próxima fora do raio de ${data.raio_km} km — entrega disponível`;
+            badgeWrn.style.display = '';
+          } else {
+            badgeWrn.style.display = 'none';
+          }
+        }
+      } else {
+        titleEl.textContent   = 'Nenhum produto disponível';
+        badgeOk.style.display = badgeWrn.style.display = 'none';
+      }
+
+      hydrateFilters();
+      // Busca cupons disponíveis (só se logado)
+      if (IS_CONSUMIDOR && allProdutos.length) {
+        const cnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))];
+        Promise.all(cnpjs.map(cnpj =>
+          fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
+            .then(r => r.json())
+            .then(d => { _cuponsIndex[cnpj] = d.cupons || []; })
+            .catch(() => {})
+        )).then(() => filterAndRender(true));
+      } else {
+        filterAndRender(true);
+      }
+    })
+    .catch(() => {
+      skelGrid.style.display = 'none';
+      prodGrid.style.display = '';
+      titleEl.textContent = 'Produtos DNS/Vitnatu';
+      badgeOk.style.display = badgeWrn.style.display = 'none';
+      pagerEl.style.display = 'none';
+      prodGrid.innerHTML = `<div class="idx-empty">
+        <i class="fa fa-circle-exclamation"></i>
+        <div>Erro ao carregar. Recarregue a página.</div>
+      </div>`;
+    });
+}
+
+/* Chamado pelo base_public quando localização estiver pronta */
+function onLocationReady(lat, lng) {
+  titleEl.textContent = 'Buscando produtos próximos…';
+  carregarProdutos(lat, lng);
+}
+
+/* Usa localização salva ou aguarda 3s antes de carregar sem localização */
+const savedPageSize = localStorage.getItem('pq_page_size');
+if (['25','50','100'].includes(savedPageSize)) pageSizeSel.value = savedPageSize;
+
+const _lat = localStorage.getItem('pq_lat');
+const _lng = localStorage.getItem('pq_lng');
+if (_lat && _lng) {
+  carregarProdutos(parseFloat(_lat), parseFloat(_lng));
+} else {
+  setTimeout(() => {
+    if (skelGrid.style.display !== 'none') {
+      carregarProdutos(0, 0);
+    }
+  }, 3000);
+}
+</script>
+{% endblock %}

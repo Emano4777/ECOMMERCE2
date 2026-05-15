@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/emano/pedidoeletronico/pedidoeletronico/**)",
+      "Read(//c/Users/emano/relatorios/**)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(python -c \"import app; print\\('OK — app importado sem erros'\\)\")",
+      "Read(//c/Users/emano/.claude/projects/c--Users-emano-dns-ecommerce/memory/**)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\templates\\\\select_store.html\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\templates\\\\catalog.html\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\templates\\\\cart.html\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\templates\\\\admin_inventory_import.html\" -Force)",
+      "Bash(Remove-Item \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\templates\\\\admin_orders.html\" -Force)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import app; print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('app.py OK'\\)\")",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_publishable_keys",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.anvisa.gov.br)",
+      "WebFetch(domain:api-gateway.prd.apps.anvisa.gov.br)",
+      "WebFetch(domain:infosimples.com)",
+      "WebFetch(domain:bulario.app.br)",
+      "WebFetch(domain:pharmadb.com.br)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('Sintaxe OK'\\)\")",
+      "Bash(python -c \"import requests; print\\(requests.__version__\\)\")",
+      "Bash(python -c \"import cloudscraper; print\\(cloudscraper.__version__\\)\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\emano\\\\dns-ecommerce\" -Recurse -File)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-Table Name, FullName)"
+    ]
+  }
+}

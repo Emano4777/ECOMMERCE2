@@ -1,0 +1,244 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Editar perfil{% endblock %}
+
+{% block extra_style %}
+<style>
+.profile-wrap { max-width:540px; margin:0 auto; padding:32px 16px 70px; }
+.profile-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
+.profile-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+.profile-card p { color:var(--pq-muted); font-size:.9rem; margin:0 0 20px; }
+.pg { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.field { margin-bottom:14px; }
+.field.full { grid-column:1 / -1; }
+.field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
+.field input, .field select { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; outline:none; font-family:inherit; box-sizing:border-box; background:#fff; }
+.field input:focus, .field select:focus { border-color:var(--pq-red); }
+.field input:read-only { background:#f8f8f8; color:var(--pq-muted); }
+.addr-section { grid-column:1 / -1; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.5px; padding:6px 0 2px; border-top:1px solid var(--pq-border); margin-top:4px; }
+.cep-hint { font-size:.72rem; color:var(--pq-muted); margin-top:4px; }
+.profile-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+.btn-save { border:0; background:var(--pq-red); color:#fff; border-radius:10px; padding:12px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
+.btn-link { color:var(--pq-red); font-weight:900; text-decoration:none; padding:12px 0; }
+@media(max-width:560px){ .pg { grid-template-columns:1fr; } .field.full { grid-column:auto; } .addr-section { grid-column:auto; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="profile-wrap">
+  <form class="profile-card" id="frmPerfil" method="post" action="{{ url_for('consumidor_perfil_post') }}">
+    <!-- campos combinados enviados ao backend -->
+    <input type="hidden" id="endereco"     name="endereco"     value="{{ user.endereco or '' }}">
+    <input type="hidden" id="endereco_lat" name="endereco_lat" value="{{ user.endereco_lat or '' }}">
+    <input type="hidden" id="endereco_lng" name="endereco_lng" value="{{ user.endereco_lng or '' }}">
+
+    <h1><i class="fa fa-user-pen" style="color:var(--pq-red)"></i>Editar perfil</h1>
+    <p>Esses dados serão usados nos próximos pedidos e para a farmácia identificar você.</p>
+
+    <div class="pg">
+      <div class="field full">
+        <label for="nome">Nome completo</label>
+        <input id="nome" name="nome" value="{{ user.nome }}" required minlength="6">
+      </div>
+      <div class="field">
+        <label for="telefone">WhatsApp</label>
+        <input id="telefone" name="telefone" value="{{ user.telefone }}" required minlength="10">
+      </div>
+      <div class="field">
+        <label for="email">E-mail</label>
+        <input id="email" name="email" type="email" value="{{ user.email }}" required>
+      </div>
+
+      <!-- Endereço -->
+      <div class="addr-section">Endereço de entrega</div>
+
+      <div class="field" style="max-width:160px">
+        <label for="f_cep">CEP</label>
+        <input id="f_cep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000">
+        <div class="cep-hint" id="cep_hint"></div>
+      </div>
+
+      <div class="field full">
+        <label for="f_rua">Rua / Avenida</label>
+        <input id="f_rua" type="text" placeholder="Rua das Flores">
+      </div>
+
+      <div class="field" style="max-width:120px">
+        <label for="f_numero">Número</label>
+        <input id="f_numero" type="text" inputmode="numeric" placeholder="123" required>
+      </div>
+
+      <div class="field">
+        <label for="f_complemento">Complemento <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+        <input id="f_complemento" type="text" placeholder="Apto 4, Bloco B">
+      </div>
+
+      <div class="field full">
+        <label for="f_bairro">Bairro</label>
+        <input id="f_bairro" type="text" placeholder="Centro">
+      </div>
+
+      <div class="field">
+        <label for="f_cidade">Cidade</label>
+        <input id="f_cidade" type="text" placeholder="São Paulo">
+      </div>
+
+      <div class="field" style="max-width:90px">
+        <label for="f_uf">UF</label>
+        <select id="f_uf">
+          <option value="">—</option>
+          {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+          <option value="{{ uf }}">{{ uf }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Senha -->
+      <div class="field full" style="margin-top:8px">
+        <label for="senha">Nova senha</label>
+        <input id="senha" name="senha" type="password" minlength="6" placeholder="Deixe em branco para manter a senha atual">
+      </div>
+    </div>
+
+    <div class="profile-actions">
+      <button class="btn-save" type="submit" id="btnSalvar">Salvar alterações</button>
+      <a class="btn-link" href="{{ url_for('meus_pedidos') }}">Voltar aos pedidos</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/* ── Preencher campos a partir de uma string de endereço ── */
+function preencherCamposEndereco(raw, lat, lng, forcar) {
+  if (!raw) return;
+  const cepM = raw.match(/(\d{5})-?(\d{3})/);
+  if (cepM) document.getElementById('f_cep').value = cepM[1] + '-' + cepM[2];
+
+  const ufM = raw.match(/[,\s\-]+([A-Z]{2})\s*(?:,|\d{5}|$)/);
+  if (ufM) document.getElementById('f_uf').value = ufM[1];
+
+  let sem = raw
+    .replace(/,?\s*\d{5}-?\d{3}/, '')
+    .replace(/[,\s\-]+[A-Z]{2}\s*$/, '')
+    .trim().replace(/[,\s]+$/, '');
+
+  const tracos = sem.split(/\s*-\s*/);
+  const ruaParte    = tracos[0] || '';
+  const bairroParte = tracos[1] || '';
+  const cidadeParte = tracos[2] || '';
+
+  if (cidadeParte) {
+    if (forcar || !document.getElementById('f_bairro').value) document.getElementById('f_bairro').value = bairroParte.trim();
+    if (forcar || !document.getElementById('f_cidade').value) document.getElementById('f_cidade').value = cidadeParte.trim();
+  } else if (bairroParte) {
+    if (forcar || !document.getElementById('f_cidade').value) document.getElementById('f_cidade').value = bairroParte.trim();
+  }
+
+  const numM = ruaParte.match(/,\s*(\d+[A-Za-z]?)\s*(.*)?$/);
+  if (numM) {
+    if (forcar || !document.getElementById('f_rua').value)    document.getElementById('f_rua').value    = ruaParte.slice(0, numM.index).trim();
+    if (forcar || !document.getElementById('f_numero').value) document.getElementById('f_numero').value = numM[1];
+    const comp = (numM[2] || '').trim();
+    if (comp && (forcar || !document.getElementById('f_complemento').value)) document.getElementById('f_complemento').value = comp;
+  } else {
+    if (forcar || !document.getElementById('f_rua').value) document.getElementById('f_rua').value = ruaParte.trim();
+  }
+
+  if (lat) document.getElementById('endereco_lat').value = lat;
+  if (lng) document.getElementById('endereco_lng').value = lng;
+}
+
+/* 1º: endereço salvo no banco (prioridade) */
+preencherCamposEndereco(document.getElementById('endereco').value.trim(), null, null, true);
+
+/* 2º: se algum campo ainda vazio, tenta localStorage */
+const locNome = localStorage.getItem('pq_loc_nome') || '';
+const locLat  = localStorage.getItem('pq_lat') || '';
+const locLng  = localStorage.getItem('pq_lng') || '';
+if (locNome) preencherCamposEndereco(locNome, locLat, locLng, false);
+
+/* ── ViaCEP ── */
+const cepEl   = document.getElementById('f_cep');
+const cepHint = document.getElementById('cep_hint');
+
+function formatCEP(v) {
+  v = v.replace(/\D/g,'').slice(0,8);
+  return v.length > 5 ? v.slice(0,5)+'-'+v.slice(5) : v;
+}
+cepEl.addEventListener('input', function(){ this.value = formatCEP(this.value); });
+
+async function buscarCEP(cep) {
+  cep = cep.replace(/\D/g,'');
+  if (cep.length !== 8) return;
+  cepHint.textContent = 'Buscando...';
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    const d = await r.json();
+    if (d.erro) { cepHint.textContent = 'CEP não encontrado.'; return; }
+    if (d.logradouro) document.getElementById('f_rua').value    = d.logradouro;
+    if (d.bairro)     document.getElementById('f_bairro').value = d.bairro;
+    if (d.localidade) document.getElementById('f_cidade').value = d.localidade;
+    if (d.uf)         document.getElementById('f_uf').value     = d.uf;
+    cepHint.textContent = '';
+    document.getElementById('f_numero').focus();
+  } catch { cepHint.textContent = 'Erro ao buscar CEP.'; }
+}
+
+cepEl.addEventListener('blur', function(){ buscarCEP(this.value); });
+
+/* ── Submit: monta endereço e geocodifica ── */
+document.getElementById('frmPerfil').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btnSalvar');
+
+  const cep    = cepEl.value.replace(/\D/g,'');
+  const rua    = document.getElementById('f_rua').value.trim();
+  const num    = document.getElementById('f_numero').value.trim();
+  const comp   = document.getElementById('f_complemento').value.trim();
+  const bairro = document.getElementById('f_bairro').value.trim();
+  const cidade = document.getElementById('f_cidade').value.trim();
+  const uf     = document.getElementById('f_uf').value.trim();
+
+  if (!cep || cep.length !== 8 || !rua || !num || !bairro || !cidade || !uf) {
+    alert('Preencha todos os campos do endereço: CEP, rua, número, bairro, cidade e UF.');
+    return;
+  }
+
+  const cepFmt = cep.slice(0,5) + '-' + cep.slice(5);
+  const compPart = comp ? ' ' + comp : '';
+  const enderecoStr = `${rua}, ${num}${compPart} - ${bairro}, ${cidade} - ${uf}, ${cepFmt}`;
+
+  const latAtual = document.getElementById('endereco_lat').value;
+  const lngAtual = document.getElementById('endereco_lng').value;
+  const endAtual = document.getElementById('endereco').value;
+
+  /* Se o endereço não mudou e já tem coordenadas, não precisa geocodificar */
+  if (enderecoStr === endAtual && latAtual && lngAtual) {
+    this.submit();
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Verificando localização...';
+
+  try {
+    const geo = await fetch('/api/localizacao?q=' + encodeURIComponent(enderecoStr));
+    const gd  = await geo.json();
+    const res = (gd.results || [])[0];
+    if (!res) {
+      alert('Não foi possível confirmar a localização. Verifique o endereço e tente novamente.');
+      btn.disabled = false; btn.textContent = 'Salvar alterações';
+      return;
+    }
+    document.getElementById('endereco').value     = enderecoStr;
+    document.getElementById('endereco_lat').value = res.lat;
+    document.getElementById('endereco_lng').value = res.lon;
+    this.submit();
+  } catch {
+    alert('Erro ao verificar localização. Tente novamente.');
+    btn.disabled = false; btn.textContent = 'Salvar alterações';
+  }
+});
+</script>
+{% endblock %}

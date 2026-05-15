@@ -1,0 +1,235 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Criar conta{% endblock %}
+
+{% block extra_style %}
+<style>
+.auth-wrap { max-width:520px; margin:0 auto; padding:36px 16px 70px; }
+.auth-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
+.auth-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+.auth-card p { color:var(--pq-muted); margin:0 0 22px; font-size:.92rem; }
+.auth-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.auth-field { margin-bottom:14px; }
+.auth-field.full { grid-column:1 / -1; }
+.auth-field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
+.auth-field input, .auth-field select { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; outline:none; box-sizing:border-box; background:#fff; }
+.auth-field input:focus, .auth-field select:focus { border-color:var(--pq-red); }
+.auth-field input:read-only { background:#f8f8f8; color:var(--pq-muted); }
+.auth-section { grid-column:1 / -1; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.5px; padding:6px 0 2px; border-top:1px solid var(--pq-border); margin-top:4px; }
+.auth-check { display:flex; align-items:center; gap:8px; font-size:.86rem; color:var(--pq-muted); margin:2px 0 18px; }
+.auth-btn { width:100%; border:0; background:var(--pq-red); color:#fff; border-radius:12px; padding:13px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
+.auth-link { display:block; text-align:center; margin-top:16px; color:var(--pq-red); font-weight:800; text-decoration:none; }
+.cep-hint { font-size:.72rem; color:var(--pq-muted); margin-top:4px; }
+@media(max-width:560px){ .auth-grid { grid-template-columns:1fr; } .auth-field.full { grid-column:auto; } .auth-section { grid-column:auto; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <form class="auth-card" id="frmCadastro" method="post" action="{{ url_for('consumidor_criar_conta_post') }}">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <!-- campos combinados enviados ao backend -->
+    <input type="hidden" id="endereco"     name="endereco">
+    <input type="hidden" id="endereco_lat" name="endereco_lat">
+    <input type="hidden" id="endereco_lng" name="endereco_lng">
+
+    <h1><i class="fa fa-user-plus" style="color:var(--pq-red)"></i>Criar conta</h1>
+    <p>Use dados reais para a farmácia identificar seu pedido.</p>
+
+    <div class="auth-grid">
+      <!-- Dados pessoais -->
+      <div class="auth-field full">
+        <label for="nome">Nome completo</label>
+        <input id="nome" name="nome" type="text" autocomplete="name" minlength="6"
+               pattern="[A-Za-zÀ-ÿ' ]{6,}" placeholder="Nome e sobrenome" required>
+      </div>
+      <div class="auth-field">
+        <label for="telefone">WhatsApp</label>
+        <input id="telefone" name="telefone" type="tel" autocomplete="tel"
+               minlength="10" placeholder="(11) 99999-9999" required>
+      </div>
+      <div class="auth-field">
+        <label for="email">E-mail</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="auth-field full">
+        <label for="senha">Senha</label>
+        <input id="senha" name="senha" type="password" autocomplete="new-password" minlength="6" required>
+      </div>
+
+      <!-- Endereço de entrega -->
+      <div class="auth-section">Endereço de entrega</div>
+
+      <div class="auth-field" style="grid-column:span 1; max-width:160px">
+        <label for="f_cep">CEP</label>
+        <input id="f_cep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000" required>
+        <div class="cep-hint" id="cep_hint"></div>
+      </div>
+
+      <div class="auth-field full">
+        <label for="f_rua">Rua / Avenida</label>
+        <input id="f_rua" type="text" placeholder="Rua das Flores" required>
+      </div>
+
+      <div class="auth-field" style="max-width:120px">
+        <label for="f_numero">Número</label>
+        <input id="f_numero" type="text" inputmode="numeric" placeholder="123" required>
+      </div>
+
+      <div class="auth-field">
+        <label for="f_complemento">Complemento <span style="font-weight:400;text-transform:none">(opcional)</span></label>
+        <input id="f_complemento" type="text" placeholder="Apto 4, Bloco B">
+      </div>
+
+      <div class="auth-field full">
+        <label for="f_bairro">Bairro</label>
+        <input id="f_bairro" type="text" placeholder="Centro" required>
+      </div>
+
+      <div class="auth-field">
+        <label for="f_cidade">Cidade</label>
+        <input id="f_cidade" type="text" placeholder="São Paulo" required>
+      </div>
+
+      <div class="auth-field" style="max-width:90px">
+        <label for="f_uf">UF</label>
+        <select id="f_uf" required>
+          <option value="">—</option>
+          {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+          <option value="{{ uf }}">{{ uf }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label class="auth-check">
+      <input type="checkbox" name="lembrar" checked>
+      Manter conectado neste dispositivo
+    </label>
+    <button class="auth-btn" type="submit" id="btnCadastrar">Criar conta</button>
+    <a class="auth-link" href="{{ url_for('consumidor_login', next=next_url) }}">Já tenho conta</a>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/* ── Preencher campos a partir de uma string de endereço ── */
+function preencherCamposEndereco(raw, lat, lng, forcar) {
+  if (!raw) return;
+  const cepM = raw.match(/(\d{5})-?(\d{3})/);
+  if (cepM) document.getElementById('f_cep').value = cepM[1] + '-' + cepM[2];
+
+  const ufM = raw.match(/[,\s\-]+([A-Z]{2})\s*(?:,|\d{5}|$)/);
+  if (ufM) document.getElementById('f_uf').value = ufM[1];
+
+  let sem = raw
+    .replace(/,?\s*\d{5}-?\d{3}/, '')
+    .replace(/[,\s\-]+[A-Z]{2}\s*$/, '')
+    .trim().replace(/[,\s]+$/, '');
+
+  const tracos = sem.split(/\s*-\s*/);
+  const ruaParte    = tracos[0] || '';
+  const bairroParte = tracos[1] || '';
+  const cidadeParte = tracos[2] || '';
+
+  if (cidadeParte) {
+    if (forcar || !document.getElementById('f_bairro').value) document.getElementById('f_bairro').value = bairroParte.trim();
+    if (forcar || !document.getElementById('f_cidade').value) document.getElementById('f_cidade').value = cidadeParte.trim();
+  } else if (bairroParte) {
+    if (forcar || !document.getElementById('f_cidade').value) document.getElementById('f_cidade').value = bairroParte.trim();
+  }
+
+  const numM = ruaParte.match(/,\s*(\d+[A-Za-z]?)\s*(.*)?$/);
+  if (numM) {
+    if (forcar || !document.getElementById('f_rua').value)    document.getElementById('f_rua').value    = ruaParte.slice(0, numM.index).trim();
+    if (forcar || !document.getElementById('f_numero').value) document.getElementById('f_numero').value = numM[1];
+    const comp = (numM[2] || '').trim();
+    if (comp && (forcar || !document.getElementById('f_complemento').value)) document.getElementById('f_complemento').value = comp;
+  } else {
+    if (forcar || !document.getElementById('f_rua').value) document.getElementById('f_rua').value = ruaParte.trim();
+  }
+
+  if (lat) document.getElementById('endereco_lat').value = lat;
+  if (lng) document.getElementById('endereco_lng').value = lng;
+}
+
+/* Pré-preencher com localização salva */
+const locNome = localStorage.getItem('pq_loc_nome') || '';
+const locLat  = localStorage.getItem('pq_lat') || '';
+const locLng  = localStorage.getItem('pq_lng') || '';
+if (locNome) preencherCamposEndereco(locNome, locLat, locLng, false);
+
+/* ── ViaCEP ── */
+const cepEl    = document.getElementById('f_cep');
+const cepHint  = document.getElementById('cep_hint');
+
+function formatCEP(v) {
+  v = v.replace(/\D/g,'').slice(0,8);
+  return v.length > 5 ? v.slice(0,5)+'-'+v.slice(5) : v;
+}
+cepEl.addEventListener('input', function(){ this.value = formatCEP(this.value); });
+
+async function buscarCEP(cep) {
+  cep = cep.replace(/\D/g,'');
+  if (cep.length !== 8) return;
+  cepHint.textContent = 'Buscando...';
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    const d = await r.json();
+    if (d.erro) { cepHint.textContent = 'CEP não encontrado.'; return; }
+    if (d.logradouro) document.getElementById('f_rua').value    = d.logradouro;
+    if (d.bairro)     document.getElementById('f_bairro').value = d.bairro;
+    if (d.localidade) document.getElementById('f_cidade').value = d.localidade;
+    if (d.uf)         document.getElementById('f_uf').value     = d.uf;
+    cepHint.textContent = '';
+    document.getElementById('f_numero').focus();
+  } catch { cepHint.textContent = 'Erro ao buscar CEP.'; }
+}
+
+cepEl.addEventListener('blur', function(){ buscarCEP(this.value); });
+
+/* ── Submit: monta endereço e geocodifica ── */
+document.getElementById('frmCadastro').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btnCadastrar');
+
+  const cep  = cepEl.value.replace(/\D/g,'');
+  const rua  = document.getElementById('f_rua').value.trim();
+  const num  = document.getElementById('f_numero').value.trim();
+  const comp = document.getElementById('f_complemento').value.trim();
+  const bairro = document.getElementById('f_bairro').value.trim();
+  const cidade = document.getElementById('f_cidade').value.trim();
+  const uf   = document.getElementById('f_uf').value.trim();
+
+  if (!cep || cep.length !== 8 || !rua || !num || !bairro || !cidade || !uf) {
+    alert('Preencha todos os campos do endereço: CEP, rua, número, bairro, cidade e UF.');
+    return;
+  }
+
+  const cepFmt = cep.slice(0,5) + '-' + cep.slice(5);
+  const compPart = comp ? ' ' + comp : '';
+  const enderecoStr = `${rua}, ${num}${compPart} - ${bairro}, ${cidade} - ${uf}, ${cepFmt}`;
+
+  btn.disabled = true;
+  btn.textContent = 'Verificando localização...';
+
+  try {
+    const geo = await fetch('/api/localizacao?q=' + encodeURIComponent(enderecoStr));
+    const gd  = await geo.json();
+    const res = (gd.results || [])[0];
+    if (!res) {
+      alert('Não foi possível confirmar a localização. Verifique o endereço e tente novamente.');
+      btn.disabled = false; btn.textContent = 'Criar conta';
+      return;
+    }
+    document.getElementById('endereco').value     = enderecoStr;
+    document.getElementById('endereco_lat').value = res.lat;
+    document.getElementById('endereco_lng').value = res.lon;
+    this.submit();
+  } catch {
+    alert('Erro ao verificar localização. Tente novamente.');
+    btn.disabled = false; btn.textContent = 'Criar conta';
+  }
+});
+</script>
+{% endblock %}

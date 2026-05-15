@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(curl -s -o NUL -w \"%{http_code}\" \"https://consultas.anvisa.gov.br/api/consulta/medicamentos?keyword=DIPIRONA&count=5&page=1\" -H \"Authorization: Guest\" -H \"Accept: application/json\" -H \"Referer: https://consultas.anvisa.gov.br/\" --max-time 15)",
+      "Bash(curl -s \"https://dados.anvisa.gov.br/api/3/action/datastore_search?resource_id=ded63728-1fa0-4f1f-8a5c-4d5d5d5d5d5d&q=DIPIRONA&limit=3\" --max-time 10)",
+      "Bash(curl -s \"https://dados.anvisa.gov.br/api/3/action/package_list\" --max-time 10)",
+      "Bash(python -m playwright install chromium)",
+      "Bash(python -m playwright install chromium --with-deps)",
+      "Bash(python -c \"import pdfplumber; print\\('ok', pdfplumber.__version__\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python _anvisa_pw_worker.py)",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(python anvisa_sync.py --limite 1)",
+      "Bash(python anvisa_sync.py --limite 2)",
+      "Bash(python anvisa_sync.py --limite 3)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ssl; print\\('SSL version:', ssl.OPENSSL_VERSION\\); import sys; print\\('Python:', sys.version\\)\")",
+      "Bash(pip show *)",
+      "Bash(python -m py_compile app.py)",
+      "Bash(not exist *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('OK - sem erros de sintaxe'\\)\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\emano\\dns-ecommerce"
+    ]
+  }
+}

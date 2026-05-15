@@ -1,0 +1,309 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Produtos{% endblock %}
+
+{% block extra_style %}
+<style>
+.pd-info { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
+@media(max-width:600px){ .pd-info { grid-template-columns:1fr; } }
+.pd-info-item { background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; padding:10px 14px; }
+.pd-info-item .lbl { font-size:.72rem; font-weight:700; text-transform:uppercase; color:var(--pk-muted); margin-bottom:4px; }
+.pd-info-item .val { font-weight:700; font-size:.92rem; }
+
+.itens-table { width:100%; border-collapse:collapse; font-size:.88rem; }
+.itens-table th { padding:9px 12px; color:var(--pk-muted); font-weight:700; font-size:.78rem; text-transform:uppercase; border-bottom:1px solid var(--pk-line); text-align:left; background:#0d1016; }
+.itens-table td { padding:10px 12px; border-bottom:1px solid var(--pk-line); vertical-align:middle; }
+.item-img { width:44px; height:44px; border-radius:6px; background:#0a0d14; object-fit:contain; padding:3px; }
+.item-img-ph { width:44px; height:44px; border-radius:6px; background:#0a0d14; display:flex; align-items:center; justify-content:center; color:#3a4255; font-size:1.1rem; }
+
+.status-row { display:flex; gap:8px; flex-wrap:wrap; }
+.status-btn {
+  padding:7px 14px; border-radius:8px; border:1px solid var(--pk-line);
+  background:transparent; color:var(--pk-muted);
+  font-size:.82rem; font-weight:700; cursor:pointer; font-family:inherit;
+  transition:all .15s;
+}
+.status-btn:hover    { background:var(--pk-line); color:var(--pk-txt); }
+.status-btn.active   { background:var(--pk-yellow); color:#111; border-color:var(--pk-yellow); }
+.status-btn.s-pago   { border-color:#22c55e; color:#22c55e; }
+.status-btn.s-pago:hover { background:#0d2d1a; }
+.status-btn.s-enviado:hover { background:#0d1e2d; color:#38bdf8; }
+.status-btn.s-cancelado:hover { background:#2a0810; color:#f08090; }
+.status-btn.s-entregue { border-color:#22c55e; color:#22c55e; }
+.pay-detail { margin-top:10px; display:grid; gap:6px; font-size:.8rem; color:var(--pk-muted); }
+.pay-detail strong { color:var(--pk-txt); }
+.pay-sync { margin-top:10px; border:1px solid var(--pk-line); background:#0d1016; color:var(--pk-txt); border-radius:8px; padding:7px 12px; font-weight:800; cursor:pointer; }
+.pay-sync:hover { background:var(--pk-line); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+  <a href="{{ url_for('painel_pedidos') }}" style="color:var(--pk-muted);text-decoration:none;font-size:.88rem">
+    <i class="fa fa-arrow-left me-1"></i>Voltar aos pedidos
+  </a>
+  <div style="font-weight:900;font-size:1.2rem">
+    <i class="fa fa-receipt me-2" style="color:var(--pk-yellow)"></i>Pedido #{{ pedido.id[:8]|upper }}
+  </div>
+  <span style="padding:4px 12px;border-radius:8px;font-size:.8rem;font-weight:700;
+    background:{% if pedido.status=='pago' %}#0d2d1a{% elif pedido.status=='enviado' %}#0d1e2d{% elif pedido.status=='cancelado' %}#2a0810{% else %}#1e1a08{% endif %};
+    color:{% if pedido.status=='pago' %}#22c55e{% elif pedido.status=='enviado' %}#38bdf8{% elif pedido.status=='cancelado' %}#f08090{% else %}#f5c842{% endif %}">
+    {{ pedido.status | capitalize }}
+  </span>
+</div>
+
+<!-- INFO DO PEDIDO -->
+<div class="pd-info">
+  <div class="pd-info-item">
+    <div class="lbl">Cliente</div>
+    <div class="val">{{ pedido.cliente_nome }}</div>
+    {% if pedido.cliente_telefone %}
+    <div style="font-size:.8rem;color:var(--pk-muted);margin-top:4px">{{ pedido.cliente_telefone }}</div>
+    {% endif %}
+    {% if pedido.cliente_email %}
+    <div style="font-size:.8rem;color:var(--pk-muted)">{{ pedido.cliente_email }}</div>
+    {% endif %}
+  </div>
+  <div class="pd-info-item">
+    <div class="lbl">Pagamento</div>
+    <div class="val">
+      {% if pedido.forma_pagamento == 'whatsapp' %}
+        <i class="fa-brands fa-whatsapp" style="color:#25d366"></i> WhatsApp
+      {% elif pedido.forma_pagamento == 'pix' %}
+        <i class="fa fa-qrcode" style="color:#f5c842"></i> PIX
+      {% else %}
+        <i class="fa fa-credit-card" style="color:#009ee3"></i> Mercado Pago
+      {% endif %}
+    </div>
+    {% if pedido.forma_pagamento in ['pix','mercadopago'] %}
+    <div class="pay-detail">
+      <div><strong>Status do pagamento:</strong>
+        {% if pedido.pagamento_status == 'approved' %}
+          confirmado
+        {% elif pedido.pagamento_status in ['rejected','cancelled','refunded','charged_back'] %}
+          não aprovado
+        {% else %}
+          aguardando confirmação
+        {% endif %}
+      </div>
+      {% if pedido.pagamento_status_detail %}
+      <div><strong>Motivo/detalhe:</strong> {{ pedido.pagamento_status_detail }}</div>
+      {% endif %}
+      {% if pedido.mp_payment_id %}
+      <div><strong>ID Mercado Pago:</strong> {{ pedido.mp_payment_id }}</div>
+      {% elif pedido.mp_preference_id %}
+      <div><strong>Preferência Mercado Pago:</strong> {{ pedido.mp_preference_id }}</div>
+      {% endif %}
+      {% if pedido.pagamento_confirmado_em %}
+      <div><strong>Confirmado em:</strong> {{ pedido.pagamento_confirmado_em.strftime('%d/%m/%Y %H:%M') }}</div>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('painel_sincronizar_pagamento', pedido_id=pedido.id) }}">
+      <button class="pay-sync" type="submit"><i class="fa fa-rotate me-1"></i>Sincronizar pagamento</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="pd-info-item">
+    <div class="lbl">Total</div>
+    <div class="val" style="font-size:1.15rem;color:var(--pk-yellow)">{{ money(pedido.total) }}</div>
+  </div>
+  <div class="pd-info-item">
+    <div class="lbl">Data</div>
+    <div class="val">{{ pedido.criado_em.strftime('%d/%m/%Y %H:%M') if pedido.criado_em else '—' }}</div>
+  </div>
+  <div class="pd-info-item">
+    <div class="lbl">Recebimento</div>
+    <div class="val">{{ 'Entrega' if pedido.tipo_entrega == 'entrega' else 'Retirada na loja' }}</div>
+    {% if pedido.tipo_entrega == 'entrega' %}
+      {% if pedido.endereco_entrega %}<div style="font-size:.8rem;color:var(--pk-muted);margin-top:4px">{{ pedido.endereco_entrega }}</div>{% endif %}
+      {% if pedido.entrega_distancia_km is not none %}<div style="font-size:.8rem;color:var(--pk-muted)">Distância: {{ pedido.entrega_distancia_km }} km</div>{% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<!-- ITENS -->
+<div class="pk-card" style="padding:0;overflow:hidden;margin-bottom:18px">
+  <div style="padding:14px 16px;font-weight:800;font-size:.95rem;color:var(--pk-yellow);border-bottom:1px solid var(--pk-line)">
+    <i class="fa fa-boxes-stacked me-2"></i>Itens do pedido
+  </div>
+  <table class="itens-table">
+    <thead>
+      <tr>
+        <th style="width:56px"></th>
+        <th>Produto</th>
+        <th>EAN</th>
+        <th>Qtd</th>
+        <th>Preço unit.</th>
+        <th>Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in itens %}
+      <tr>
+        <td>
+          {% if item.imagem %}
+            <img class="item-img" src="{{ item.imagem }}" alt="{{ item.nome }}"
+                 onerror="this.outerHTML='<div class=item-img-ph><i class=fa fa-pills></i></div>'"/>
+          {% else %}
+            <div class="item-img-ph"><i class="fa fa-pills"></i></div>
+          {% endif %}
+        </td>
+        <td style="font-weight:700;max-width:220px">{{ item.nome }}</td>
+        <td><code style="font-size:.75rem;color:var(--pk-muted)">{{ item.ean }}</code></td>
+        <td>{{ item.qty }}</td>
+        <td>{{ money(item.preco_unitario) }}</td>
+        <td style="font-weight:800;color:var(--pk-yellow)">{{ money(item.preco_unitario * item.qty) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="padding:12px 16px;display:flex;justify-content:flex-end;border-top:1px solid var(--pk-line)">
+    <span style="font-weight:900;font-size:1rem;color:var(--pk-yellow)">Total: {{ money(pedido.total) }}</span>
+  </div>
+</div>
+
+<!-- RECEITA MÉDICA -->
+{% if receita_urls %}
+<div class="pk-card" style="margin-bottom:18px">
+  <div class="pk-card-title" style="display:flex;align-items:center;gap:8px">
+    <i class="fa fa-file-prescription" style="color:#f5c842"></i>Receita Médica
+    {% if receita_urls|length > 1 %}
+      <span style="background:#1e2335;color:#93c5fd;border-radius:20px;padding:3px 10px;font-size:.72rem;font-weight:700">{{ receita_urls|length }} arquivos</span>
+    {% endif %}
+    {% if pedido.receita_status == 'pendente' %}
+      <span style="background:#1e1a08;color:#f5c842;border-radius:20px;padding:3px 10px;font-size:.72rem;font-weight:700">Aguardando avaliação</span>
+    {% elif pedido.receita_status == 'aprovada' %}
+      <span style="background:#0d2d1a;color:#22c55e;border-radius:20px;padding:3px 10px;font-size:.72rem;font-weight:700"><i class="fa fa-circle-check me-1"></i>Aprovada</span>
+    {% elif pedido.receita_status == 'reprovada' %}
+      <span style="background:#2a0810;color:#f08090;border-radius:20px;padding:3px 10px;font-size:.72rem;font-weight:700"><i class="fa fa-circle-xmark me-1"></i>Reprovada</span>
+    {% endif %}
+  </div>
+
+  <!-- Visualizar receitas -->
+  <div style="margin-bottom:16px">
+    {% for url in receita_urls %}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <a href="{{ url }}" target="_blank"
+         style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--pk-line);color:var(--pk-txt);background:#0d1016;border-radius:8px;padding:9px 14px;font-size:.82rem;font-weight:700;text-decoration:none">
+        <i class="fa fa-file-pdf" style="color:#f08090"></i>{% if receita_urls|length > 1 %}Receita {{ loop.index }} — {% endif %}Abrir PDF
+      </a>
+      <a href="{{ url }}" download="receita-{{ pedido.id[:8]|upper }}-{{ loop.index }}.pdf"
+         style="display:inline-flex;align-items:center;gap:8px;border:1px solid #22c55e;color:#22c55e;background:#0d1016;border-radius:8px;padding:9px 14px;font-size:.82rem;font-weight:700;text-decoration:none">
+        <i class="fa fa-download"></i>Baixar
+      </a>
+    </div>
+    {% endfor %}
+    {% if pedido.receita_avaliada_em %}
+      <div style="font-size:.75rem;color:var(--pk-muted);margin-top:8px">
+        Avaliada em: {{ pedido.receita_avaliada_em.strftime('%d/%m/%Y %H:%M') }}
+      </div>
+    {% endif %}
+    {% if pedido.receita_reprovada_motivo %}
+      <div style="margin-top:8px;background:#2a0810;border-radius:8px;padding:10px 14px;font-size:.82rem;color:#f08090">
+        <strong>Motivo da reprovação:</strong> {{ pedido.receita_reprovada_motivo }}
+      </div>
+    {% endif %}
+    <div style="margin-top:12px;background:#1e1a08;border:1px solid #5a430b;border-radius:8px;padding:12px 14px;font-size:.82rem;color:#f5d36b;line-height:1.5">
+      <strong>Orientação legal para entrega:</strong> aprove somente receita digital original em PDF, com assinatura eletrônica verificável. Para medicamentos controlados da Portaria 344/1998, a assinatura deve ser qualificada ICP-Brasil. Foto, print, PDF escaneado de receita em papel ou arquivo sem validação devem ser reprovados.
+    </div>
+    <div style="margin-top:10px;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px 14px;font-size:.82rem;color:var(--pk-muted);line-height:1.5">
+      <strong style="color:var(--pk-txt)">Registro sanitário:</strong>
+      manter a receita armazenada no Poupaqui ajuda na rastreabilidade e fiscalização, mas não substitui baixa, retenção, escrituração ou registro no sistema oficial aplicável, como SNGPC, SNCR ou outro procedimento exigido pela Vigilância Sanitária para o tipo de medicamento dispensado.
+    </div>
+  </div>
+
+  <!-- Formulário aprovar/reprovar (apenas se pendente) -->
+  {% if pedido.receita_status == 'pendente' %}
+  <form method="post" action="{{ url_for('painel_avaliar_receita', pedido_id=pedido.id) }}"
+        id="form-receita">
+    <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px 14px;margin-bottom:12px;display:grid;gap:8px;font-size:.82rem;color:var(--pk-txt)">
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" name="validou_assinatura" style="margin-top:3px">
+        <span>Validei a assinatura eletronica e a integridade do arquivo no validador/plataforma emissora.</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" name="validou_prescritor" style="margin-top:3px">
+        <span>Conferi que o prescritor esta habilitado e que os dados da receita/paciente estao coerentes.</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" name="validou_uso_unico" style="margin-top:3px">
+        <span>Conferi que a receita nao foi usada/baixada anteriormente e registrei a dispensacao quando aplicavel.</span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" name="validou_regras_sanitarias" style="margin-top:3px">
+        <span>Conferi validade, tipo de receituario, quantidade permitida, retencao/registro e regras de entrega remota.</span>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+      <button type="submit" name="acao" value="aprovar"
+              class="status-btn s-pago"
+              onclick="return validarAprovarReceita()">
+        <i class="fa fa-circle-check me-1"></i>Aprovar receita
+      </button>
+      <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:200px">
+        <input name="motivo" id="motivo-reprovacao" placeholder="Motivo da reprovação (obrigatório)"
+               style="background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.82rem;width:100%;box-sizing:border-box">
+        <button type="submit" name="acao" value="reprovar"
+                class="status-btn s-cancelado"
+                onclick="return validarReprovar()">
+          <i class="fa fa-circle-xmark me-1"></i>Reprovar receita
+        </button>
+      </div>
+    </div>
+  </form>
+  <script>
+  function validarAprovarReceita() {
+    const form = document.getElementById('form-receita');
+    const obrigatorios = ['validou_assinatura', 'validou_prescritor', 'validou_uso_unico', 'validou_regras_sanitarias'];
+    const faltando = obrigatorios.some(nome => !form.querySelector(`[name="${nome}"]`)?.checked);
+    if (faltando) {
+      alert('Marque todas as validacoes obrigatorias antes de aprovar a receita.');
+      return false;
+    }
+    return confirm('Aprovar a receita digital validada e liberar a entrega?');
+  }
+  function validarReprovar() {
+    const m = document.getElementById('motivo-reprovacao').value.trim();
+    if (!m) { alert('Informe o motivo da reprovação.'); return false; }
+    return confirm('Reprovar a receita com este motivo: "' + m + '"?');
+  }
+  </script>
+  {% endif %}
+</div>
+{% endif %}{# receita_urls #}
+
+<!-- ALTERAR STATUS -->
+<div class="pk-card">
+  <div class="pk-card-title"><i class="fa fa-pen-to-square"></i>Alterar status</div>
+  <form method="post" action="{{ url_for('painel_pedido_status', pedido_id=pedido.id) }}">
+    <div class="status-row">
+      <button type="submit" name="status" value="pendente"
+              class="status-btn {% if pedido.status=='pendente' %}active{% endif %}">
+        <i class="fa fa-clock me-1"></i>Pendente
+      </button>
+      <button type="submit" name="status" value="pago"
+              class="status-btn s-pago {% if pedido.status=='pago' %}active{% endif %}">
+        <i class="fa fa-circle-check me-1"></i>Pago
+      </button>
+      <button type="submit" name="status" value="enviado"
+              class="status-btn s-enviado {% if pedido.status=='enviado' %}active{% endif %}">
+        <i class="fa fa-truck me-1"></i>Enviado / Separado
+      </button>
+      <button type="submit" name="status" value="entregue"
+              class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}">
+        <i class="fa fa-house-circle-check me-1"></i>Entregue
+      </button>
+      <button type="submit" name="status" value="cancelado"
+              class="status-btn s-cancelado {% if pedido.status=='cancelado' %}active{% endif %}"
+              onclick="return confirm('Cancelar este pedido?')">
+        <i class="fa fa-xmark me-1"></i>Cancelado
+      </button>
+    </div>
+  </form>
+  {% if pedido.tipo_entrega == 'entrega' and pedido.status == 'enviado' %}
+  <form method="post" action="{{ url_for('painel_confirmar_entrega', pedido_id=pedido.id) }}" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+    <input name="codigo_entrega" placeholder="Código informado pelo cliente" style="background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px">
+    <button class="status-btn s-entregue" type="submit"><i class="fa fa-check me-1"></i>Confirmar entrega</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
