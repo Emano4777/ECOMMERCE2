@@ -6230,20 +6230,24 @@ def api_ml_pausar():
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
-    """Usa o preditor de categorias do ML para sugerir a melhor categoria folha."""
+    """Usa domain_discovery do ML para sugerir a melhor categoria folha."""
     titulo = (request.args.get("titulo") or "").strip()
     if not titulo:
         return jsonify({"ok": False, "erro": "Título obrigatório."}), 400
     try:
-        token = _ml_get_token()
-        data = _ml_api_get(
-            f"/sites/MLB/category_predictor/predict?title={urllib.parse.quote(titulo)}",
-            token
-        )
+        url = (f"https://api.mercadolibre.com/sites/MLB/domain_discovery/search"
+               f"?limit=1&q={urllib.parse.quote(titulo)}")
+        req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            data = json.loads(resp.read())
         if not data:
-            return jsonify({"ok": False, "erro": "ML não retornou categoria. Verifique a conexão ML."}), 400
-        cat_id   = data.get("id", "")
-        cat_name = data.get("name", "")
+            return jsonify({"ok": False, "erro": "ML não encontrou categoria para este título."}), 404
+        primeiro = data[0] if isinstance(data, list) else data
+        cat_id   = primeiro.get("category_id", "")
+        cat_name = primeiro.get("category_name", primeiro.get("domain_name", ""))
+        if not cat_id:
+            return jsonify({"ok": False, "erro": "Categoria não encontrada. Tente um título diferente."}), 404
         return jsonify({"ok": True, "category_id": cat_id, "category_name": cat_name})
     except Exception as ex:
         return jsonify({"ok": False, "erro": str(ex)}), 500
