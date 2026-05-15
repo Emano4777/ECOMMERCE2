@@ -809,30 +809,22 @@ let _mlEanAtual = null;
 
 let _mlCatTimer = null;
 
-const _ML_CATS_PADRAO = [
-  {category_id: "MLB272431", category_name: "Esportes › Nutrição Esportiva › Whey Protein"},
-  {category_id: "MLB272430", category_name: "Esportes › Nutrição Esportiva › Suplementos Proteicos"},
-  {category_id: "MLB272429", category_name: "Esportes › Nutrição Esportiva › Creatina"},
-  {category_id: "MLB272428", category_name: "Esportes › Nutrição Esportiva › BCAA e Aminoácidos"},
-  {category_id: "MLB272427", category_name: "Esportes › Nutrição Esportiva › Pré-Treino"},
-  {category_id: "MLB272432", category_name: "Esportes › Nutrição Esportiva › Hipercalórico"},
-  {category_id: "MLB177939", category_name: "Saúde › Vitaminas e Suplementos › Vitaminas"},
-  {category_id: "MLB177941", category_name: "Saúde › Vitaminas e Suplementos › Ômega 3 e Óleos"},
-  {category_id: "MLB177942", category_name: "Saúde › Vitaminas e Suplementos › Colágeno"},
-  {category_id: "MLB177937", category_name: "Saúde › Vitaminas e Suplementos › Emagrecedores"},
-  {category_id: "MLB1196",   category_name: "Saúde › Medicamentos (use apenas se for OTC)"},
-];
-
 function mostrarCategoriasPadrao() {
-  const box = document.getElementById('ml-cat-sugestoes');
-  box.innerHTML = '<div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:4px">Categorias frequentes — ou busque acima:</div>'
-    + _ML_CATS_PADRAO.map(s =>
-      `<button type="button" onclick="selecionarCategoria('${s.category_id}','${s.category_name.replace(/'/g,"\\'")}',this)"
-               style="text-align:left;background:#0d1016;border:1px solid var(--pk-line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.76rem;color:var(--pk-txt);font-family:inherit;transition:border-color .15s;width:100%">
-         <span style="color:#f5c842;font-family:monospace;font-weight:700">${s.category_id}</span>
-         <span style="color:var(--pk-muted);margin-left:6px">${s.category_name}</span>
-       </button>`
-    ).join('');
+  // Auto-busca com palavras-chave limpas do nome do produto
+  const nome = document.getElementById('ml-input-nome').value || '';
+  // Remove pesos, formatos, chars especiais — mantém palavras relevantes
+  const limpo = nome
+    .replace(/[%\-\+\/]/g, ' ')
+    .replace(/\b\d+\s*(g|kg|ml|mg|l|caps?|comp|un)\b/gi, '')
+    .replace(/\b(pouch|pote|sache|refil|caixa|frasco|ampola|pronabol|vitafor|growth|integral|midway|max|titanium)\b/gi, '')
+    .replace(/\s+/g, ' ').trim();
+  const palavras = limpo.split(' ').filter(w => w.length > 2);
+  // Usa até 3 palavras mais curtas para busca mais eficaz
+  const query = palavras.slice(0, 3).join(' ');
+  if (query) {
+    document.getElementById('ml-cat-busca').value = query;
+    detectarCategoria();
+  }
 }
 
 function verificarPrecoML(val) {
