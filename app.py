@@ -6227,6 +6227,39 @@ def api_ml_pausar():
     return jsonify({"ok": True, "ml_item_id": ml_item_id})
 
 
+@app.get("/api/painel/ml/debug-categoria")
+@painel_required
+def api_ml_debug_categoria():
+    """Debug: mostra resposta bruta do category_predictor do ML."""
+    titulo = (request.args.get("titulo") or "whey protein").strip()
+    token = _ml_get_token()
+    if not token:
+        return jsonify({"erro": "sem token", "token_ok": False})
+    ctx = ssl.create_default_context()
+    resultados = {}
+    # Testa category_predictor
+    try:
+        url = f"https://api.mercadolibre.com/sites/MLB/category_predictor/predict?title={urllib.parse.quote(titulo)}"
+        req = urllib.request.Request(url)
+        req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            resultados["predictor"] = {"status": r.status, "body": json.loads(r.read())}
+    except Exception as e:
+        resultados["predictor_erro"] = str(e)
+    # Testa search
+    try:
+        url2 = f"https://api.mercadolibre.com/sites/MLB/search?q={urllib.parse.quote(titulo)}&limit=3"
+        req2 = urllib.request.Request(url2)
+        req2.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req2, context=ctx, timeout=10) as r2:
+            body2 = json.loads(r2.read())
+            resultados["search"] = {"total": body2.get("paging",{}).get("total",0),
+                                     "cat_ids": [x.get("category_id") for x in body2.get("results",[])[:3]]}
+    except Exception as e2:
+        resultados["search_erro"] = str(e2)
+    return jsonify({"token_ok": True, "titulo": titulo, **resultados})
+
+
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
