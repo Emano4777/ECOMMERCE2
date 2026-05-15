@@ -788,7 +788,6 @@ function removerExtraModal(ean, btn) {
 // ── Mercado Livre ─────────────────────────────────────────────────────────────
 let _mlStatus = {};
 
-// Carrega status ML de todos os produtos ao abrir a página
 fetch('/api/painel/ml/status-produtos')
   .then(r => r.json())
   .then(data => {
@@ -806,70 +805,102 @@ fetch('/api/painel/ml/status-produtos')
   .catch(() => {});
 
 let _mlEanAtual = null;
-
 let _mlCatTimer = null;
-
-function mostrarCategoriasPadrao() {
-  document.getElementById('ml-cat-sugestoes').innerHTML = '';
-  document.getElementById('ml-cat-nome').textContent = '';
-}
 
 function handleCatInput(val) {
   clearTimeout(_mlCatTimer);
   const v = val.trim();
-  if (!v) return;
+  if (!v) { document.getElementById('ml-cat-nome').textContent = ''; return; }
+  // Pure category ID typed directly
+  if (/^MLB\d{5,}$/i.test(v)) {
+    _mlCatTimer = setTimeout(() => setCategoryId(v.toUpperCase()), 300);
+    return;
+  }
+  // URL or string containing MLB IDs
   if (v.includes('mercadolivre') || v.includes('mercadolibre') || /MLB\d{5,}/i.test(v)) {
     _mlCatTimer = setTimeout(() => extrairIdDeUrl(v), 300);
-  } else {
-    _mlCatTimer = setTimeout(() => detectarCategoria(), 700);
+    return;
   }
+  // Text search
+  _mlCatTimer = setTimeout(() => detectarCategoria(), 700);
 }
 
 async function extrairIdDeUrl(val) {
   const nomeEl = document.getElementById('ml-cat-nome');
   const box    = document.getElementById('ml-cat-sugestoes');
-  const mlbIds = [...new Set((val.match(/MLB\d{5,}/gi) || []).map(x => x.toUpperCase()))];
-  if (!mlbIds.length) { nomeEl.textContent = ''; return; }
+
+  // item_id param is the actual listing — try it first
+  const itemIdMatch = val.match(/item_id:?(MLB\d+)/i);
+  const allIds = [...new Set((val.match(/MLB\d{5,}/gi) || []).map(x => x.toUpperCase()))];
+  if (!allIds.length) return;
+
+  const idsToTry = itemIdMatch
+    ? [itemIdMatch[1].toUpperCase(), ...allIds.filter(id => id !== itemIdMatch[1].toUpperCase())]
+    : allIds;
 
   nomeEl.textContent = '⏳ Buscando categoria…';
   box.innerHTML = '';
 
-  for (const mlbId of mlbIds) {
+  let lastErr = '';
+  for (const mlbId of idsToTry) {
     try {
-      const r = await fetch(`https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`, {mode:'cors'});
+      const r = await fetch(`https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`, {
+        mode: 'cors', signal: AbortSignal.timeout(6000)
+      });
       if (r.ok) {
         const d = await r.json();
         if ((d.category_id || '').startsWith('MLB')) { await setCategoryId(d.category_id); return; }
-      }
-    } catch {}
+      } else { lastErr = `HTTP ${r.status} em /items/${mlbId}`; }
+    } catch(e) { lastErr = e.name === 'TimeoutError' ? 'tempo esgotado' : (e.message || 'bloqueado'); }
+
     try {
-      const r = await fetch(`https://api.mercadolibre.com/products/${mlbId}`, {mode:'cors'});
+      const r = await fetch(`https://api.mercadolibre.com/products/${mlbId}`, {
+        mode: 'cors', signal: AbortSignal.timeout(6000)
+      });
       if (r.ok) {
         const d = await r.json();
         if ((d.category_id || '').startsWith('MLB')) { await setCategoryId(d.category_id); return; }
-      }
-    } catch {}
-    try {
-      const r = await fetch(`https://api.mercadolibre.com/categories/${mlbId}`, {mode:'cors'});
-      if (r.ok) {
-        const d = await r.json();
-        if (d.id) { await setCategoryId(d.id, d); return; }
       }
     } catch {}
   }
-  nomeEl.textContent = '⚠ Não resolveu. Digite o nome do produto para buscar.';
+
+  // Fetch failed — show visible link so user can get category_id manually
+  const firstId = idsToTry[0];
+  nomeEl.textContent = '';
+  box.innerHTML = `
+    <div style="background:#1a0d00;border:1px solid #f5c842;border-radius:8px;padding:12px;font-size:.78rem">
+      <div style="font-weight:800;color:#e8c94a;margin-bottom:6px">
+        <i class="fa fa-triangle-exclamation me-1"></i>Busca bloqueada pelo navegador${lastErr ? ' — ' + lastErr : ''}
+      </div>
+      <div style="color:var(--pk-muted);margin-bottom:10px">
+        Clique no botão abaixo — abrirá uma página com o JSON do produto.
+        Procure o campo <code style="color:#f5c842">"category_id"</code>, copie o valor (ex: <code style="color:#f5c842">MLB272431</code>) e cole no campo acima.
+      </div>
+      <a href="https://api.mercadolibre.com/items/${firstId}?attributes=category_id" target="_blank"
+         style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:8px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
+        <i class="fa fa-arrow-up-right-from-square"></i>Abrir JSON de ${firstId}
+      </a>
+      <div style="color:#666;font-size:.72rem;margin-top:8px">
+        Dica: se a busca automática falhar sempre, desative extensões de privacidade (Brave Shields, uBlock, etc.) para este painel.
+      </div>
+    </div>`;
 }
 
 async function setCategoryId(catId, catDataAlreadyFetched) {
   document.getElementById('ml-input-cat').value = catId;
+  document.getElementById('ml-cat-sugestoes').innerHTML = '';
   const nomeEl = document.getElementById('ml-cat-nome');
   try {
     const cd = catDataAlreadyFetched ||
-      await (await fetch(`https://api.mercadolibre.com/categories/${catId}`, {mode:'cors'})).json();
+      await (await fetch(`https://api.mercadolibre.com/categories/${catId}`, {
+        mode:'cors', signal: AbortSignal.timeout(5000)
+      })).json();
     const path = cd.path_from_root || [];
     const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : cd.name;
+    nomeEl.style.color = '#22c55e';
     nomeEl.textContent = `✓ ${catId} — ${name}`;
   } catch {
+    nomeEl.style.color = '#22c55e';
     nomeEl.textContent = `✓ Categoria: ${catId}`;
   }
 }
@@ -883,14 +914,13 @@ function verificarPrecoML(val) {
 }
 
 async function detectarCategoria() {
-  const ean     = document.getElementById('ml-input-ean').value.trim();
-  const busca   = document.getElementById('ml-cat-busca').value.trim();
-  const nome    = document.getElementById('ml-input-nome').value.trim();
-  // Prioridade: busca manual → EAN → nome
+  const ean   = document.getElementById('ml-input-ean').value.trim();
+  const busca = document.getElementById('ml-cat-busca').value.trim();
+  const nome  = document.getElementById('ml-input-nome').value.trim();
   const queries = [];
-  if (busca) queries.push(busca);
-  if (ean)   queries.push(ean);
-  if (nome)  queries.push(nome.split(/\s+/).slice(0, 4).join(' '));
+  if (busca && !/MLB\d/i.test(busca)) queries.push(busca);
+  if (ean)  queries.push(ean);
+  if (nome) queries.push(nome.split(/\s+/).slice(0, 4).join(' '));
 
   const btn = document.getElementById('ml-btn-cat-detect');
   btn.disabled = true;
@@ -902,32 +932,31 @@ async function detectarCategoria() {
   async function getCatName(id) {
     if (catCache[id]) return catCache[id];
     try {
-      const r = await fetch(`https://api.mercadolibre.com/categories/${id}`);
+      const r = await fetch(`https://api.mercadolibre.com/categories/${id}`, {signal: AbortSignal.timeout(5000)});
       const d = await r.json();
       const path = d.path_from_root || [];
-      const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : (d.name || id);
-      catCache[id] = name;
-      return name;
+      catCache[id] = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : (d.name || id);
+      return catCache[id];
     } catch { return id; }
   }
 
   let sugestoes = [];
+  let fetchErr = '';
   for (const q of queries) {
     if (sugestoes.length) break;
     try {
       const r = await fetch(
         `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=10`,
-        { headers: { 'Accept': 'application/json' } }
+        { signal: AbortSignal.timeout(8000) }
       );
-      if (!r.ok) continue;
+      if (!r.ok) { fetchErr = `HTTP ${r.status}`; continue; }
       const data = await r.json();
       const catIds = [...new Set((data.results || []).map(x => x.category_id).filter(Boolean))].slice(0, 5);
       if (!catIds.length) continue;
       sugestoes = await Promise.all(catIds.map(async id => ({
-        category_id: id,
-        category_name: await getCatName(id)
+        category_id: id, category_name: await getCatName(id)
       })));
-    } catch { continue; }
+    } catch(e) { fetchErr = e.message || 'erro de rede'; continue; }
   }
 
   btn.disabled = false;
@@ -937,61 +966,20 @@ async function detectarCategoria() {
     renderSugestoes(sugestoes, box);
   } else {
     box.innerHTML = `
-      <div style="font-size:.76rem;color:#f08090;margin-bottom:6px">
-        Não foi possível detectar. Cole o ID manualmente:
-      </div>
-      <div style="font-size:.76rem;color:var(--pk-muted)">
-        Abra o ML, acesse a categoria do produto e copie o ID da URL.<br>
+      <div style="background:#1a0d00;border:1px solid #f5c842;border-radius:8px;padding:12px;font-size:.78rem">
+        <div style="font-weight:800;color:#e8c94a;margin-bottom:6px">
+          <i class="fa fa-triangle-exclamation me-1"></i>Busca bloqueada${fetchErr ? ' — ' + fetchErr : ''}
+        </div>
+        <div style="color:var(--pk-muted);margin-bottom:10px">
+          Cole o link de um produto ML no campo acima para detectar a categoria automaticamente.
+          Ou acesse o ML e copie o ID da categoria (MLB…) da URL.
+        </div>
         <a href="https://www.mercadolivre.com.br/mais-vendidos" target="_blank"
-           style="color:#f5c842">Ir para Mercado Livre <i class="fa fa-arrow-up-right-from-square"></i></a>
+           style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:8px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
+          <i class="fa fa-arrow-up-right-from-square"></i>Abrir Mercado Livre
+        </a>
       </div>`;
   }
-}
-
-async function extrairIdDeUrl(val) {
-  // Se parece uma URL do ML, tenta extrair categoria via item
-  const mlbMatch = val.match(/MLB\d+/g);
-  if (!mlbMatch) return;
-
-  const nomeEl = document.getElementById('ml-cat-nome');
-  nomeEl.textContent = '⏳ Buscando categoria…';
-
-  for (const mlbId of mlbMatch) {
-    // Tenta: é um item? Pega category_id
-    try {
-      const r = await fetch(`https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`);
-      if (r.ok) {
-        const d = await r.json();
-        const catId = d.category_id;
-        if (catId && catId.startsWith('MLB')) {
-          document.getElementById('ml-input-cat').value = catId;
-          // Busca nome
-          const cr = await fetch(`https://api.mercadolibre.com/categories/${catId}`);
-          const cd = await cr.json();
-          const path = cd.path_from_root || [];
-          const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : cd.name;
-          nomeEl.textContent = '✓ ' + name;
-          return;
-        }
-      }
-    } catch {}
-
-    // Tenta: é uma categoria diretamente?
-    try {
-      const cr = await fetch(`https://api.mercadolibre.com/categories/${mlbId}`);
-      if (cr.ok) {
-        const cd = await cr.json();
-        if (cd.children_categories !== undefined) {
-          document.getElementById('ml-input-cat').value = mlbId;
-          const path = cd.path_from_root || [];
-          const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : cd.name;
-          nomeEl.textContent = '✓ ' + name;
-          return;
-        }
-      }
-    } catch {}
-  }
-  nomeEl.textContent = '';
 }
 
 function renderSugestoes(sugestoes, box) {
@@ -1006,11 +994,10 @@ function renderSugestoes(sugestoes, box) {
 
 function selecionarCategoria(id, nome, btn) {
   document.getElementById('ml-input-cat').value = id;
+  document.getElementById('ml-cat-nome').style.color = '#22c55e';
   document.getElementById('ml-cat-nome').textContent = '✓ ' + nome;
-  // Destaca o botão selecionado
   document.querySelectorAll('#ml-cat-sugestoes button').forEach(b => {
-    b.style.borderColor = 'var(--pk-line)';
-    b.style.background = '#0d1016';
+    b.style.borderColor = 'var(--pk-line)'; b.style.background = '#0d1016';
   });
   btn.style.borderColor = '#f5c842';
   btn.style.background = '#1a1900';
@@ -1024,25 +1011,24 @@ function abrirModalML(btn) {
   _mlEanAtual = ean;
 
   document.getElementById('ml-modal-titulo').textContent = nome;
-  document.getElementById('ml-input-ean').value   = ean;
-  document.getElementById('ml-input-nome').value  = nome;
-  document.getElementById('ml-input-preco').value = preco > 0 ? preco.toFixed(2) : '';
-  document.getElementById('ml-input-img').value   = img;
-  document.getElementById('ml-input-qty').value   = '1';
+  document.getElementById('ml-input-ean').value    = ean;
+  document.getElementById('ml-input-nome').value   = nome;
+  document.getElementById('ml-input-preco').value  = preco > 0 ? preco.toFixed(2) : '';
+  document.getElementById('ml-input-img').value    = img;
+  document.getElementById('ml-input-qty').value    = '1';
   document.getElementById('ml-input-cat').value    = '';
   document.getElementById('ml-cat-nome').textContent = '';
+  document.getElementById('ml-cat-nome').style.color = '#f5c842';
   document.getElementById('ml-cat-busca').value    = '';
   document.getElementById('ml-cat-sugestoes').innerHTML = '';
 
   const info = _mlStatus[ean];
-  const btnPausar = document.getElementById('ml-btn-pausar');
-  if (info && info.status === 'active') {
-    btnPausar.style.display = 'inline-flex';
-  } else {
-    btnPausar.style.display = 'none';
-  }
+  document.getElementById('ml-btn-pausar').style.display =
+    (info && info.status === 'active') ? 'inline-flex' : 'none';
 
   document.getElementById('ml-modal').classList.add('open');
+  // Try auto-detecting category from product name when modal opens
+  setTimeout(() => detectarCategoria(), 500);
 }
 
 function fecharModalML() {
@@ -1059,7 +1045,10 @@ function publicarNoML() {
   const cat   = document.getElementById('ml-input-cat').value;
 
   if (!preco || preco <= 0) { alert('Informe um preço válido.'); return; }
-  if (!cat || !cat.startsWith('MLB')) { alert('Informe a categoria ML (ex: MLB272431). Clique no botão de busca ou cole o ID manualmente.'); return; }
+  if (!cat || !cat.toUpperCase().startsWith('MLB')) {
+    alert('Informe a categoria ML (ex: MLB272431).\nClique no botão de busca ou cole o ID manualmente.');
+    return;
+  }
 
   const btn = document.getElementById('ml-btn-publicar');
   btn.disabled = true;
@@ -1076,7 +1065,6 @@ function publicarNoML() {
     btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 48 48"><rect width="48" height="48" rx="3" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg> Publicar no ML';
     if (!d.ok) { alert('Erro: ' + d.erro); return; }
     _mlStatus[ean] = {status: 'active', item_id: d.ml_item_id, preco};
-    // Atualiza botão na tabela
     const rowBtn = document.getElementById('btn-ml-' + ean);
     if (rowBtn) {
       rowBtn.classList.remove('btn-ml');
@@ -1153,17 +1141,14 @@ function pausarNoML() {
     </div>
     <div class="ml-field">
       <label>Categoria ML</label>
-      <div style="background:#1a1900;border:1px solid #f5c842;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.76rem;color:#e8c94a">
-        <i class="fa fa-circle-info me-1"></i>
-        <strong>Desative a VPN</strong> para buscar automaticamente. Ou cole abaixo o ID copiado do ML.
-      </div>
-      <!-- Campo único: aceita URL do ML, ID MLB ou texto para buscar -->
+      <!-- Campo único: aceita URL do ML, ID MLB direto ou texto para buscar -->
       <div style="display:flex;gap:6px;margin-bottom:6px">
         <input type="text" class="pk-input" id="ml-cat-busca"
-               placeholder="Cole a URL de um produto ML aqui, ou busque: whey protein…"
+               placeholder="Cole URL de produto ML, ID (MLB272431) ou busque: whey protein…"
                style="font-size:.84rem"
                oninput="handleCatInput(this.value)">
         <button type="button" id="ml-btn-cat-detect" onclick="detectarCategoria()"
+                title="Buscar categoria"
                 style="white-space:nowrap;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
           <i class="fa fa-magnifying-glass"></i>
         </button>
