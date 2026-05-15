@@ -810,11 +810,68 @@ let _mlEanAtual = null;
 let _mlCatTimer = null;
 
 function mostrarCategoriasPadrao() {
-  // Auto-busca: campo de busca fica vazio (EAN é enviado automaticamente no detectarCategoria)
-  document.getElementById('ml-cat-sugestoes').innerHTML =
-    '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando categoria pelo código do produto…</div>';
-  // Pequeno delay para o modal renderizar
-  setTimeout(detectarCategoria, 200);
+  document.getElementById('ml-cat-sugestoes').innerHTML = '';
+  document.getElementById('ml-cat-nome').textContent = '';
+}
+
+function handleCatInput(val) {
+  clearTimeout(_mlCatTimer);
+  const v = val.trim();
+  if (!v) return;
+  if (v.includes('mercadolivre') || v.includes('mercadolibre') || /MLB\d{5,}/i.test(v)) {
+    _mlCatTimer = setTimeout(() => extrairIdDeUrl(v), 300);
+  } else {
+    _mlCatTimer = setTimeout(() => detectarCategoria(), 700);
+  }
+}
+
+async function extrairIdDeUrl(val) {
+  const nomeEl = document.getElementById('ml-cat-nome');
+  const box    = document.getElementById('ml-cat-sugestoes');
+  const mlbIds = [...new Set((val.match(/MLB\d{5,}/gi) || []).map(x => x.toUpperCase()))];
+  if (!mlbIds.length) { nomeEl.textContent = ''; return; }
+
+  nomeEl.textContent = '⏳ Buscando categoria…';
+  box.innerHTML = '';
+
+  for (const mlbId of mlbIds) {
+    try {
+      const r = await fetch(`https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`, {mode:'cors'});
+      if (r.ok) {
+        const d = await r.json();
+        if ((d.category_id || '').startsWith('MLB')) { await setCategoryId(d.category_id); return; }
+      }
+    } catch {}
+    try {
+      const r = await fetch(`https://api.mercadolibre.com/products/${mlbId}`, {mode:'cors'});
+      if (r.ok) {
+        const d = await r.json();
+        if ((d.category_id || '').startsWith('MLB')) { await setCategoryId(d.category_id); return; }
+      }
+    } catch {}
+    try {
+      const r = await fetch(`https://api.mercadolibre.com/categories/${mlbId}`, {mode:'cors'});
+      if (r.ok) {
+        const d = await r.json();
+        if (d.id) { await setCategoryId(d.id, d); return; }
+      }
+    } catch {}
+  }
+  nomeEl.textContent = '⚠ Não resolveu. Digite o nome do produto para buscar.';
+}
+
+async function setCategoryId(catId, catDataAlreadyFetched) {
+  document.getElementById('ml-input-cat').value = catId;
+  const nomeEl = document.getElementById('ml-cat-nome');
+  try {
+    const cd = catDataAlreadyFetched ||
+      await (await fetch(`https://api.mercadolibre.com/categories/${catId}`, {mode:'cors'})).json();
+    const path = cd.path_from_root || [];
+    const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : cd.name;
+    nomeEl.textContent = `✓ ${catId} — ${name}`;
+  } catch {
+    nomeEl.textContent = `✓ Categoria: ${catId}`;
+  }
 }
 
 function verificarPrecoML(val) {
@@ -972,10 +1029,10 @@ function abrirModalML(btn) {
   document.getElementById('ml-input-preco').value = preco > 0 ? preco.toFixed(2) : '';
   document.getElementById('ml-input-img').value   = img;
   document.getElementById('ml-input-qty').value   = '1';
-  document.getElementById('ml-input-cat').value   = '';
+  document.getElementById('ml-input-cat').value    = '';
   document.getElementById('ml-cat-nome').textContent = '';
-  document.getElementById('ml-cat-busca').value   = '';
-  mostrarCategoriasPadrao();
+  document.getElementById('ml-cat-busca').value    = '';
+  document.getElementById('ml-cat-sugestoes').innerHTML = '';
 
   const info = _mlStatus[ean];
   const btnPausar = document.getElementById('ml-btn-pausar');
@@ -1100,25 +1157,20 @@ function pausarNoML() {
         <i class="fa fa-circle-info me-1"></i>
         <strong>Desative a VPN</strong> para buscar automaticamente. Ou cole abaixo o ID copiado do ML.
       </div>
+      <!-- Campo único: aceita URL do ML, ID MLB ou texto para buscar -->
       <div style="display:flex;gap:6px;margin-bottom:6px">
-        <input type="text" class="pk-input" id="ml-cat-busca" placeholder="buscar categoria (ex: whey protein, vitamina c…)"
-               style="font-size:.84rem" oninput="clearTimeout(_mlCatTimer);_mlCatTimer=setTimeout(()=>detectarCategoria(),700)">
+        <input type="text" class="pk-input" id="ml-cat-busca"
+               placeholder="Cole a URL de um produto ML aqui, ou busque: whey protein…"
+               style="font-size:.84rem"
+               oninput="handleCatInput(this.value)">
         <button type="button" id="ml-btn-cat-detect" onclick="detectarCategoria()"
                 style="white-space:nowrap;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
           <i class="fa fa-magnifying-glass"></i>
         </button>
       </div>
       <div id="ml-cat-sugestoes" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
-      <input type="text" class="pk-input" id="ml-input-cat"
-             placeholder="Cole aqui a URL de qualquer produto ML ou o ID (MLB…)"
-             style="font-family:monospace;font-size:.82rem"
-             oninput="extrairIdDeUrl(this.value)">
+      <input type="hidden" id="ml-input-cat">
       <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>
-      <div style="font-size:.73rem;color:var(--pk-muted);margin-top:4px">
-        <i class="fa fa-lightbulb me-1" style="color:#f5c842"></i>
-        Como pegar o ID: no ML, abra qualquer produto da categoria → copie a URL → cole aqui.
-        <a href="https://www.mercadolivre.com.br" target="_blank" style="color:#f5c842;margin-left:4px">Ir ao ML <i class="fa fa-arrow-up-right-from-square fa-xs"></i></a>
-      </div>
     </div>
     <div class="ml-field">
       <label>URL da imagem (opcional)</label>
