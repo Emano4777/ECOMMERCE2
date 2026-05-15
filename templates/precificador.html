@@ -810,21 +810,11 @@ let _mlEanAtual = null;
 let _mlCatTimer = null;
 
 function mostrarCategoriasPadrao() {
-  // Auto-busca com palavras-chave limpas do nome do produto
-  const nome = document.getElementById('ml-input-nome').value || '';
-  // Remove pesos, formatos, chars especiais — mantém palavras relevantes
-  const limpo = nome
-    .replace(/[%\-\+\/]/g, ' ')
-    .replace(/\b\d+\s*(g|kg|ml|mg|l|caps?|comp|un)\b/gi, '')
-    .replace(/\b(pouch|pote|sache|refil|caixa|frasco|ampola|pronabol|vitafor|growth|integral|midway|max|titanium)\b/gi, '')
-    .replace(/\s+/g, ' ').trim();
-  const palavras = limpo.split(' ').filter(w => w.length > 2);
-  // Usa até 3 palavras mais curtas para busca mais eficaz
-  const query = palavras.slice(0, 3).join(' ');
-  if (query) {
-    document.getElementById('ml-cat-busca').value = query;
-    detectarCategoria();
-  }
+  // Auto-busca: campo de busca fica vazio (EAN é enviado automaticamente no detectarCategoria)
+  document.getElementById('ml-cat-sugestoes').innerHTML =
+    '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando categoria pelo código do produto…</div>';
+  // Pequeno delay para o modal renderizar
+  setTimeout(detectarCategoria, 200);
 }
 
 function verificarPrecoML(val) {
@@ -845,7 +835,8 @@ function detectarCategoria() {
   document.getElementById('ml-cat-sugestoes').innerHTML =
     '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando categorias…</div>';
 
-  fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(busca))
+  const ean = document.getElementById('ml-input-ean').value.trim();
+  fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(busca) + '&ean=' + encodeURIComponent(ean))
     .then(r => r.json())
     .then(d => {
       btn.disabled = false;

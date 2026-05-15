@@ -6249,36 +6249,44 @@ def _ml_cat_name(cat_id, ctx):
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
-    """Busca categorias reais no ML pesquisando anúncios. Tenta queries progressivamente menores."""
+    """Busca categorias reais no ML: primeiro pelo EAN, depois por palavras-chave do título."""
     titulo = (request.args.get("titulo") or "").strip()
-    if not titulo:
-        return jsonify({"ok": False, "erro": "Título obrigatório."}), 400
+    ean    = (request.args.get("ean") or "").strip()
+    if not titulo and not ean:
+        return jsonify({"ok": False, "erro": "Título ou EAN obrigatório."}), 400
     try:
         ctx = ssl.create_default_context()
 
-        def _search(q):
+        def _ml_search(q):
             url = (f"https://api.mercadolibre.com/sites/MLB/search"
                    f"?q={urllib.parse.quote(q)}&limit=15")
             req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
             with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
                 return json.loads(resp.read()).get("results", [])
 
-        # Remove chars especiais e tenta queries cada vez menores
-        import re as _re
-        clean = _re.sub(r'[%\-\+\/]', ' ', titulo)
-        # Remove palavras comuns que atrapalham: pesos, formatos, marcas
-        clean = _re.sub(r'\b(\d+\s*(g|kg|ml|l|mg|caps?|comp|un))\b', '', clean, flags=_re.IGNORECASE)
-        clean = _re.sub(r'\b(pouch|pote|sache|refil|caixa|frasco|ampola)\b', '', clean, flags=_re.IGNORECASE)
-        words = [w for w in clean.split() if len(w) > 2]
-
         results = []
-        for n in range(len(words), 0, -1):
-            q = ' '.join(words[:n])
-            if not q.strip():
-                continue
-            results = _search(q)
-            if results:
-                break
+
+        # 1) Busca pelo EAN — é a mais precisa (acha o produto exato)
+        if ean:
+            results = _ml_search(ean)
+
+        # 2) Se não achou, tenta o título progressivamente mais curto
+        if not results and titulo:
+            import re as _re
+            clean = _re.sub(r'[%\-\+\/]', ' ', titulo)
+            clean = _re.sub(r'\b\d+\s*(g|kg|ml|l|mg|caps?|comp|un)\b', ' ', clean, flags=_re.IGNORECASE)
+            clean = _re.sub(r'\b(pouch|pote|sache|refil|caixa|frasco|ampola|leve|pag|eve|pague|gratis|abs|seios)\b',
+                            ' ', clean, flags=_re.IGNORECASE)
+            words = [w for w in clean.split() if len(w) > 2]
+            for n in range(min(len(words), 4), 0, -1):
+                q = ' '.join(words[:n])
+                results = _ml_search(q)
+                if results:
+                    break
+
+        if not results:
+            return jsonify({"ok": False,
+                            "erro": "Não encontrado no ML. Digite uma busca simples acima (ex: 'whey protein', 'vitamina c', 'omega 3')."}), 404
 
         seen = {}
         for item in results:
@@ -6286,11 +6294,8 @@ def api_ml_sugerir_categoria():
             if cid and cid not in seen:
                 seen[cid] = True
 
-        if not seen:
-            return jsonify({"ok": False, "erro": "Nenhum resultado encontrado. Tente uma busca mais simples (ex: 'whey protein')."}), 404
-
         sugestoes = []
-        for cat_id in list(seen.keys())[:5]:
+        for cat_id in list(seen.keys())[:6]:
             sugestoes.append({"category_id": cat_id, "category_name": _ml_cat_name(cat_id, ctx)})
 
         return jsonify({"ok": True, "sugestoes": sugestoes})
