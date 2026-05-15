@@ -6235,11 +6235,13 @@ def api_ml_sugerir_categoria():
     if not titulo:
         return jsonify({"ok": False, "erro": "Título obrigatório."}), 400
     try:
-        url = f"https://api.mercadolibre.com/sites/MLB/category_predictor/predict?title={urllib.parse.quote(titulo)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
-            data = json.loads(resp.read())
+        token = _ml_get_token()
+        data = _ml_api_get(
+            f"/sites/MLB/category_predictor/predict?title={urllib.parse.quote(titulo)}",
+            token
+        )
+        if not data:
+            return jsonify({"ok": False, "erro": "ML não retornou categoria. Verifique a conexão ML."}), 400
         cat_id   = data.get("id", "")
         cat_name = data.get("name", "")
         return jsonify({"ok": True, "category_id": cat_id, "category_name": cat_name})
