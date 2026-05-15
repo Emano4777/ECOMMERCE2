@@ -6230,29 +6230,46 @@ def api_ml_pausar():
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
-    """Usa domain_discovery do ML para sugerir categorias folha. Retorna até 5 opções."""
+    """Busca categorias reais no ML pesquisando anúncios existentes com a query."""
     titulo = (request.args.get("titulo") or "").strip()
     if not titulo:
         return jsonify({"ok": False, "erro": "Título obrigatório."}), 400
     try:
-        url = (f"https://api.mercadolibre.com/sites/MLB/domain_discovery/search"
-               f"?limit=5&q={urllib.parse.quote(titulo)}")
-        req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
         ctx = ssl.create_default_context()
+        # 1) Busca anúncios reais → extrai category_id únicos
+        url = (f"https://api.mercadolibre.com/sites/MLB/search"
+               f"?q={urllib.parse.quote(titulo)}&limit=10")
+        req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
         with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-            data = json.loads(resp.read())
-        if not data:
-            return jsonify({"ok": False, "erro": "Nenhuma categoria encontrada."}), 404
+            search_data = json.loads(resp.read())
+
+        results = search_data.get("results", [])
+        seen = {}
+        for item in results:
+            cid = item.get("category_id", "")
+            if cid and cid not in seen:
+                seen[cid] = ""  # nome vem a seguir
+
+        if not seen:
+            return jsonify({"ok": False, "erro": "Nenhum resultado encontrado para esta busca."}), 404
+
+        # 2) Resolve nomes das categorias (até 5)
         sugestoes = []
-        seen = set()
-        for item in (data if isinstance(data, list) else [data]):
-            cat_id   = item.get("category_id", "")
-            cat_name = item.get("category_name", item.get("domain_name", ""))
-            if cat_id and cat_id not in seen:
-                seen.add(cat_id)
-                sugestoes.append({"category_id": cat_id, "category_name": cat_name})
-        if not sugestoes:
-            return jsonify({"ok": False, "erro": "Categoria não encontrada."}), 404
+        for cat_id in list(seen.keys())[:5]:
+            try:
+                cat_url = f"https://api.mercadolibre.com/categories/{cat_id}"
+                creq = urllib.request.Request(cat_url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
+                with urllib.request.urlopen(creq, context=ctx, timeout=6) as cr:
+                    cat_data = json.loads(cr.read())
+                cat_name = cat_data.get("name", cat_id)
+                # Monta caminho completo ex: "Suplementos > Whey Protein"
+                path = cat_data.get("path_from_root", [])
+                if len(path) >= 2:
+                    cat_name = " › ".join(p["name"] for p in path[-3:])
+            except Exception:
+                cat_name = cat_id
+            sugestoes.append({"category_id": cat_id, "category_name": cat_name})
+
         return jsonify({"ok": True, "sugestoes": sugestoes})
     except Exception as ex:
         return jsonify({"ok": False, "erro": str(ex)}), 500

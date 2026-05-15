@@ -809,6 +809,14 @@ let _mlEanAtual = null;
 
 let _mlCatTimer = null;
 
+function verificarPrecoML(val) {
+  const aviso = document.getElementById('ml-preco-aviso');
+  const v = parseFloat(val);
+  if (!v || v <= 0) { aviso.textContent = 'Preço inválido.'; return; }
+  if (v < 8) { aviso.textContent = '⚠ O ML exige preço mínimo de R$ 8,00 na maioria das categorias.'; return; }
+  aviso.textContent = '';
+}
+
 function detectarCategoria() {
   const busca = (document.getElementById('ml-cat-busca').value || '').trim()
              || (document.getElementById('ml-input-nome').value || '').trim();
@@ -983,7 +991,9 @@ function pausarNoML() {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="ml-field">
         <label>Preço (R$)</label>
-        <input type="number" class="pk-input" id="ml-input-preco" step="0.01" min="0.01">
+        <input type="number" class="pk-input" id="ml-input-preco" step="0.01" min="0.01"
+               oninput="verificarPrecoML(this.value)">
+        <div id="ml-preco-aviso" style="font-size:.72rem;color:#f08090;margin-top:3px;min-height:14px"></div>
       </div>
       <div class="ml-field">
         <label>Quantidade em estoque</label>
