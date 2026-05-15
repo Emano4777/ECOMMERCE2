@@ -6290,6 +6290,16 @@ def api_ml_debug_categoria():
                                      "cat_ids": [x.get("category_id") for x in body2.get("results",[])[:3]]}
     except Exception as e2:
         resultados["search_erro"] = str(e2)
+    # Testa /sites/MLB/categories (publico, sem auth)
+    try:
+        url3 = "https://api.mercadolibre.com/sites/MLB/categories"
+        req3 = urllib.request.Request(url3, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req3, context=ctx, timeout=8) as r3:
+            cats = json.loads(r3.read())
+            resultados["categories_tree_ok"] = True
+            resultados["top_cats"] = [{"id": c["id"], "name": c["name"]} for c in cats]
+    except Exception as e3:
+        resultados["categories_tree_erro"] = str(e3)
     return jsonify({"token_ok": True, "titulo": titulo, **resultados})
 
 
