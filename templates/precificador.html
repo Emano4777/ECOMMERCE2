@@ -829,11 +829,7 @@ async function detectarCategoria() {
   const campoBusca = document.getElementById('ml-cat-busca');
   const ean  = document.getElementById('ml-input-ean').value.trim();
   const nome = document.getElementById('ml-input-nome').value.trim();
-  // Prioridade: campo de busca → EAN → primeiras palavras do nome
-  let q = campoBusca.value.trim();
-  if (!q) q = ean;
-  if (!q) q = nome.split(/\s+/).slice(0, 3).join(' ');
-  if (!q) return;
+  let titulo = campoBusca.value.trim() || nome;
 
   const btn = document.getElementById('ml-btn-cat-detect');
   btn.disabled = true;
@@ -841,46 +837,37 @@ async function detectarCategoria() {
   const box = document.getElementById('ml-cat-sugestoes');
   box.innerHTML = '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando…</div>';
 
-  try {
-    // Chama a API do ML diretamente do browser (CORS público)
-    const searchRes = await fetch(
-      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=12`
-    );
-    const searchData = await searchRes.json();
-    const results = searchData.results || [];
-
-    const catIds = [...new Set(results.map(r => r.category_id).filter(Boolean))].slice(0, 6);
-    if (!catIds.length) throw new Error('sem resultados');
-
-    // Resolve nomes em paralelo
-    const sugestoes = await Promise.all(catIds.map(async id => {
-      try {
-        const cr = await fetch(`https://api.mercadolibre.com/categories/${id}`);
-        const cd = await cr.json();
-        const path = cd.path_from_root || [];
-        const name = path.length >= 2
-          ? path.slice(-3).map(p => p.name).join(' › ')
-          : (cd.name || id);
-        return { category_id: id, category_name: name };
-      } catch { return { category_id: id, category_name: id }; }
-    }));
-
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-    renderSugestoes(sugestoes, box);
-
-  } catch (err) {
-    // Fallback: tenta via nosso proxy
+  // 1) Tenta pelo EAN (mais preciso)
+  let d = null;
+  if (ean) {
     try {
-      const r = await fetch('/api/painel/ml/sugerir-categoria?q=' + encodeURIComponent(q));
-      const d = await r.json();
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-      if (d.ok && d.sugestoes?.length) { renderSugestoes(d.sugestoes, box); return; }
+      const r = await fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(ean));
+      d = await r.json();
     } catch {}
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-    box.innerHTML = '<div style="font-size:.76rem;color:#f08090">Nenhuma categoria encontrada. Tente buscar: "suplemento", "proteina", "vitamina".</div>';
+  }
+  // 2) Tenta pelo título se EAN não funcionou
+  if (!d?.ok && titulo) {
+    try {
+      const r = await fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(titulo));
+      d = await r.json();
+    } catch {}
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
+
+  if (d?.ok && d.sugestoes?.length) {
+    renderSugestoes(d.sugestoes, box);
+  } else {
+    box.innerHTML = `
+      <div style="font-size:.76rem;color:#f08090;margin-bottom:6px">
+        Não foi possível detectar automaticamente.
+      </div>
+      <div style="font-size:.76rem;color:var(--pk-muted)">
+        Cole o ID abaixo buscando na árvore de categorias do ML:
+        <a href="https://www.mercadolivre.com.br/categorias" target="_blank"
+           style="color:#f5c842;margin-left:4px">Ver categorias ML <i class="fa fa-arrow-up-right-from-square"></i></a>
+      </div>`;
   }
 }
 

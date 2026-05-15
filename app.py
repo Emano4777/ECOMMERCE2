@@ -6230,44 +6230,78 @@ def api_ml_pausar():
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
-    """Proxy leve: repassa busca ao ML e devolve category_ids + nomes. Chamado pelo browser."""
-    q = (request.args.get("q") or "").strip()
-    if not q:
-        return jsonify({"ok": False, "erro": "Parâmetro q obrigatório."}), 400
+    """Usa category_predictor autenticado do ML para sugerir categoria folha."""
+    titulo = (request.args.get("titulo") or request.args.get("q") or "").strip()
+    if not titulo:
+        return jsonify({"ok": False, "erro": "Parâmetro titulo obrigatório."}), 400
     try:
+        token = _ml_get_token()
+        if not token:
+            return jsonify({"ok": False, "erro": "Token ML não disponível. Reconecte em Mercado Livre."}), 401
+
         ctx = ssl.create_default_context()
 
-        # Busca anúncios
-        search_url = f"https://api.mercadolibre.com/sites/MLB/search?q={urllib.parse.quote(q)}&limit=12"
-        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
-            results = json.loads(r.read()).get("results", [])
+        def _ml_get_raw(url, token):
+            req = urllib.request.Request(url)
+            req.add_header("Authorization", f"Bearer {token}")
+            req.add_header("User-Agent", "Mozilla/5.0")
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                return json.loads(r.read()), r.status
 
-        seen = {}
-        for item in results:
-            cid = item.get("category_id", "")
-            if cid and cid not in seen:
-                seen[cid] = True
+        # Tenta category_predictor
+        pred_url = (f"https://api.mercadolibre.com/sites/MLB/category_predictor/predict"
+                    f"?title={urllib.parse.quote(titulo)}")
+        try:
+            data, status = _ml_get_raw(pred_url, token)
+            cat_id   = data.get("id", "")
+            cat_name = data.get("name", "")
+            if cat_id:
+                # Resolve caminho completo
+                try:
+                    cat_data, _ = _ml_get_raw(f"https://api.mercadolibre.com/categories/{cat_id}", token)
+                    path = cat_data.get("path_from_root", [])
+                    if len(path) >= 2:
+                        cat_name = " › ".join(p["name"] for p in path[-3:])
+                except Exception:
+                    pass
+                return jsonify({"ok": True, "sugestoes": [{"category_id": cat_id, "category_name": cat_name}]})
+        except Exception as pred_err:
+            pass  # Cai para fallback abaixo
 
-        if not seen:
-            return jsonify({"ok": False, "erro": "Sem resultados para esta busca."}), 404
-
-        # Resolve nomes
-        sugestoes = []
-        for cat_id in list(seen.keys())[:6]:
+        # Fallback: products/search por GTIN se o titulo for numérico (EAN)
+        if titulo.isdigit():
             try:
-                creq = urllib.request.Request(
-                    f"https://api.mercadolibre.com/categories/{cat_id}",
-                    headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(creq, context=ctx, timeout=5) as cr:
-                    cd = json.loads(cr.read())
-                path = cd.get("path_from_root", [])
-                name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cd.get("name", cat_id)
+                prod_url = (f"https://api.mercadolibre.com/products/search"
+                            f"?site_id=MLB&product_identifier={titulo}")
+                prod_data, _ = _ml_get_raw(prod_url, token)
+                results = prod_data.get("results", [])
+                if results:
+                    cat_id = results[0].get("domain_id", "") or ""
+                    # Tenta pegar category_id do primeiro resultado de anuncio por EAN
+                    search_url = (f"https://api.mercadolibre.com/sites/MLB/search"
+                                  f"?q={titulo}&limit=5")
+                    sd, _ = _ml_get_raw(search_url, token)
+                    items = sd.get("results", [])
+                    seen = {}
+                    for it in items:
+                        cid = it.get("category_id", "")
+                        if cid and cid not in seen:
+                            seen[cid] = True
+                    sugestoes = []
+                    for cid in list(seen.keys())[:3]:
+                        try:
+                            cd, _ = _ml_get_raw(f"https://api.mercadolibre.com/categories/{cid}", token)
+                            path = cd.get("path_from_root", [])
+                            name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cd.get("name", cid)
+                        except Exception:
+                            name = cid
+                        sugestoes.append({"category_id": cid, "category_name": name})
+                    if sugestoes:
+                        return jsonify({"ok": True, "sugestoes": sugestoes})
             except Exception:
-                name = cat_id
-            sugestoes.append({"category_id": cat_id, "category_name": name})
+                pass
 
-        return jsonify({"ok": True, "sugestoes": sugestoes})
+        return jsonify({"ok": False, "erro": "Não foi possível determinar a categoria. Digite o ID manualmente."}), 404
     except Exception as ex:
         return jsonify({"ok": False, "erro": str(ex)}), 500
 
