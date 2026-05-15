@@ -825,41 +825,73 @@ function verificarPrecoML(val) {
   aviso.textContent = '';
 }
 
-function detectarCategoria() {
-  const busca = (document.getElementById('ml-cat-busca').value || '').trim()
-             || (document.getElementById('ml-input-nome').value || '').trim();
-  if (!busca) return;
+async function detectarCategoria() {
+  const campoBusca = document.getElementById('ml-cat-busca');
+  const ean  = document.getElementById('ml-input-ean').value.trim();
+  const nome = document.getElementById('ml-input-nome').value.trim();
+  // Prioridade: campo de busca → EAN → primeiras palavras do nome
+  let q = campoBusca.value.trim();
+  if (!q) q = ean;
+  if (!q) q = nome.split(/\s+/).slice(0, 3).join(' ');
+  if (!q) return;
+
   const btn = document.getElementById('ml-btn-cat-detect');
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-  document.getElementById('ml-cat-sugestoes').innerHTML =
-    '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando categorias…</div>';
+  const box = document.getElementById('ml-cat-sugestoes');
+  box.innerHTML = '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando…</div>';
 
-  const ean = document.getElementById('ml-input-ean').value.trim();
-  fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(busca) + '&ean=' + encodeURIComponent(ean))
-    .then(r => r.json())
-    .then(d => {
+  try {
+    // Chama a API do ML diretamente do browser (CORS público)
+    const searchRes = await fetch(
+      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=12`
+    );
+    const searchData = await searchRes.json();
+    const results = searchData.results || [];
+
+    const catIds = [...new Set(results.map(r => r.category_id).filter(Boolean))].slice(0, 6);
+    if (!catIds.length) throw new Error('sem resultados');
+
+    // Resolve nomes em paralelo
+    const sugestoes = await Promise.all(catIds.map(async id => {
+      try {
+        const cr = await fetch(`https://api.mercadolibre.com/categories/${id}`);
+        const cd = await cr.json();
+        const path = cd.path_from_root || [];
+        const name = path.length >= 2
+          ? path.slice(-3).map(p => p.name).join(' › ')
+          : (cd.name || id);
+        return { category_id: id, category_name: name };
+      } catch { return { category_id: id, category_name: id }; }
+    }));
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
+    renderSugestoes(sugestoes, box);
+
+  } catch (err) {
+    // Fallback: tenta via nosso proxy
+    try {
+      const r = await fetch('/api/painel/ml/sugerir-categoria?q=' + encodeURIComponent(q));
+      const d = await r.json();
       btn.disabled = false;
       btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-      const box = document.getElementById('ml-cat-sugestoes');
-      if (!d.ok || !d.sugestoes || !d.sugestoes.length) {
-        box.innerHTML = '<div style="font-size:.76rem;color:#f08090">Nenhuma categoria encontrada. Tente outra busca.</div>';
-        return;
-      }
-      box.innerHTML = d.sugestoes.map(s =>
-        `<button type="button" onclick="selecionarCategoria('${s.category_id}','${s.category_name.replace(/'/g,"\\'")}',this)"
-                 style="text-align:left;background:#0d1016;border:1px solid var(--pk-line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.78rem;color:var(--pk-txt);font-family:inherit;transition:border-color .15s">
-           <span style="color:#f5c842;font-family:monospace;font-weight:700">${s.category_id}</span>
-           <span style="color:var(--pk-muted);margin-left:6px">${s.category_name}</span>
-         </button>`
-      ).join('');
-    })
-    .catch(() => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-      document.getElementById('ml-cat-sugestoes').innerHTML =
-        '<div style="font-size:.76rem;color:#f08090">Erro de conexão.</div>';
-    });
+      if (d.ok && d.sugestoes?.length) { renderSugestoes(d.sugestoes, box); return; }
+    } catch {}
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
+    box.innerHTML = '<div style="font-size:.76rem;color:#f08090">Nenhuma categoria encontrada. Tente buscar: "suplemento", "proteina", "vitamina".</div>';
+  }
+}
+
+function renderSugestoes(sugestoes, box) {
+  box.innerHTML = sugestoes.map(s =>
+    `<button type="button" onclick="selecionarCategoria('${s.category_id}','${s.category_name.replace(/'/g,"\\'")}',this)"
+             style="text-align:left;background:#0d1016;border:1px solid var(--pk-line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.78rem;color:var(--pk-txt);font-family:inherit;transition:border-color .15s;width:100%">
+       <span style="color:#f5c842;font-family:monospace;font-weight:700">${s.category_id}</span>
+       <span style="color:var(--pk-muted);margin-left:6px">${s.category_name}</span>
+     </button>`
+  ).join('');
 }
 
 function selecionarCategoria(id, nome, btn) {

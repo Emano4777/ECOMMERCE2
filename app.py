@@ -6227,66 +6227,21 @@ def api_ml_pausar():
     return jsonify({"ok": True, "ml_item_id": ml_item_id})
 
 
-_ML_CAT_CACHE = {}  # cache simples de nomes de categoria
-
-def _ml_cat_name(cat_id, ctx):
-    if cat_id in _ML_CAT_CACHE:
-        return _ML_CAT_CACHE[cat_id]
-    try:
-        creq = urllib.request.Request(
-            f"https://api.mercadolibre.com/categories/{cat_id}",
-            headers={"User-Agent": "PoupaquiEcommerce/1.0"})
-        with urllib.request.urlopen(creq, context=ctx, timeout=6) as cr:
-            cat_data = json.loads(cr.read())
-        path = cat_data.get("path_from_root", [])
-        name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cat_data.get("name", cat_id)
-        _ML_CAT_CACHE[cat_id] = name
-        return name
-    except Exception:
-        return cat_id
-
-
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
-    """Busca categorias reais no ML: primeiro pelo EAN, depois por palavras-chave do título."""
-    titulo = (request.args.get("titulo") or "").strip()
-    ean    = (request.args.get("ean") or "").strip()
-    if not titulo and not ean:
-        return jsonify({"ok": False, "erro": "Título ou EAN obrigatório."}), 400
+    """Proxy leve: repassa busca ao ML e devolve category_ids + nomes. Chamado pelo browser."""
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"ok": False, "erro": "Parâmetro q obrigatório."}), 400
     try:
         ctx = ssl.create_default_context()
 
-        def _ml_search(q):
-            url = (f"https://api.mercadolibre.com/sites/MLB/search"
-                   f"?q={urllib.parse.quote(q)}&limit=15")
-            req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
-            with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-                return json.loads(resp.read()).get("results", [])
-
-        results = []
-
-        # 1) Busca pelo EAN — é a mais precisa (acha o produto exato)
-        if ean:
-            results = _ml_search(ean)
-
-        # 2) Se não achou, tenta o título progressivamente mais curto
-        if not results and titulo:
-            import re as _re
-            clean = _re.sub(r'[%\-\+\/]', ' ', titulo)
-            clean = _re.sub(r'\b\d+\s*(g|kg|ml|l|mg|caps?|comp|un)\b', ' ', clean, flags=_re.IGNORECASE)
-            clean = _re.sub(r'\b(pouch|pote|sache|refil|caixa|frasco|ampola|leve|pag|eve|pague|gratis|abs|seios)\b',
-                            ' ', clean, flags=_re.IGNORECASE)
-            words = [w for w in clean.split() if len(w) > 2]
-            for n in range(min(len(words), 4), 0, -1):
-                q = ' '.join(words[:n])
-                results = _ml_search(q)
-                if results:
-                    break
-
-        if not results:
-            return jsonify({"ok": False,
-                            "erro": "Não encontrado no ML. Digite uma busca simples acima (ex: 'whey protein', 'vitamina c', 'omega 3')."}), 404
+        # Busca anúncios
+        search_url = f"https://api.mercadolibre.com/sites/MLB/search?q={urllib.parse.quote(q)}&limit=12"
+        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+            results = json.loads(r.read()).get("results", [])
 
         seen = {}
         for item in results:
@@ -6294,9 +6249,23 @@ def api_ml_sugerir_categoria():
             if cid and cid not in seen:
                 seen[cid] = True
 
+        if not seen:
+            return jsonify({"ok": False, "erro": "Sem resultados para esta busca."}), 404
+
+        # Resolve nomes
         sugestoes = []
         for cat_id in list(seen.keys())[:6]:
-            sugestoes.append({"category_id": cat_id, "category_name": _ml_cat_name(cat_id, ctx)})
+            try:
+                creq = urllib.request.Request(
+                    f"https://api.mercadolibre.com/categories/{cat_id}",
+                    headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(creq, context=ctx, timeout=5) as cr:
+                    cd = json.loads(cr.read())
+                path = cd.get("path_from_root", [])
+                name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cd.get("name", cat_id)
+            except Exception:
+                name = cat_id
+            sugestoes.append({"category_id": cat_id, "category_name": name})
 
         return jsonify({"ok": True, "sugestoes": sugestoes})
     except Exception as ex:
