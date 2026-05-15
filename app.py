@@ -6227,48 +6227,71 @@ def api_ml_pausar():
     return jsonify({"ok": True, "ml_item_id": ml_item_id})
 
 
+_ML_CAT_CACHE = {}  # cache simples de nomes de categoria
+
+def _ml_cat_name(cat_id, ctx):
+    if cat_id in _ML_CAT_CACHE:
+        return _ML_CAT_CACHE[cat_id]
+    try:
+        creq = urllib.request.Request(
+            f"https://api.mercadolibre.com/categories/{cat_id}",
+            headers={"User-Agent": "PoupaquiEcommerce/1.0"})
+        with urllib.request.urlopen(creq, context=ctx, timeout=6) as cr:
+            cat_data = json.loads(cr.read())
+        path = cat_data.get("path_from_root", [])
+        name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cat_data.get("name", cat_id)
+        _ML_CAT_CACHE[cat_id] = name
+        return name
+    except Exception:
+        return cat_id
+
+
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
-    """Busca categorias reais no ML pesquisando anúncios existentes com a query."""
+    """Busca categorias reais no ML pesquisando anúncios. Tenta queries progressivamente menores."""
     titulo = (request.args.get("titulo") or "").strip()
     if not titulo:
         return jsonify({"ok": False, "erro": "Título obrigatório."}), 400
     try:
         ctx = ssl.create_default_context()
-        # 1) Busca anúncios reais → extrai category_id únicos
-        url = (f"https://api.mercadolibre.com/sites/MLB/search"
-               f"?q={urllib.parse.quote(titulo)}&limit=10")
-        req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-            search_data = json.loads(resp.read())
 
-        results = search_data.get("results", [])
+        def _search(q):
+            url = (f"https://api.mercadolibre.com/sites/MLB/search"
+                   f"?q={urllib.parse.quote(q)}&limit=15")
+            req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                return json.loads(resp.read()).get("results", [])
+
+        # Remove chars especiais e tenta queries cada vez menores
+        import re as _re
+        clean = _re.sub(r'[%\-\+\/]', ' ', titulo)
+        # Remove palavras comuns que atrapalham: pesos, formatos, marcas
+        clean = _re.sub(r'\b(\d+\s*(g|kg|ml|l|mg|caps?|comp|un))\b', '', clean, flags=_re.IGNORECASE)
+        clean = _re.sub(r'\b(pouch|pote|sache|refil|caixa|frasco|ampola)\b', '', clean, flags=_re.IGNORECASE)
+        words = [w for w in clean.split() if len(w) > 2]
+
+        results = []
+        for n in range(len(words), 0, -1):
+            q = ' '.join(words[:n])
+            if not q.strip():
+                continue
+            results = _search(q)
+            if results:
+                break
+
         seen = {}
         for item in results:
             cid = item.get("category_id", "")
             if cid and cid not in seen:
-                seen[cid] = ""  # nome vem a seguir
+                seen[cid] = True
 
         if not seen:
-            return jsonify({"ok": False, "erro": "Nenhum resultado encontrado para esta busca."}), 404
+            return jsonify({"ok": False, "erro": "Nenhum resultado encontrado. Tente uma busca mais simples (ex: 'whey protein')."}), 404
 
-        # 2) Resolve nomes das categorias (até 5)
         sugestoes = []
         for cat_id in list(seen.keys())[:5]:
-            try:
-                cat_url = f"https://api.mercadolibre.com/categories/{cat_id}"
-                creq = urllib.request.Request(cat_url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
-                with urllib.request.urlopen(creq, context=ctx, timeout=6) as cr:
-                    cat_data = json.loads(cr.read())
-                cat_name = cat_data.get("name", cat_id)
-                # Monta caminho completo ex: "Suplementos > Whey Protein"
-                path = cat_data.get("path_from_root", [])
-                if len(path) >= 2:
-                    cat_name = " › ".join(p["name"] for p in path[-3:])
-            except Exception:
-                cat_name = cat_id
-            sugestoes.append({"category_id": cat_id, "category_name": cat_name})
+            sugestoes.append({"category_id": cat_id, "category_name": _ml_cat_name(cat_id, ctx)})
 
         return jsonify({"ok": True, "sugestoes": sugestoes})
     except Exception as ex:
