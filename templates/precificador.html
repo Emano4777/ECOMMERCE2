@@ -807,6 +807,28 @@ fetch('/api/painel/ml/status-produtos')
 
 let _mlEanAtual = null;
 
+function detectarCategoria() {
+  const titulo = document.getElementById('ml-input-nome').value.trim();
+  if (!titulo) { alert('Preencha o título do anúncio primeiro.'); return; }
+  const btn = document.getElementById('ml-btn-cat-detect');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Detectando...';
+  fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(titulo))
+    .then(r => r.json())
+    .then(d => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Auto-detectar';
+      if (!d.ok) { alert('Não foi possível detectar: ' + d.erro); return; }
+      document.getElementById('ml-input-cat').value = d.category_id;
+      document.getElementById('ml-cat-nome').textContent = d.category_name ? '✓ ' + d.category_name : '';
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Auto-detectar';
+      alert('Erro de conexão ao detectar categoria.');
+    });
+}
+
 function abrirModalML(btn) {
   const ean   = btn.dataset.ean;
   const nome  = btn.dataset.nome;
@@ -820,6 +842,8 @@ function abrirModalML(btn) {
   document.getElementById('ml-input-preco').value = preco > 0 ? preco.toFixed(2) : '';
   document.getElementById('ml-input-img').value   = img;
   document.getElementById('ml-input-qty').value   = '1';
+  document.getElementById('ml-input-cat').value   = '';
+  document.getElementById('ml-cat-nome').textContent = '';
 
   const info = _mlStatus[ean];
   const btnPausar = document.getElementById('ml-btn-pausar');
@@ -846,6 +870,7 @@ function publicarNoML() {
   const cat   = document.getElementById('ml-input-cat').value;
 
   if (!preco || preco <= 0) { alert('Informe um preço válido.'); return; }
+  if (!cat || !cat.startsWith('MLB')) { alert('Clique em "Auto-detectar" para preencher a categoria ML automaticamente.'); return; }
 
   const btn = document.getElementById('ml-btn-publicar');
   btn.disabled = true;
@@ -936,13 +961,15 @@ function pausarNoML() {
       </div>
     </div>
     <div class="ml-field">
-      <label>Categoria ML</label>
-      <select class="pk-input" id="ml-input-cat">
-        <option value="MLB1196">Medicamentos</option>
-        <option value="MLB1000">Saúde e Beleza</option>
-        <option value="MLB1276">Vitaminas e Suplementos</option>
-        <option value="MLB1383">Cuidados Pessoais</option>
-      </select>
+      <label>Categoria ML
+        <button type="button" id="ml-btn-cat-detect" onclick="detectarCategoria()"
+                style="margin-left:8px;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:5px;padding:2px 8px;font-size:.72rem;font-weight:700;cursor:pointer">
+          <i class="fa fa-wand-magic-sparkles me-1"></i>Auto-detectar
+        </button>
+      </label>
+      <input type="text" class="pk-input" id="ml-input-cat" placeholder="ex: MLB272431 — clique Auto-detectar"
+             style="font-family:monospace;font-size:.85rem">
+      <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>
     </div>
     <div class="ml-field">
       <label>URL da imagem (opcional)</label>

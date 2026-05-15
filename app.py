@@ -6227,5 +6227,107 @@ def api_ml_pausar():
     return jsonify({"ok": True, "ml_item_id": ml_item_id})
 
 
+@app.get("/api/painel/ml/sugerir-categoria")
+@painel_required
+def api_ml_sugerir_categoria():
+    """Usa o preditor de categorias do ML para sugerir a melhor categoria folha."""
+    titulo = (request.args.get("titulo") or "").strip()
+    if not titulo:
+        return jsonify({"ok": False, "erro": "Título obrigatório."}), 400
+    try:
+        url = f"https://api.mercadolibre.com/sites/MLB/category_predictor/predict?title={urllib.parse.quote(titulo)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "PoupaquiEcommerce/1.0"})
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+            data = json.loads(resp.read())
+        cat_id   = data.get("id", "")
+        cat_name = data.get("name", "")
+        return jsonify({"ok": True, "category_id": cat_id, "category_name": cat_name})
+    except Exception as ex:
+        return jsonify({"ok": False, "erro": str(ex)}), 500
+
+
+@app.post("/api/painel/ml/publicar-lote")
+@painel_required
+def api_ml_publicar_lote():
+    """Publica múltiplos produtos no ML em sequência."""
+    _ensure_ml_schema()
+    if not _ml_is_connected():
+        return jsonify({"ok": False, "erro": "Conta ML não conectada."}), 400
+
+    body = request.get_json(force=True) or {}
+    produtos     = body.get("produtos") or []
+    category_id  = (body.get("category_id") or "MLB1196").strip()
+    qty_padrao   = int(body.get("quantidade_padrao") or 1)
+
+    if not produtos:
+        return jsonify({"ok": False, "erro": "Nenhum produto enviado."}), 400
+
+    token = _ml_get_token()
+    conn = db(); cur = conn.cursor()
+    resultados = []
+
+    for item in produtos:
+        ean        = (item.get("ean") or "").strip()
+        titulo     = (item.get("titulo") or "").strip()[:60]
+        preco      = float(item.get("preco") or 0)
+        imagem_url = (item.get("imagem_url") or "").strip()
+        quantidade = int(item.get("quantidade") or qty_padrao)
+
+        if not ean or not titulo or preco <= 0:
+            resultados.append({"ean": ean, "ok": False, "erro": "Dados incompletos"})
+            continue
+
+        try:
+            cur.execute("SELECT ml_item_id, status FROM ml_items WHERE ean=%s", (ean,))
+            existing = cur.fetchone()
+
+            if existing:
+                ml_item_id = existing["ml_item_id"]
+                resp, code = _ml_api_put(f"/items/{ml_item_id}",
+                                         {"price": preco, "available_quantity": quantidade}, token)
+                if code not in (200, 201):
+                    resultados.append({"ean": ean, "ok": False, "erro": f"ML {code}"})
+                    continue
+                cur.execute("UPDATE ml_items SET preco=%s, status='active', updated_at=NOW() WHERE ml_item_id=%s",
+                            (preco, ml_item_id))
+                conn.commit()
+                resultados.append({"ean": ean, "ok": True, "ml_item_id": ml_item_id, "acao": "atualizado"})
+            else:
+                pictures = [{"source": imagem_url}] if imagem_url else []
+                payload = {
+                    "title": titulo,
+                    "category_id": category_id,
+                    "price": preco,
+                    "currency_id": "BRL",
+                    "available_quantity": quantidade,
+                    "buying_mode": "buy_it_now",
+                    "listing_type_id": "gold_special",
+                    "condition": "new",
+                    "description": {"plain_text": titulo},
+                }
+                if pictures:
+                    payload["pictures"] = pictures
+                resp, code = _ml_api_post("/items", payload, token)
+                if code not in (200, 201):
+                    resultados.append({"ean": ean, "ok": False, "erro": f"ML {code}: {resp.get('message','')}"})
+                    continue
+                ml_item_id = resp.get("id", "")
+                cur.execute("""
+                    INSERT INTO ml_items (ml_item_id, ean, titulo, preco, status, updated_at)
+                    VALUES (%s, %s, %s, %s, 'active', NOW())
+                    ON CONFLICT (ml_item_id) DO UPDATE SET preco=%s, status='active', updated_at=NOW()
+                """, (ml_item_id, ean, titulo, preco, preco))
+                conn.commit()
+                resultados.append({"ean": ean, "ok": True, "ml_item_id": ml_item_id, "acao": "publicado"})
+        except Exception as ex:
+            resultados.append({"ean": ean, "ok": False, "erro": str(ex)})
+
+    cur.close()
+    publicados = sum(1 for r in resultados if r["ok"])
+    erros      = len(resultados) - publicados
+    return jsonify({"ok": True, "resultados": resultados, "publicados": publicados, "erros": erros})
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
