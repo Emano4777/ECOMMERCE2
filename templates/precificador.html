@@ -807,26 +807,54 @@ fetch('/api/painel/ml/status-produtos')
 
 let _mlEanAtual = null;
 
+let _mlCatTimer = null;
+
 function detectarCategoria() {
-  const titulo = document.getElementById('ml-input-nome').value.trim();
-  if (!titulo) { alert('Preencha o título do anúncio primeiro.'); return; }
+  const busca = (document.getElementById('ml-cat-busca').value || '').trim()
+             || (document.getElementById('ml-input-nome').value || '').trim();
+  if (!busca) return;
   const btn = document.getElementById('ml-btn-cat-detect');
   btn.disabled = true;
-  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Detectando...';
-  fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(titulo))
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+  document.getElementById('ml-cat-sugestoes').innerHTML =
+    '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando categorias…</div>';
+
+  fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(busca))
     .then(r => r.json())
     .then(d => {
       btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Auto-detectar';
-      if (!d.ok) { alert('Não foi possível detectar: ' + d.erro); return; }
-      document.getElementById('ml-input-cat').value = d.category_id;
-      document.getElementById('ml-cat-nome').textContent = d.category_name ? '✓ ' + d.category_name : '';
+      btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
+      const box = document.getElementById('ml-cat-sugestoes');
+      if (!d.ok || !d.sugestoes || !d.sugestoes.length) {
+        box.innerHTML = '<div style="font-size:.76rem;color:#f08090">Nenhuma categoria encontrada. Tente outra busca.</div>';
+        return;
+      }
+      box.innerHTML = d.sugestoes.map(s =>
+        `<button type="button" onclick="selecionarCategoria('${s.category_id}','${s.category_name.replace(/'/g,"\\'")}',this)"
+                 style="text-align:left;background:#0d1016;border:1px solid var(--pk-line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.78rem;color:var(--pk-txt);font-family:inherit;transition:border-color .15s">
+           <span style="color:#f5c842;font-family:monospace;font-weight:700">${s.category_id}</span>
+           <span style="color:var(--pk-muted);margin-left:6px">${s.category_name}</span>
+         </button>`
+      ).join('');
     })
     .catch(() => {
       btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-wand-magic-sparkles me-1"></i>Auto-detectar';
-      alert('Erro de conexão ao detectar categoria.');
+      btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
+      document.getElementById('ml-cat-sugestoes').innerHTML =
+        '<div style="font-size:.76rem;color:#f08090">Erro de conexão.</div>';
     });
+}
+
+function selecionarCategoria(id, nome, btn) {
+  document.getElementById('ml-input-cat').value = id;
+  document.getElementById('ml-cat-nome').textContent = '✓ ' + nome;
+  // Destaca o botão selecionado
+  document.querySelectorAll('#ml-cat-sugestoes button').forEach(b => {
+    b.style.borderColor = 'var(--pk-line)';
+    b.style.background = '#0d1016';
+  });
+  btn.style.borderColor = '#f5c842';
+  btn.style.background = '#1a1900';
 }
 
 function abrirModalML(btn) {
@@ -844,6 +872,8 @@ function abrirModalML(btn) {
   document.getElementById('ml-input-qty').value   = '1';
   document.getElementById('ml-input-cat').value   = '';
   document.getElementById('ml-cat-nome').textContent = '';
+  document.getElementById('ml-cat-busca').value   = '';
+  document.getElementById('ml-cat-sugestoes').innerHTML = '';
 
   const info = _mlStatus[ean];
   const btnPausar = document.getElementById('ml-btn-pausar');
@@ -961,14 +991,18 @@ function pausarNoML() {
       </div>
     </div>
     <div class="ml-field">
-      <label>Categoria ML
+      <label>Categoria ML</label>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input type="text" class="pk-input" id="ml-cat-busca" placeholder="buscar: ex. whey protein, vitamina c…"
+               style="font-size:.84rem" oninput="clearTimeout(_mlCatTimer);_mlCatTimer=setTimeout(()=>detectarCategoria(),600)">
         <button type="button" id="ml-btn-cat-detect" onclick="detectarCategoria()"
-                style="margin-left:8px;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:5px;padding:2px 8px;font-size:.72rem;font-weight:700;cursor:pointer">
-          <i class="fa fa-wand-magic-sparkles me-1"></i>Auto-detectar
+                style="white-space:nowrap;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
+          <i class="fa fa-magnifying-glass"></i>
         </button>
-      </label>
-      <input type="text" class="pk-input" id="ml-input-cat" placeholder="ex: MLB272431 — clique Auto-detectar"
-             style="font-family:monospace;font-size:.85rem">
+      </div>
+      <div id="ml-cat-sugestoes" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
+      <input type="text" class="pk-input" id="ml-input-cat" placeholder="ID preenchido ao selecionar acima"
+             style="font-family:monospace;font-size:.82rem">
       <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>
     </div>
     <div class="ml-field">
