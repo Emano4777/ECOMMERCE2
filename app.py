@@ -6169,24 +6169,56 @@ def api_ml_publicar():
 
     # Novo anúncio
     pictures = [{"source": imagem_url}] if imagem_url else []
-    payload = {
-        "title": titulo,
-        "category_id": category_id,
-        "price": preco,
-        "currency_id": "BRL",
-        "available_quantity": quantidade,
-        "buying_mode": "buy_it_now",
-        "listing_type_id": "gold_special",
-        "condition": "new",
-        "description": {"plain_text": descricao},
-    }
-    if pictures:
-        payload["pictures"] = pictures
 
-    resp, code = _ml_api_post("/items", payload, token)
+    def _build_payload(cat_id):
+        p = {
+            "title": titulo,
+            "category_id": cat_id,
+            "price": preco,
+            "currency_id": "BRL",
+            "available_quantity": quantidade,
+            "buying_mode": "buy_it_now",
+            "listing_type_id": "gold_special",
+            "condition": "new",
+            "description": {"plain_text": descricao},
+        }
+        if pictures:
+            p["pictures"] = pictures
+        return p
+
+    resp, code = _ml_api_post("/items", _build_payload(category_id), token)
+
+    # Se categoria foi migrada, tenta com o novo ID automaticamente
+    if code not in (200, 201):
+        causes = resp.get("cause", []) if isinstance(resp, dict) else []
+        migrated_to = None
+        blocking_errors = []
+        for c in causes:
+            if c.get("code") == "item.category_id.migrated":
+                import re as _re
+                m = _re.search(r'MLB\d+', c.get("message", ""))
+                if m:
+                    migrated_to = m.group(0)
+            if c.get("type") == "error" and c.get("code") != "item.category_id.migrated":
+                blocking_errors.append(c.get("message", c.get("code", "")))
+
+        if migrated_to and not blocking_errors:
+            # Retry com categoria migrada
+            resp, code = _ml_api_post("/items", _build_payload(migrated_to), token)
+            category_id = migrated_to  # atualiza para salvar correto
+        elif migrated_to and blocking_errors:
+            cur.close()
+            err_msgs = "; ".join(blocking_errors[:2])
+            return jsonify({"ok": False,
+                            "erro": f"Categoria errada (migrada para {migrated_to} que exige atributos específicos). "
+                                    f"Erros: {err_msgs}. Tente uma categoria diferente."}), 400
+
     if code not in (200, 201):
         cur.close()
-        return jsonify({"ok": False, "erro": f"Erro ML {code}: {resp}"}), 400
+        causes = resp.get("cause", []) if isinstance(resp, dict) else []
+        erros = [c.get("message", "") for c in causes if c.get("type") == "error"]
+        msg = "; ".join(erros[:2]) if erros else str(resp)
+        return jsonify({"ok": False, "erro": f"Erro ML {code}: {msg}"}), 400
 
     ml_item_id = resp.get("id", "")
     cur.execute("""
@@ -6246,11 +6278,12 @@ def api_ml_debug_categoria():
             resultados["predictor"] = {"status": r.status, "body": json.loads(r.read())}
     except Exception as e:
         resultados["predictor_erro"] = str(e)
-    # Testa search
+    # Testa search com access_token como query param
     try:
-        url2 = f"https://api.mercadolibre.com/sites/MLB/search?q={urllib.parse.quote(titulo)}&limit=3"
+        url2 = (f"https://api.mercadolibre.com/sites/MLB/search"
+                f"?q={urllib.parse.quote(titulo)}&limit=3&access_token={urllib.parse.quote(token)}")
         req2 = urllib.request.Request(url2)
-        req2.add_header("Authorization", f"Bearer {token}")
+        req2.add_header("User-Agent", "Mozilla/5.0")
         with urllib.request.urlopen(req2, context=ctx, timeout=10) as r2:
             body2 = json.loads(r2.read())
             resultados["search"] = {"total": body2.get("paging",{}).get("total",0),
@@ -6275,8 +6308,10 @@ def api_ml_sugerir_categoria():
         ctx = ssl.create_default_context()
 
         def _ml_get_raw(url, token):
-            req = urllib.request.Request(url)
-            req.add_header("Authorization", f"Bearer {token}")
+            # Tenta com access_token como query param (funciona mesmo de IPs bloqueados)
+            sep = "&" if "?" in url else "?"
+            full_url = url + sep + "access_token=" + urllib.parse.quote(token)
+            req = urllib.request.Request(full_url)
             req.add_header("User-Agent", "Mozilla/5.0")
             with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
                 return json.loads(r.read()), r.status
