@@ -826,47 +826,67 @@ function verificarPrecoML(val) {
 }
 
 async function detectarCategoria() {
-  const campoBusca = document.getElementById('ml-cat-busca');
-  const ean  = document.getElementById('ml-input-ean').value.trim();
-  const nome = document.getElementById('ml-input-nome').value.trim();
-  let titulo = campoBusca.value.trim() || nome;
+  const ean     = document.getElementById('ml-input-ean').value.trim();
+  const busca   = document.getElementById('ml-cat-busca').value.trim();
+  const nome    = document.getElementById('ml-input-nome').value.trim();
+  // Prioridade: busca manual → EAN → nome
+  const queries = [];
+  if (busca) queries.push(busca);
+  if (ean)   queries.push(ean);
+  if (nome)  queries.push(nome.split(/\s+/).slice(0, 4).join(' '));
 
   const btn = document.getElementById('ml-btn-cat-detect');
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
   const box = document.getElementById('ml-cat-sugestoes');
-  box.innerHTML = '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando…</div>';
+  box.innerHTML = '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando no Mercado Livre…</div>';
 
-  // 1) Tenta pelo EAN (mais preciso)
-  let d = null;
-  if (ean) {
+  const catCache = {};
+  async function getCatName(id) {
+    if (catCache[id]) return catCache[id];
     try {
-      const r = await fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(ean));
-      d = await r.json();
-    } catch {}
+      const r = await fetch(`https://api.mercadolibre.com/categories/${id}`);
+      const d = await r.json();
+      const path = d.path_from_root || [];
+      const name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : (d.name || id);
+      catCache[id] = name;
+      return name;
+    } catch { return id; }
   }
-  // 2) Tenta pelo título se EAN não funcionou
-  if (!d?.ok && titulo) {
+
+  let sugestoes = [];
+  for (const q of queries) {
+    if (sugestoes.length) break;
     try {
-      const r = await fetch('/api/painel/ml/sugerir-categoria?titulo=' + encodeURIComponent(titulo));
-      d = await r.json();
-    } catch {}
+      const r = await fetch(
+        `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=10`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (!r.ok) continue;
+      const data = await r.json();
+      const catIds = [...new Set((data.results || []).map(x => x.category_id).filter(Boolean))].slice(0, 5);
+      if (!catIds.length) continue;
+      sugestoes = await Promise.all(catIds.map(async id => ({
+        category_id: id,
+        category_name: await getCatName(id)
+      })));
+    } catch { continue; }
   }
 
   btn.disabled = false;
   btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
 
-  if (d?.ok && d.sugestoes?.length) {
-    renderSugestoes(d.sugestoes, box);
+  if (sugestoes.length) {
+    renderSugestoes(sugestoes, box);
   } else {
     box.innerHTML = `
       <div style="font-size:.76rem;color:#f08090;margin-bottom:6px">
-        Não foi possível detectar automaticamente.
+        Não foi possível detectar. Cole o ID manualmente:
       </div>
       <div style="font-size:.76rem;color:var(--pk-muted)">
-        Cole o ID abaixo buscando na árvore de categorias do ML:
-        <a href="https://www.mercadolivre.com.br/categorias" target="_blank"
-           style="color:#f5c842;margin-left:4px">Ver categorias ML <i class="fa fa-arrow-up-right-from-square"></i></a>
+        Abra o ML, acesse a categoria do produto e copie o ID da URL.<br>
+        <a href="https://www.mercadolivre.com.br/mais-vendidos" target="_blank"
+           style="color:#f5c842">Ir para Mercado Livre <i class="fa fa-arrow-up-right-from-square"></i></a>
       </div>`;
   }
 }
@@ -936,7 +956,7 @@ function publicarNoML() {
   const cat   = document.getElementById('ml-input-cat').value;
 
   if (!preco || preco <= 0) { alert('Informe um preço válido.'); return; }
-  if (!cat || !cat.startsWith('MLB')) { alert('Clique em "Auto-detectar" para preencher a categoria ML automaticamente.'); return; }
+  if (!cat || !cat.startsWith('MLB')) { alert('Informe a categoria ML (ex: MLB272431). Clique no botão de busca ou cole o ID manualmente.'); return; }
 
   const btn = document.getElementById('ml-btn-publicar');
   btn.disabled = true;
