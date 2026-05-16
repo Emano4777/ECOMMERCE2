@@ -6104,39 +6104,53 @@ def ml_callback():
 
 # ── Entrega confirmada: notifica ML ──────────────────────────────────────────
 
+def _ml_post(path, body_dict, token):
+    """POST autenticado para a API do ML. Retorna (http_status, resposta_dict_ou_None)."""
+    body = json.dumps(body_dict).encode("utf-8")
+    req = urllib.request.Request(ML_API_BASE + path, data=body, method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+        resp_body = resp.read().decode("utf-8", errors="replace")
+        return resp.status, json.loads(resp_body) if resp_body else {}
+
+
 def _ml_feedback_entregue(ml_order_id):
     """
     Notifica o ML que o pedido foi entregue.
+    - Com Mercado Envios (tem shipment_id): POST /shipments/{id}/fulfillment
+    - Entrega a combinar (sem shipment_id): POST /orders/{id}/feedback com fulfilled=true
     Retorna (True, "") em sucesso ou (False, mensagem_erro) em falha.
     """
     try:
         token = _ml_get_token()
         if not token:
             return False, "Sem token ML válido."
-        # 1. Busca o pedido no ML para obter shipping_id e logística
         order_data = _ml_api_get(f"/orders/{ml_order_id}", token)
         if not order_data:
             return False, f"Não foi possível buscar pedido {ml_order_id} na API ML."
-        shipping = order_data.get("shipping") or {}
-        shipping_id = shipping.get("id")
-        shipping_mode = (order_data.get("shipping") or {}).get("logistic_type") or ""
-        print(f"[ML] Pedido {ml_order_id}: shipping_id={shipping_id}, logistic_type={shipping_mode}")
-        if not shipping_id:
-            return False, f"Pedido {ml_order_id} não tem shipment_id na API ML."
-        # 2. Marca o envio como entregue via fulfillment (Flex / Entrega por sua conta)
-        body = json.dumps({"order_id": int(ml_order_id)}).encode("utf-8")
-        req = urllib.request.Request(
-            f"{ML_API_BASE}/shipments/{shipping_id}/fulfillment",
-            data=body,
-            method="POST",
-        )
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Content-Type", "application/json")
-        req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-            resp_body = resp.read().decode("utf-8", errors="replace")
-            print(f"[ML] Entrega confirmada: pedido {ml_order_id}, shipment {shipping_id}, HTTP {resp.status}, resp={resp_body[:200]}")
+        shipping_id = (order_data.get("shipping") or {}).get("id")
+        print(f"[ML] Pedido {ml_order_id}: shipping_id={shipping_id}")
+
+        if shipping_id:
+            # Mercado Envios Flex / Entrega por sua conta com shipment
+            status, resp = _ml_post(
+                f"/shipments/{shipping_id}/fulfillment",
+                {"order_id": int(ml_order_id)},
+                token,
+            )
+            print(f"[ML] fulfillment shipment {shipping_id}: HTTP {status}, {resp}")
+            return True, ""
+        else:
+            # Entrega a combinar (sem Mercado Envios) — feedback de entrega fulfillment
+            status, resp = _ml_post(
+                f"/orders/{ml_order_id}/feedback",
+                {"fulfilled": True, "ratings": "neutral"},
+                token,
+            )
+            print(f"[ML] feedback pedido {ml_order_id}: HTTP {status}, {resp}")
             return True, ""
     except urllib.error.HTTPError as e:
         body_err = e.read().decode("utf-8", errors="replace")[:400]
