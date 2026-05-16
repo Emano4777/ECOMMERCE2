@@ -45,20 +45,44 @@
     .pk-brand-text { color: var(--pk-yellow); }
     .pk-brand-highlight { color: #fff; }
     .pk-brand-panel { color: #fff; font-size:.7rem; opacity:.5; font-weight:400; }
-    .pk-nav { display: flex; gap: 4px; }
-    .pk-nav a {
+    .pk-nav { display: flex; align-items: center; gap: 2px; }
+    .pk-nav a, .pk-nav-drop {
       color: var(--pk-muted);
       text-decoration: none;
-      padding: 6px 12px;
+      padding: 6px 10px;
       border-radius: 8px;
-      font-size: .85rem;
+      font-size: .82rem;
       font-weight: 700;
       transition: background .15s, color .15s;
+      white-space: nowrap;
     }
-    .pk-nav a:hover, .pk-nav a.active { background: var(--pk-line); color: var(--pk-txt); }
-    .pk-nav a.danger { color: #e05555; }
-    .pk-user { font-size: .8rem; color: var(--pk-muted); }
-    .pk-user strong { color: var(--pk-yellow); }
+    .pk-nav-drop {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+    }
+    .pk-nav a:hover, .pk-nav a.active,
+    .pk-nav-drop:hover, .pk-nav-drop.active { background: var(--pk-line); color: var(--pk-txt); }
+    .pk-nav-sep { width: 1px; height: 20px; background: var(--pk-line); margin: 0 4px; flex-shrink: 0; }
+    .dropdown-menu { min-width: 170px; }
+    .dropdown-item { font-size: .85rem; font-weight: 600; }
+    .pk-user { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: var(--pk-muted); flex-shrink: 0; }
+    .pk-user strong { color: var(--pk-yellow); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pk-user-link, .pk-user-sair {
+      color: var(--pk-muted);
+      text-decoration: none;
+      width: 28px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 6px;
+      font-size: .9rem;
+      transition: background .15s, color .15s;
+      flex-shrink: 0;
+    }
+    .pk-user-link:hover { background: var(--pk-line); color: var(--pk-txt); }
+    .pk-user-sair:hover { background: #2a0810; color: #f08090; }
 
     /* ── LAYOUT ──────────────────── */
     .pk-main { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }
@@ -129,32 +153,61 @@
     <a href="{{ url_for('painel_relatorios') }}" {% if request.endpoint in ('painel_relatorios',) %}class="active"{% endif %}>
       <i class="fa fa-chart-line me-1"></i>Relatórios
     </a>
-    <a href="{{ url_for('painel_cupons') }}" {% if request.endpoint in ('painel_cupons',) %}class="active"{% endif %}>
-      <i class="fa fa-ticket me-1"></i>Cupons
-    </a>
-    <a href="{{ url_for('painel_ml') }}" {% if request.endpoint in ('painel_ml',) %}class="active"{% endif %}>
-      <svg width="13" height="13" viewBox="0 0 48 48" style="vertical-align:-1px;margin-right:4px"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>Mercado Livre
-    </a>
+
+    <span class="pk-nav-sep"></span>
+
+    <div class="dropdown">
+      <button class="pk-nav-drop {% if request.endpoint in ('painel_cupons','painel_ml') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="fa fa-puzzle-piece me-1"></i>Extras <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-dark">
+        <li>
+          <a class="dropdown-item {% if request.endpoint == 'painel_cupons' %}active{% endif %}" href="{{ url_for('painel_cupons') }}">
+            <i class="fa fa-ticket me-2"></i>Cupons
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint == 'painel_ml' %}active{% endif %}" href="{{ url_for('painel_ml') }}">
+            <svg width="13" height="13" viewBox="0 0 48 48" style="vertical-align:-1px;margin-right:8px"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>Mercado Livre
+          </a>
+        </li>
+      </ul>
+    </div>
+
     <a href="{{ url_for('painel_config') }}" {% if request.endpoint == 'painel_config' %}class="active"{% endif %}>
       <i class="fa fa-gear me-1"></i>Config
     </a>
+
     {% if session.is_admin %}
-    <a href="{{ url_for('admin_lojas') }}" {% if request.endpoint == 'admin_lojas' %}class="active"{% endif %}>
-      <i class="fa fa-store me-1"></i>Lojas
-    </a>
-    <a href="{{ url_for('admin_lojas_vitrine') }}" {% if request.endpoint in ('admin_lojas_vitrine','admin_lojas_vitrine_edit') %}class="active"{% endif %}>
-      <i class="fa fa-images me-1"></i>Lojas Vitrine
-    </a>
+    <span class="pk-nav-sep"></span>
+    <div class="dropdown">
+      <button class="pk-nav-drop {% if request.endpoint in ('admin_lojas','admin_lojas_vitrine','admin_lojas_vitrine_edit') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="fa fa-shield-halved me-1"></i>Admin <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-dark">
+        <li>
+          <a class="dropdown-item {% if request.endpoint == 'admin_lojas' %}active{% endif %}" href="{{ url_for('admin_lojas') }}">
+            <i class="fa fa-store me-2"></i>Lojas
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint in ('admin_lojas_vitrine','admin_lojas_vitrine_edit') %}active{% endif %}" href="{{ url_for('admin_lojas_vitrine') }}">
+            <i class="fa fa-images me-2"></i>Vitrine
+          </a>
+        </li>
+      </ul>
+    </div>
     {% endif %}
-    <a href="{{ url_for('index') }}" target="_blank">
-      <i class="fa fa-globe me-1"></i>Ver site
-    </a>
-    <a href="{{ url_for('painel_logout') }}" class="danger">
-      <i class="fa fa-right-from-bracket me-1"></i>Sair
-    </a>
   </nav>
+
   <div class="pk-user">
+    <a href="{{ url_for('index') }}" target="_blank" class="pk-user-link" title="Ver site">
+      <i class="fa fa-globe"></i>
+    </a>
     <strong>{{ session.razao or session.cnpjloja }}</strong>
+    <a href="{{ url_for('painel_logout') }}" class="pk-user-sair" title="Sair">
+      <i class="fa fa-right-from-bracket"></i>
+    </a>
   </div>
 </header>
 

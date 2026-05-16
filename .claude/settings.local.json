@@ -20,7 +20,15 @@
       "Bash(pip show *)",
       "Bash(python -m py_compile app.py)",
       "Bash(not exist *)",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('OK - sem erros de sintaxe'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('OK - sem erros de sintaxe'\\)\")",
+      "Bash(vercel link *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "mcp__claude_ai_Vercel__list_deployments",
+      "mcp__claude_ai_Vercel__get_deployment_build_logs",
+      "Bash(git commit *)",
+      "mcp__claude_ai_Vercel__get_runtime_logs"
     ],
     "additionalDirectories": [
       "c:\\Users\\emano\\dns-ecommerce"
