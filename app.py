@@ -6142,21 +6142,31 @@ def api_ml_publicar():
     preco       = float(body.get("preco") or 0)
     quantidade  = int(body.get("quantidade") or 1)
     descricao   = (body.get("descricao") or titulo).strip()
-    imagem_url  = (body.get("imagem_url") or "").strip()
+    imagens     = body.get("imagens") or []   # lista de URLs (múltiplas fotos)
+    imagem_url  = (body.get("imagem_url") or "").strip()  # fallback legacy
     category_id = (body.get("category_id") or "MLB1196").strip()
-    extra_attrs = body.get("atributos") or []  # atributos obrigatórios da categoria
+    extra_attrs = body.get("atributos") or []
 
     if not ean or not titulo or preco <= 0:
         return jsonify({"ok": False, "erro": "EAN, título e preço são obrigatórios."}), 400
 
-    # Transforma URL do Cloudinary para atender requisitos do ML (1200x1200, fundo branco)
-    if imagem_url and "res.cloudinary.com" in imagem_url and "/image/upload/" in imagem_url:
-        parts = imagem_url.split("/image/upload/", 1)
-        rest = parts[1]
-        # Remove transformações já existentes para não duplicar
-        if rest.startswith("w_") or rest.startswith("c_") or rest.startswith("h_"):
-            rest = rest.split("/", 1)[-1] if "/" in rest else rest
-        imagem_url = f"{parts[0]}/image/upload/w_1200,h_1200,c_pad,b_white,f_jpg,q_auto/{rest}"
+    def _ml_transform_img(url):
+        """Aplica transformações Cloudinary para requisitos de foto do ML."""
+        if url and "res.cloudinary.com" in url and "/image/upload/" in url:
+            parts = url.split("/image/upload/", 1)
+            rest = parts[1]
+            if rest.startswith("w_") or rest.startswith("c_") or rest.startswith("h_"):
+                rest = rest.split("/", 1)[-1] if "/" in rest else rest
+            return f"{parts[0]}/image/upload/w_1200,h_1200,c_pad,b_white,f_jpg,q_auto/{rest}"
+        return url
+
+    # Monta lista de fotos: usa imagens[] se enviado, senão imagem_url legado
+    if imagens:
+        pictures = [{"source": _ml_transform_img(u)} for u in imagens if u]
+    elif imagem_url:
+        pictures = [{"source": _ml_transform_img(imagem_url)}]
+    else:
+        pictures = []
 
     token = _ml_get_token()
     conn = db(); cur = conn.cursor()
@@ -6166,9 +6176,10 @@ def api_ml_publicar():
     existing = cur.fetchone()
 
     if existing:
-        # Atualiza preço e estoque
         ml_item_id = existing["ml_item_id"]
         update_payload = {"price": preco, "available_quantity": quantidade}
+        if pictures:
+            update_payload["pictures"] = pictures
         resp, code = _ml_api_put(f"/items/{ml_item_id}", update_payload, token)
         if code not in (200, 201):
             cur.close()
@@ -6178,9 +6189,6 @@ def api_ml_publicar():
         """, (preco, ml_item_id))
         conn.commit(); cur.close()
         return jsonify({"ok": True, "ml_item_id": ml_item_id, "acao": "atualizado"})
-
-    # Novo anúncio
-    pictures = [{"source": imagem_url}] if imagem_url else []
 
     def _build_payload(cat_id):
         p = {
@@ -6538,6 +6546,30 @@ def api_ml_navegar_categorias():
             "filhos": [{"id": c["id"], "name": c["name"]} for c in children],
             "is_leaf": len(children) == 0,
         })
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)}), 500
+
+
+@app.post("/api/painel/ml/upload-imagem")
+@painel_required
+def api_ml_upload_imagem():
+    """Faz upload de imagem ao Cloudinary com transformações para o ML."""
+    if not _CLOUDINARY_OK:
+        return jsonify({"ok": False, "erro": "Cloudinary não configurado"}), 500
+    f = request.files.get("imagem")
+    if not f:
+        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado"}), 400
+    try:
+        result = cloudinary.uploader.upload(
+            f.stream,
+            folder="ml_fotos",
+            resource_type="image",
+            transformation=[
+                {"width": 1200, "height": 1200, "crop": "pad", "background": "white"},
+                {"format": "jpg", "quality": "auto"},
+            ],
+        )
+        return jsonify({"ok": True, "url": result["secure_url"]})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)}), 500
 

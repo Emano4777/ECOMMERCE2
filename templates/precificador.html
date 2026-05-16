@@ -917,6 +917,76 @@ async function resolveManualCat(catId) {
   }
 }
 
+// ── Gerenciador de fotos ML ───────────────────────────────────────────────────
+let _mlImagens = [];
+
+function _mlTransformImg(url) {
+  if (!url || !url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url;
+  const [base, rest] = url.split('/image/upload/');
+  const clean = (rest.startsWith('w_') || rest.startsWith('c_') || rest.startsWith('h_'))
+    ? rest.split('/').slice(1).join('/')
+    : rest;
+  return `${base}/image/upload/w_1200,h_1200,c_pad,b_white,f_jpg,q_auto/${clean}`;
+}
+
+function renderFotos() {
+  const grid = document.getElementById('ml-fotos-grid');
+  const thumbs = _mlImagens.map((url, i) => {
+    const src = url === '__loading__'
+      ? 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70"><rect fill="%230d1016" width="70" height="70"/></svg>'
+      : url;
+    return `<div style="position:relative;width:70px;height:70px;flex-shrink:0;border-radius:8px;overflow:visible">
+      <img src="${src}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid ${i===0?'#f5c842':'var(--pk-line)'}"
+           onerror="this.style.opacity='.3'">
+      ${url === '__loading__' ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border-radius:8px"><i class="fa fa-spinner fa-spin" style="color:#f5c842"></i></div>` : ''}
+      ${i === 0 ? `<span style="position:absolute;bottom:3px;left:3px;background:rgba(0,0,0,.75);color:#f5c842;font-size:.5rem;font-weight:800;padding:1px 4px;border-radius:3px;line-height:1.4">CAPA</span>` : ''}
+      ${url !== '__loading__' ? `<button type="button" onclick="removerFoto(${i})"
+        style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c8102e;border:none;color:#fff;cursor:pointer;font-size:.6rem;line-height:18px;padding:0;text-align:center">✕</button>` : ''}
+    </div>`;
+  }).join('');
+
+  const addBtn = _mlImagens.length < 8 ? `
+    <label for="ml-foto-upload"
+           style="width:70px;height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px dashed var(--pk-line);border-radius:8px;cursor:pointer;color:var(--pk-muted);font-size:.68rem;background:transparent;flex-shrink:0;transition:border-color .15s"
+           onmouseover="this.style.borderColor='#f5c842'" onmouseout="this.style.borderColor='var(--pk-line)'">
+      <i class="fa fa-plus" style="font-size:.9rem"></i>Foto
+    </label>` : '';
+
+  grid.innerHTML = thumbs + addBtn;
+}
+
+function removerFoto(i) {
+  _mlImagens.splice(i, 1);
+  renderFotos();
+}
+
+async function adicionarFotosLocais(input) {
+  const files = [...input.files];
+  input.value = '';
+  for (const file of files) {
+    if (_mlImagens.length >= 8) break;
+    _mlImagens.push('__loading__');
+    renderFotos();
+    const fd = new FormData();
+    fd.append('imagem', file);
+    try {
+      const r = await fetch('/api/painel/ml/upload-imagem', {method: 'POST', body: fd});
+      const d = await r.json();
+      const idx = _mlImagens.indexOf('__loading__');
+      if (d.ok) {
+        _mlImagens[idx] = d.url;
+      } else {
+        _mlImagens.splice(idx, 1);
+        alert('Erro no upload: ' + d.erro);
+      }
+    } catch {
+      const idx = _mlImagens.indexOf('__loading__');
+      if (idx >= 0) _mlImagens.splice(idx, 1);
+    }
+    renderFotos();
+  }
+}
+
 function verificarPrecoML(val) {
   const aviso = document.getElementById('ml-preco-aviso');
   const v = parseFloat(val);
@@ -946,6 +1016,9 @@ function abrirModalML(btn) {
   document.getElementById('ml-cat-tree').innerHTML  = '';
   document.getElementById('ml-atributos-box').style.display = 'none';
   document.getElementById('ml-atributos-box').innerHTML = '';
+  // Inicializa fotos com a imagem padrão do produto
+  _mlImagens = img ? [_mlTransformImg(img)] : [];
+  renderFotos();
 
   const info = _mlStatus[ean];
   document.getElementById('ml-btn-pausar').style.display =
@@ -990,8 +1063,8 @@ function publicarNoML() {
   const nome  = document.getElementById('ml-input-nome').value;
   const preco = parseFloat(document.getElementById('ml-input-preco').value);
   const qty   = parseInt(document.getElementById('ml-input-qty').value) || 1;
-  const img   = document.getElementById('ml-input-img').value;
   const cat   = document.getElementById('ml-input-cat').value;
+  const imagens = _mlImagens.filter(u => u && u !== '__loading__');
 
   if (!preco || preco <= 0) { alert('Informe um preço válido.'); return; }
   if (!cat || !cat.toUpperCase().startsWith('MLB')) {
@@ -1007,7 +1080,7 @@ function publicarNoML() {
   fetch('/api/painel/ml/publicar', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ean, titulo: nome, preco, quantidade: qty, imagem_url: img, category_id: cat,
+    body: JSON.stringify({ean, titulo: nome, preco, quantidade: qty, imagens, category_id: cat,
       atributos: [...document.querySelectorAll('[data-attr-id]')]
         .filter(el => el.value)
         .map(el => ({id: el.dataset.attrId, value_name: el.value}))
@@ -1138,8 +1211,10 @@ function pausarNoML() {
     </div>
     <div id="ml-atributos-box" style="display:none"></div>
     <div class="ml-field">
-      <label>URL da imagem (opcional)</label>
-      <input type="url" class="pk-input" id="ml-input-img" placeholder="https://...">
+      <label>Fotos do anúncio <span style="color:var(--pk-muted);font-weight:400">(até 8 · primeira é a capa)</span></label>
+      <div id="ml-fotos-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;min-height:78px;align-items:flex-start"></div>
+      <input type="file" id="ml-foto-upload" accept="image/*" multiple style="display:none" onchange="adicionarFotosLocais(this)">
+      <input type="hidden" id="ml-input-img">
     </div>
 
     <div style="display:flex;gap:10px;margin-top:4px">
