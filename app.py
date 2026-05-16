@@ -3521,6 +3521,7 @@ def pedido_confirmacao():
 def painel_pedidos():
     _ensure_payment_schema()
     _ensure_receita_schema()
+    _ml_flush_queue()
     cnpjloja = session.get("cnpjloja")
     sf = (request.args.get("status") or "").strip()
     sf_receita = request.args.get("receita_pendente") == "1"
@@ -5936,11 +5937,18 @@ def _process_ml_order(order_id):
 
         cur.close()
 
-        # Atribui loja
+        # Atribui loja — se não achar por CEP, usa qualquer loja ativa (não descarta o pedido)
         cnpjloja = _ml_assign_loja(eans, cep_comprador)
         if not cnpjloja:
-            print(f"[ML] Nenhuma loja disponível para pedido {order_id}")
-            return
+            # Fallback: primeira loja cadastrada no banco
+            conn_fb = db(); cur_fb = conn_fb.cursor()
+            cur_fb.execute(
+                "SELECT cnpjloja FROM users WHERE is_admin=FALSE ORDER BY razao LIMIT 1"
+            )
+            row_fb = cur_fb.fetchone(); cur_fb.close()
+            cnpjloja = row_fb["cnpjloja"] if row_fb else None
+        if not cnpjloja:
+            raise RuntimeError("Nenhuma loja cadastrada no sistema.")
 
         # Insere pedido
         conn2 = db(); cur2 = conn2.cursor()
@@ -6040,6 +6048,76 @@ def ml_callback():
 
 # ── Webhook: recebe notificações do ML ───────────────────────────────────────
 
+def _ml_queue_order(order_id_str):
+    """Enfileira um order_id ML para processamento. Cria a tabela se não existir."""
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ml_order_queue (
+                order_id TEXT PRIMARY KEY,
+                received_at TIMESTAMPTZ DEFAULT NOW(),
+                processed BOOLEAN DEFAULT FALSE,
+                error TEXT
+            )
+        """)
+        cur.execute(
+            "INSERT INTO ml_order_queue (order_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            (order_id_str,)
+        )
+        conn.commit(); cur.close()
+    except Exception as e:
+        print(f"[ML] Erro ao enfileirar {order_id_str}: {e}")
+
+
+def _ml_flush_queue():
+    """Processa pedidos ML pendentes na fila. Chamado automaticamente ao abrir Pedidos."""
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ml_order_queue (
+                order_id TEXT PRIMARY KEY,
+                received_at TIMESTAMPTZ DEFAULT NOW(),
+                processed BOOLEAN DEFAULT FALSE,
+                error TEXT
+            )
+        """)
+        cur.execute(
+            "SELECT order_id FROM ml_order_queue WHERE processed=FALSE ORDER BY received_at LIMIT 20"
+        )
+        pendentes = [r["order_id"] for r in cur.fetchall()]
+        cur.close()
+    except Exception:
+        return
+
+    for oid in pendentes:
+        try:
+            # Pula se já foi criado (webhook pode ter processado antes)
+            conn2 = db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (oid,))
+            ja_existe = cur2.fetchone(); cur2.close()
+            if ja_existe:
+                conn3 = db(); cur3 = conn3.cursor()
+                cur3.execute("UPDATE ml_order_queue SET processed=TRUE WHERE order_id=%s", (oid,))
+                conn3.commit(); cur3.close()
+                continue
+
+            _process_ml_order(int(oid))
+
+            conn4 = db(); cur4 = conn4.cursor()
+            cur4.execute("UPDATE ml_order_queue SET processed=TRUE, error=NULL WHERE order_id=%s", (oid,))
+            conn4.commit(); cur4.close()
+        except Exception as e:
+            try:
+                conn5 = db(); cur5 = conn5.cursor()
+                cur5.execute(
+                    "UPDATE ml_order_queue SET error=%s WHERE order_id=%s",
+                    (str(e)[:500], oid)
+                )
+                conn5.commit(); cur5.close()
+            except Exception:
+                pass
+
+
 @app.post("/ml/webhook")
 def ml_webhook():
     """Recebe notificações de novos pedidos do Mercado Livre."""
@@ -6052,25 +6130,15 @@ def ml_webhook():
         if ("orders" in topic or "orders" in resource) and resource:
             order_id = resource.strip("/").split("/")[-1]
             if order_id.isdigit():
-                # Enfileira na tabela — threads não são confiáveis em serverless
-                conn = db(); cur = conn.cursor()
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS ml_order_queue (
-                        order_id TEXT PRIMARY KEY,
-                        received_at TIMESTAMPTZ DEFAULT NOW(),
-                        processed BOOLEAN DEFAULT FALSE
-                    )
-                """)
-                cur.execute(
-                    "INSERT INTO ml_order_queue (order_id) VALUES (%s) ON CONFLICT DO NOTHING",
-                    (order_id,)
-                )
-                conn.commit(); cur.close()
-                # Processa imediatamente (sync) — Vercel termina threads daemon antes de concluir
+                _ml_queue_order(order_id)
+                # Tenta processar imediatamente; se falhar, fila garante reprocessamento
                 try:
                     _process_ml_order(int(order_id))
+                    conn = db(); cur = conn.cursor()
+                    cur.execute("UPDATE ml_order_queue SET processed=TRUE WHERE order_id=%s", (order_id,))
+                    conn.commit(); cur.close()
                 except Exception as ep:
-                    print(f"[ML] Erro ao processar pedido {order_id}: {ep}")
+                    print(f"[ML] Webhook: processamento adiado para {order_id}: {ep}")
     except Exception as e:
         print(f"[ML] Erro no webhook: {e}")
 
@@ -6095,13 +6163,16 @@ def api_ml_importar_pedido():
     try:
         _process_ml_order(order_id)
     except Exception as e:
-        return jsonify({"ok": False, "erro": str(e)}), 500
+        erro = str(e)
+        if "403" in erro or "UNAUTHORIZED" in erro or "PolicyAgent" in erro:
+            return jsonify({"ok": False, "erro": "ML bloqueou a consulta do pedido (PolicyAgent). Tente reconectar a conta ML em Mercado Livre → Reconectar."}), 400
+        return jsonify({"ok": False, "erro": erro}), 500
     conn2 = db(); cur2 = conn2.cursor()
     cur2.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (order_id_raw,))
     row = cur2.fetchone(); cur2.close()
     if row:
         return jsonify({"ok": True, "mensagem": f"Pedido {order_id} importado com sucesso!", "pedido_id": str(row["id"])})
-    return jsonify({"ok": False, "erro": "Pedido não encontrado ou loja não identificada para esse CEP."})
+    return jsonify({"ok": False, "erro": "Não foi possível buscar os detalhes do pedido na API do ML. Tente importar manualmente os dados abaixo."})
 
 
 @app.post("/api/painel/ml/sincronizar-fila")
