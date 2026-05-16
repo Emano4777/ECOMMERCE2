@@ -5912,15 +5912,18 @@ def _process_ml_order(order_id):
         order_items = order.get("order_items", [])
         itens_pedido = []
         eans = []
+        cnpjloja_publicou = None  # loja que publicou o item no ML
         for oi in order_items:
             item_obj  = oi.get("item") or {}
             item_id   = item_obj.get("id", "")
             nome_item = item_obj.get("title", "")
             qty       = int(oi.get("quantity", 1))
             preco_u   = float(oi.get("unit_price", 0))
-            cur.execute("SELECT ean FROM ml_items WHERE ml_item_id=%s", (item_id,))
+            cur.execute("SELECT ean, cnpjloja FROM ml_items WHERE ml_item_id=%s", (item_id,))
             row_ean = cur.fetchone()
             ean = row_ean["ean"] if row_ean else item_id
+            if row_ean and row_ean.get("cnpjloja"):
+                cnpjloja_publicou = row_ean["cnpjloja"]
             eans.append(ean)
             itens_pedido.append({"ean": ean, "nome": nome_item, "preco": preco_u, "qty": qty})
 
@@ -5942,10 +5945,12 @@ def _process_ml_order(order_id):
 
         cur.close()
 
-        # Atribui loja — se não achar por CEP, usa qualquer loja ativa (não descarta o pedido)
+        # Atribui loja — prioridade: proximidade CEP → loja que publicou o item → primeira loja
         cnpjloja = _ml_assign_loja(eans, cep_comprador)
+        if not cnpjloja and cnpjloja_publicou:
+            cnpjloja = cnpjloja_publicou  # usa a loja que publicou o item no ML
         if not cnpjloja:
-            # Fallback: primeira loja cadastrada no banco
+            # Fallback genérico: primeira loja cadastrada no banco
             conn_fb = db(); cur_fb = conn_fb.cursor()
             cur_fb.execute(
                 "SELECT cnpjloja FROM users WHERE is_admin=FALSE ORDER BY razao LIMIT 1"
@@ -6549,12 +6554,13 @@ def api_ml_publicar():
 
     ml_item_id = resp.get("id", "")
     permalink  = resp.get("permalink", "")
+    _cnpjloja_pub = session.get("cnpjloja")
     cur.execute("""
-        INSERT INTO ml_items (ml_item_id, ean, titulo, preco, category_id, status, updated_at)
-        VALUES (%s, %s, %s, %s, %s, 'active', NOW())
+        INSERT INTO ml_items (ml_item_id, ean, titulo, preco, category_id, cnpjloja, status, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW())
         ON CONFLICT (ml_item_id) DO UPDATE
-          SET preco=%s, category_id=%s, status='active', updated_at=NOW()
-    """, (ml_item_id, ean, titulo, preco, category_id, preco, category_id))
+          SET preco=%s, category_id=%s, cnpjloja=%s, status='active', updated_at=NOW()
+    """, (ml_item_id, ean, titulo, preco, category_id, _cnpjloja_pub, preco, category_id, _cnpjloja_pub))
     conn.commit(); cur.close()
     return jsonify({"ok": True, "ml_item_id": ml_item_id, "permalink": permalink, "acao": "publicado"})
 
