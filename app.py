@@ -6233,14 +6233,37 @@ def api_ml_publicar():
     existing = cur.fetchone()
 
     if existing:
-        ml_item_id = existing["ml_item_id"]
+        ml_item_id  = existing["ml_item_id"]
+        local_status = existing.get("status", "")
+
+        # Verifica status real no ML antes de tentar atualizar
+        real_status = local_status
+        try:
+            item_data = _ml_api_get(f"/items/{ml_item_id}?attributes=id,status,sub_status", token)
+            if item_data:
+                real_status = item_data.get("status", local_status)
+        except Exception:
+            pass
+
+        if real_status == "under_review":
+            cur.close()
+            return jsonify({
+                "ok": False,
+                "erro": (f"O anúncio {ml_item_id} está em revisão pelo Mercado Livre (fotos em análise). "
+                         "Aguarde a aprovação antes de atualizar. "
+                         "Você pode acompanhar em Painel → Mercado Livre.")
+            }), 400
+
         update_payload = {"price": preco, "available_quantity": quantidade}
         if pictures:
             update_payload["pictures"] = pictures
         resp, code = _ml_api_put(f"/items/{ml_item_id}", update_payload, token)
         if code not in (200, 201):
             cur.close()
-            return jsonify({"ok": False, "erro": f"Erro ML {code}: {resp}"}), 400
+            causes = resp.get("cause", []) if isinstance(resp, dict) else []
+            erros = [c.get("message", "") for c in causes if c.get("type") == "error"]
+            msg = "; ".join(erros[:3]) if erros else str(resp)
+            return jsonify({"ok": False, "erro": f"Erro ML {code}: {msg}"}), 400
         cur.execute("""
             UPDATE ml_items SET preco=%s, status='active', updated_at=NOW() WHERE ml_item_id=%s
         """, (preco, ml_item_id))
