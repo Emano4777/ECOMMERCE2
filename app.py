@@ -664,6 +664,75 @@ def _find_json_value(obj, key, _d=0):
     return None
 
 
+def _fetch_raia_product_page_price(url):
+    """Extrai preço final da página de produto da Droga Raia."""
+    import re
+    try:
+        from curl_cffi import requests as cffi_requests
+    except ImportError:
+        return None
+    try:
+        r = cffi_requests.get(
+            url,
+            headers={
+                "User-Agent": _VTEX_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                "Referer": "https://www.drogaraia.com.br/",
+            },
+            impersonate="chrome124",
+            timeout=18,
+            allow_redirects=True,
+        )
+        if r.status_code != 200 or not r.text:
+            return None
+        html = r.text
+
+        # JSON-LD do produto costuma trazer o preço final exibido no card de compra.
+        for raw_ld in re.findall(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
+            try:
+                ld = json.loads(raw_ld)
+                items = ld if isinstance(ld, list) else [ld]
+                for item in items:
+                    if str(item.get("@type", "")).lower() == "product":
+                        offers = item.get("offers") or {}
+                        if isinstance(offers, list):
+                            offers = offers[0] if offers else {}
+                        price = offers.get("price") or offers.get("lowPrice")
+                        if price:
+                            return {
+                                "preco": float(price),
+                                "preco_original": None,
+                                "nome": item.get("name"),
+                            }
+            except Exception:
+                pass
+
+        m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
+        if not m:
+            return None
+        nd = json.loads(m.group(1))
+        product_data = nd.get("props", {}).get("pageProps", {}).get("productData", {})
+        price_aux = product_data.get("price_aux") or {}
+        live_price = ((product_data.get("liveComposition") or {}).get("livePrice") or {})
+        price = (
+            price_aux.get("value_to")
+            or live_price.get("valueTo")
+            or live_price.get("bestPrice")
+            or product_data.get("price")
+        )
+        original = price_aux.get("value_from") or live_price.get("valueFrom")
+        if price:
+            return {
+                "preco": float(price),
+                "preco_original": float(original) if original else None,
+                "nome": product_data.get("name") or product_data.get("productName"),
+            }
+    except Exception:
+        return None
+    return None
+
+
 def _fetch_raia_via_search_page(ean):
     """
     Fallback para Droga Raia: raspa a página de busca SSR (FastStore/Next.js).
@@ -732,6 +801,15 @@ def _fetch_raia_via_search_page(ean):
                     link = product.get("url") or product.get("urlLandingPage")
                     if link and not link.startswith("http"):
                         link = f"https://www.drogaraia.com.br/{link.lstrip('/')}"
+                    detail_price = _fetch_raia_product_page_price(link) if link else None
+                    if detail_price and detail_price.get("preco"):
+                        return {
+                            "disponivel": True,
+                            "preco": detail_price["preco"],
+                            "preco_original": detail_price.get("preco_original"),
+                            "url": link or url,
+                            "nome": detail_price.get("nome") or product.get("name") or product.get("productName"),
+                        }
                     if price:
                         return {
                             "disponivel": True,
@@ -856,8 +934,9 @@ def _fetch_and_store_competitor_prices(eans):
             conn.commit()
             cur.close()
             conn.close()
+            return {"ean": ean, "concorrente": slug, "ok": result is not None, "erro": erro}
         except Exception:
-            pass
+            return {"ean": ean, "concorrente": slug, "ok": False, "erro": "erro_banco"}
 
     tasks = [
         (ean, slug, info["base"], info.get("base_fallbacks", []),
@@ -868,6 +947,24 @@ def _fetch_and_store_competitor_prices(eans):
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
         futures = [ex.submit(fetch_one, ean, slug, base, fbs, host, scrape) for ean, slug, base, fbs, host, scrape in tasks]
         concurrent.futures.wait(futures, timeout=300)
+    resultados = []
+    for fut in futures:
+        try:
+            resultados.append(fut.result())
+        except Exception:
+            pass
+    return {
+        "total": len(resultados),
+        "ok": sum(1 for r in resultados if r and r.get("ok")),
+        "falha": sum(1 for r in resultados if r and not r.get("ok")),
+        "por_concorrente": {
+            slug: {
+                "ok": sum(1 for r in resultados if r and r.get("concorrente") == slug and r.get("ok")),
+                "falha": sum(1 for r in resultados if r and r.get("concorrente") == slug and not r.get("ok")),
+            }
+            for slug in _CONCORRENTES
+        },
+    }
 
 
 def _ensure_ml_schema():
@@ -5558,8 +5655,8 @@ def precificador_buscar_lote():
     eans_lote = [str(e).strip() for e in (data.get("eans") or []) if e][:20]
     if not eans_lote:
         return jsonify({"ok": False, "msg": "Sem EANs"})
-    _fetch_and_store_competitor_prices(eans_lote)
-    return jsonify({"ok": True, "processados": len(eans_lote)})
+    stats = _fetch_and_store_competitor_prices(eans_lote) or {}
+    return jsonify({"ok": True, "processados": len(eans_lote), "stats": stats})
 
 
 @app.get("/painel/precificador/status-concorrentes")
