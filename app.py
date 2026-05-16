@@ -6304,6 +6304,75 @@ def api_ml_debug_categoria():
     return jsonify({"token_ok": True, "titulo": titulo, **resultados})
 
 
+@app.get("/api/painel/ml/categoria-por-item")
+@painel_required
+def api_ml_categoria_por_item():
+    """Resolve category_id de um item ou produto ML usando o bearer token da loja."""
+    item_id = (request.args.get("item_id") or "").strip().upper()
+    ean     = (request.args.get("ean") or "").strip()
+    token   = _ml_get_token()
+    if not token:
+        return jsonify({"ok": False, "erro": "Token ML não disponível."}), 401
+
+    ctx = ssl.create_default_context()
+
+    def _get_auth(path):
+        req = urllib.request.Request(ML_API_BASE + path)
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            return json.loads(r.read())
+
+    def _resolve_cat_name(cat_id):
+        try:
+            cd = _get_auth(f"/categories/{cat_id}")
+            path = cd.get("path_from_root", [])
+            return " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cd.get("name", cat_id)
+        except Exception:
+            return cat_id
+
+    # 1) Tenta como item listing (ex: MLB5377686510)
+    if item_id.startswith("MLB"):
+        try:
+            data = _get_auth(f"/items/{item_id}?attributes=category_id")
+            cat_id = data.get("category_id", "")
+            if cat_id and cat_id.startswith("MLB"):
+                return jsonify({"ok": True, "category_id": cat_id, "category_name": _resolve_cat_name(cat_id)})
+        except Exception as e:
+            pass
+
+        # 2) Tenta como product (ex: MLB21776085)
+        try:
+            data = _get_auth(f"/products/{item_id}")
+            cat_id = data.get("category_id", "")
+            if cat_id and cat_id.startswith("MLB"):
+                return jsonify({"ok": True, "category_id": cat_id, "category_name": _resolve_cat_name(cat_id)})
+        except Exception:
+            pass
+
+        # 3) Tenta como categoria diretamente
+        try:
+            data = _get_auth(f"/categories/{item_id}")
+            if data.get("id", "").startswith("MLB"):
+                return jsonify({"ok": True, "category_id": data["id"], "category_name": _resolve_cat_name(data["id"])})
+        except Exception:
+            pass
+
+    # 4) Tenta busca por EAN via products/search
+    if ean and ean.isdigit():
+        try:
+            data = _get_auth(f"/products/search?site_id=MLB&product_identifier={ean}")
+            results = data.get("results", [])
+            if results:
+                cat_id = results[0].get("domain_id") or results[0].get("category_id") or ""
+                if cat_id and cat_id.startswith("MLB"):
+                    return jsonify({"ok": True, "category_id": cat_id, "category_name": _resolve_cat_name(cat_id)})
+        except Exception:
+            pass
+
+    return jsonify({"ok": False, "erro": f"Não foi possível resolver categoria para {item_id or ean}"}), 404
+
+
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():
