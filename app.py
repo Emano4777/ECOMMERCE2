@@ -5150,6 +5150,51 @@ def precificador_testar_ean():
     })
 
 
+@app.get("/painel/precificador/debug-raia-html")
+@painel_required
+def precificador_debug_raia_html():
+    """Debug: busca a página de busca da Raia e retorna status + primeiros 4000 chars de HTML."""
+    import re
+    ean = (request.args.get("ean") or "").strip()
+    if not ean:
+        return jsonify({"erro": "Informe ?ean=<codigo>"})
+    url = f"https://www.drogaraia.com.br/busca/?q={ean}"
+    try:
+        from curl_cffi import requests as cffi_requests
+        r = cffi_requests.get(
+            url,
+            headers={
+                "User-Agent": _VTEX_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                "Referer": "https://www.drogaraia.com.br/",
+            },
+            impersonate="chrome124",
+            timeout=18,
+            allow_redirects=True,
+        )
+        html = r.text or ""
+        has_next_data = bool(re.search(r'__NEXT_DATA__', html, re.IGNORECASE))
+        has_json_ld   = bool(re.search(r'application/ld\+json', html, re.IGNORECASE))
+        has_price_kw  = bool(re.search(r'"(?:lowPrice|spotPrice|sellingPrice)"\s*:', html))
+        next_data_preview = None
+        m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
+        if m:
+            next_data_preview = m.group(1)[:3000]
+        return jsonify({
+            "url": url,
+            "status": r.status_code,
+            "html_len": len(html),
+            "html_preview": html[:3000],
+            "has_next_data": has_next_data,
+            "has_json_ld": has_json_ld,
+            "has_price_keyword": has_price_kw,
+            "next_data_preview": next_data_preview,
+        })
+    except Exception as e:
+        return jsonify({"erro": str(e)[:500], "url": url})
+
+
 @app.post("/painel/precificador/buscar-concorrentes")
 @painel_required
 def precificador_buscar_concorrentes():

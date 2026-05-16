@@ -126,6 +126,9 @@
     <a href="{{ url_for('painel_reclamacoes') }}" {% if request.endpoint in ('painel_reclamacoes','painel_reclamacao_detalhe') %}class="active"{% endif %} style="position:relative">
       <i class="fa fa-triangle-exclamation me-1"></i>Reclamações
     </a>
+    <a href="{{ url_for('painel_relatorios') }}" {% if request.endpoint in ('painel_relatorios',) %}class="active"{% endif %}>
+      <i class="fa fa-chart-line me-1"></i>Relatórios
+    </a>
     <a href="{{ url_for('painel_cupons') }}" {% if request.endpoint in ('painel_cupons',) %}class="active"{% endif %}>
       <i class="fa fa-ticket me-1"></i>Cupons
     </a>
