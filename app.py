@@ -6149,6 +6149,15 @@ def api_ml_publicar():
     if not ean or not titulo or preco <= 0:
         return jsonify({"ok": False, "erro": "EAN, título e preço são obrigatórios."}), 400
 
+    # Transforma URL do Cloudinary para atender requisitos do ML (1200x1200, fundo branco)
+    if imagem_url and "res.cloudinary.com" in imagem_url and "/image/upload/" in imagem_url:
+        parts = imagem_url.split("/image/upload/", 1)
+        rest = parts[1]
+        # Remove transformações já existentes para não duplicar
+        if rest.startswith("w_") or rest.startswith("c_") or rest.startswith("h_"):
+            rest = rest.split("/", 1)[-1] if "/" in rest else rest
+        imagem_url = f"{parts[0]}/image/upload/w_1200,h_1200,c_pad,b_white,f_jpg,q_auto/{rest}"
+
     token = _ml_get_token()
     conn = db(); cur = conn.cursor()
 
