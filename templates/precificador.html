@@ -832,7 +832,7 @@ async function extrairIdDeUrl(val) {
   nomeEl.textContent = '⏳ Buscando categoria…';
   box.innerHTML = '';
 
-  // 0) Try HTML scraping for any ML URL (works even without MLB IDs in URL)
+  // 0a) Server-side HTML scraping
   if (val.includes('mercadolivre') || val.includes('mercadolibre')) {
     try {
       const r = await fetch(`/api/painel/ml/categoria-de-url?url=${encodeURIComponent(val)}`);
@@ -840,6 +840,21 @@ async function extrairIdDeUrl(val) {
       if (d.ok && d.category_id) {
         await setCategoryId(d.category_id, { category_name: d.category_name });
         return;
+      }
+    } catch {}
+  }
+
+  // 0b) Browser-side scraping via corsproxy.io — parse category from ML HTML
+  if (val.includes('mercadolivre') || val.includes('mercadolibre')) {
+    try {
+      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(val)}`;
+      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+      if (resp.ok) {
+        const html = await resp.text();
+        for (const pat of [/"categoryId"\s*:\s*"(MLB\d+)"/, /"category_id"\s*:\s*"(MLB\d+)"/]) {
+          const m = html.match(pat);
+          if (m) { await setCategoryId(m[1]); return; }
+        }
       }
     } catch {}
   }
@@ -906,12 +921,10 @@ function _boxFallbackManual() {
       <div style="font-weight:800;color:#e8c94a;margin-bottom:10px">
         <i class="fa fa-circle-info me-1"></i>Como encontrar o ID da categoria
       </div>
-      <ol style="color:var(--pk-muted);margin:0 0 12px 0;padding-left:18px;line-height:1.9">
-        <li>Clique em <strong style="color:#e8c94a">Buscar no ML</strong> abaixo</li>
-        <li>Clique em <strong style="color:#e8c94a">qualquer produto</strong> parecido com o seu</li>
-        <li>Copie a <strong style="color:#e8c94a">URL do produto</strong> que abriu</li>
-        <li>Cole essa URL aqui no campo acima — o sistema detecta a categoria automaticamente</li>
-      </ol>
+      <div style="color:var(--pk-muted);margin-bottom:12px;line-height:1.7">
+        Clique em <strong style="color:#e8c94a">Buscar no ML</strong>, abra qualquer produto parecido, copie a URL e cole aqui.
+        <br>Ou se já sabe o ID, digitie direto: <code style="color:#f5c842">MLB272431</code>
+      </div>
       <a href="${url}" target="_blank"
          style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:9px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
         <i class="fa fa-arrow-up-right-from-square"></i>Buscar no ML
