@@ -5778,10 +5778,16 @@ def _ml_api_get(path, token=None):
         return None
     req = urllib.request.Request(ML_API_BASE + path)
     req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    req.add_header("Accept", "application/json")
     try:
         ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
             return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:300]
+        print(f"[ML] Erro GET {path}: HTTP {e.code} — {body}")
+        return None
     except Exception as e:
         print(f"[ML] Erro GET {path}: {e}")
         return None
@@ -5877,8 +5883,7 @@ def _process_ml_order(order_id):
 
         order = _ml_api_get(f"/orders/{order_id}", token)
         if not order:
-            print(f"[ML] Não conseguiu buscar pedido {order_id}")
-            return
+            raise RuntimeError(f"API ML retornou vazio para /orders/{order_id} — PolicyAgent ou token inválido")
 
         conn = db(); cur = conn.cursor()
 
@@ -6103,14 +6108,24 @@ def _ml_flush_queue():
 
             _process_ml_order(int(oid))
 
+            # Só marca como processado se o pedido foi realmente criado no banco
             conn4 = db(); cur4 = conn4.cursor()
-            cur4.execute("UPDATE ml_order_queue SET processed=TRUE, error=NULL WHERE order_id=%s", (oid,))
-            conn4.commit(); cur4.close()
+            cur4.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (oid,))
+            criado = cur4.fetchone(); cur4.close()
+            if criado:
+                conn4b = db(); cur4b = conn4b.cursor()
+                cur4b.execute("UPDATE ml_order_queue SET processed=TRUE, error=NULL WHERE order_id=%s", (oid,))
+                conn4b.commit(); cur4b.close()
+            else:
+                conn4b = db(); cur4b = conn4b.cursor()
+                cur4b.execute("UPDATE ml_order_queue SET processed=FALSE, error=%s WHERE order_id=%s",
+                              ("Processado mas pedido não encontrado no banco", oid))
+                conn4b.commit(); cur4b.close()
         except Exception as e:
             try:
                 conn5 = db(); cur5 = conn5.cursor()
                 cur5.execute(
-                    "UPDATE ml_order_queue SET error=%s WHERE order_id=%s",
+                    "UPDATE ml_order_queue SET processed=FALSE, error=%s WHERE order_id=%s",
                     (str(e)[:500], oid)
                 )
                 conn5.commit(); cur5.close()
