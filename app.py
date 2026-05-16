@@ -2729,8 +2729,8 @@ def api_produtos_proximos():
     except (KeyError, ValueError):
         return jsonify({"error": "lat/lng inválidos"}), 400
 
-    raio    = float(request.args.get("raio", 50))
-    raio_fallback = max(raio, float(request.args.get("raio_fallback", 120)))
+    raio    = float(request.args.get("raio", 30))
+    raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
 
     conn = db()
