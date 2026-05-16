@@ -299,7 +299,7 @@
     <button onclick="document.getElementById('import-panel').classList.toggle('d-none')" class="btn-pk-ghost">
       <i class="fa fa-file-excel me-1"></i>Importar planilha
     </button>
-    <button class="btn-conc" id="btn-conc" onclick="buscarConcorrentes(this)">
+    <button class="btn-conc" id="btn-conc" onclick="handleConcBtn(this)">
       <i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes
     </button>
   </div>
@@ -1360,7 +1360,15 @@ function pausarNoML() {
 }
 
 // ── CONCORRENTES ─────────────────────────────────────────────────────────────
-let _concPolling = null;
+let _concBuscaAtiva = false;
+
+function handleConcBtn(btn) {
+  if (_concBuscaAtiva) {
+    pollConcorrentes();
+  } else {
+    buscarConcorrentes(btn);
+  }
+}
 
 function buscarConcorrentes(btn) {
   btn.disabled = true;
@@ -1375,11 +1383,11 @@ function buscarConcorrentes(btn) {
   .then(r => r.json())
   .then(data => {
     if (data.ok) {
-      // Poll a cada 4s até ter dados frescos
-      if (_concPolling) clearInterval(_concPolling);
-      _concPolling = setInterval(pollConcorrentes, 4000);
-      // Para o poll após 90s no máximo
-      setTimeout(() => { if (_concPolling) { clearInterval(_concPolling); _concPolling = null; } }, 90000);
+      // Busca iniciada — botão vira "Atualizar preços" para checar resultados manualmente
+      _concBuscaAtiva = true;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-rotate-right me-1"></i>Atualizar preços';
+      document.getElementById('conc-searching').innerHTML = '<span class="conc-pulse"></span>Busca em andamento em segundo plano…';
     } else {
       alert(data.msg || 'Erro ao iniciar busca.');
       resetBtnConc(btn);
@@ -1389,6 +1397,7 @@ function buscarConcorrentes(btn) {
 }
 
 function resetBtnConc(btn) {
+  _concBuscaAtiva = false;
   btn.disabled = false;
   btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes';
   document.getElementById('conc-searching').style.display = 'none';
@@ -1396,12 +1405,16 @@ function resetBtnConc(btn) {
 }
 
 function pollConcorrentes() {
+  const btn = document.getElementById('btn-conc');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Carregando…'; }
   fetch('/painel/precificador/status-concorrentes')
   .then(r => r.json())
   .then(data => {
-    if (!data || !data.precos) return;
+    if (!data || !data.precos) { if (btn) resetBtnConc(btn); return; }
     renderConcorrentes(data.precos, data.last_update);
-  });
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-rotate-right me-1"></i>Atualizar preços'; }
+  })
+  .catch(() => { if (btn) resetBtnConc(btn); });
 }
 
 function debugEan() {
@@ -1453,9 +1466,9 @@ function renderConcorrentes(precos, lastUpdate) {
     if (txt) { txt.textContent = 'última consulta ' + lastUpdate; txt.style.opacity = '1'; }
     const srch = document.getElementById('conc-searching');
     if (srch) srch.style.display = 'none';
+    _concBuscaAtiva = false;
     const btn = document.getElementById('btn-conc');
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes'; }
-    if (_concPolling) { clearInterval(_concPolling); _concPolling = null; }
   }
 }
 </script>

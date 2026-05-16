@@ -4,3 +4,4 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 openpyxl==3.1.2
 cloudinary>=1.36.0
+curl_cffi>=0.7.0

@@ -516,18 +516,33 @@ _VTEX_HEADERS = {
 
 
 def _vtex_get_json(url, timeout=10):
-    """Faz GET com headers de browser; retorna objeto Python ou None em erro."""
-    ctx = ssl.create_default_context()
-    req = urllib.request.Request(url)
-    for k, v in _VTEX_HEADERS.items():
-        req.add_header(k, v)
-    req.add_header("Referer", url.split("/_v")[0].split("/api")[0] + "/")
+    """GET com TLS fingerprint de Chrome (curl_cffi); retorna objeto Python ou None."""
+    referer = url.split("/_v")[0].split("/api")[0] + "/"
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
-            raw = r.read()
-            if not raw:
-                return None
-            return json.loads(raw)
+        from curl_cffi import requests as cffi_requests
+        r = cffi_requests.get(
+            url,
+            headers={**_VTEX_HEADERS, "Referer": referer},
+            impersonate="chrome124",
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        if r.status_code != 200 or not r.content:
+            return None
+        return r.json()
+    except ImportError:
+        # Fallback urllib (pode ser bloqueado por Cloudflare)
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(url)
+        for k, v in _VTEX_HEADERS.items():
+            req.add_header(k, v)
+        req.add_header("Referer", referer)
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else None
+        except Exception:
+            return None
     except Exception:
         return None
 
