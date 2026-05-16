@@ -5984,6 +5984,7 @@ def _process_ml_order(order_id):
         print(f"[ML] Pedido {order_id} criado → {pedido_id} (loja {cnpjloja})")
     except Exception as e:
         print(f"[ML] Erro ao processar pedido {order_id}: {e}")
+        raise  # propaga para _ml_flush_queue gravar o erro real na fila
 
 
 # ── OAuth: iniciar autenticação ───────────────────────────────────────────────
