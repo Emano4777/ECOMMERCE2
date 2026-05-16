@@ -1,0 +1,402 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Relatórios{% endblock %}
+
+{% block extra_style %}
+<style>
+.rel-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+  margin-bottom:20px;
+}
+.rel-title { font-weight:900; font-size:1.25rem; }
+.rel-sub { color:var(--pk-muted); font-size:.84rem; margin-top:4px; }
+.rel-filters {
+  display:grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap:10px;
+  align-items:end;
+}
+.rel-filter label {
+  display:block;
+  color:var(--pk-muted);
+  font-size:.74rem;
+  font-weight:800;
+  text-transform:uppercase;
+  margin-bottom:5px;
+}
+.rel-kpis {
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+  gap:12px;
+  margin-bottom:18px;
+}
+.rel-kpi {
+  background:var(--pk-card);
+  border:1px solid var(--pk-line);
+  border-radius:10px;
+  padding:16px;
+  min-height:112px;
+}
+.rel-kpi .ico {
+  width:32px;
+  height:32px;
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#1e1a08;
+  color:var(--pk-yellow);
+  margin-bottom:12px;
+}
+.rel-kpi .val { font-size:1.45rem; font-weight:900; color:#fff; line-height:1.1; }
+.rel-kpi .lbl { color:var(--pk-muted); font-size:.78rem; margin-top:5px; font-weight:700; }
+.rel-grid-2 {
+  display:grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, .9fr);
+  gap:14px;
+  margin-bottom:18px;
+}
+.rel-panel {
+  background:var(--pk-card);
+  border:1px solid var(--pk-line);
+  border-radius:10px;
+  padding:18px;
+}
+.rel-panel-title {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  font-size:.9rem;
+  font-weight:900;
+  color:#fff;
+  margin-bottom:14px;
+}
+.rel-panel-title i { color:var(--pk-yellow); }
+.rel-chart { height:280px; position:relative; }
+.rel-channel {
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 0;
+  border-bottom:1px solid var(--pk-line);
+}
+.rel-channel:last-child { border-bottom:none; }
+.rel-channel strong { color:#fff; display:block; font-size:.9rem; }
+.rel-channel span { color:var(--pk-muted); font-size:.76rem; }
+.rel-table { width:100%; border-collapse:collapse; font-size:.84rem; }
+.rel-table th {
+  text-align:left;
+  color:var(--pk-muted);
+  font-size:.72rem;
+  text-transform:uppercase;
+  padding:9px 8px;
+  border-bottom:1px solid var(--pk-line);
+}
+.rel-table td {
+  padding:10px 8px;
+  border-bottom:1px solid var(--pk-line);
+  vertical-align:middle;
+}
+.rel-table tr:last-child td { border-bottom:none; }
+.rel-prod-name {
+  max-width:360px;
+  color:#fff;
+  font-weight:800;
+  line-height:1.25;
+}
+.rel-muted { color:var(--pk-muted); font-size:.75rem; }
+.rel-pill {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border-radius:18px;
+  padding:4px 9px;
+  background:#0d1016;
+  border:1px solid var(--pk-line);
+  color:var(--pk-muted);
+  font-size:.74rem;
+  font-weight:800;
+  white-space:nowrap;
+}
+.rel-pill.good { background:#0d2d1a; border-color:rgba(34,197,94,.35); color:#6ee79a; }
+.rel-pill.warn { background:#1e1a08; border-color:rgba(245,200,66,.35); color:#f5c842; }
+.rel-pill.bad { background:#2a0810; border-color:rgba(240,128,144,.35); color:#f08090; }
+.rel-empty {
+  padding:34px 10px;
+  text-align:center;
+  color:var(--pk-muted);
+  font-size:.86rem;
+}
+@media (max-width: 980px) {
+  .rel-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rel-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rel-grid-2 { grid-template-columns:1fr; }
+}
+@media (max-width: 620px) {
+  .rel-filters, .rel-kpis { grid-template-columns:1fr; }
+  .rel-table { min-width:640px; }
+  .rel-panel { overflow:auto; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rel-head">
+  <div>
+    <div class="rel-title"><i class="fa fa-chart-line me-2" style="color:var(--pk-yellow)"></i>Relatórios</div>
+    <div class="rel-sub">Desempenho consolidado da loja no ecommerce e no Mercado Livre.</div>
+  </div>
+</div>
+
+<form method="get" class="pk-card rel-filters">
+  <div class="rel-filter">
+    <label>Início</label>
+    <input type="date" name="inicio" class="pk-input" value="{{ filtros.inicio }}">
+  </div>
+  <div class="rel-filter">
+    <label>Fim</label>
+    <input type="date" name="fim" class="pk-input" value="{{ filtros.fim }}">
+  </div>
+  <div class="rel-filter">
+    <label>Canal</label>
+    <select name="origem" class="pk-input">
+      <option value="todos" {% if filtros.origem == 'todos' %}selected{% endif %}>Todos</option>
+      <option value="ecommerce" {% if filtros.origem == 'ecommerce' %}selected{% endif %}>Ecommerce</option>
+      <option value="mercado_livre" {% if filtros.origem == 'mercado_livre' %}selected{% endif %}>Mercado Livre</option>
+    </select>
+  </div>
+  <div class="rel-filter">
+    <label>Status</label>
+    <select name="status" class="pk-input">
+      {% for value, label in filtros.status_options.items() %}
+      <option value="{{ value }}" {% if filtros.status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="btn-pk-yellow" type="submit"><i class="fa fa-filter me-1"></i>Filtrar</button>
+</form>
+
+<div class="rel-kpis">
+  <div class="rel-kpi">
+    <div class="ico"><i class="fa fa-receipt"></i></div>
+    <div class="val">{{ relatorio.resumo.pedidos|int }}</div>
+    <div class="lbl">vendas no período</div>
+  </div>
+  <div class="rel-kpi">
+    <div class="ico"><i class="fa fa-sack-dollar"></i></div>
+    <div class="val">{{ money(relatorio.resumo.receita) }}</div>
+    <div class="lbl">valor total vendido</div>
+  </div>
+  <div class="rel-kpi">
+    <div class="ico"><i class="fa fa-users"></i></div>
+    <div class="val">{{ relatorio.resumo.clientes|int }}</div>
+    <div class="lbl">clientes atendidos</div>
+  </div>
+  <div class="rel-kpi">
+    <div class="ico"><i class="fa fa-basket-shopping"></i></div>
+    <div class="val">{{ money(relatorio.resumo.ticket_medio) }}</div>
+    <div class="lbl">ticket médio</div>
+  </div>
+</div>
+
+<div class="rel-grid-2">
+  <div class="rel-panel">
+    <div class="rel-panel-title">
+      <span><i class="fa fa-chart-area me-2"></i>Vendas por dia</span>
+      <span class="rel-pill">{{ relatorio.resumo.itens|int }} itens vendidos</span>
+    </div>
+    <div class="rel-chart"><canvas id="chartVendas"></canvas></div>
+  </div>
+  <div class="rel-panel">
+    <div class="rel-panel-title"><span><i class="fa fa-store me-2"></i>Canais</span></div>
+    <div class="rel-chart" style="height:190px"><canvas id="chartCanais"></canvas></div>
+    {% for key, label in [('ecommerce','Ecommerce'), ('mercado_livre','Mercado Livre')] %}
+      {% set canal = relatorio.canais.get(key, {}) %}
+      <div class="rel-channel">
+        <div>
+          <strong>{{ label }}</strong>
+          <span>{{ canal.get('clientes', 0)|int }} clientes atendidos</span>
+        </div>
+        <div style="text-align:right">
+          <strong>{{ money(canal.get('receita', 0)) }}</strong>
+          <span>{{ canal.get('pedidos', 0)|int }} vendas</span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="rel-grid-2">
+  <div class="rel-panel">
+    <div class="rel-panel-title"><span><i class="fa fa-ranking-star me-2"></i>Produtos mais vendidos</span></div>
+    {% if relatorio.top_produtos %}
+    <table class="rel-table">
+      <thead><tr><th>Produto</th><th>EAN</th><th>Qtd</th><th>Receita</th></tr></thead>
+      <tbody>
+      {% for p in relatorio.top_produtos %}
+      <tr>
+        <td><div class="rel-prod-name">{{ p.nome or 'Produto' }}</div></td>
+        <td class="rel-muted">{{ p.ean }}</td>
+        <td><span class="rel-pill good">{{ p.qtd|int }}</span></td>
+        <td style="font-weight:900;color:var(--pk-yellow)">{{ money(p.receita) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="rel-empty">Sem vendas no período selecionado.</div>
+    {% endif %}
+  </div>
+
+  <div class="rel-panel">
+    <div class="rel-panel-title"><span><i class="fa fa-boxes-stacked me-2"></i>Repor estoque</span></div>
+    {% if relatorio.reposicao %}
+    <table class="rel-table">
+      <thead><tr><th>Produto</th><th>Estoque</th><th>Vendeu</th></tr></thead>
+      <tbody>
+      {% for p in relatorio.reposicao %}
+      <tr>
+        <td>
+          <div class="rel-prod-name">{{ p.nome or 'Produto' }}</div>
+          <div class="rel-muted">{{ p.prioridade }}</div>
+        </td>
+        <td><span class="rel-pill {% if p.estoque <= 5 %}bad{% else %}warn{% endif %}">{{ p.estoque|int }}</span></td>
+        <td><span class="rel-pill good">{{ p.vendidos|int }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="rel-empty">Nenhum produto crítico para reposição neste filtro.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="rel-grid-2">
+  <div class="rel-panel">
+    <div class="rel-panel-title"><span><i class="fa fa-arrow-trend-down me-2"></i>Produtos disponíveis com menor giro</span></div>
+    {% if relatorio.produtos_menos_vendidos %}
+    <table class="rel-table">
+      <thead><tr><th>Produto</th><th>Estoque</th><th>Vendido</th><th>Receita</th></tr></thead>
+      <tbody>
+      {% for p in relatorio.produtos_menos_vendidos %}
+      <tr>
+        <td>
+          <div class="rel-prod-name">{{ p.nome or 'Produto' }}</div>
+          <div class="rel-muted">{{ p.ean }}</div>
+        </td>
+        <td>{{ p.estoque|int }}</td>
+        <td><span class="rel-pill {% if p.vendidos|int == 0 %}warn{% else %}good{% endif %}">{{ p.vendidos|int }}</span></td>
+        <td>{{ money(p.receita) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="rel-empty">Sem produtos disponíveis para analisar.</div>
+    {% endif %}
+  </div>
+
+  <div class="rel-panel">
+    <div class="rel-panel-title"><span><i class="fa fa-headset me-2"></i>Reclamações</span></div>
+    <div class="rel-kpis" style="grid-template-columns:repeat(2, minmax(0, 1fr));gap:10px;margin:0 0 12px">
+      <div class="rel-kpi" style="min-height:88px;padding:12px">
+        <div class="val">{{ relatorio.reclamacoes.total|int }}</div>
+        <div class="lbl">reclamações abertas</div>
+      </div>
+      <div class="rel-kpi" style="min-height:88px;padding:12px">
+        <div class="val">{{ relatorio.reclamacoes.finalizadas|int }}</div>
+        <div class="lbl">finalizadas</div>
+      </div>
+    </div>
+    <div class="rel-channel">
+      <div><strong>Dentro do prazo</strong><span>Finalizadas sem atraso</span></div>
+      <span class="rel-pill good">{{ relatorio.reclamacoes.dentro_prazo|int }}</span>
+    </div>
+    <div class="rel-channel">
+      <div><strong>Fora do prazo</strong><span>Finalizadas com atraso</span></div>
+      <span class="rel-pill bad">{{ relatorio.reclamacoes.fora_prazo|int }}</span>
+    </div>
+    <div class="rel-channel">
+      <div><strong>Pendentes atrasadas</strong><span>Precisam de atenção</span></div>
+      <span class="rel-pill warn">{{ relatorio.reclamacoes.pendentes_atrasadas|int }}</span>
+    </div>
+    <div class="rel-channel">
+      <div><strong>Advertências</strong><span>Geradas por prazo perdido</span></div>
+      <span class="rel-pill bad">{{ relatorio.reclamacoes.advertencias|int }}</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  var chartVendas = {{ relatorio.chart_vendas|tojson }};
+  var chartCanais = {{ relatorio.chart_canais|tojson }};
+  var gridColor = 'rgba(138,149,176,.16)';
+  var tickColor = '#8a95b0';
+
+  new Chart(document.getElementById('chartVendas'), {
+    type: 'bar',
+    data: {
+      labels: chartVendas.labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'Receita',
+          data: chartVendas.receita,
+          borderColor: '#f5c842',
+          backgroundColor: 'rgba(245,200,66,.18)',
+          tension: .35,
+          fill: true,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Pedidos',
+          data: chartVendas.pedidos,
+          backgroundColor: 'rgba(34,197,94,.42)',
+          borderColor: '#22c55e',
+          borderWidth: 1,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ color:tickColor, boxWidth:10, font:{ family:'Nunito', weight:'700' } } } },
+      scales:{
+        x:{ ticks:{ color:tickColor, maxRotation:0 }, grid:{ color:gridColor } },
+        y:{ ticks:{ color:tickColor, callback:function(v){ return 'R$ ' + Number(v).toLocaleString('pt-BR'); } }, grid:{ color:gridColor } },
+        y1:{ position:'right', ticks:{ color:tickColor, precision:0 }, grid:{ drawOnChartArea:false } }
+      }
+    }
+  });
+
+  new Chart(document.getElementById('chartCanais'), {
+    type:'doughnut',
+    data:{
+      labels: chartCanais.labels,
+      datasets:[{
+        data: chartCanais.receita,
+        backgroundColor:['#f5c842', '#fff200', '#22c55e'],
+        borderColor:'#181c26',
+        borderWidth:4
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      cutout:'68%',
+      plugins:{ legend:{ position:'bottom', labels:{ color:tickColor, boxWidth:10, font:{ family:'Nunito', weight:'700' } } } }
+    }
+  });
+})();
+</script>
+{% endblock %}

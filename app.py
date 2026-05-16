@@ -4780,6 +4780,266 @@ def painel_reclamacao_marcar_resolvido(reclamacao_id):
 
 # ─── PAINEL: CONFIGURAÇÕES ────────────────────────────────────────────────────
 
+# ─── PAINEL: RELATÓRIOS ───────────────────────────────────────────────────────
+
+def _parse_report_date(value, fallback):
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except Exception:
+        return fallback
+
+
+@app.get("/painel/relatorios")
+@painel_required
+def painel_relatorios():
+    _ensure_payment_schema()
+    _ensure_receita_schema()
+    _ensure_reclamacao_schema()
+    _ensure_ml_schema()
+
+    cnpjloja = session.get("cnpjloja")
+    hoje = datetime.now().date()
+    inicio_default = hoje - timedelta(days=29)
+    data_inicio = _parse_report_date(request.args.get("inicio"), inicio_default)
+    data_fim = _parse_report_date(request.args.get("fim"), hoje)
+    if data_inicio > data_fim:
+        data_inicio, data_fim = data_fim, data_inicio
+
+    origem = (request.args.get("origem") or "todos").strip()
+    if origem not in ("todos", "ecommerce", "mercado_livre"):
+        origem = "todos"
+
+    status = (request.args.get("status") or "validos").strip()
+    status_options = {
+        "validos": "Válidos",
+        "todos": "Todos",
+        "pendente": "Pendente",
+        "pago": "Pago",
+        "enviado": "Enviado",
+        "entregue": "Entregue",
+        "cancelado": "Cancelado",
+    }
+    if status not in status_options:
+        status = "validos"
+
+    inicio_dt = datetime.combine(data_inicio, datetime.min.time())
+    fim_dt = datetime.combine(data_fim + timedelta(days=1), datetime.min.time())
+
+    order_where = ["p.cnpjloja=%s", "p.criado_em >= %s", "p.criado_em < %s"]
+    order_args = [cnpjloja, inicio_dt, fim_dt]
+    if origem != "todos":
+        order_where.append("COALESCE(p.origem, 'ecommerce') = %s")
+        order_args.append(origem)
+    if status == "validos":
+        order_where.append("p.status <> 'cancelado'")
+    elif status != "todos":
+        order_where.append("p.status = %s")
+        order_args.append(status)
+    order_filter = " AND ".join(order_where)
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute(f"""
+        SELECT
+          COUNT(*) AS pedidos,
+          COALESCE(SUM(p.total), 0) AS receita,
+          COUNT(DISTINCT COALESCE(
+            NULLIF(p.consumidor_id::TEXT, ''),
+            NULLIF(p.cliente_email, ''),
+            NULLIF(p.cliente_telefone, ''),
+            NULLIF(p.cliente_nome, '')
+          )) AS clientes,
+          COALESCE(AVG(p.total), 0) AS ticket_medio,
+          COALESCE(SUM(CASE WHEN COALESCE(p.origem, 'ecommerce')='mercado_livre' THEN 1 ELSE 0 END), 0) AS pedidos_ml,
+          COALESCE(SUM(CASE WHEN COALESCE(p.origem, 'ecommerce')='ecommerce' THEN 1 ELSE 0 END), 0) AS pedidos_ecommerce,
+          COALESCE(SUM(CASE WHEN COALESCE(p.origem, 'ecommerce')='mercado_livre' THEN p.total ELSE 0 END), 0) AS receita_ml,
+          COALESCE(SUM(CASE WHEN COALESCE(p.origem, 'ecommerce')='ecommerce' THEN p.total ELSE 0 END), 0) AS receita_ecommerce
+        FROM ecommerce_pedidos p
+        WHERE {order_filter}
+    """, order_args)
+    resumo = dict(cur.fetchone() or {})
+
+    cur.execute(f"""
+        SELECT COALESCE(SUM(i.qty), 0) AS itens
+        FROM ecommerce_pedido_itens i
+        JOIN ecommerce_pedidos p ON p.id = i.pedido_id
+        WHERE {order_filter}
+    """, order_args)
+    resumo["itens"] = (cur.fetchone() or {}).get("itens", 0) or 0
+
+    cur.execute(f"""
+        SELECT COALESCE(p.origem, 'ecommerce') AS origem,
+               COUNT(*) AS pedidos,
+               COALESCE(SUM(p.total), 0) AS receita,
+               COUNT(DISTINCT COALESCE(
+                 NULLIF(p.consumidor_id::TEXT, ''),
+                 NULLIF(p.cliente_email, ''),
+                 NULLIF(p.cliente_telefone, ''),
+                 NULLIF(p.cliente_nome, '')
+               )) AS clientes
+        FROM ecommerce_pedidos p
+        WHERE {order_filter}
+        GROUP BY COALESCE(p.origem, 'ecommerce')
+    """, order_args)
+    canais = {r["origem"]: dict(r) for r in cur.fetchall()}
+
+    cur.execute(f"""
+        SELECT DATE(p.criado_em) AS dia,
+               COUNT(*) AS pedidos,
+               COALESCE(SUM(p.total), 0) AS receita
+        FROM ecommerce_pedidos p
+        WHERE {order_filter}
+        GROUP BY DATE(p.criado_em)
+        ORDER BY dia
+    """, order_args)
+    vendas_por_dia = [dict(r) for r in cur.fetchall()]
+
+    cur.execute(f"""
+        SELECT COALESCE(p.origem, 'ecommerce') AS origem,
+               COUNT(*) AS pedidos,
+               COALESCE(SUM(p.total), 0) AS receita
+        FROM ecommerce_pedidos p
+        WHERE {order_filter}
+        GROUP BY COALESCE(p.origem, 'ecommerce')
+        ORDER BY origem
+    """, order_args)
+    vendas_por_canal = [dict(r) for r in cur.fetchall()]
+
+    cur.execute(f"""
+        SELECT COALESCE(NULLIF(i.ean, ''), 'sem-ean') AS ean,
+               MAX(i.nome) AS nome,
+               COALESCE(SUM(i.qty), 0) AS qtd,
+               COALESCE(SUM(i.qty * i.preco_unitario), 0) AS receita
+        FROM ecommerce_pedido_itens i
+        JOIN ecommerce_pedidos p ON p.id = i.pedido_id
+        WHERE {order_filter}
+        GROUP BY COALESCE(NULLIF(i.ean, ''), 'sem-ean')
+        ORDER BY qtd DESC, receita DESC
+        LIMIT 8
+    """, order_args)
+    top_produtos = [dict(r) for r in cur.fetchall()]
+
+    estoque_cte = f"""
+        WITH vendas AS (
+          SELECT COALESCE(NULLIF(i.ean, ''), 'sem-ean') AS ean,
+                 COALESCE(SUM(i.qty), 0) AS vendidos,
+                 COALESCE(SUM(i.qty * i.preco_unitario), 0) AS receita
+          FROM ecommerce_pedido_itens i
+          JOIN ecommerce_pedidos p ON p.id = i.pedido_id
+          WHERE {order_filter}
+          GROUP BY COALESCE(NULLIF(i.ean, ''), 'sem-ean')
+        ),
+        estoque_unificado AS (
+          SELECT barras AS ean, descricao AS nome, CAST(estoque AS INTEGER) AS estoque
+          FROM estoque
+          WHERE cnpj=%s AND estoque > 0
+          UNION ALL
+          SELECT ean, descricao_produto AS nome, CAST(quantidade_estoque AS INTEGER) AS estoque
+          FROM automatiza_estoque
+          WHERE cnpj_loja=%s AND quantidade_estoque > 0
+        ),
+        estoque_loja AS (
+          SELECT ean, MAX(nome) AS nome, SUM(estoque) AS estoque
+          FROM estoque_unificado
+          WHERE COALESCE(ean, '') <> ''
+          GROUP BY ean
+        )
+    """
+    estoque_args = order_args + [cnpjloja, cnpjloja]
+
+    cur.execute(estoque_cte + """
+        SELECT e.ean, e.nome, e.estoque,
+               COALESCE(v.vendidos, 0) AS vendidos,
+               COALESCE(v.receita, 0) AS receita
+        FROM estoque_loja e
+        LEFT JOIN vendas v ON v.ean = e.ean
+        ORDER BY COALESCE(v.vendidos, 0) ASC, e.estoque DESC, e.nome
+        LIMIT 8
+    """, estoque_args)
+    produtos_menos_vendidos = [dict(r) for r in cur.fetchall()]
+
+    cur.execute(estoque_cte + """
+        SELECT e.ean, e.nome, e.estoque,
+               COALESCE(v.vendidos, 0) AS vendidos,
+               COALESCE(v.receita, 0) AS receita,
+               CASE
+                 WHEN COALESCE(v.vendidos, 0) >= 10 AND e.estoque <= 5 THEN 'Alta prioridade'
+                 WHEN COALESCE(v.vendidos, 0) >= 5 AND e.estoque <= 8 THEN 'Prioridade média'
+                 ELSE 'Monitorar'
+               END AS prioridade
+        FROM estoque_loja e
+        JOIN vendas v ON v.ean = e.ean
+        WHERE e.estoque <= 10
+        ORDER BY v.vendidos DESC, e.estoque ASC, v.receita DESC
+        LIMIT 8
+    """, estoque_args)
+    reposicao = [dict(r) for r in cur.fetchall()]
+
+    rec_args = [cnpjloja, inicio_dt, fim_dt]
+    cur.execute("""
+        SELECT
+          COUNT(*) AS total,
+          COALESCE(SUM(CASE WHEN status <> 'finalizada' THEN 1 ELSE 0 END), 0) AS abertas,
+          COALESCE(SUM(CASE WHEN status = 'finalizada' THEN 1 ELSE 0 END), 0) AS finalizadas,
+          COALESCE(SUM(CASE WHEN status = 'finalizada' AND (prazo_loja_responder IS NULL OR finalizada_em <= prazo_loja_responder) THEN 1 ELSE 0 END), 0) AS dentro_prazo,
+          COALESCE(SUM(CASE WHEN status = 'finalizada' AND prazo_loja_responder IS NOT NULL AND finalizada_em > prazo_loja_responder THEN 1 ELSE 0 END), 0) AS fora_prazo,
+          COALESCE(SUM(CASE WHEN status <> 'finalizada' AND prazo_loja_responder IS NOT NULL AND NOW() > prazo_loja_responder THEN 1 ELSE 0 END), 0) AS pendentes_atrasadas,
+          COALESCE(SUM(CASE WHEN advertencia_loja THEN 1 ELSE 0 END), 0) AS advertencias
+        FROM ecommerce_reclamacoes
+        WHERE cnpjloja=%s AND aberta_em >= %s AND aberta_em < %s
+    """, rec_args)
+    reclamacoes = dict(cur.fetchone() or {})
+
+    cur.close()
+
+    def _num(v):
+        try:
+            return float(v or 0)
+        except Exception:
+            return 0.0
+
+    dias_map = {r["dia"].isoformat(): r for r in vendas_por_dia}
+    labels = []
+    receita_series = []
+    pedidos_series = []
+    cursor_dia = data_inicio
+    while cursor_dia <= data_fim:
+        key = cursor_dia.isoformat()
+        row = dias_map.get(key, {})
+        labels.append(cursor_dia.strftime("%d/%m"))
+        receita_series.append(round(_num(row.get("receita")), 2))
+        pedidos_series.append(int(row.get("pedidos") or 0))
+        cursor_dia += timedelta(days=1)
+
+    canal_labels = {"ecommerce": "Ecommerce", "mercado_livre": "Mercado Livre"}
+    canal_chart = {
+        "labels": [canal_labels.get(r["origem"], r["origem"]) for r in vendas_por_canal],
+        "receita": [round(_num(r.get("receita")), 2) for r in vendas_por_canal],
+        "pedidos": [int(r.get("pedidos") or 0) for r in vendas_por_canal],
+    }
+
+    relatorio = {
+        "resumo": {k: _num(v) for k, v in resumo.items()},
+        "canais": canais,
+        "top_produtos": top_produtos,
+        "produtos_menos_vendidos": produtos_menos_vendidos,
+        "reposicao": reposicao,
+        "reclamacoes": {k: _num(v) for k, v in reclamacoes.items()},
+        "chart_vendas": {"labels": labels, "receita": receita_series, "pedidos": pedidos_series},
+        "chart_canais": canal_chart,
+    }
+
+    filtros = {
+        "inicio": data_inicio.isoformat(),
+        "fim": data_fim.isoformat(),
+        "origem": origem,
+        "status": status,
+        "status_options": status_options,
+    }
+    return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros)
+
+
 @app.get("/painel/config")
 @painel_required
 def painel_config():
