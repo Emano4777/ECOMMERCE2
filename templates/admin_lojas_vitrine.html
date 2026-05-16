@@ -3,65 +3,82 @@
 
 {% block extra_style %}
 <style>
+.lv-section-title {
+  font-weight: 800; font-size: .95rem; color: var(--pk-txt);
+  margin: 24px 0 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.lv-section-title span {
+  background: #1a1d24; border: 1px solid var(--pk-line);
+  border-radius: 999px; padding: 2px 10px;
+  font-size: .72rem; color: var(--pk-muted);
+}
 .lv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 18px;
-  margin-top: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
 }
 .lv-card {
   background: #0d1016;
   border: 1px solid var(--pk-line);
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .lv-card-img {
-  width: 100%;
-  height: 200px;
-  object-fit: cover;
-  display: block;
+  width: 100%; height: 180px;
+  object-fit: cover; display: block;
   background: #1a1d24;
 }
 .lv-card-img-ph {
-  width: 100%;
-  height: 200px;
+  width: 100%; height: 180px;
   background: #1a1d24;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #3a3d44;
-  font-size: 3rem;
+  display: flex; align-items: center; justify-content: center;
+  color: #2a2d36; font-size: 2.5rem;
 }
 .lv-card-body {
-  padding: 14px;
+  padding: 12px 14px 14px;
+  flex: 1; display: flex; flex-direction: column;
 }
+.lv-card-info { flex: 1; }
 .lv-card-cidade {
-  font-size: 1rem;
-  font-weight: 900;
-  color: var(--pk-txt);
-  margin-bottom: 6px;
+  font-size: .95rem; font-weight: 900; color: var(--pk-txt);
+  margin-bottom: 5px;
 }
-.lv-card-info {
-  font-size: .78rem;
-  color: var(--pk-muted);
-  margin-bottom: 4px;
-  word-break: break-word;
-  line-height: 1.4;
+.lv-card-detail {
+  font-size: .74rem; color: var(--pk-muted);
+  margin-bottom: 3px; line-height: 1.4;
+  display: flex; align-items: flex-start; gap: 5px;
 }
+.lv-card-detail i { flex-shrink: 0; margin-top: 2px; width: 12px; }
 .lv-card-actions {
-  display: flex;
-  gap: 8px;
+  display: flex; gap: 6px; flex-wrap: wrap;
   margin-top: 12px;
-  flex-wrap: wrap;
+  border-top: 1px solid var(--pk-line);
+  padding-top: 10px;
 }
+.lv-btn {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  border-radius: 8px; font-size: .72rem; font-weight: 800;
+  padding: 7px 8px; text-decoration: none;
+  border: none; cursor: pointer; font-family: inherit;
+  transition: opacity .15s;
+  white-space: nowrap;
+}
+.lv-btn:hover { opacity: .85; }
+.lv-btn-edit { background: #1a2a1a; color: #6ee79a; border: 1px solid rgba(34,197,94,.3); }
+.lv-btn-del  { background: #2a0810; color: #f08090; border: 1px solid rgba(240,128,144,.3); }
+.lv-source-ik { border-left: 3px solid #3b82f6; }
+.lv-source-sb { border-left: 3px solid var(--pk-yellow); }
 </style>
 {% endblock %}
 
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
   <div style="font-weight:900;font-size:1.25rem">
-    <i class="fa fa-store me-2" style="color:var(--pk-yellow)"></i>Lojas Vitrine
-    <span style="font-size:.8rem;font-weight:600;color:var(--pk-muted);margin-left:8px">— imagens públicas das lojas</span>
+    <i class="fa fa-images me-2" style="color:var(--pk-yellow)"></i>Lojas Vitrine
   </div>
   <a href="/lojas" target="_blank" class="btn-pk" style="font-size:.78rem">
     <i class="fa fa-eye me-1"></i>Ver página pública
@@ -71,18 +88,18 @@
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     {% for cat, msg in messages %}
-      <div class="pk-alert pk-alert-{{ 'ok' if cat == 'success' else 'err' }}" style="margin-bottom:14px">{{ msg }}</div>
+      <div class="pk-alert pk-alert-{{ 'ok' if cat == 'success' else 'err' }}" style="margin-bottom:12px">{{ msg }}</div>
     {% endfor %}
   {% endif %}
 {% endwith %}
 
-<!-- FORM: adicionar nova loja -->
-<div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:14px;padding:22px;margin-bottom:28px">
-  <div style="font-weight:800;font-size:.95rem;margin-bottom:16px;color:var(--pk-txt)">
-    <i class="fa fa-plus me-2" style="color:var(--pk-yellow)"></i>Adicionar Nova Loja
-  </div>
-  <form method="POST" enctype="multipart/form-data" action="{{ url_for('admin_lojas_vitrine') }}">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<!-- FORM: nova loja (Cloudinary → Supabase) -->
+<details style="background:#0d1016;border:1px solid var(--pk-line);border-radius:12px;padding:18px;margin-bottom:8px">
+  <summary style="cursor:pointer;font-weight:800;font-size:.9rem;color:var(--pk-yellow);list-style:none">
+    <i class="fa fa-plus me-1"></i> Adicionar Nova Loja (Cloudinary)
+  </summary>
+  <form method="POST" enctype="multipart/form-data" action="{{ url_for('admin_lojas_vitrine') }}" style="margin-top:16px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div>
         <label class="pk-label">Cidade *</label>
         <input class="pk-input" type="text" name="cidade" placeholder="Ex: Adamantina/SP" required>
@@ -100,56 +117,63 @@
         <input class="pk-input" type="text" name="whatsapp" placeholder="https://wa.me/5599999999999">
       </div>
       <div>
-        <label class="pk-label">Ordem (menor aparece primeiro)</label>
+        <label class="pk-label">Ordem</label>
         <input class="pk-input" type="number" name="ordem" value="0" min="0">
       </div>
       <div style="grid-column:1/-1">
-        <label class="pk-label">Imagem da Loja</label>
+        <label class="pk-label">Imagem</label>
         <input class="pk-input" type="file" name="file" accept="image/*">
       </div>
     </div>
-    <div style="margin-top:16px">
-      <button type="submit" class="btn-pk" style="background:var(--pk-yellow);color:#000">
-        <i class="fa fa-plus me-1"></i>Adicionar Loja
-      </button>
-    </div>
+    <button type="submit" class="btn-pk" style="margin-top:14px;background:var(--pk-yellow);color:#000">
+      <i class="fa fa-plus me-1"></i>Adicionar
+    </button>
   </form>
+</details>
+
+<!-- LEGENDA -->
+<div style="display:flex;gap:14px;margin:12px 0 4px;font-size:.72rem;color:var(--pk-muted)">
+  <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3b82f6;margin-right:4px"></span>ImageKit (poupaqui-admin)</span>
+  <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--pk-yellow);margin-right:4px"></span>Cloudinary (este painel)</span>
 </div>
 
-<!-- GRID de lojas cadastradas -->
-{% if lojas %}
-<div style="font-weight:800;font-size:.9rem;color:var(--pk-muted);margin-bottom:12px">
-  {{ lojas | length }} loja(s) cadastrada(s)
+<!-- LOJAS DO IMAGEKIT -->
+{% if lojas_ik %}
+<div class="lv-section-title">
+  <i class="fa fa-cloud" style="color:#3b82f6"></i> ImageKit
+  <span>{{ lojas_ik | length }}</span>
 </div>
-<div class="lv-grid">
-  {% for loja in lojas %}
-  <div class="lv-card">
-    {% if loja.imagem_url %}
-      <img class="lv-card-img" src="{{ loja.imagem_url }}" alt="{{ loja.cidade }}">
+<div class="lv-grid" style="margin-bottom:28px">
+  {% for loja in lojas_ik %}
+  <div class="lv-card lv-source-ik">
+    {% if loja.url %}
+      <img class="lv-card-img" src="{{ loja.url }}" alt="{{ loja.cidade }}" loading="lazy">
     {% else %}
       <div class="lv-card-img-ph"><i class="fa fa-store"></i></div>
     {% endif %}
     <div class="lv-card-body">
-      <div class="lv-card-cidade">{{ loja.cidade }}</div>
-      <div class="lv-card-info"><i class="fa fa-location-dot me-1" style="color:#e8760a"></i>{{ loja.endereco }}</div>
-      {% if loja.telefone %}
-      <div class="lv-card-info"><i class="fa fa-phone me-1" style="color:var(--pk-muted)"></i>{{ loja.telefone }}</div>
-      {% endif %}
-      {% if loja.whatsapp %}
-      <div class="lv-card-info"><i class="fab fa-whatsapp me-1" style="color:#22c55e"></i>
-        <a href="{{ loja.whatsapp }}" target="_blank" style="color:#22c55e;text-decoration:none;font-size:.75rem">Abrir WhatsApp</a>
+      <div class="lv-card-info">
+        <div class="lv-card-cidade">{{ loja.cidade }}</div>
+        {% if loja.endereco %}
+        <div class="lv-card-detail"><i class="fa fa-location-dot" style="color:#e8760a"></i><span>{{ loja.endereco }}</span></div>
+        {% endif %}
+        {% if loja.telefone %}
+        <div class="lv-card-detail"><i class="fa fa-phone" style="color:var(--pk-muted)"></i><span>{{ loja.telefone }}</span></div>
+        {% endif %}
+        {% if loja.whatsapp %}
+        <div class="lv-card-detail"><i class="fab fa-whatsapp" style="color:#22c55e"></i>
+          <a href="{{ loja.whatsapp }}" target="_blank" style="color:#22c55e;font-size:.72rem;text-decoration:none">WhatsApp</a>
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
-      <div class="lv-card-info" style="margin-top:6px;color:var(--pk-muted);font-size:.72rem">Ordem: {{ loja.ordem }}</div>
-
       <div class="lv-card-actions">
-        <a href="{{ url_for('admin_lojas_vitrine_edit', loja_id=loja.id) }}" class="btn-pk" style="font-size:.75rem;padding:6px 12px">
-          <i class="fa fa-pen me-1"></i>Editar
+        <a href="{{ url_for('admin_lojas_vitrine_ik_edit', file_id=loja.fileId) }}" class="lv-btn lv-btn-edit">
+          <i class="fa fa-pen"></i> Editar
         </a>
-        <form method="POST" action="{{ url_for('admin_lojas_vitrine_delete', loja_id=loja.id) }}"
-              onsubmit="return confirm('Excluir loja {{ loja.cidade }}?')">
-          <button type="submit" class="btn-pk" style="font-size:.75rem;padding:6px 12px;background:#3d0a10;color:#f08090;border:1px solid #7a1425">
-            <i class="fa fa-trash me-1"></i>Excluir
+        <form method="POST" action="{{ url_for('admin_lojas_vitrine_ik_delete', file_id=loja.fileId) }}"
+              onsubmit="return confirm('Excluir {{ loja.cidade }} do ImageKit?')" style="flex:1;display:flex">
+          <button type="submit" class="lv-btn lv-btn-del" style="width:100%">
+            <i class="fa fa-trash"></i> Excluir
           </button>
         </form>
       </div>
@@ -157,11 +181,58 @@
   </div>
   {% endfor %}
 </div>
+{% endif %}
 
-{% else %}
-<div style="text-align:center;padding:50px 20px;color:var(--pk-muted);border:1px dashed var(--pk-line);border-radius:14px">
+<!-- LOJAS DO SUPABASE/CLOUDINARY -->
+{% if lojas_sb %}
+<div class="lv-section-title">
+  <i class="fa fa-database" style="color:var(--pk-yellow)"></i> Cloudinary
+  <span>{{ lojas_sb | length }}</span>
+</div>
+<div class="lv-grid">
+  {% for loja in lojas_sb %}
+  <div class="lv-card lv-source-sb">
+    {% if loja.imagem_url %}
+      <img class="lv-card-img" src="{{ loja.imagem_url }}" alt="{{ loja.cidade }}" loading="lazy">
+    {% else %}
+      <div class="lv-card-img-ph"><i class="fa fa-store"></i></div>
+    {% endif %}
+    <div class="lv-card-body">
+      <div class="lv-card-info">
+        <div class="lv-card-cidade">{{ loja.cidade }}</div>
+        {% if loja.endereco %}
+        <div class="lv-card-detail"><i class="fa fa-location-dot" style="color:#e8760a"></i><span>{{ loja.endereco }}</span></div>
+        {% endif %}
+        {% if loja.telefone %}
+        <div class="lv-card-detail"><i class="fa fa-phone" style="color:var(--pk-muted)"></i><span>{{ loja.telefone }}</span></div>
+        {% endif %}
+        {% if loja.whatsapp %}
+        <div class="lv-card-detail"><i class="fab fa-whatsapp" style="color:#22c55e"></i>
+          <a href="{{ loja.whatsapp }}" target="_blank" style="color:#22c55e;font-size:.72rem;text-decoration:none">WhatsApp</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="lv-card-actions">
+        <a href="{{ url_for('admin_lojas_vitrine_edit', loja_id=loja.id) }}" class="lv-btn lv-btn-edit">
+          <i class="fa fa-pen"></i> Editar
+        </a>
+        <form method="POST" action="{{ url_for('admin_lojas_vitrine_delete', loja_id=loja.id) }}"
+              onsubmit="return confirm('Excluir {{ loja.cidade }}?')" style="flex:1;display:flex">
+          <button type="submit" class="lv-btn lv-btn-del" style="width:100%">
+            <i class="fa fa-trash"></i> Excluir
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not lojas_ik and not lojas_sb %}
+<div style="text-align:center;padding:50px 20px;color:var(--pk-muted);border:1px dashed var(--pk-line);border-radius:12px;margin-top:12px">
   <i class="fa fa-store" style="font-size:2.5rem;color:#2a2d36;display:block;margin-bottom:12px"></i>
-  Nenhuma loja cadastrada ainda. Use o formulário acima para adicionar.
+  Nenhuma loja cadastrada.
 </div>
 {% endif %}
 {% endblock %}

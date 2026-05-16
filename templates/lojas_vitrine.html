@@ -99,6 +99,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 0;
 }
 .lv-card-cidade {
   font-size: 1rem;
@@ -127,7 +128,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 12px;
 }
 .lv-btn {
   display: flex;
@@ -192,19 +194,21 @@
     {% endif %}
 
     <div class="lv-card-body">
-      <div class="lv-card-cidade">{{ loja.cidade }}</div>
+      <div>
+        <div class="lv-card-cidade">{{ loja.cidade }}</div>
 
-      <div class="lv-card-info-row lv-card-info">
-        <i class="fa fa-location-dot"></i>
-        <span>{{ loja.endereco }}</span>
-      </div>
+        <div class="lv-card-info-row lv-card-info">
+          <i class="fa fa-location-dot"></i>
+          <span>{{ loja.endereco }}</span>
+        </div>
 
-      {% if loja.telefone %}
-      <div class="lv-card-info-row lv-card-info">
-        <i class="fa fa-phone"></i>
-        <span>{{ loja.telefone }}</span>
+        {% if loja.telefone %}
+        <div class="lv-card-info-row lv-card-info">
+          <i class="fa fa-phone"></i>
+          <span>{{ loja.telefone }}</span>
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
 
       <div class="lv-card-actions">
         {% if loja.whatsapp %}

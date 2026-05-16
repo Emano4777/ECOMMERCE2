@@ -2734,21 +2734,25 @@ def lojas_vitrine():
     return render_template("lojas_vitrine.html", lojas=todas)
 
 
-def _load_imagekit_lojas():
-    """Busca imagens das lojas no ImageKit (mesma lógica do poupaqui-admin)."""
+def _ik_auth_header():
+    """Retorna header de autenticação Basic para ImageKit."""
     import base64
+    key = os.getenv("IMAGEKIT_PRIVATE_KEY", "")
+    token = base64.b64encode(f"{key}:".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
+
+def _load_imagekit_lojas(include_file_id=False):
+    """Busca lojas no ImageKit. Se include_file_id=True, inclui fileId para admin."""
     import time
     import urllib.request
     import urllib.error
     import json as _json
 
-    ik_key = os.getenv("IMAGEKIT_PRIVATE_KEY", "")
-    if not ik_key:
+    if not os.getenv("IMAGEKIT_PRIVATE_KEY"):
         return []
 
-    token = base64.b64encode(f"{ik_key}:".encode()).decode()
-    headers = {"Authorization": f"Basic {token}"}
-
+    headers = _ik_auth_header()
     stores = []
     skip = 0
     limit = 100
@@ -2779,13 +2783,16 @@ def _load_imagekit_lojas():
                 img_url  = img.get("url", "")
                 if img_url:
                     img_url = f"{img_url}?t={timestamp}"
-                stores.append({
+                entry = {
                     "cidade":    cidade,
                     "endereco":  endereco,
                     "telefone":  telefone,
                     "whatsapp":  whatsapp,
                     "url":       img_url,
-                })
+                }
+                if include_file_id:
+                    entry["fileId"] = img.get("fileId", "")
+                stores.append(entry)
 
             if len(files) < limit:
                 break
@@ -2796,6 +2803,50 @@ def _load_imagekit_lojas():
         pass
 
     return stores
+
+
+def _ik_delete_file(file_id):
+    """Exclui arquivo do ImageKit pelo fileId."""
+    import urllib.request
+    import urllib.error
+
+    if not file_id:
+        raise ValueError("fileId não informado")
+
+    req = urllib.request.Request(
+        f"https://api.imagekit.io/v1/files/{file_id}",
+        headers=_ik_auth_header(),
+        method="DELETE",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=30)
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+
+
+def _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp):
+    """Atualiza customMetadata de um arquivo no ImageKit."""
+    import urllib.request
+    import json as _json
+
+    payload = _json.dumps({
+        "customMetadata": {
+            "cidade":   cidade,
+            "endereco": endereco,
+            "telefone": telefone,
+            "whatsapp": whatsapp,
+        }
+    }).encode()
+
+    headers = {**_ik_auth_header(), "Content-Type": "application/json"}
+    req = urllib.request.Request(
+        f"https://api.imagekit.io/v1/files/{file_id}/details",
+        data=payload,
+        headers=headers,
+        method="PATCH",
+    )
+    urllib.request.urlopen(req, timeout=30)
 
 
 def _ensure_lojas_vitrine_schema():
@@ -6726,9 +6777,12 @@ def admin_lojas_vitrine():
         return redirect(url_for("admin_lojas_vitrine"))
 
     cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
-    lojas = cur.fetchall()
+    lojas_sb = cur.fetchall()
     cur.close()
-    return render_template("admin_lojas_vitrine.html", lojas=lojas)
+
+    lojas_ik = _load_imagekit_lojas(include_file_id=True)
+
+    return render_template("admin_lojas_vitrine.html", lojas_sb=lojas_sb, lojas_ik=lojas_ik)
 
 
 @app.route("/painel/admin/lojas-vitrine/edit/<int:loja_id>", methods=["GET", "POST"])
@@ -6782,6 +6836,49 @@ def admin_lojas_vitrine_delete(loja_id):
     conn.commit()
     cur.close()
     flash("Loja removida.", "success")
+    return redirect(url_for("admin_lojas_vitrine"))
+
+
+@app.route("/painel/admin/lojas-vitrine/ik-edit/<file_id>", methods=["GET", "POST"])
+@admin_required
+def admin_lojas_vitrine_ik_edit(file_id):
+    """Edita metadados de uma loja do ImageKit."""
+    file_id = (file_id or "").strip()
+    if not file_id:
+        return redirect(url_for("admin_lojas_vitrine"))
+
+    if request.method == "POST":
+        cidade   = (request.form.get("cidade") or "").strip()
+        endereco = (request.form.get("endereco") or "").strip()
+        telefone = (request.form.get("telefone") or "").strip()
+        whatsapp = (request.form.get("whatsapp") or "").strip()
+        try:
+            _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp)
+            flash("Loja atualizada no ImageKit.", "success")
+        except Exception as e:
+            flash(f"Erro ao atualizar: {e}", "danger")
+        return redirect(url_for("admin_lojas_vitrine"))
+
+    # GET — busca dados atuais
+    lojas_ik = _load_imagekit_lojas(include_file_id=True)
+    loja = next((l for l in lojas_ik if l.get("fileId") == file_id), None)
+    if not loja:
+        flash("Loja não encontrada no ImageKit.", "danger")
+        return redirect(url_for("admin_lojas_vitrine"))
+    return render_template("admin_lojas_vitrine_ik_edit.html", loja=loja, file_id=file_id)
+
+
+@app.post("/painel/admin/lojas-vitrine/ik-delete/<file_id>")
+@admin_required
+def admin_lojas_vitrine_ik_delete(file_id):
+    """Remove uma loja do ImageKit."""
+    file_id = (file_id or "").strip()
+    if file_id:
+        try:
+            _ik_delete_file(file_id)
+            flash("Loja removida do ImageKit.", "success")
+        except Exception as e:
+            flash(f"Erro ao excluir: {e}", "danger")
     return redirect(url_for("admin_lojas_vitrine"))
 
 

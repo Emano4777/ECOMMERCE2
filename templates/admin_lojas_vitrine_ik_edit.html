@@ -1,0 +1,59 @@
+{% extends "painel_base.html" %}
+{% block title %}Editar Loja ImageKit - {{ loja.cidade }}{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+  <a href="{{ url_for('admin_lojas_vitrine') }}" class="btn-pk" style="font-size:.78rem;padding:6px 12px">
+    <i class="fa fa-arrow-left me-1"></i>Voltar
+  </a>
+  <div style="font-weight:900;font-size:1.15rem">
+    <i class="fa fa-pen me-2" style="color:#3b82f6"></i>Editar (ImageKit): {{ loja.cidade }}
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for cat, msg in messages %}
+      <div class="pk-alert pk-alert-{{ 'ok' if cat == 'success' else 'err' }}" style="margin-bottom:14px">{{ msg }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div style="background:#0d1016;border:1px solid var(--pk-line);border-left:3px solid #3b82f6;border-radius:12px;padding:20px;max-width:640px">
+  <div style="font-size:.75rem;color:#3b82f6;font-weight:700;margin-bottom:16px">
+    <i class="fa fa-cloud me-1"></i>Dados armazenados no ImageKit — apenas metadados podem ser editados aqui.
+  </div>
+
+  {% if loja.url %}
+  <img src="{{ loja.url }}" alt="{{ loja.cidade }}"
+       style="width:100%;max-width:320px;height:180px;object-fit:cover;border-radius:10px;display:block;margin-bottom:16px">
+  {% endif %}
+
+  <form method="POST">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label class="pk-label">Cidade *</label>
+        <input class="pk-input" type="text" name="cidade" value="{{ loja.cidade }}" required>
+      </div>
+      <div>
+        <label class="pk-label">Telefone</label>
+        <input class="pk-input" type="text" name="telefone" value="{{ loja.telefone or '' }}">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Endereço *</label>
+        <input class="pk-input" type="text" name="endereco" value="{{ loja.endereco }}" required>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Link WhatsApp</label>
+        <input class="pk-input" type="text" name="whatsapp" value="{{ loja.whatsapp or '' }}">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button type="submit" class="btn-pk" style="background:var(--pk-yellow);color:#000">
+        <i class="fa fa-floppy-disk me-1"></i>Salvar
+      </button>
+      <a href="{{ url_for('admin_lojas_vitrine') }}" class="btn-pk" style="background:#1a1d24">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
