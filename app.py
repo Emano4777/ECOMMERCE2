@@ -4952,14 +4952,39 @@ def precificador_testar_ean():
     ]
     results = []
     for url in endpoints:
-        raw = _vtex_get_json(url, timeout=12)
-        results.append({
-            "url": url,
-            "ok": raw is not None,
-            "tipo": type(raw).__name__ if raw is not None else None,
-            "tamanho": len(raw) if isinstance(raw, list) else (len(raw.get("products", [])) if isinstance(raw, dict) else 0),
-            "amostra": str(raw)[:600] if raw is not None else None,
-        })
+        entry = {"url": url, "ok": False, "status": None, "corpo_preview": None, "json_ok": False, "amostra": None}
+        try:
+            from curl_cffi import requests as cffi_requests
+            referer = url.split("/_v")[0].split("/api")[0] + "/"
+            r = cffi_requests.get(
+                url,
+                headers={**_VTEX_HEADERS, "Referer": referer},
+                impersonate="chrome124",
+                timeout=12,
+                allow_redirects=True,
+            )
+            entry["status"] = r.status_code
+            body = r.text[:1000] if r.text else ""
+            entry["corpo_preview"] = body
+            if r.status_code == 200 and r.content:
+                try:
+                    parsed = r.json()
+                    entry["ok"] = True
+                    entry["json_ok"] = True
+                    entry["tipo"] = type(parsed).__name__
+                    entry["tamanho"] = len(parsed) if isinstance(parsed, list) else (len((parsed or {}).get("products", [])) if isinstance(parsed, dict) else 0)
+                    entry["amostra"] = str(parsed)[:600]
+                except Exception as je:
+                    entry["json_erro"] = str(je)
+        except ImportError:
+            entry["erro"] = "curl_cffi não instalado — usando urllib (pode ser bloqueado)"
+            raw = _vtex_get_json(url, timeout=12)
+            if raw is not None:
+                entry["ok"] = True
+                entry["amostra"] = str(raw)[:600]
+        except Exception as e:
+            entry["erro"] = str(e)[:300]
+        results.append(entry)
 
     resultado_final = _fetch_vtex_price(ean, base)
     return jsonify({

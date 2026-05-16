@@ -1383,11 +1383,16 @@ function buscarConcorrentes(btn) {
   .then(r => r.json())
   .then(data => {
     if (data.ok) {
-      // Busca iniciada — botão vira "Atualizar preços" para checar resultados manualmente
+      // Busca iniciada — auto-refresh único após 45s, depois botão manual
       _concBuscaAtiva = true;
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-rotate-right me-1"></i>Atualizar preços';
-      document.getElementById('conc-searching').innerHTML = '<span class="conc-pulse"></span>Busca em andamento em segundo plano…';
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Aguarde ~45s…';
+      document.getElementById('conc-searching').innerHTML = '<span class="conc-pulse"></span>Buscando preços em segundo plano…';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-rotate-right me-1"></i>Atualizar preços';
+        pollConcorrentes();
+      }, 45000);
     } else {
       alert(data.msg || 'Erro ao iniciar busca.');
       resetBtnConc(btn);
