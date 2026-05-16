@@ -1287,6 +1287,37 @@ def _geo_override(endereco, endereco2=None, uf=None):
     return None, None
 
 
+def _known_city_location_result(termo, cidade, uf):
+    if _extract_cep(termo):
+        return None
+    cidade = (cidade or "").strip()
+    uf = (uf or "").upper().strip()
+    if not cidade or not uf:
+        return None
+    lat, lng = _geo_override(cidade, "", uf)
+    if not lat:
+        return None
+    estado = UF_NOMES.get(uf, uf)
+    slug = re.sub(r"[^a-z0-9]+", "-", cidade.lower()).strip("-") or "cidade"
+    return {
+        "place_id": f"known-{uf.lower()}-{slug}",
+        "lat": str(lat),
+        "lon": str(lng),
+        "display_name": f"{cidade} - {uf} - Brasil",
+        "name": cidade,
+        "class": "place",
+        "type": "town",
+        "address": {
+            "city": cidade,
+            "town": cidade,
+            "state": estado,
+            "state_code": uf,
+            "country": "Brasil",
+            "country_code": "br",
+        },
+    }
+
+
 @app.get("/api/localizacao")
 def api_localizacao():
     global _nom_last
@@ -1294,10 +1325,15 @@ def api_localizacao():
     if len(termo) < 2:
         return jsonify({"results": []})
 
+    cidade_busca, uf_busca = _parse_cidade_uf(re.sub(r",?\s*\d{5}-?\d{3}\b", "", termo).strip(" ,-"))
+    known_result = _known_city_location_result(termo, cidade_busca, uf_busca)
     queries = _location_queries(termo)
 
     seen = set()
     results = []
+    if known_result:
+        seen.add(known_result["place_id"])
+        results.append(known_result)
     for query in queries:
         url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
             {
