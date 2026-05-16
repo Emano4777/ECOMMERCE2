@@ -2861,11 +2861,54 @@ def _ensure_lojas_vitrine_schema():
             whatsapp    TEXT,
             imagem_url  TEXT,
             ordem       INT DEFAULT 0,
+            cnpjloja    TEXT,
             created_at  TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_lojas_vitrine_cliques (
+            id         SERIAL PRIMARY KEY,
+            cidade     TEXT NOT NULL,
+            tipo       TEXT NOT NULL,
+            cnpjloja   TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_lvc_cnpj ON ecommerce_lojas_vitrine_cliques(cnpjloja)
+        WHERE cnpjloja IS NOT NULL
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_lvc_cidade ON ecommerce_lojas_vitrine_cliques(cidade)
+    """)
     conn.commit()
     cur.close()
+
+
+@app.post("/api/lojas/clique")
+def api_lojas_clique():
+    """Registra um clique de WhatsApp ou Como Chegar na página de lojas."""
+    _ensure_lojas_vitrine_schema()
+    data = request.get_json(silent=True) or {}
+    cidade = (data.get("cidade") or "").strip()
+    tipo   = (data.get("tipo") or "").strip()
+    if not cidade or tipo not in ("whatsapp", "maps"):
+        return jsonify({"ok": False}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    # tenta achar o cnpjloja linkado a esta cidade
+    cur.execute("SELECT cnpjloja FROM ecommerce_lojas_vitrine WHERE cidade = %s LIMIT 1", (cidade,))
+    row = cur.fetchone()
+    cnpjloja = row["cnpjloja"] if row else None
+
+    cur.execute(
+        "INSERT INTO ecommerce_lojas_vitrine_cliques (cidade, tipo, cnpjloja) VALUES (%s,%s,%s)",
+        (cidade, tipo, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
 
 
 @app.get("/api/lojas-proximas")
@@ -5625,7 +5668,46 @@ def painel_relatorios():
         "status": status,
         "status_options": status_options,
     }
-    return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros)
+    # ── Vitrine cliques (WhatsApp / Maps) ─────────────────────────────────────
+    _ensure_lojas_vitrine_schema()
+    vitrine_stats = {"whatsapp": 0, "maps": 0, "total": 0, "por_dia": []}
+    try:
+        cur2 = conn.cursor()
+        cur2.execute(
+            """
+            SELECT tipo, COUNT(*) AS total
+            FROM ecommerce_lojas_vitrine_cliques
+            WHERE cnpjloja = %s
+              AND created_at::date BETWEEN %s AND %s
+            GROUP BY tipo
+            """,
+            (cnpjloja, data_inicio, data_fim),
+        )
+        for r in cur2.fetchall():
+            vitrine_stats[r["tipo"]] = int(r["total"])
+        vitrine_stats["total"] = vitrine_stats["whatsapp"] + vitrine_stats["maps"]
+
+        cur2.execute(
+            """
+            SELECT created_at::date AS dia, tipo, COUNT(*) AS cnt
+            FROM ecommerce_lojas_vitrine_cliques
+            WHERE cnpjloja = %s
+              AND created_at::date BETWEEN %s AND %s
+            GROUP BY dia, tipo
+            ORDER BY dia
+            """,
+            (cnpjloja, data_inicio, data_fim),
+        )
+        vitrine_stats["por_dia"] = [
+            {"dia": str(r["dia"]), "tipo": r["tipo"], "cnt": int(r["cnt"])}
+            for r in cur2.fetchall()
+        ]
+        cur2.close()
+    except Exception:
+        pass
+
+    return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros,
+                           vitrine_stats=vitrine_stats)
 
 
 @app.get("/painel/config")
