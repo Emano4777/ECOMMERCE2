@@ -300,9 +300,14 @@
     </div>
   </form>
   {% if pedido.tipo_entrega == 'entrega' and pedido.status == 'enviado' %}
-  <form method="post" action="{{ url_for('painel_confirmar_entrega', pedido_id=pedido.id) }}" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+  <form method="post" action="{{ url_for('painel_confirmar_entrega', pedido_id=pedido.id) }}" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    {% if pedido.origem != 'mercado_livre' %}
     <input name="codigo_entrega" placeholder="Código informado pelo cliente" style="background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px">
+    {% endif %}
     <button class="status-btn s-entregue" type="submit"><i class="fa fa-check me-1"></i>Confirmar entrega</button>
+    {% if pedido.origem == 'mercado_livre' %}
+    <span style="font-size:.75rem;color:var(--pk-muted)"><i class="fa fa-arrow-up-right-from-square me-1"></i>Status será atualizado no Mercado Livre automaticamente</span>
+    {% endif %}
   </form>
   {% endif %}
 </div>

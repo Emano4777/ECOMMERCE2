@@ -3616,26 +3616,31 @@ def painel_pedido_status(pedido_id):
         return redirect(url_for("painel_pedidos"))
     conn = db()
     cur  = conn.cursor()
-    # Block setting "entregue" directly for delivery orders — must use confirmation form with customer code
+    ml_order_id = None
     if novo_status == "entregue":
         cur.execute(
-            "SELECT tipo_entrega FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+            "SELECT tipo_entrega, origem, ml_order_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
             (pedido_id, cnpjloja),
         )
         row = cur.fetchone()
-        if row and row.get("tipo_entrega") == "entrega":
+        is_ml = row and row.get("origem") == "mercado_livre"
+        if row and row.get("tipo_entrega") == "entrega" and not is_ml:
             cur.close()
             flash(
                 "Para confirmar a entrega, use o formulário de confirmação informando o código do cliente.",
                 "error",
             )
             return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+        if is_ml:
+            ml_order_id = row.get("ml_order_id")
     cur.execute(
-        "UPDATE ecommerce_pedidos SET status=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
-        (novo_status, pedido_id, cnpjloja),
+        "UPDATE ecommerce_pedidos SET status=%s, entregue_em=CASE WHEN %s='entregue' THEN NOW() ELSE entregue_em END, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+        (novo_status, novo_status, pedido_id, cnpjloja),
     )
     conn.commit()
     cur.close()
+    if novo_status == "entregue" and ml_order_id:
+        _ml_feedback_entregue(ml_order_id)
     flash(f"Pedido marcado como {novo_status}.", "success")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -3649,17 +3654,36 @@ def painel_confirmar_entrega(pedido_id):
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        """
-        UPDATE ecommerce_pedidos
-        SET status='entregue', entregue_em=NOW(), atualizado_em=NOW()
-        WHERE id=%s AND cnpjloja=%s AND codigo_entrega=%s AND tipo_entrega='entrega'
-        RETURNING id
-        """,
-        (pedido_id, cnpjloja, codigo),
+        "SELECT origem, ml_order_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (pedido_id, cnpjloja),
     )
+    pedido_row = cur.fetchone()
+    is_ml = pedido_row and pedido_row.get("origem") == "mercado_livre"
+    if is_ml:
+        cur.execute(
+            """
+            UPDATE ecommerce_pedidos
+            SET status='entregue', entregue_em=NOW(), atualizado_em=NOW()
+            WHERE id=%s AND cnpjloja=%s AND tipo_entrega='entrega'
+            RETURNING id, ml_order_id
+            """,
+            (pedido_id, cnpjloja),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE ecommerce_pedidos
+            SET status='entregue', entregue_em=NOW(), atualizado_em=NOW()
+            WHERE id=%s AND cnpjloja=%s AND codigo_entrega=%s AND tipo_entrega='entrega'
+            RETURNING id, ml_order_id
+            """,
+            (pedido_id, cnpjloja, codigo),
+        )
     ok = cur.fetchone()
     conn.commit()
     cur.close()
+    if ok and is_ml and ok.get("ml_order_id"):
+        _ml_feedback_entregue(ok["ml_order_id"])
     flash("Entrega confirmada." if ok else "Código de entrega inválido.", "success" if ok else "error")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -5945,12 +5969,12 @@ def _process_ml_order(order_id):
 
         cur.close()
 
-        # Atribui loja — prioridade: proximidade CEP → loja que publicou o item → primeira loja
-        cnpjloja = _ml_assign_loja(eans, cep_comprador)
-        if not cnpjloja and cnpjloja_publicou:
-            cnpjloja = cnpjloja_publicou  # usa a loja que publicou o item no ML
+        # Atribui loja — prioridade: loja que publicou o item → primeira loja cadastrada
+        # A loja que publicou é sempre a correta; CEP apenas serviria se o item
+        # estivesse em múltiplas lojas, o que não ocorre nesta arquitetura.
+        cnpjloja = cnpjloja_publicou
         if not cnpjloja:
-            # Fallback genérico: primeira loja cadastrada no banco
+            # Fallback: item não está em ml_items (publicado fora do painel) — usa primeira loja
             conn_fb = db(); cur_fb = conn_fb.cursor()
             cur_fb.execute(
                 "SELECT cnpjloja FROM users WHERE is_admin=FALSE ORDER BY razao LIMIT 1"
@@ -6055,6 +6079,30 @@ def ml_callback():
 
     flash("Conta Mercado Livre conectada com sucesso!", "success")
     return redirect(url_for("painel_ml"))
+
+
+# ── Entrega confirmada: notifica ML ──────────────────────────────────────────
+
+def _ml_feedback_entregue(ml_order_id):
+    """Envia feedback de entrega ao ML (fulfilled=true) quando a loja confirma entrega."""
+    try:
+        token = _ml_get_token()
+        if not token:
+            return
+        body = json.dumps({"fulfilled": True, "ratings": "neutral"}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{ML_API_BASE}/orders/{ml_order_id}/feedback",
+            data=body,
+            method="POST",
+        )
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            print(f"[ML] Feedback entregue enviado para pedido {ml_order_id}: HTTP {resp.status}")
+    except Exception as e:
+        print(f"[ML] Erro ao enviar feedback de entrega para {ml_order_id}: {e}")
 
 
 # ── Webhook: recebe notificações do ML ───────────────────────────────────────
