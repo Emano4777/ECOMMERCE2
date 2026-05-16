@@ -6835,65 +6835,76 @@ def admin_geocodificar_todos():
 @admin_required
 def admin_lojas_vitrine_auto_vincular():
     """Vincula automaticamente cidades da vitrine às lojas cadastradas pelo endereço."""
+    import unicodedata, re
+
+    def _norm(txt):
+        """Minúsculo sem acentos."""
+        if not txt:
+            return ""
+        nfkd = unicodedata.normalize("NFKD", txt.lower())
+        return "".join(c for c in nfkd if not unicodedata.combining(c))
+
     _ensure_lojas_vitrine_schema()
     conn = db()
     cur = conn.cursor()
 
-    # carrega todas as lojas cadastradas
-    cur.execute("SELECT cnpjloja, razao, endereco, uf FROM users WHERE is_admin = FALSE")
+    cur.execute("SELECT cnpjloja, razao, endereco, uf FROM users WHERE is_admin = FALSE ORDER BY razao")
     lojas = cur.fetchall()
 
-    # coleta todas as cidades da vitrine (ImageKit + Cloudinary)
-    cidades_cloudinary = []
     cur.execute("SELECT DISTINCT cidade FROM ecommerce_lojas_vitrine WHERE cidade IS NOT NULL")
     cidades_cloudinary = [r["cidade"] for r in cur.fetchall()]
-
     lojas_ik = _load_imagekit_lojas()
     cidades_ik = [l["cidade"] for l in lojas_ik if l.get("cidade")]
-
     todas_cidades = list({c for c in cidades_cloudinary + cidades_ik if c})
+
+    def _salvar(cidade_raw, cnpjloja):
+        cur.execute(
+            "INSERT INTO ecommerce_vitrine_cnpj_map (cidade, cnpjloja) VALUES (%s,%s) ON CONFLICT (cidade) DO UPDATE SET cnpjloja=EXCLUDED.cnpjloja",
+            (cidade_raw, cnpjloja),
+        )
+        cur.execute(
+            "UPDATE ecommerce_lojas_vitrine SET cnpjloja=%s WHERE cidade=%s AND (cnpjloja IS NULL OR cnpjloja!=%s)",
+            (cnpjloja, cidade_raw, cnpjloja),
+        )
+        cur.execute(
+            "UPDATE ecommerce_lojas_vitrine_cliques SET cnpjloja=%s WHERE cidade=%s AND cnpjloja IS NULL",
+            (cnpjloja, cidade_raw),
+        )
 
     vinculados = 0
     sem_match = []
 
     for cidade_raw in todas_cidades:
-        # extrai nome e UF: "Taquaritinga/SP" → nome="Taquaritinga", uf="SP"
+        # "São Paulo/SP Arpoador" → nome="São Paulo", uf="SP"
         partes = cidade_raw.split("/")
-        nome_cidade = partes[0].strip()
-        uf_cidade   = partes[1].strip().upper() if len(partes) > 1 else None
+        nome_completo = partes[0].strip()                        # "Itatiba 02"
+        uf_str        = partes[1].strip()[:2].upper() if len(partes) > 1 else None
 
-        match = None
+        # separa número do final: "Itatiba 02" → base="Itatiba", num=2
+        m = re.match(r"^(.*?)\s+(\d+)$", nome_completo)
+        nome_base = m.group(1).strip() if m else nome_completo
+        num_idx   = int(m.group(2)) if m else 1            # 1-based
+
+        nome_norm = _norm(nome_base)
+
+        # acha TODAS as lojas que batem na cidade (sem acentos)
+        candidatos = []
         for loja in lojas:
-            endereco_loja = (loja["endereco"] or "").lower()
-            uf_loja       = (loja["uf"] or "").upper()
-            if nome_cidade.lower() in endereco_loja:
-                if not uf_cidade or uf_cidade == uf_loja:
-                    match = loja
-                    break
+            end_norm = _norm(loja["endereco"] or "")
+            uf_loja  = (loja["uf"] or "").upper()
+            if nome_norm in end_norm:
+                if not uf_str or uf_str == uf_loja:
+                    candidatos.append(loja)
 
-        if match:
-            # upsert no mapa dedicado
-            cur.execute(
-                """
-                INSERT INTO ecommerce_vitrine_cnpj_map (cidade, cnpjloja)
-                VALUES (%s, %s)
-                ON CONFLICT (cidade) DO UPDATE SET cnpjloja = EXCLUDED.cnpjloja
-                """,
-                (cidade_raw, match["cnpjloja"]),
-            )
-            # atualiza também a tabela Cloudinary se existir entrada lá
-            cur.execute(
-                "UPDATE ecommerce_lojas_vitrine SET cnpjloja=%s WHERE cidade=%s AND (cnpjloja IS NULL OR cnpjloja != %s)",
-                (match["cnpjloja"], cidade_raw, match["cnpjloja"]),
-            )
-            # retroativamente vincula cliques sem cnpjloja
-            cur.execute(
-                "UPDATE ecommerce_lojas_vitrine_cliques SET cnpjloja=%s WHERE cidade=%s AND cnpjloja IS NULL",
-                (match["cnpjloja"], cidade_raw),
-            )
-            vinculados += 1
-        else:
+        if not candidatos:
             sem_match.append(cidade_raw)
+            continue
+
+        # para cidade numerada escolhe pelo índice; se só 1 candidato, usa ele
+        idx = min(num_idx, len(candidatos)) - 1
+        match = candidatos[idx]
+        _salvar(cidade_raw, match["cnpjloja"])
+        vinculados += 1
 
     conn.commit()
     cur.close()
