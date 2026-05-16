@@ -310,5 +310,13 @@
     {% endif %}
   </form>
   {% endif %}
+  {% if pedido.origem == 'mercado_livre' and pedido.status == 'entregue' %}
+  <form method="post" action="{{ url_for('painel_avisar_entrega_ml', pedido_id=pedido.id) }}" style="margin-top:12px">
+    <button class="status-btn" type="submit" style="border-color:#fff200;color:#fff200;display:inline-flex;align-items:center;gap:6px">
+      <svg width="13" height="13" viewBox="0 0 48 48"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>
+      Avisar entrega no Mercado Livre
+    </button>
+  </form>
+  {% endif %}
 </div>
 {% endblock %}

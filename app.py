@@ -3688,6 +3688,24 @@ def painel_confirmar_entrega(pedido_id):
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
 
+@app.post("/painel/pedidos/<pedido_id>/avisar-entrega-ml")
+@painel_required
+def painel_avisar_entrega_ml(pedido_id):
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT ml_order_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s AND origem='mercado_livre' LIMIT 1",
+        (pedido_id, cnpjloja),
+    )
+    row = cur.fetchone(); cur.close()
+    if not row or not row.get("ml_order_id"):
+        flash("Pedido não encontrado ou não é do Mercado Livre.", "error")
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+    _ml_feedback_entregue(row["ml_order_id"])
+    flash("Notificação de entrega enviada ao Mercado Livre.", "success")
+    return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+
 @app.post("/painel/pedidos/<pedido_id>/avaliar-receita")
 @painel_required
 def painel_avaliar_receita(pedido_id):
@@ -6084,14 +6102,26 @@ def ml_callback():
 # ── Entrega confirmada: notifica ML ──────────────────────────────────────────
 
 def _ml_feedback_entregue(ml_order_id):
-    """Envia feedback de entrega ao ML (fulfilled=true) quando a loja confirma entrega."""
+    """Notifica o ML que o pedido foi entregue via POST /shipments/{id}/fulfillment."""
     try:
         token = _ml_get_token()
         if not token:
+            print(f"[ML] Sem token para confirmar entrega do pedido {ml_order_id}")
             return
-        body = json.dumps({"fulfilled": True, "ratings": "neutral"}).encode("utf-8")
+        # 1. Busca o pedido no ML para obter o shipment_id
+        order_data = _ml_api_get(f"/orders/{ml_order_id}", token)
+        if not order_data:
+            print(f"[ML] Não foi possível buscar pedido {ml_order_id} na API ML")
+            return
+        shipping = order_data.get("shipping") or {}
+        shipping_id = shipping.get("id")
+        if not shipping_id:
+            print(f"[ML] Pedido {ml_order_id} não tem shipment_id, pulando confirmação")
+            return
+        # 2. Marca o envio como entregue (Entrega por sua conta / Flex)
+        body = json.dumps({"order_id": int(ml_order_id)}).encode("utf-8")
         req = urllib.request.Request(
-            f"{ML_API_BASE}/orders/{ml_order_id}/feedback",
+            f"{ML_API_BASE}/shipments/{shipping_id}/fulfillment",
             data=body,
             method="POST",
         )
@@ -6100,9 +6130,12 @@ def _ml_feedback_entregue(ml_order_id):
         req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-            print(f"[ML] Feedback entregue enviado para pedido {ml_order_id}: HTTP {resp.status}")
+            print(f"[ML] Entrega confirmada no ML: pedido {ml_order_id}, shipment {shipping_id}, HTTP {resp.status}")
+    except urllib.error.HTTPError as e:
+        body_err = e.read().decode("utf-8", errors="replace")[:300]
+        print(f"[ML] Erro HTTP ao confirmar entrega pedido {ml_order_id}: {e.code} — {body_err}")
     except Exception as e:
-        print(f"[ML] Erro ao enviar feedback de entrega para {ml_order_id}: {e}")
+        print(f"[ML] Erro ao confirmar entrega pedido {ml_order_id}: {e}")
 
 
 # ── Webhook: recebe notificações do ML ───────────────────────────────────────
