@@ -6147,7 +6147,7 @@ def _ml_feedback_entregue(ml_order_id):
             # Entrega a combinar (sem Mercado Envios) — feedback de entrega fulfillment
             status, resp = _ml_post(
                 f"/orders/{ml_order_id}/feedback",
-                {"fulfilled": True, "ratings": "neutral"},
+                {"fulfilled": True, "rating": "neutral"},
                 token,
             )
             print(f"[ML] feedback pedido {ml_order_id}: HTTP {status}, {resp}")
