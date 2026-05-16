@@ -2686,6 +2686,7 @@ def api_lojas_proximas():
 @app.get("/api/produtos-proximos")
 def api_produtos_proximos():
     _ensure_delivery_schema()
+    _ensure_catalog_admin_schema()
     try:
         lat_usr = float(request.args["lat"])
         lng_usr = float(request.args["lng"])
@@ -2693,6 +2694,7 @@ def api_produtos_proximos():
         return jsonify({"error": "lat/lng inválidos"}), 400
 
     raio    = float(request.args.get("raio", 50))
+    raio_fallback = max(raio, float(request.args.get("raio_fallback", 120)))
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
 
     conn = db()
@@ -2713,7 +2715,9 @@ def api_produtos_proximos():
             FROM users u
             JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
-            WHERE u.is_admin = FALSE AND g.lat IS NOT NULL
+            WHERE u.is_admin = FALSE
+              AND g.lat IS NOT NULL
+              AND COALESCE(c.catalogo_publico, TRUE) = TRUE
             """
         )
         geocodificadas = cur.fetchall()
@@ -2733,8 +2737,8 @@ def api_produtos_proximos():
 
             proximas = [l for l in lojas_dist if l["distancia_km"] <= raio]
             if not proximas:
-                proximas  = lojas_dist[:3]
-                fora_raio = True
+                proximas  = [l for l in lojas_dist if l["distancia_km"] <= raio_fallback][:3]
+                fora_raio = bool(proximas)
             loja_info = {l["cnpjloja"]: l for l in proximas}
         else:
             sem_loc     = True   # nenhuma geocodificada — cai no fallback
@@ -2742,7 +2746,14 @@ def api_produtos_proximos():
 
     if sem_loc:
         cur.execute(
-            "SELECT cnpjloja, razao FROM users WHERE is_admin = FALSE ORDER BY razao"
+            """
+            SELECT u.cnpjloja, u.razao
+            FROM users u
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE
+              AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+            ORDER BY u.razao
+            """
         )
         todas    = cur.fetchall()
         proximas = list(todas)
@@ -2754,7 +2765,7 @@ def api_produtos_proximos():
     cur.close()
 
     if not proximas:
-        return jsonify({"produtos": [], "fora_raio": False, "raio_km": raio, "n_lojas": 0})
+        return jsonify({"produtos": [], "fora_raio": False, "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0})
 
     cnpjs        = [l["cnpjloja"] for l in proximas]
     produtos_raw = get_dns_products_batch(cnpjs)
@@ -2798,6 +2809,7 @@ def api_produtos_proximos():
         "fora_raio":   fora_raio,
         "sem_geocode": sem_geocode,
         "raio_km":     raio,
+        "raio_fallback_km": raio_fallback,
         "n_lojas":   len(proximas),
     })
 

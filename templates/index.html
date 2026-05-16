@@ -692,7 +692,7 @@ function carregarProdutos(lat, lng) {
           badgeOk.textContent   = `${allProdutos.length} produto(s) · ${data.n_lojas} farmácia(s)`;
           badgeOk.style.display = '';
           if (data.fora_raio) {
-            badgeWrn.textContent   = `Farmácia mais próxima fora do raio de ${data.raio_km} km — entrega disponível`;
+            badgeWrn.textContent   = `Exibindo farmácias até ${data.raio_fallback_km || 120} km porque não há produtos dentro de ${data.raio_km} km`;
             badgeWrn.style.display = '';
           } else {
             badgeWrn.style.display = 'none';
