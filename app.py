@@ -5977,8 +5977,8 @@ def _process_ml_order(order_id):
         ))
         for it in itens_pedido:
             cur2.execute("""
-                INSERT INTO ecommerce_pedido_itens (pedido_id, ean, nome, preco, qty, requer_receita)
-                VALUES (%s,%s,%s,%s,%s,FALSE)
+                INSERT INTO ecommerce_pedido_itens (pedido_id, ean, nome, preco_unitario, qty)
+                VALUES (%s,%s,%s,%s,%s)
             """, (pedido_id, it["ean"], it["nome"], it["preco"], it["qty"]))
         conn2.commit(); cur2.close()
         print(f"[ML] Pedido {order_id} criado → {pedido_id} (loja {cnpjloja})")
