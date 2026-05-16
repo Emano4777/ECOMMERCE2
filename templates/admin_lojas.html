@@ -30,6 +30,21 @@
   color: var(--pk-muted);
 }
 .al-stat strong { color: var(--pk-yellow); }
+.cat-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  background:#0d1016; border:1px solid var(--pk-line);
+  border-radius:999px; padding:3px 8px;
+  color:var(--pk-muted); font-size:.72rem; font-weight:800;
+}
+.cat-badge.on { color:#6ee79a; border-color:rgba(34,197,94,.35); background:#0d2d1a; }
+.cat-badge.off { color:#f08090; border-color:rgba(240,128,144,.35); background:#2a0810; }
+.store-tools { margin-top:8px; padding:10px; background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; min-width:340px; }
+.store-tools summary { cursor:pointer; color:var(--pk-yellow); font-weight:900; font-size:.78rem; }
+.store-grid { display:grid; grid-template-columns:120px minmax(180px,1fr); gap:8px; align-items:center; margin-top:10px; }
+.store-grid label { color:var(--pk-muted); font-size:.74rem; font-weight:800; }
+.cat-checks { display:flex; flex-wrap:wrap; gap:8px; }
+.cat-checks label { display:inline-flex; align-items:center; gap:5px; color:var(--pk-txt); font-size:.76rem; font-weight:700; }
+.sync-note { color:var(--pk-muted); font-size:.72rem; margin-top:7px; line-height:1.35; }
 </style>
 {% endblock %}
 
@@ -80,11 +95,13 @@
 
 {% set geo_ok   = lojas | selectattr('lat') | list | length %}
 {% set geo_miss = lojas | length - geo_ok %}
+{% set cat_publico = lojas | selectattr('catalogo_publico') | list | length %}
 
 <div class="al-stats">
   <div class="al-stat"><strong>{{ lojas | length }}</strong> lojas cadastradas</div>
   <div class="al-stat"><strong style="color:#22c55e">{{ geo_ok }}</strong> geocodificadas</div>
   <div class="al-stat"><strong style="color:#e8760a">{{ geo_miss }}</strong> sem coordenadas</div>
+  <div class="al-stat"><strong style="color:#22c55e">{{ cat_publico }}</strong> catálogos ativos</div>
 </div>
 
 <div class="pk-card" style="padding:0;overflow:hidden">
@@ -96,6 +113,7 @@
         <th>Endereço</th>
         <th>UF</th>
         <th>Geo</th>
+        <th>Catálogo</th>
         <th>Ações</th>
       </tr>
     </thead>
@@ -112,6 +130,19 @@
           {% else %}
             <span class="geo-miss"><i class="fa fa-circle-xmark me-1"></i>Sem coordenadas</span>
           {% endif %}
+        </td>
+        <td>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <span class="cat-badge {{ 'on' if l.catalogo_publico else 'off' }}">
+              <i class="fa fa-{{ 'eye' if l.catalogo_publico else 'eye-slash' }}"></i>
+              {{ 'Ativo' if l.catalogo_publico else 'Oculto' }}
+            </span>
+            <span class="cat-badge">Estoque &gt; {{ l.estoque_min_publicacao }}</span>
+            <span class="cat-badge">{{ l.catalogo_sync_publicados }} publicados</span>
+            {% if l.catalogo_sync_em %}
+              <span class="cat-badge">sync {{ l.catalogo_sync_em.strftime('%d/%m %H:%M') }}</span>
+            {% endif %}
+          </div>
         </td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -137,6 +168,63 @@
                class="btn-pk-ghost" title="Ver catálogo público">
               <i class="fa fa-globe"></i>
             </a>
+            <form method="post" action="{{ url_for('admin_loja_catalogo_toggle') }}" style="display:inline">
+              <input type="hidden" name="cnpjloja" value="{{ l.cnpjloja }}"/>
+              <input type="hidden" name="ativo" value="{{ '0' if l.catalogo_publico else '1' }}"/>
+              <button type="submit"
+                      class="{{ 'btn-pk-ghost' if l.catalogo_publico else 'btn-pk-yellow' }}"
+                      style="padding:5px 10px;font-size:.78rem"
+                      onclick="return confirm('{{ 'Ocultar produtos desta loja do consumidor final?' if l.catalogo_publico else 'Habilitar catálogo desta loja para consumidor final?' }}')">
+                <i class="fa fa-{{ 'eye-slash' if l.catalogo_publico else 'eye' }}"></i>
+                {{ 'Ocultar' if l.catalogo_publico else 'Habilitar' }}
+              </button>
+            </form>
+            {% set cats = (l.categorias_publicacao or 'todos').split(',') %}
+            <details class="store-tools">
+              <summary><i class="fa fa-sliders me-1"></i>Publicação</summary>
+              <form method="post" action="{{ url_for('admin_loja_catalogo_config') }}">
+                <input type="hidden" name="cnpjloja" value="{{ l.cnpjloja }}"/>
+                <div class="store-grid">
+                  <label>Status</label>
+                  <select name="catalogo_publico" class="pk-input" style="padding:6px 9px;font-size:.8rem">
+                    <option value="1" {% if l.catalogo_publico %}selected{% endif %}>Ativo para consumidor</option>
+                    <option value="0" {% if not l.catalogo_publico %}selected{% endif %}>Oculto do consumidor</option>
+                  </select>
+                  <label>Estoque mínimo</label>
+                  <input name="estoque_min_publicacao" type="number" min="0" step="1" class="pk-input"
+                         value="{{ l.estoque_min_publicacao }}" style="padding:6px 9px;font-size:.8rem"/>
+                  <label>Categorias</label>
+                  <div class="cat-checks">
+                    {% for key, label in categorias_publicacao.items() %}
+                    <label>
+                      <input type="checkbox" name="categorias_publicacao" value="{{ key }}"
+                             {% if key in cats %}checked{% endif %}>
+                      {{ label }}
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+                  <button type="submit" class="btn-pk-ghost" style="padding:6px 10px;font-size:.78rem">
+                    <i class="fa fa-floppy-disk me-1"></i>Salvar regra
+                  </button>
+                </div>
+              </form>
+              <form method="post" action="{{ url_for('admin_loja_catalogo_sync') }}"
+                    onsubmit="return confirm('Sincronizar estoque desta loja e publicar somente produtos com imagem segura?')"
+                    style="margin-top:8px">
+                <input type="hidden" name="cnpjloja" value="{{ l.cnpjloja }}"/>
+                <input type="hidden" name="estoque_min_publicacao" value="{{ l.estoque_min_publicacao }}"/>
+                <input type="hidden" name="categorias_publicacao" value="{{ l.categorias_publicacao or 'todos' }}"/>
+                <button type="submit" class="btn-pk-yellow" style="padding:6px 10px;font-size:.78rem">
+                  <i class="fa fa-arrows-rotate me-1"></i>Sincronizar produtos
+                </button>
+                <div class="sync-note">
+                  Busca Alpha e Automatiza, respeita estoque mínimo/categorias, tenta preencher imagens pelo EAN e bloqueia item sem imagem segura.
+                  Último resultado: {{ l.catalogo_sync_publicados }} publicados, {{ l.catalogo_sync_sem_imagem }} sem imagem.
+                </div>
+              </form>
+            </details>
           </div>
         </td>
       </tr>

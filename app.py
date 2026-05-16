@@ -264,6 +264,29 @@ def _ensure_precificador_schema():
         _mark_migration_done("precificador")
 
 
+def _ensure_catalog_admin_schema():
+    _ensure_precificador_schema()
+    key = "catalog_admin"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS catalogo_publico BOOLEAN DEFAULT TRUE")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS estoque_min_publicacao INTEGER DEFAULT 5")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS categorias_publicacao TEXT DEFAULT 'todos'")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS catalogo_sync_em TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS catalogo_sync_total INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS catalogo_sync_publicados INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS catalogo_sync_sem_imagem INTEGER DEFAULT 0")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_consumidor_schema():
     _load_db_migrations()
     if "consumidor" in _schema_ready:
@@ -1473,6 +1496,11 @@ def _batch_cache_set(key: tuple, data: list):
         _batch_cache[key] = {"data": data, "ts": time.time()}
 
 
+def _batch_cache_clear():
+    with _batch_cache_lock:
+        _batch_cache.clear()
+
+
 def _first_valid_url(*values):
     for value in values:
         value = (value or "").strip()
@@ -2446,6 +2474,21 @@ _SQL_AUTO_BATCH = """
 
 def get_dns_products_batch(cnpjs):
     """Fetch DNS products for multiple CNPJs in two batch queries."""
+    if not cnpjs:
+        return []
+    _ensure_catalog_admin_schema()
+    try:
+        conn_cfg = db()
+        cur_cfg = conn_cfg.cursor()
+        cur_cfg.execute(
+            "SELECT cnpjloja FROM ecommerce_config_loja WHERE catalogo_publico IS FALSE AND cnpjloja = ANY(%s)",
+            (cnpjs,),
+        )
+        bloqueadas = {r["cnpjloja"] for r in cur_cfg.fetchall()}
+        cur_cfg.close()
+        cnpjs = [c for c in cnpjs if c not in bloqueadas]
+    except Exception:
+        cnpjs = list(cnpjs)
     if not cnpjs:
         return []
     cache_key = tuple(sorted(cnpjs))
@@ -5367,13 +5410,16 @@ def painel_produto_imagem(ean):
 
 @app.get("/loja/<cnpjloja>")
 def catalogo_loja(cnpjloja):
+    _ensure_catalog_admin_schema()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT cnpjloja, razao, endereco, uf, telefone
-        FROM users
-        WHERE cnpjloja = %s AND is_admin = FALSE
+        SELECT u.cnpjloja, u.razao, u.endereco, u.uf, u.telefone,
+               COALESCE(c.catalogo_publico, TRUE) AS catalogo_publico
+        FROM users u
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+        WHERE u.cnpjloja = %s AND u.is_admin = FALSE
         LIMIT 1
         """,
         (cnpjloja,),
@@ -5386,8 +5432,11 @@ def catalogo_loja(cnpjloja):
         return redirect(url_for("index"))
 
     q = (request.args.get("q") or "").strip()
-    produtos = get_dns_products(cnpjloja, q or None)
-    produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
+    if loja.get("catalogo_publico") is False:
+        produtos = []
+    else:
+        produtos = get_dns_products(cnpjloja, q or None)
+        produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
     conn2 = db()
     _marcar_tarja_batch(produtos, conn2)
@@ -5999,24 +6048,222 @@ def precificador_importar():
 
 # ─── ADMIN ────────────────────────────────────────────────────────────────────
 
+_ADMIN_CATEGORIAS_PUBLICACAO = {
+    "todos": "Todos",
+    "medicamento": "Medicamentos",
+    "nao_medicamento": "Não medicamentos",
+    "cosmetico": "Cosméticos",
+    "suplemento": "Suplementos",
+    "desconhecido": "Outros/sem categoria",
+}
+
+
+def _admin_parse_categorias(raw):
+    cats = [c.strip() for c in (raw or "").split(",") if c.strip()]
+    cats = [c for c in cats if c in _ADMIN_CATEGORIAS_PUBLICACAO]
+    return cats or ["todos"]
+
+
+def _admin_categoria_permitida(nome, categorias):
+    if "todos" in categorias:
+        return True
+    cat = _classificar_produto(nome or "") or "desconhecido"
+    if "nao_medicamento" in categorias and cat != "medicamento":
+        return True
+    return cat in categorias
+
+
+def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
+    _ensure_catalog_admin_schema()
+    categorias = _admin_parse_categorias(categorias_raw)
+    min_estoque = max(0, int(min_estoque or 0))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT e.barras AS ean,
+               COALESCE(m.descricao, e.descricao) AS nome,
+               CAST(e.estoque AS INTEGER) AS qty,
+               COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+        FROM estoque e
+        LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
+        WHERE e.cnpj=%s AND e.estoque > %s
+          AND COALESCE(e.barras, e.barras_norm, '') <> ''
+
+        UNION ALL
+
+        SELECT ae.ean,
+               COALESCE(m.descricao, ae.descricao_produto) AS nome,
+               CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+               COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+        FROM automatiza_estoque ae
+        LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
+        WHERE ae.cnpj_loja=%s AND ae.quantidade_estoque > %s
+          AND COALESCE(ae.ean, '') <> ''
+    """, (cnpjloja, min_estoque, cnpjloja, min_estoque))
+    raw_rows = [dict(r) for r in cur.fetchall()]
+
+    seen = set()
+    produtos = []
+    for row in raw_rows:
+        ean = (row.get("ean") or "").strip()
+        if not ean or ean in seen:
+            continue
+        nome = row.get("nome") or ""
+        if not _admin_categoria_permitida(nome, categorias):
+            continue
+        seen.add(ean)
+        produtos.append({"cnpjloja": cnpjloja, "ean": ean, "nome": nome, "qty": row.get("qty") or 0, "imagem": row.get("imagem") or ""})
+
+    _apply_safe_catalog_images(produtos, cur=cur)
+    _fill_missing_catalog_images(produtos, cnpjloja=cnpjloja, max_sync=len(produtos))
+    _apply_safe_catalog_images(produtos, cur=cur)
+
+    publicados = 0
+    sem_imagem = 0
+    for p in produtos:
+        if not _has_catalog_image(p):
+            sem_imagem += 1
+            continue
+        cur.execute(
+            "INSERT INTO ecommerce_catalogo_extra (cnpjloja, ean) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (cnpjloja, p["ean"]),
+        )
+        cur.execute("DELETE FROM ecommerce_catalogo_oculto WHERE cnpjloja=%s AND ean=%s", (cnpjloja, p["ean"]))
+        publicados += 1
+
+    cur.execute("""
+        INSERT INTO ecommerce_config_loja
+          (cnpjloja, catalogo_publico, estoque_min_publicacao, categorias_publicacao,
+           catalogo_sync_em, catalogo_sync_total, catalogo_sync_publicados, catalogo_sync_sem_imagem)
+        VALUES (%s, TRUE, %s, %s, NOW(), %s, %s, %s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET
+          catalogo_publico=TRUE,
+          estoque_min_publicacao=EXCLUDED.estoque_min_publicacao,
+          categorias_publicacao=EXCLUDED.categorias_publicacao,
+          catalogo_sync_em=NOW(),
+          catalogo_sync_total=EXCLUDED.catalogo_sync_total,
+          catalogo_sync_publicados=EXCLUDED.catalogo_sync_publicados,
+          catalogo_sync_sem_imagem=EXCLUDED.catalogo_sync_sem_imagem
+    """, (cnpjloja, min_estoque, ",".join(categorias), len(produtos), publicados, sem_imagem))
+    conn.commit()
+    cur.close()
+    _batch_cache_clear()
+    return {"total": len(produtos), "publicados": publicados, "sem_imagem": sem_imagem}
+
+
 @app.get("/painel/admin/lojas")
 @admin_required
 def admin_lojas():
+    _ensure_catalog_admin_schema()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT u.cnpjloja, u.razao, u.endereco, u.uf,
-               g.lat, g.lng, g.geocoded_at
+               g.lat, g.lng, g.geocoded_at,
+               COALESCE(c.catalogo_publico, TRUE) AS catalogo_publico,
+               COALESCE(c.estoque_min_publicacao, 5) AS estoque_min_publicacao,
+               COALESCE(c.categorias_publicacao, 'todos') AS categorias_publicacao,
+               c.catalogo_sync_em,
+               COALESCE(c.catalogo_sync_total, 0) AS catalogo_sync_total,
+               COALESCE(c.catalogo_sync_publicados, 0) AS catalogo_sync_publicados,
+               COALESCE(c.catalogo_sync_sem_imagem, 0) AS catalogo_sync_sem_imagem
         FROM users u
         LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
         WHERE u.is_admin = FALSE
         ORDER BY u.razao
         """
     )
     lojas = cur.fetchall()
     cur.close()
-    return render_template("admin_lojas.html", lojas=lojas)
+    return render_template("admin_lojas.html", lojas=lojas, categorias_publicacao=_ADMIN_CATEGORIAS_PUBLICACAO)
+
+
+@app.post("/painel/admin/lojas/catalogo-config")
+@admin_required
+def admin_loja_catalogo_config():
+    _ensure_catalog_admin_schema()
+    cnpjloja = (request.form.get("cnpjloja") or "").strip()
+    if not cnpjloja:
+        return redirect(url_for("admin_lojas"))
+    min_estoque = max(0, int(request.form.get("estoque_min_publicacao") or 5))
+    categorias = request.form.getlist("categorias_publicacao")
+    if not categorias:
+        categorias = ["todos"]
+    categorias = _admin_parse_categorias(",".join(categorias))
+    publico = request.form.get("catalogo_publico") == "1"
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO ecommerce_config_loja
+          (cnpjloja, catalogo_publico, estoque_min_publicacao, categorias_publicacao)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET
+          catalogo_publico=EXCLUDED.catalogo_publico,
+          estoque_min_publicacao=EXCLUDED.estoque_min_publicacao,
+          categorias_publicacao=EXCLUDED.categorias_publicacao,
+          updated_at=NOW()
+    """, (cnpjloja, publico, min_estoque, ",".join(categorias)))
+    conn.commit()
+    cur.close()
+    _batch_cache_clear()
+    flash("ConfiguraÃ§Ã£o do catÃ¡logo atualizada.", "success")
+    return redirect(url_for("admin_lojas"))
+
+
+@app.post("/painel/admin/lojas/catalogo-toggle")
+@admin_required
+def admin_loja_catalogo_toggle():
+    _ensure_catalog_admin_schema()
+    cnpjloja = (request.form.get("cnpjloja") or "").strip()
+    ativo = request.form.get("ativo") == "1"
+    if cnpjloja:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO ecommerce_config_loja (cnpjloja, catalogo_publico)
+            VALUES (%s, %s)
+            ON CONFLICT (cnpjloja) DO UPDATE SET catalogo_publico=EXCLUDED.catalogo_publico, updated_at=NOW()
+        """, (cnpjloja, ativo))
+        cur.execute(
+            "SELECT COALESCE(estoque_min_publicacao, 5) AS min, COALESCE(categorias_publicacao, 'todos') AS categorias FROM ecommerce_config_loja WHERE cnpjloja=%s",
+            (cnpjloja,),
+        )
+        cfg = cur.fetchone() or {"min": 5, "categorias": "todos"}
+        conn.commit()
+        cur.close()
+        _batch_cache_clear()
+        if ativo:
+            stats = _sync_catalogo_loja_admin(cnpjloja, cfg.get("min") or 5, cfg.get("categorias") or "todos")
+            flash(
+                f"CatÃ¡logo habilitado. Sincronizados: {stats['publicados']} publicados, {stats['sem_imagem']} bloqueados por imagem.",
+                "success",
+            )
+        else:
+            flash("CatÃ¡logo ocultado dos consumidores.", "success")
+    return redirect(url_for("admin_lojas"))
+
+
+@app.post("/painel/admin/lojas/catalogo-sync")
+@admin_required
+def admin_loja_catalogo_sync():
+    _ensure_catalog_admin_schema()
+    cnpjloja = (request.form.get("cnpjloja") or "").strip()
+    if not cnpjloja:
+        return redirect(url_for("admin_lojas"))
+    min_estoque = int(request.form.get("estoque_min_publicacao") or 5)
+    categorias = request.form.get("categorias_publicacao") or "todos"
+    stats = _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias)
+    flash(
+        f"SincronizaÃ§Ã£o concluÃ­da: {stats['publicados']} publicados, {stats['sem_imagem']} bloqueados por imagem.",
+        "success",
+    )
+    return redirect(url_for("admin_lojas"))
 
 
 @app.post("/painel/admin/geocodificar")
