@@ -1048,8 +1048,17 @@ function publicarNoML() {
       rowBtn.classList.add('btn-ml-pause');
       rowBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 48 48" style="vertical-align:-1px"><rect width="48" height="48" rx="3" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg> Publicado';
     }
-    alert(d.acao === 'publicado' ? 'Produto publicado no Mercado Livre!' : 'Anúncio atualizado no Mercado Livre!');
-    fecharModalML();
+    // Mostra link do anúncio no modal
+    const treeEl = document.getElementById('ml-cat-tree');
+    const linkHref = d.permalink || `https://www.mercadolivre.com.br/p/${d.ml_item_id}`;
+    treeEl.innerHTML = `<div style="background:#0d2d1a;border:1px solid #22c55e;border-radius:8px;padding:12px;font-size:.82rem">
+      <div style="color:#22c55e;font-weight:800;margin-bottom:8px"><i class="fa fa-check-circle me-1"></i>${d.acao === 'publicado' ? 'Publicado no Mercado Livre!' : 'Anúncio atualizado!'}</div>
+      <div style="color:var(--pk-muted);margin-bottom:8px;font-size:.76rem">ID: <code style="color:#f5c842">${d.ml_item_id}</code></div>
+      <a href="${linkHref}" target="_blank"
+         style="display:inline-flex;align-items:center;gap:6px;background:#fff200;color:#111;border-radius:6px;padding:7px 14px;font-weight:800;font-size:.82rem;text-decoration:none">
+        <i class="fa fa-arrow-up-right-from-square"></i>Ver anúncio no ML
+      </a>
+    </div>`;
   })
   .catch(e => {
     btn.disabled = false;

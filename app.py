@@ -6228,6 +6228,7 @@ def api_ml_publicar():
         return jsonify({"ok": False, "erro": f"Erro ML {code}: {msg}"}), 400
 
     ml_item_id = resp.get("id", "")
+    permalink  = resp.get("permalink", "")
     cur.execute("""
         INSERT INTO ml_items (ml_item_id, ean, titulo, preco, category_id, status, updated_at)
         VALUES (%s, %s, %s, %s, %s, 'active', NOW())
@@ -6235,7 +6236,7 @@ def api_ml_publicar():
           SET preco=%s, category_id=%s, status='active', updated_at=NOW()
     """, (ml_item_id, ean, titulo, preco, category_id, preco, category_id))
     conn.commit(); cur.close()
-    return jsonify({"ok": True, "ml_item_id": ml_item_id, "acao": "publicado"})
+    return jsonify({"ok": True, "ml_item_id": ml_item_id, "permalink": permalink, "acao": "publicado"})
 
 
 @app.post("/api/painel/ml/pausar")
