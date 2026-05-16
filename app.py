@@ -497,7 +497,7 @@ _CONCORRENTES = {
         "vtex_host": None,
         "base_fallbacks": [],
         "scrape_search": True,    # usa _fetch_raia_via_search_page
-        "search_url": "https://www.drogaraia.com.br/busca/?q={ean}",
+        "search_url": "https://www.drogaraia.com.br/search?w={ean}",
         "cor": "#e11d48",
     },
     "drogariasaopaulo": {
@@ -674,7 +674,7 @@ def _fetch_raia_via_search_page(ean):
         from curl_cffi import requests as cffi_requests
     except ImportError:
         return None
-    url = f"https://www.drogaraia.com.br/busca/?q={ean}"
+    url = f"https://www.drogaraia.com.br/search?w={urllib.parse.quote(str(ean))}"
     try:
         r = cffi_requests.get(
             url,
@@ -719,6 +719,27 @@ def _fetch_raia_via_search_page(ean):
         if m:
             try:
                 nd = json.loads(m.group(1))
+                results = (
+                    nd.get("props", {})
+                      .get("pageProps", {})
+                      .get("pageProps", {})
+                      .get("results", {})
+                )
+                products = results.get("products") if isinstance(results, dict) else None
+                if products:
+                    product = products[0]
+                    price = product.get("priceService") or product.get("price")
+                    link = product.get("url") or product.get("urlLandingPage")
+                    if link and not link.startswith("http"):
+                        link = f"https://www.drogaraia.com.br/{link.lstrip('/')}"
+                    if price:
+                        return {
+                            "disponivel": True,
+                            "preco": float(price),
+                            "preco_original": None,
+                            "url": link or url,
+                            "nome": product.get("name") or product.get("productName"),
+                        }
                 price = _find_json_value(nd, "lowPrice") or _find_json_value(nd, "spotPrice")
                 nome = _find_json_value(nd, "productName") or _find_json_value(nd, "name")
                 link = _find_json_value(nd, "linkText") or _find_json_value(nd, "slug")
@@ -735,8 +756,8 @@ def _fetch_raia_via_search_page(ean):
             except Exception:
                 pass
 
-        # 3) Regex de preço como último recurso (ex: "lowPrice":15.19)
-        m2 = re.search(r'"(?:lowPrice|spotPrice|sellingPrice)"\s*:\s*([0-9]+(?:\.[0-9]+)?)', html)
+        # 3) Regex de preço como último recurso (ex: "priceService":15.19)
+        m2 = re.search(r'"(?:priceService|lowPrice|spotPrice|sellingPrice)"\s*:\s*([0-9]+(?:\.[0-9]+)?)', html)
         if m2:
             return {
                 "disponivel": True,
@@ -4869,6 +4890,50 @@ def painel_relatorios():
     resumo["itens"] = (cur.fetchone() or {}).get("itens", 0) or 0
 
     cur.execute(f"""
+        SELECT p.id, p.cliente_nome, p.cliente_telefone, p.cliente_email,
+               p.total, p.status, p.criado_em,
+               COALESCE(p.origem, 'ecommerce') AS origem,
+               COUNT(i.id) AS itens,
+               COALESCE(SUM(i.qty), 0) AS unidades
+        FROM ecommerce_pedidos p
+        LEFT JOIN ecommerce_pedido_itens i ON i.pedido_id = p.id
+        WHERE {order_filter}
+        GROUP BY p.id, p.cliente_nome, p.cliente_telefone, p.cliente_email,
+                 p.total, p.status, p.criado_em, COALESCE(p.origem, 'ecommerce')
+        ORDER BY p.criado_em DESC
+        LIMIT 30
+    """, order_args)
+    vendas_resumo = [dict(r) for r in cur.fetchall()]
+
+    cur.execute(f"""
+        SELECT COALESCE(
+                 NULLIF(p.consumidor_id::TEXT, ''),
+                 NULLIF(p.cliente_email, ''),
+                 NULLIF(p.cliente_telefone, ''),
+                 NULLIF(p.cliente_nome, '')
+               ) AS cliente_key,
+               MAX(NULLIF(p.cliente_nome, '')) AS nome,
+               MAX(NULLIF(p.cliente_telefone, '')) AS telefone,
+               MAX(NULLIF(p.cliente_email, '')) AS email,
+               COUNT(*) AS pedidos,
+               COALESCE(SUM(p.total), 0) AS total,
+               MAX(p.criado_em) AS ultima_compra,
+               COALESCE(SUM(CASE WHEN COALESCE(p.origem, 'ecommerce')='mercado_livre' THEN 1 ELSE 0 END), 0) AS pedidos_ml,
+               COALESCE(SUM(CASE WHEN COALESCE(p.origem, 'ecommerce')='ecommerce' THEN 1 ELSE 0 END), 0) AS pedidos_ecommerce
+        FROM ecommerce_pedidos p
+        WHERE {order_filter}
+        GROUP BY COALESCE(
+                 NULLIF(p.consumidor_id::TEXT, ''),
+                 NULLIF(p.cliente_email, ''),
+                 NULLIF(p.cliente_telefone, ''),
+                 NULLIF(p.cliente_nome, '')
+               )
+        ORDER BY total DESC, pedidos DESC
+        LIMIT 30
+    """, order_args)
+    clientes_resumo = [dict(r) for r in cur.fetchall()]
+
+    cur.execute(f"""
         SELECT COALESCE(p.origem, 'ecommerce') AS origem,
                COUNT(*) AS pedidos,
                COALESCE(SUM(p.total), 0) AS receita,
@@ -5023,6 +5088,8 @@ def painel_relatorios():
         "resumo": {k: _num(v) for k, v in resumo.items()},
         "canais": canais,
         "top_produtos": top_produtos,
+        "vendas_resumo": vendas_resumo,
+        "clientes_resumo": clientes_resumo,
         "produtos_menos_vendidos": produtos_menos_vendidos,
         "reposicao": reposicao,
         "reclamacoes": {k: _num(v) for k, v in reclamacoes.items()},
@@ -5418,7 +5485,7 @@ def precificador_debug_raia_html():
     ean = (request.args.get("ean") or "").strip()
     if not ean:
         return jsonify({"erro": "Informe ?ean=<codigo>"})
-    url = f"https://www.drogaraia.com.br/busca/?q={ean}"
+    url = f"https://www.drogaraia.com.br/search?w={urllib.parse.quote(str(ean))}"
     try:
         from curl_cffi import requests as cffi_requests
         r = cffi_requests.get(
@@ -5436,7 +5503,7 @@ def precificador_debug_raia_html():
         html = r.text or ""
         has_next_data = bool(re.search(r'__NEXT_DATA__', html, re.IGNORECASE))
         has_json_ld   = bool(re.search(r'application/ld\+json', html, re.IGNORECASE))
-        has_price_kw  = bool(re.search(r'"(?:lowPrice|spotPrice|sellingPrice)"\s*:', html))
+        has_price_kw  = bool(re.search(r'"(?:priceService|lowPrice|spotPrice|sellingPrice)"\s*:', html))
         next_data_preview = None
         m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
         if m:

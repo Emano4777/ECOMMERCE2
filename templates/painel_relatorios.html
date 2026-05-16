@@ -40,6 +40,23 @@
   padding:16px;
   min-height:112px;
 }
+.rel-kpi.clickable {
+  cursor:pointer;
+  transition:border-color .15s, transform .15s, background .15s;
+}
+.rel-kpi.clickable:hover, .rel-kpi.clickable.active {
+  border-color:rgba(245,200,66,.65);
+  background:#1b202b;
+  transform:translateY(-1px);
+}
+.rel-kpi .hint {
+  color:var(--pk-yellow);
+  font-size:.72rem;
+  font-weight:900;
+  margin-top:8px;
+  display:none;
+}
+.rel-kpi.clickable:hover .hint, .rel-kpi.clickable.active .hint { display:block; }
 .rel-kpi .ico {
   width:32px;
   height:32px;
@@ -131,10 +148,34 @@
   color:var(--pk-muted);
   font-size:.86rem;
 }
+.rel-detail-panel { display:none; margin-bottom:18px; }
+.rel-detail-panel.active { display:block; }
+.rel-summary-row {
+  display:grid;
+  grid-template-columns:minmax(180px, 1fr) 130px 110px 110px 130px;
+  gap:12px;
+  align-items:center;
+  padding:11px 0;
+  border-bottom:1px solid var(--pk-line);
+  font-size:.84rem;
+}
+.rel-summary-row:last-child { border-bottom:none; }
+.rel-summary-head {
+  color:var(--pk-muted);
+  font-size:.72rem;
+  font-weight:900;
+  text-transform:uppercase;
+  padding-top:0;
+}
+.rel-summary-main { color:#fff; font-weight:900; line-height:1.25; }
+.rel-summary-link { color:inherit; text-decoration:none; }
+.rel-summary-link:hover { color:var(--pk-yellow); }
 @media (max-width: 980px) {
   .rel-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rel-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rel-grid-2 { grid-template-columns:1fr; }
+  .rel-summary-row { grid-template-columns:1fr 1fr; }
+  .rel-summary-head { display:none; }
 }
 @media (max-width: 620px) {
   .rel-filters, .rel-kpis { grid-template-columns:1fr; }
@@ -181,26 +222,87 @@
 </form>
 
 <div class="rel-kpis">
-  <div class="rel-kpi">
+  <div class="rel-kpi clickable" role="button" tabindex="0" data-rel-toggle="vendas">
     <div class="ico"><i class="fa fa-receipt"></i></div>
     <div class="val">{{ relatorio.resumo.pedidos|int }}</div>
     <div class="lbl">vendas no período</div>
+    <div class="hint"><i class="fa fa-list me-1"></i>Ver vendas</div>
   </div>
   <div class="rel-kpi">
     <div class="ico"><i class="fa fa-sack-dollar"></i></div>
     <div class="val">{{ money(relatorio.resumo.receita) }}</div>
     <div class="lbl">valor total vendido</div>
   </div>
-  <div class="rel-kpi">
+  <div class="rel-kpi clickable" role="button" tabindex="0" data-rel-toggle="clientes">
     <div class="ico"><i class="fa fa-users"></i></div>
     <div class="val">{{ relatorio.resumo.clientes|int }}</div>
     <div class="lbl">clientes atendidos</div>
+    <div class="hint"><i class="fa fa-list me-1"></i>Ver clientes</div>
   </div>
   <div class="rel-kpi">
     <div class="ico"><i class="fa fa-basket-shopping"></i></div>
     <div class="val">{{ money(relatorio.resumo.ticket_medio) }}</div>
     <div class="lbl">ticket médio</div>
   </div>
+</div>
+
+<div id="rel-detail-vendas" class="rel-panel rel-detail-panel">
+  <div class="rel-panel-title">
+    <span><i class="fa fa-receipt me-2"></i>Vendas do período</span>
+    <span class="rel-pill">{{ relatorio.vendas_resumo|length }} exibidas</span>
+  </div>
+  {% if relatorio.vendas_resumo %}
+  <div class="rel-summary-row rel-summary-head">
+    <div>Pedido / Cliente</div><div>Canal</div><div>Status</div><div>Itens</div><div style="text-align:right">Total</div>
+  </div>
+  {% for v in relatorio.vendas_resumo %}
+  <div class="rel-summary-row">
+    <div>
+      <a class="rel-summary-link" href="{{ url_for('painel_pedido_detalhe', pedido_id=v.id) }}">
+        <div class="rel-summary-main">#{{ v.id|string|replace('-','')|upper|truncate(8,true,'') }} · {{ v.cliente_nome or 'Cliente' }}</div>
+      </a>
+      <div class="rel-muted">{{ v.criado_em.strftime('%d/%m/%Y %H:%M') if v.criado_em else '—' }}{% if v.cliente_telefone %} · {{ v.cliente_telefone }}{% endif %}</div>
+    </div>
+    <div><span class="rel-pill {% if v.origem == 'mercado_livre' %}warn{% else %}good{% endif %}">{{ 'Mercado Livre' if v.origem == 'mercado_livre' else 'Ecommerce' }}</span></div>
+    <div><span class="rel-pill">{{ v.status|capitalize }}</span></div>
+    <div>{{ v.unidades|int }} un. <span class="rel-muted">({{ v.itens|int }} itens)</span></div>
+    <div style="text-align:right;font-weight:900;color:var(--pk-yellow)">{{ money(v.total) }}</div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="rel-empty">Nenhuma venda encontrada com os filtros atuais.</div>
+  {% endif %}
+</div>
+
+<div id="rel-detail-clientes" class="rel-panel rel-detail-panel">
+  <div class="rel-panel-title">
+    <span><i class="fa fa-users me-2"></i>Clientes atendidos</span>
+    <span class="rel-pill">{{ relatorio.clientes_resumo|length }} exibidos</span>
+  </div>
+  {% if relatorio.clientes_resumo %}
+  <div class="rel-summary-row rel-summary-head">
+    <div>Cliente</div><div>Pedidos</div><div>Ecommerce</div><div>Mercado Livre</div><div style="text-align:right">Total</div>
+  </div>
+  {% for c in relatorio.clientes_resumo %}
+  <div class="rel-summary-row">
+    <div>
+      <div class="rel-summary-main">{{ c.nome or 'Cliente não identificado' }}</div>
+      <div class="rel-muted">
+        {% if c.telefone %}{{ c.telefone }}{% endif %}
+        {% if c.telefone and c.email %} · {% endif %}
+        {% if c.email %}{{ c.email }}{% endif %}
+        {% if c.ultima_compra %} · Última: {{ c.ultima_compra.strftime('%d/%m/%Y') }}{% endif %}
+      </div>
+    </div>
+    <div><span class="rel-pill good">{{ c.pedidos|int }}</span></div>
+    <div>{{ c.pedidos_ecommerce|int }}</div>
+    <div>{{ c.pedidos_ml|int }}</div>
+    <div style="text-align:right;font-weight:900;color:var(--pk-yellow)">{{ money(c.total) }}</div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="rel-empty">Nenhum cliente encontrado com os filtros atuais.</div>
+  {% endif %}
 </div>
 
 <div class="rel-grid-2">
@@ -341,6 +443,29 @@
   var chartCanais = {{ relatorio.chart_canais|tojson }};
   var gridColor = 'rgba(138,149,176,.16)';
   var tickColor = '#8a95b0';
+
+  function toggleResumo(tipo){
+    var alvo = document.getElementById('rel-detail-' + tipo);
+    if(!alvo){ return; }
+    var jaAberto = alvo.classList.contains('active');
+    document.querySelectorAll('.rel-detail-panel').forEach(function(el){ el.classList.remove('active'); });
+    document.querySelectorAll('[data-rel-toggle]').forEach(function(el){ el.classList.remove('active'); });
+    if(!jaAberto){
+      alvo.classList.add('active');
+      document.querySelectorAll('[data-rel-toggle="' + tipo + '"]').forEach(function(el){ el.classList.add('active'); });
+      alvo.scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+  }
+
+  document.querySelectorAll('[data-rel-toggle]').forEach(function(card){
+    card.addEventListener('click', function(){ toggleResumo(card.dataset.relToggle); });
+    card.addEventListener('keydown', function(ev){
+      if(ev.key === 'Enter' || ev.key === ' '){
+        ev.preventDefault();
+        toggleResumo(card.dataset.relToggle);
+      }
+    });
+  });
 
   new Chart(document.getElementById('chartVendas'), {
     type: 'bar',
