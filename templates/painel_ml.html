@@ -135,43 +135,39 @@
     <i class="fa fa-location-dot me-2" style="color:var(--pk-yellow)"></i>Endereço do vendedor
     <span style="font-size:.75rem;color:var(--pk-muted);font-weight:400;margin-left:8px">— necessário para Mercado Envios</span>
   </div>
-  <div id="end-msg" style="display:none;margin-bottom:12px"></div>
-  <div style="display:grid;grid-template-columns:1fr 100px;gap:10px;margin-bottom:10px">
-    <div>
-      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Logradouro (rua/av)</label>
-      <input id="end-logradouro" class="pk-input" placeholder="Rua das Flores">
-    </div>
-    <div>
-      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Número</label>
-      <input id="end-numero" class="pk-input" placeholder="123">
-    </div>
+  <div id="end-carregando" style="color:var(--pk-muted);font-size:.84rem;margin-bottom:8px">
+    <i class="fa fa-spinner fa-spin me-1"></i>Carregando endereço...
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 120px;gap:10px;margin-bottom:10px">
-    <div>
-      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Bairro</label>
-      <input id="end-bairro" class="pk-input" placeholder="Centro">
+  <div id="end-info" style="display:none">
+    <div id="end-status-badge" style="margin-bottom:14px"></div>
+
+    <!-- Endereço atual cadastrado no ML -->
+    <div id="end-atual" style="display:none;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:14px;margin-bottom:14px;font-size:.88rem">
+      <div style="font-size:.75rem;color:var(--pk-muted);margin-bottom:6px;text-transform:uppercase;font-weight:700">Endereço cadastrado no Mercado Livre</div>
+      <div id="end-atual-texto" style="color:var(--pk-txt)"></div>
     </div>
-    <div>
-      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Cidade</label>
-      <input id="end-cidade" class="pk-input" placeholder="São Paulo">
+
+    <!-- Endereço sugerido pelo banco -->
+    <div id="end-sugestao" style="display:none;background:#1e1a08;border:1px solid rgba(245,200,66,.3);border-radius:8px;padding:14px;margin-bottom:14px;font-size:.88rem">
+      <div style="font-size:.75rem;color:#f5c842;margin-bottom:6px;text-transform:uppercase;font-weight:700">
+        <i class="fa fa-lightbulb me-1"></i>Endereço do cadastro da loja (sugestão)
+      </div>
+      <div id="end-sugestao-texto" style="color:var(--pk-txt);margin-bottom:10px"></div>
+      <div style="font-size:.8rem;color:var(--pk-muted)">
+        Use esse endereço ao configurar no Mercado Livre (botão abaixo).
+      </div>
     </div>
-    <div>
-      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">UF</label>
-      <input id="end-estado" class="pk-input" placeholder="SP" maxlength="2" style="text-transform:uppercase">
+
+    <div style="background:#1a1020;border:1px solid rgba(240,128,144,.25);border-radius:8px;padding:12px;font-size:.82rem;color:#f08090;margin-bottom:14px">
+      <i class="fa fa-triangle-exclamation me-1"></i>
+      O Mercado Livre bloqueia alterações de cadastro feitas via API de servidores externos.
+      Configure o endereço diretamente no painel do ML usando o botão abaixo.
     </div>
+
+    <a href="https://www.mercadolivre.com.br/perfil/endereco" target="_blank" class="btn-pk" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px">
+      <i class="fa fa-arrow-up-right-from-square"></i>Configurar endereço no Mercado Livre
+    </a>
   </div>
-  <div style="display:grid;grid-template-columns:160px 1fr;gap:10px;margin-bottom:16px">
-    <div>
-      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">CEP</label>
-      <input id="end-cep" class="pk-input" placeholder="00000-000" maxlength="9">
-    </div>
-    <div style="display:flex;align-items:flex-end">
-      <span id="end-status-ml" style="font-size:.78rem;color:var(--pk-muted)"></span>
-    </div>
-  </div>
-  <button onclick="salvarEnderecoML()" class="btn-pk" id="btn-salvar-end">
-    <i class="fa fa-floppy-disk me-1"></i>Salvar no Mercado Livre
-  </button>
 </div>
 
 <!-- INFORMAÇÕES DO APP -->
@@ -247,84 +243,42 @@
 {% if connected %}
 <script>
 (function(){
-  function fmtCep(v){ return v.replace(/\D/g,'').replace(/(\d{5})(\d{3})/,'$1-$2'); }
-
-  function showEndMsg(msg, tipo){
-    var el = document.getElementById('end-msg');
-    el.style.display = 'block';
-    el.className = 'pk-alert pk-alert-' + tipo;
-    el.innerHTML = msg;
-    setTimeout(function(){ el.style.display='none'; }, 5000);
+  function fmtEnd(d){
+    var partes = [];
+    if(d.logradouro){ partes.push(d.logradouro + (d.numero ? ', ' + d.numero : '')); }
+    if(d.bairro)    { partes.push(d.bairro); }
+    if(d.cidade)    { partes.push(d.cidade + (d.estado ? ' - ' + d.estado : '')); }
+    if(d.cep)       { partes.push('CEP ' + d.cep.replace(/(\d{5})(\d{3})/, '$1-$2')); }
+    return partes.join(', ') || '—';
   }
 
-  function preencherCampos(d){
-    document.getElementById('end-logradouro').value = d.logradouro || '';
-    document.getElementById('end-numero').value     = d.numero     || '';
-    document.getElementById('end-bairro').value     = d.bairro     || '';
-    document.getElementById('end-cidade').value     = d.cidade     || '';
-    document.getElementById('end-estado').value     = (d.estado    || '').toUpperCase();
-    document.getElementById('end-cep').value        = d.cep ? fmtCep(d.cep) : '';
-  }
-
-  // Carrega endereço atual do ML ou banco
   fetch('/api/painel/ml/dados-vendedor')
     .then(function(r){ return r.json(); })
     .then(function(data){
-      if(!data.ok) return;
-      var statusEl = document.getElementById('end-status-ml');
-      if(data.ml_address && data.ml_address.logradouro){
-        preencherCampos(data.ml_address);
-        statusEl.innerHTML = '<i class="fa fa-check-circle" style="color:#22c55e"></i> Endereço já cadastrado no ML';
-      } else if(data.sugestao && data.sugestao.logradouro){
-        preencherCampos(data.sugestao);
-        statusEl.innerHTML = '<i class="fa fa-info-circle" style="color:#f5c842"></i> Pré-preenchido pelo cadastro da loja — confirme e salve';
+      document.getElementById('end-carregando').style.display = 'none';
+      document.getElementById('end-info').style.display = 'block';
+
+      var badge = document.getElementById('end-status-badge');
+      var temML = data.ml_address && data.ml_address.logradouro;
+      var temSug = data.sugestao && data.sugestao.logradouro;
+
+      if(temML){
+        badge.innerHTML = '<span style="color:#22c55e;font-weight:700"><i class="fa fa-check-circle me-1"></i>Endereço já configurado no Mercado Livre</span>';
+        document.getElementById('end-atual').style.display = 'block';
+        document.getElementById('end-atual-texto').textContent = fmtEnd(data.ml_address);
       } else {
-        statusEl.innerHTML = '<i class="fa fa-triangle-exclamation" style="color:#f08090"></i> Sem endereço cadastrado no ML';
+        badge.innerHTML = '<span style="color:#f08090;font-weight:700"><i class="fa fa-triangle-exclamation me-1"></i>Endereço ainda não configurado no Mercado Livre — Mercado Envios não estará disponível</span>';
+      }
+
+      if(temSug){
+        document.getElementById('end-sugestao').style.display = 'block';
+        document.getElementById('end-sugestao-texto').textContent = fmtEnd(data.sugestao);
       }
     })
-    .catch(function(){ });
-
-  window.salvarEnderecoML = function(){
-    var btn = document.getElementById('btn-salvar-end');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Salvando...';
-
-    var payload = {
-      logradouro: document.getElementById('end-logradouro').value.trim(),
-      numero:     document.getElementById('end-numero').value.trim(),
-      bairro:     document.getElementById('end-bairro').value.trim(),
-      cidade:     document.getElementById('end-cidade').value.trim(),
-      estado:     document.getElementById('end-estado').value.trim().toUpperCase(),
-      cep:        document.getElementById('end-cep').value.replace(/\D/g,''),
-    };
-
-    fetch('/api/painel/ml/salvar-endereco', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if(data.ok){
-        showEndMsg('<i class="fa fa-check-circle me-1"></i>' + data.mensagem, 'success');
-        document.getElementById('end-status-ml').innerHTML =
-          '<i class="fa fa-check-circle" style="color:#22c55e"></i> Endereço salvo no ML com sucesso';
-      } else {
-        showEndMsg('<i class="fa fa-triangle-exclamation me-1"></i>' + data.erro, 'error');
-      }
-    })
-    .catch(function(e){ showEndMsg('Erro de rede: ' + e, 'error'); })
-    .finally(function(){
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-floppy-disk me-1"></i>Salvar no Mercado Livre';
+    .catch(function(){
+      document.getElementById('end-carregando').style.display = 'none';
+      document.getElementById('end-info').style.display = 'block';
     });
-  };
-
-  // Formata CEP ao digitar
-  document.getElementById('end-cep').addEventListener('input', function(){
-    var v = this.value.replace(/\D/g,'');
-    this.value = v.length > 5 ? v.slice(0,5) + '-' + v.slice(5,8) : v;
-  });
 })();
 </script>
 {% endif %}
