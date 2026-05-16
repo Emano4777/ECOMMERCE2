@@ -841,39 +841,63 @@ async function extrairIdDeUrl(val) {
   nomeEl.textContent = '⏳ Buscando categoria…';
   box.innerHTML = '';
 
-  // Use server-side proxy (uses ML bearer token — bypasses browser blocks)
+  // 1) Server proxy (uses ML bearer token)
   for (const mlbId of idsToTry) {
     try {
       const r = await fetch(`/api/painel/ml/categoria-por-item?item_id=${encodeURIComponent(mlbId)}`);
       const d = await r.json();
       if (d.ok && d.category_id) {
-        await setCategoryId(d.category_id, { id: d.category_id, name: d.category_name });
+        await setCategoryId(d.category_id, { category_name: d.category_name });
         return;
       }
     } catch {}
   }
 
-  // All IDs failed
+  // 2) CORS proxy fallback — routes through non-Vercel IP, bypasses ML block
+  for (const mlbId of idsToTry) {
+    try {
+      const mlUrl = `https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`;
+      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(mlUrl)}`, {
+        signal: AbortSignal.timeout(8000)
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const cat = (d.category_id || '');
+        if (/^MLB\d+$/.test(cat)) { await setCategoryId(cat); return; }
+      }
+    } catch {}
+  }
+
+  // All failed
   nomeEl.textContent = '';
   box.innerHTML = _boxFallbackManual();
 }
 
-function _boxFallbackManual(prodNome) {
-  const busca = encodeURIComponent((prodNome || document.getElementById('ml-input-nome')?.value || 'whey protein').split(/\s+/).slice(0,4).join(' '));
+function _mlSearchUrl(nome) {
+  const slug = (nome || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim().replace(/\s+/g, '-');
+  return `https://lista.mercadolivre.com.br/${slug || 'suplementos-alimentares'}`;
+}
+
+function _boxFallbackManual() {
+  const nome = document.getElementById('ml-input-nome')?.value || '';
+  const url  = _mlSearchUrl(nome);
   return `
     <div style="background:#1a0d00;border:1px solid #f5c842;border-radius:8px;padding:14px;font-size:.8rem">
       <div style="font-weight:800;color:#e8c94a;margin-bottom:10px">
-        <i class="fa fa-circle-info me-1"></i>Como encontrar o ID da categoria no ML
+        <i class="fa fa-circle-info me-1"></i>Como encontrar o ID da categoria
       </div>
-      <ol style="color:var(--pk-muted);margin:0 0 12px 0;padding-left:18px;line-height:1.8">
-        <li>Clique no botão abaixo para buscar seu produto no ML</li>
-        <li>Nos resultados, clique em uma <strong style="color:#e8c94a">sub-categoria</strong> no menu lateral esquerdo</li>
-        <li>Veja a URL — ela vai conter <code style="color:#f5c842;font-size:.85em">_CategoryId_MLB123456</code></li>
-        <li>Copie apenas o número <code style="color:#f5c842;font-size:.85em">MLB123456</code> e cole no campo acima</li>
+      <ol style="color:var(--pk-muted);margin:0 0 12px 0;padding-left:18px;line-height:1.9">
+        <li>Clique em <strong style="color:#e8c94a">Buscar no ML</strong> abaixo</li>
+        <li>Nos resultados, clique em uma <strong style="color:#e8c94a">sub-categoria</strong> no menu <strong style="color:#e8c94a">esquerdo</strong></li>
+        <li>A URL vai mudar e mostrar algo como <code style="color:#f5c842;font-size:.85em">_CategoryId_MLB123456</code></li>
+        <li>Copie o <code style="color:#f5c842;font-size:.85em">MLB123456</code> e cole no campo acima</li>
       </ol>
-      <a href="https://www.mercadolivre.com.br/${busca}" target="_blank"
+      <a href="${url}" target="_blank"
          style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:9px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
-        <i class="fa fa-arrow-up-right-from-square"></i>Buscar no Mercado Livre
+        <i class="fa fa-arrow-up-right-from-square"></i>Buscar no ML
       </a>
     </div>`;
 }
@@ -952,19 +976,23 @@ async function detectarCategoria() {
   let sugestoes = [];
   for (const q of queries) {
     if (sugestoes.length) break;
-    try {
-      const r = await fetch(
-        `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=10`,
-        { signal: AbortSignal.timeout(8000) }
-      );
-      if (!r.ok) continue;
-      const data = await r.json();
-      const catIds = [...new Set((data.results || []).map(x => x.category_id).filter(Boolean))].slice(0, 5);
-      if (!catIds.length) continue;
-      sugestoes = await Promise.all(catIds.map(async id => ({
-        category_id: id, category_name: await getCatName(id)
-      })));
-    } catch { continue; }
+    // Try direct, then via CORS proxy
+    for (const baseUrl of [
+      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=10`,
+      `https://corsproxy.io/?url=${encodeURIComponent('https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(q) + '&limit=10')}`
+    ]) {
+      try {
+        const r = await fetch(baseUrl, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) continue;
+        const data = await r.json();
+        const catIds = [...new Set((data.results || []).map(x => x.category_id).filter(Boolean))].slice(0, 5);
+        if (!catIds.length) continue;
+        sugestoes = await Promise.all(catIds.map(async id => ({
+          category_id: id, category_name: await getCatName(id)
+        })));
+        if (sugestoes.length) break;
+      } catch { continue; }
+    }
   }
 
   btn.disabled = false;
