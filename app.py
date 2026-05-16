@@ -488,14 +488,15 @@ def _ensure_competitor_schema():
 
 
 _CONCORRENTES = {
-    # Droga Raia usa VTEX IO headless (Next.js em www.drogaraia.com.br).
-    # O backend VTEX fica em drogaraia.vtexcommercestable.com.br, mas o IS
-    # requer Host: www.drogaraia.com.br para resolver o binding correto.
+    # Droga Raia usa VTEX IO headless (FastStore/Next.js).
+    # O backend VTEX bloqueia acesso externo (CloudFront 403).
+    # Estratégia: raspar a página de busca pública SSR como fonte de preço.
     "drogaraia": {
         "nome": "Droga Raia",
-        "base": "https://drogaraia.vtexcommercestable.com.br",
-        "vtex_host": "www.drogaraia.com.br",
+        "base": None,              # sem VTEX API público acessível
+        "vtex_host": None,
         "base_fallbacks": [],
+        "scrape_search": True,    # usa _fetch_raia_via_search_page
         "search_url": "https://www.drogaraia.com.br/busca/?q={ean}",
         "cor": "#e11d48",
     },
@@ -644,6 +645,111 @@ def _build_vtex_attempts(base_url):
     ]
 
 
+def _find_json_value(obj, key, _d=0):
+    """Busca recursiva de uma chave em dict/list aninhado (máx 12 níveis)."""
+    if _d > 12:
+        return None
+    if isinstance(obj, dict):
+        if key in obj and isinstance(obj[key], (int, float, str)) and obj[key]:
+            return obj[key]
+        for v in obj.values():
+            r = _find_json_value(v, key, _d + 1)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for item in obj:
+            r = _find_json_value(item, key, _d + 1)
+            if r is not None:
+                return r
+    return None
+
+
+def _fetch_raia_via_search_page(ean):
+    """
+    Fallback para Droga Raia: raspa a página de busca SSR (FastStore/Next.js).
+    Extrai preço via JSON-LD (structured data) ou __NEXT_DATA__.
+    """
+    import re
+    try:
+        from curl_cffi import requests as cffi_requests
+    except ImportError:
+        return None
+    url = f"https://www.drogaraia.com.br/busca/?q={ean}"
+    try:
+        r = cffi_requests.get(
+            url,
+            headers={
+                "User-Agent": _VTEX_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                "Referer": "https://www.drogaraia.com.br/",
+            },
+            impersonate="chrome124",
+            timeout=18,
+            allow_redirects=True,
+        )
+        if r.status_code != 200 or not r.text:
+            return None
+        html = r.text
+
+        # 1) JSON-LD structured data
+        for raw_ld in re.findall(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
+            try:
+                ld = json.loads(raw_ld)
+                items = ld if isinstance(ld, list) else [ld]
+                for item in items:
+                    if str(item.get("@type", "")).lower() == "product":
+                        offers = item.get("offers") or {}
+                        if isinstance(offers, list):
+                            offers = offers[0] if offers else {}
+                        price = offers.get("lowPrice") or offers.get("price")
+                        if price:
+                            return {
+                                "disponivel": True,
+                                "preco": float(price),
+                                "preco_original": None,
+                                "url": item.get("url") or url,
+                                "nome": item.get("name"),
+                            }
+            except Exception:
+                pass
+
+        # 2) __NEXT_DATA__ (FastStore SSR)
+        m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
+        if m:
+            try:
+                nd = json.loads(m.group(1))
+                price = _find_json_value(nd, "lowPrice") or _find_json_value(nd, "spotPrice")
+                nome = _find_json_value(nd, "productName") or _find_json_value(nd, "name")
+                link = _find_json_value(nd, "linkText") or _find_json_value(nd, "slug")
+                if link and not link.startswith("http"):
+                    link = f"https://www.drogaraia.com.br/{link.lstrip('/')}"
+                if price:
+                    return {
+                        "disponivel": True,
+                        "preco": float(price),
+                        "preco_original": None,
+                        "url": link or url,
+                        "nome": nome,
+                    }
+            except Exception:
+                pass
+
+        # 3) Regex de preço como último recurso (ex: "lowPrice":15.19)
+        m2 = re.search(r'"(?:lowPrice|spotPrice|sellingPrice)"\s*:\s*([0-9]+(?:\.[0-9]+)?)', html)
+        if m2:
+            return {
+                "disponivel": True,
+                "preco": float(m2.group(1)),
+                "preco_original": None,
+                "url": url,
+                "nome": None,
+            }
+        return None
+    except Exception:
+        return None
+
+
 def _fetch_vtex_price(ean, base_url, fallbacks=None, host_override=None):
     """
     Tenta múltiplos endpoints VTEX para obter o preço de um EAN.
@@ -674,11 +780,14 @@ def _fetch_and_store_competitor_prices(eans):
     import concurrent.futures
     _ensure_competitor_schema()
 
-    def fetch_one(ean, slug, base, fallbacks=None, host_override=None):
+    def fetch_one(ean, slug, base, fallbacks=None, host_override=None, scrape_search=False):
         erro = None
         result = None
         try:
-            result = _fetch_vtex_price(ean, base, fallbacks=fallbacks, host_override=host_override)
+            if base:
+                result = _fetch_vtex_price(ean, base, fallbacks=fallbacks, host_override=host_override)
+            if result is None and scrape_search:
+                result = _fetch_raia_via_search_page(ean)
         except Exception as e:
             erro = str(e)[:200]
 
@@ -730,12 +839,13 @@ def _fetch_and_store_competitor_prices(eans):
             pass
 
     tasks = [
-        (ean, slug, info["base"], info.get("base_fallbacks", []), info.get("vtex_host"))
+        (ean, slug, info["base"], info.get("base_fallbacks", []),
+         info.get("vtex_host"), info.get("scrape_search", False))
         for ean in eans
         for slug, info in _CONCORRENTES.items()
     ]
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-        futures = [ex.submit(fetch_one, ean, slug, base, fbs, host) for ean, slug, base, fbs, host in tasks]
+        futures = [ex.submit(fetch_one, ean, slug, base, fbs, host, scrape) for ean, slug, base, fbs, host, scrape in tasks]
         concurrent.futures.wait(futures, timeout=300)
 
 
@@ -4976,7 +5086,7 @@ def precificador_testar_ean():
         return jsonify({"erro": f"Concorrente '{slug}' desconhecido. Use: drogaraia ou drogariasaopaulo"})
 
     host_override = info.get("vtex_host")
-    all_bases = [info["base"]] + info.get("base_fallbacks", [])
+    all_bases = [b for b in [info["base"]] + info.get("base_fallbacks", []) if b]
     results = []
     for base in all_bases:
         for url_tpl, _ in _build_vtex_attempts(base):
@@ -5018,13 +5128,23 @@ def precificador_testar_ean():
                 entry["erro"] = str(e)[:300]
             results.append(entry)
 
+    resultado_final = None
     primary_base = info["base"]
-    fallbacks = info.get("base_fallbacks", [])
-    resultado_final = _fetch_vtex_price(ean, primary_base, fallbacks=fallbacks, host_override=host_override)
+    if primary_base:
+        fallbacks = info.get("base_fallbacks", [])
+        resultado_final = _fetch_vtex_price(ean, primary_base, fallbacks=fallbacks, host_override=host_override)
+
+    scrape_result = None
+    if info.get("scrape_search"):
+        scrape_result = _fetch_raia_via_search_page(ean)
+        if resultado_final is None:
+            resultado_final = scrape_result
+
     return jsonify({
         "ean": ean,
         "concorrente": slug,
-        "bases_testadas": all_bases,
+        "bases_testadas": [b for b in all_bases if b],
+        "scrape_search_result": scrape_result,
         "resultado_final": resultado_final,
         "tentativas": results,
     })
