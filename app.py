@@ -6109,11 +6109,10 @@ def _ml_api_put(path, body, token=None):
 @app.get("/api/painel/ml/status-produtos")
 @painel_required
 def api_ml_status_produtos():
-    """Retorna quais EANs desta loja já estão publicados no ML."""
+    """Retorna status real dos itens do vendedor no ML (consulta a API do ML para status atualizado)."""
     _ensure_ml_schema()
     cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
-    # ml_items são globais (conta única), mas filtramos pelo estoque desta loja
     cur.execute("""
         SELECT mi.ml_item_id, mi.ean, mi.titulo, mi.preco, mi.status
         FROM ml_items mi
@@ -6125,7 +6124,63 @@ def api_ml_status_produtos():
     """, (cnpjloja, cnpjloja))
     rows = cur.fetchall()
     cur.close()
-    return jsonify({r["ean"]: {"item_id": r["ml_item_id"], "status": r["status"], "preco": float(r["preco"] or 0)} for r in rows})
+
+    if not rows:
+        return jsonify({})
+
+    token = _ml_get_token()
+    result = {}
+
+    # Consulta status real via API do ML em lote (até 20 por vez)
+    if token:
+        ids = [r["ml_item_id"] for r in rows]
+        ctx = ssl.create_default_context()
+        for i in range(0, len(ids), 20):
+            batch = ids[i:i+20]
+            try:
+                url = f"{ML_API_BASE}/items?ids={','.join(batch)}&attributes=id,status,sub_status,health,permalink"
+                req = urllib.request.Request(url)
+                req.add_header("Authorization", f"Bearer {token}")
+                req.add_header("User-Agent", "Mozilla/5.0")
+                with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                    data = json.loads(r.read())
+                for entry in data:
+                    body_item = entry.get("body") or {}
+                    ml_id = body_item.get("id") or entry.get("id", "")
+                    if ml_id:
+                        result[ml_id] = {
+                            "status":     body_item.get("status", "unknown"),
+                            "sub_status": body_item.get("sub_status", []),
+                            "health":     body_item.get("health"),
+                            "permalink":  body_item.get("permalink", ""),
+                        }
+            except Exception:
+                pass
+
+    out = {}
+    for r in rows:
+        ml_info = result.get(r["ml_item_id"], {})
+        real_status = ml_info.get("status") or r["status"]
+        out[r["ean"]] = {
+            "item_id":    r["ml_item_id"],
+            "status":     real_status,
+            "sub_status": ml_info.get("sub_status", []),
+            "health":     ml_info.get("health"),
+            "permalink":  ml_info.get("permalink", ""),
+            "preco":      float(r["preco"] or 0),
+        }
+
+    # Atualiza status local no banco se mudou
+    if result:
+        conn2 = db(); cur2 = conn2.cursor()
+        for r in rows:
+            ml_info = result.get(r["ml_item_id"])
+            if ml_info and ml_info.get("status") and ml_info["status"] != r["status"]:
+                cur2.execute("UPDATE ml_items SET status=%s WHERE ml_item_id=%s",
+                             (ml_info["status"], r["ml_item_id"]))
+        conn2.commit(); cur2.close()
+
+    return jsonify(out)
 
 
 @app.post("/api/painel/ml/publicar")
