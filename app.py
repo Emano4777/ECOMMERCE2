@@ -6483,6 +6483,35 @@ def api_ml_categorias_usadas():
     return jsonify({"ok": True, "categorias": categorias})
 
 
+@app.get("/api/painel/ml/navegar-categorias")
+@painel_required
+def api_ml_navegar_categorias():
+    """Navega a árvore de categorias do ML via token da loja (endpoint /categories não é bloqueado pelo PolicyAgent)."""
+    cat_id = (request.args.get("cat_id") or "MLB1648").strip()
+    token = _ml_get_token()
+    if not token:
+        return jsonify({"ok": False, "erro": "Token ML não disponível."}), 401
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(f"{ML_API_BASE}/categories/{cat_id}")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            data = json.loads(r.read())
+        path = data.get("path_from_root", [])
+        children = data.get("children_categories", [])
+        return jsonify({
+            "ok": True,
+            "id": data["id"],
+            "nome": data.get("name", cat_id),
+            "breadcrumb": [{"id": p["id"], "name": p["name"]} for p in path],
+            "filhos": [{"id": c["id"], "name": c["name"]} for c in children],
+            "is_leaf": len(children) == 0,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)}), 500
+
+
 @app.get("/api/painel/ml/sugerir-categoria")
 @painel_required
 def api_ml_sugerir_categoria():

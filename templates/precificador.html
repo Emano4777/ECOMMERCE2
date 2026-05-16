@@ -805,152 +805,85 @@ fetch('/api/painel/ml/status-produtos')
   .catch(() => {});
 
 let _mlEanAtual = null;
-let _mlCatTimer = null;
+let _mlCatManualTimer = null;
 
-function handleCatInput(val) {
-  clearTimeout(_mlCatTimer);
-  const v = val.trim();
-  if (!v) { document.getElementById('ml-cat-nome').textContent = ''; return; }
-  // Pure MLB ID typed directly — resolve via server (could be item or category)
-  if (/^MLB\d{5,}$/i.test(v)) {
-    _mlCatTimer = setTimeout(() => extrairIdDeUrl(v.toUpperCase()), 300);
-    return;
-  }
-  // URL or string containing MLB IDs
-  if (v.includes('mercadolivre') || v.includes('mercadolibre') || /MLB\d{5,}/i.test(v)) {
-    _mlCatTimer = setTimeout(() => extrairIdDeUrl(v), 300);
-    return;
-  }
-  // Text search
-  _mlCatTimer = setTimeout(() => detectarCategoria(), 700);
-}
+// ── Category Tree Browser ─────────────────────────────────────────────────────
+async function navCat(catId) {
+  const treeEl = document.getElementById('ml-cat-tree');
+  const bcEl   = document.getElementById('ml-cat-breadcrumb');
+  treeEl.innerHTML = '<div style="color:var(--pk-muted);font-size:.78rem;padding:6px 4px"><i class="fa fa-spinner fa-spin me-1"></i>Carregando…</div>';
 
-async function extrairIdDeUrl(val) {
-  const nomeEl = document.getElementById('ml-cat-nome');
-  const box    = document.getElementById('ml-cat-sugestoes');
-
-  nomeEl.textContent = '⏳ Buscando categoria…';
-  box.innerHTML = '';
-
-  // 0a) Server-side HTML scraping
-  if (val.includes('mercadolivre') || val.includes('mercadolibre')) {
-    try {
-      const r = await fetch(`/api/painel/ml/categoria-de-url?url=${encodeURIComponent(val)}`);
-      const d = await r.json();
-      if (d.ok && d.category_id) {
-        await setCategoryId(d.category_id, { category_name: d.category_name });
-        return;
-      }
-    } catch {}
-  }
-
-  // 0b) Browser-side scraping via corsproxy.io — parse category from ML HTML
-  if (val.includes('mercadolivre') || val.includes('mercadolibre')) {
-    try {
-      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(val)}`;
-      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      if (resp.ok) {
-        const html = await resp.text();
-        for (const pat of [/"categoryId"\s*:\s*"(MLB\d+)"/, /"category_id"\s*:\s*"(MLB\d+)"/]) {
-          const m = html.match(pat);
-          if (m) { await setCategoryId(m[1]); return; }
-        }
-      }
-    } catch {}
-  }
-
-  // item_id param is the actual listing — try it first
-  const itemIdMatch = val.match(/item_id:?(MLB\d+)/i);
-  const allIds = [...new Set((val.match(/MLB\d{5,}/gi) || []).map(x => x.toUpperCase()))];
-
-  if (!allIds.length) {
-    nomeEl.textContent = '';
-    box.innerHTML = _boxFallbackManual();
-    return;
-  }
-
-  const idsToTry = itemIdMatch
-    ? [itemIdMatch[1].toUpperCase(), ...allIds.filter(id => id !== itemIdMatch[1].toUpperCase())]
-    : allIds;
-
-  // 1) Server proxy (uses ML bearer token)
-  for (const mlbId of idsToTry) {
-    try {
-      const r = await fetch(`/api/painel/ml/categoria-por-item?item_id=${encodeURIComponent(mlbId)}`);
-      const d = await r.json();
-      if (d.ok && d.category_id) {
-        await setCategoryId(d.category_id, { category_name: d.category_name });
-        return;
-      }
-    } catch {}
-  }
-
-  // 2) CORS proxy fallback — routes through non-Vercel IP, bypasses ML block
-  for (const mlbId of idsToTry) {
-    try {
-      const mlUrl = `https://api.mercadolibre.com/items/${mlbId}?attributes=category_id`;
-      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(mlUrl)}`, {
-        signal: AbortSignal.timeout(8000)
-      });
-      if (r.ok) {
-        const d = await r.json();
-        const cat = (d.category_id || '');
-        if (/^MLB\d+$/.test(cat)) { await setCategoryId(cat); return; }
-      }
-    } catch {}
-  }
-
-  // All failed
-  nomeEl.textContent = '';
-  box.innerHTML = _boxFallbackManual();
-}
-
-function _mlSearchUrl(nome) {
-  const slug = (nome || '').toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim().replace(/\s+/g, '-');
-  return `https://lista.mercadolivre.com.br/${slug || 'suplementos-alimentares'}`;
-}
-
-function _boxFallbackManual() {
-  const nome = document.getElementById('ml-input-nome')?.value || '';
-  const url  = _mlSearchUrl(nome);
-  return `
-    <div style="background:#1a0d00;border:1px solid #f5c842;border-radius:8px;padding:14px;font-size:.8rem">
-      <div style="font-weight:800;color:#e8c94a;margin-bottom:10px">
-        <i class="fa fa-circle-info me-1"></i>Como encontrar o ID da categoria
-      </div>
-      <div style="color:var(--pk-muted);margin-bottom:12px;line-height:1.7">
-        Clique em <strong style="color:#e8c94a">Buscar no ML</strong>, abra qualquer produto parecido, copie a URL e cole aqui.
-        <br>Ou se já sabe o ID, digitie direto: <code style="color:#f5c842">MLB272431</code>
-      </div>
-      <a href="${url}" target="_blank"
-         style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:9px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
-        <i class="fa fa-arrow-up-right-from-square"></i>Buscar no ML
-      </a>
-    </div>`;
-}
-
-async function setCategoryId(catId, catDataAlreadyFetched) {
-  document.getElementById('ml-input-cat').value = catId;
-  document.getElementById('ml-cat-sugestoes').innerHTML = '';
-  const nomeEl = document.getElementById('ml-cat-nome');
-  nomeEl.style.color = '#22c55e';
   try {
-    let name = '';
-    if (catDataAlreadyFetched) {
-      const cd = catDataAlreadyFetched;
-      const path = cd.path_from_root || [];
-      name = path.length >= 2 ? path.slice(-3).map(p => p.name).join(' › ') : (cd.category_name || cd.name || catId);
-    } else {
-      const r = await fetch(`/api/painel/ml/categoria-por-item?item_id=${encodeURIComponent(catId)}`);
-      const d = await r.json();
-      name = d.ok ? d.category_name : catId;
+    const r = await fetch(`/api/painel/ml/navegar-categorias?cat_id=${encodeURIComponent(catId)}`);
+    const d = await r.json();
+
+    if (!d.ok) {
+      treeEl.innerHTML = `<div style="color:#f08090;font-size:.78rem;padding:6px 4px">Erro: ${d.erro}</div>`;
+      return;
     }
-    nomeEl.textContent = `✓ ${catId} — ${name}`;
+
+    // Breadcrumb
+    const bc = d.breadcrumb || [];
+    bcEl.innerHTML = bc.map((b, i) => {
+      const isLast = i === bc.length - 1;
+      return `<button type="button" onclick="navCat('${b.id}')"
+                       style="background:none;border:none;color:${isLast ? '#f5c842' : 'var(--pk-muted)'};cursor:pointer;padding:0 1px;font-size:.73rem;font-family:inherit;font-weight:${isLast ? '800' : '400'}">${b.name}</button>` +
+             (isLast ? '' : '<span style="color:var(--pk-line);font-size:.7rem"> › </span>');
+    }).join('');
+
+    if (d.is_leaf) {
+      setCatIdDirect(d.id, d.nome);
+      treeEl.innerHTML = `<div style="color:#22c55e;font-size:.78rem;padding:6px 4px"><i class="fa fa-check-circle me-1"></i>Categoria selecionada automaticamente</div>`;
+    } else {
+      treeEl.innerHTML = d.filhos.length
+        ? d.filhos.map(f =>
+            `<button type="button" onclick="navCat('${f.id}')"
+                     style="text-align:left;background:transparent;border:1px solid var(--pk-line);border-radius:6px;padding:7px 10px;cursor:pointer;font-size:.8rem;color:var(--pk-txt);font-family:inherit;display:flex;align-items:center;justify-content:space-between;width:100%;transition:background .12s"
+                     onmouseover="this.style.background='#181c26'" onmouseout="this.style.background='transparent'">
+               <span>${f.name}</span>
+               <i class="fa fa-chevron-right" style="color:var(--pk-muted);font-size:.65rem;flex-shrink:0"></i>
+             </button>`
+          ).join('')
+        : '<div style="color:var(--pk-muted);font-size:.78rem;padding:6px 4px">Sem subcategorias</div>';
+    }
+  } catch (e) {
+    treeEl.innerHTML = `<div style="color:#f08090;font-size:.78rem;padding:6px 4px">Erro de conexão</div>`;
+  }
+}
+
+function setCatIdDirect(catId, catName) {
+  document.getElementById('ml-input-cat').value = catId;
+  document.getElementById('ml-cat-manual').value = catId;
+  document.getElementById('ml-cat-nome').style.color = '#22c55e';
+  document.getElementById('ml-cat-nome').textContent = `✓ ${catId} — ${catName}`;
+}
+
+function handleCatManualInput(val) {
+  clearTimeout(_mlCatManualTimer);
+  const v = val.trim().toUpperCase();
+  if (/^MLB\d{4,}$/.test(v)) {
+    _mlCatManualTimer = setTimeout(() => resolveManualCat(v), 500);
+  }
+}
+
+async function resolveManualCat(catId) {
+  document.getElementById('ml-cat-nome').style.color = '#f5c842';
+  document.getElementById('ml-cat-nome').textContent = '⏳ Verificando…';
+  try {
+    const r = await fetch(`/api/painel/ml/navegar-categorias?cat_id=${encodeURIComponent(catId)}`);
+    const d = await r.json();
+    if (d.ok) {
+      setCatIdDirect(d.id, d.nome);
+      if (!d.is_leaf) navCat(catId);
+    } else {
+      document.getElementById('ml-input-cat').value = catId;
+      document.getElementById('ml-cat-nome').style.color = '#f08090';
+      document.getElementById('ml-cat-nome').textContent = '✗ Categoria não encontrada no ML';
+    }
   } catch {
-    nomeEl.textContent = `✓ Categoria: ${catId}`;
+    document.getElementById('ml-input-cat').value = catId;
+    document.getElementById('ml-cat-nome').style.color = '#f5c842';
+    document.getElementById('ml-cat-nome').textContent = catId;
   }
 }
 
@@ -958,102 +891,8 @@ function verificarPrecoML(val) {
   const aviso = document.getElementById('ml-preco-aviso');
   const v = parseFloat(val);
   if (!v || v <= 0) { aviso.textContent = 'Preço inválido.'; return; }
-  if (v < 8) { aviso.textContent = '⚠ O ML exige preço mínimo de R$ 8,00 na maioria das categorias.'; return; }
+  if (v < 8) { aviso.textContent = '⚠ O ML exige preço mínimo de R$ 8,00.'; return; }
   aviso.textContent = '';
-}
-
-async function detectarCategoria() {
-  const ean   = document.getElementById('ml-input-ean').value.trim();
-  const busca = document.getElementById('ml-cat-busca').value.trim();
-  const nome  = document.getElementById('ml-input-nome').value.trim();
-
-  const btn = document.getElementById('ml-btn-cat-detect');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-  const box = document.getElementById('ml-cat-sugestoes');
-  box.innerHTML = '<div style="font-size:.76rem;color:var(--pk-muted)"><i class="fa fa-spinner fa-spin me-1"></i>Buscando…</div>';
-
-  // 1) Server proxy via EAN (uses ML bearer token, bypasses browser blocks)
-  if (ean) {
-    try {
-      const r = await fetch(`/api/painel/ml/categoria-por-item?ean=${encodeURIComponent(ean)}`);
-      const d = await r.json();
-      if (d.ok && d.category_id) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-        await setCategoryId(d.category_id, { category_name: d.category_name });
-        return;
-      }
-    } catch {}
-  }
-
-  // 2) Browser-side ML search (may be blocked, but worth trying)
-  const queries = [];
-  if (busca && !/MLB\d/i.test(busca)) queries.push(busca);
-  if (nome) queries.push(nome.split(/\s+/).slice(0, 4).join(' '));
-
-  const catCache = {};
-  async function getCatName(id) {
-    if (catCache[id]) return catCache[id];
-    try {
-      const r2 = await fetch(`/api/painel/ml/categoria-por-item?item_id=${encodeURIComponent(id)}`);
-      const d2 = await r2.json();
-      catCache[id] = d2.ok ? d2.category_name : id;
-      return catCache[id];
-    } catch { return id; }
-  }
-
-  let sugestoes = [];
-  for (const q of queries) {
-    if (sugestoes.length) break;
-    // Try direct, then via CORS proxy
-    for (const baseUrl of [
-      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=10`,
-      `https://corsproxy.io/?url=${encodeURIComponent('https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(q) + '&limit=10')}`
-    ]) {
-      try {
-        const r = await fetch(baseUrl, { signal: AbortSignal.timeout(10000) });
-        if (!r.ok) continue;
-        const data = await r.json();
-        const catIds = [...new Set((data.results || []).map(x => x.category_id).filter(Boolean))].slice(0, 5);
-        if (!catIds.length) continue;
-        sugestoes = await Promise.all(catIds.map(async id => ({
-          category_id: id, category_name: await getCatName(id)
-        })));
-        if (sugestoes.length) break;
-      } catch { continue; }
-    }
-  }
-
-  btn.disabled = false;
-  btn.innerHTML = '<i class="fa fa-magnifying-glass"></i>';
-
-  if (sugestoes.length) {
-    renderSugestoes(sugestoes, box);
-  } else {
-    box.innerHTML = _boxFallbackManual('');
-  }
-}
-
-function renderSugestoes(sugestoes, box) {
-  box.innerHTML = sugestoes.map(s =>
-    `<button type="button" onclick="selecionarCategoria('${s.category_id}','${s.category_name.replace(/'/g,"\\'")}',this)"
-             style="text-align:left;background:#0d1016;border:1px solid var(--pk-line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.78rem;color:var(--pk-txt);font-family:inherit;transition:border-color .15s;width:100%">
-       <span style="color:#f5c842;font-family:monospace;font-weight:700">${s.category_id}</span>
-       <span style="color:var(--pk-muted);margin-left:6px">${s.category_name}</span>
-     </button>`
-  ).join('');
-}
-
-function selecionarCategoria(id, nome, btn) {
-  document.getElementById('ml-input-cat').value = id;
-  document.getElementById('ml-cat-nome').style.color = '#22c55e';
-  document.getElementById('ml-cat-nome').textContent = '✓ ' + nome;
-  document.querySelectorAll('#ml-cat-sugestoes button').forEach(b => {
-    b.style.borderColor = 'var(--pk-line)'; b.style.background = '#0d1016';
-  });
-  btn.style.borderColor = '#f5c842';
-  btn.style.background = '#1a1900';
 }
 
 function abrirModalML(btn) {
@@ -1072,25 +911,41 @@ function abrirModalML(btn) {
   document.getElementById('ml-input-cat').value    = '';
   document.getElementById('ml-cat-nome').textContent = '';
   document.getElementById('ml-cat-nome').style.color = '#f5c842';
-  document.getElementById('ml-cat-busca').value    = '';
-  document.getElementById('ml-cat-sugestoes').innerHTML = '';
+  document.getElementById('ml-cat-manual').value   = '';
+  document.getElementById('ml-cat-breadcrumb').innerHTML = '';
+  document.getElementById('ml-cat-tree').innerHTML  = '';
 
   const info = _mlStatus[ean];
   document.getElementById('ml-btn-pausar').style.display =
     (info && info.status === 'active') ? 'inline-flex' : 'none';
 
   document.getElementById('ml-modal').classList.add('open');
-  // Load previously-used categories from this account, then try auto-detect
+
+  // Show previously used categories as shortcuts, then fall back to tree root
   fetch('/api/painel/ml/categorias-usadas')
     .then(r => r.json())
     .then(d => {
       if (d.ok && d.categorias.length) {
-        renderSugestoes(d.categorias, document.getElementById('ml-cat-sugestoes'));
+        const treeEl = document.getElementById('ml-cat-tree');
+        const bcEl   = document.getElementById('ml-cat-breadcrumb');
+        bcEl.innerHTML = '<span style="color:var(--pk-muted);font-size:.73rem">Categorias já usadas:</span>';
+        treeEl.innerHTML = d.categorias.map(c =>
+          `<button type="button" onclick="setCatIdDirect('${c.category_id}','${c.category_name.replace(/'/g,"\\'")}');navCat('${c.category_id}')"
+                   style="text-align:left;background:#1a1900;border:1px solid #f5c842;border-radius:6px;padding:7px 10px;cursor:pointer;font-size:.78rem;font-family:inherit;display:flex;align-items:center;justify-content:space-between;width:100%">
+             <span style="font-family:monospace;font-weight:700;color:#f5c842">${c.category_id}</span>
+             <span style="color:var(--pk-muted);font-size:.74rem;margin-left:8px;text-align:right">${c.category_name}</span>
+           </button>`
+        ).join('') +
+        `<button type="button" onclick="navCat('MLB1648')"
+                 style="text-align:left;background:transparent;border:1px solid var(--pk-line);border-radius:6px;padding:7px 10px;cursor:pointer;font-size:.78rem;color:var(--pk-muted);font-family:inherit;width:100%">
+           <i class="fa fa-folder-tree me-1"></i>Navegar todas as categorias…
+         </button>`;
       } else {
-        detectarCategoria();
+        // No history — start at Esportes e Fitness
+        navCat('MLB1648');
       }
     })
-    .catch(() => detectarCategoria());
+    .catch(() => navCat('MLB1648'));
 }
 
 function fecharModalML() {
@@ -1108,7 +963,8 @@ function publicarNoML() {
 
   if (!preco || preco <= 0) { alert('Informe um preço válido.'); return; }
   if (!cat || !cat.toUpperCase().startsWith('MLB')) {
-    alert('Informe a categoria ML (ex: MLB272431).\nClique no botão de busca ou cole o ID manualmente.');
+    document.getElementById('ml-cat-nome').style.color = '#f08090';
+    document.getElementById('ml-cat-nome').textContent = '⚠ Selecione uma categoria acima antes de publicar.';
     return;
   }
 
@@ -1125,7 +981,30 @@ function publicarNoML() {
   .then(d => {
     btn.disabled = false;
     btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 48 48"><rect width="48" height="48" rx="3" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg> Publicar no ML';
-    if (!d.ok) { alert('Erro: ' + d.erro); return; }
+
+    if (!d.ok) {
+      // Show error in the category area so user can understand what went wrong
+      const errMsg = d.erro || 'Erro desconhecido';
+      // Try to extract any MLB category IDs from error message (ML sometimes suggests valid IDs)
+      const catIds = (errMsg.match(/MLB\d{4,}/g) || []);
+      const catNomeEl = document.getElementById('ml-cat-nome');
+      catNomeEl.style.color = '#f08090';
+      catNomeEl.textContent = '';
+      const treeEl = document.getElementById('ml-cat-tree');
+      let extra = '';
+      if (catIds.length) {
+        extra = `<div style="margin-top:8px;font-size:.76rem;color:var(--pk-muted)">IDs sugeridos pelo ML:</div>` +
+          catIds.map(id => `<button type="button" onclick="resolveManualCat('${id}')"
+            style="background:#1a1900;border:1px solid #f5c842;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.78rem;font-family:monospace;font-weight:700;color:#f5c842;margin-top:4px">${id}</button>`).join(' ');
+      }
+      treeEl.innerHTML = `<div style="background:#2a0810;border:1px solid #f08090;border-radius:6px;padding:10px;font-size:.8rem">
+        <div style="color:#f08090;font-weight:800;margin-bottom:4px">⚠ Erro do Mercado Livre</div>
+        <div style="color:var(--pk-muted);line-height:1.5">${errMsg}</div>
+        ${extra}
+      </div>`;
+      return;
+    }
+
     _mlStatus[ean] = {status: 'active', item_id: d.ml_item_id, preco};
     const rowBtn = document.getElementById('btn-ml-' + ean);
     if (rowBtn) {
@@ -1203,19 +1082,12 @@ function pausarNoML() {
     </div>
     <div class="ml-field">
       <label>Categoria ML</label>
-      <!-- Campo único: aceita URL do ML, ID MLB direto ou texto para buscar -->
-      <div style="display:flex;gap:6px;margin-bottom:6px">
-        <input type="text" class="pk-input" id="ml-cat-busca"
-               placeholder="Cole URL de produto ML, ID (MLB272431) ou busque: whey protein…"
-               style="font-size:.84rem"
-               oninput="handleCatInput(this.value)">
-        <button type="button" id="ml-btn-cat-detect" onclick="detectarCategoria()"
-                title="Buscar categoria"
-                style="white-space:nowrap;background:#1a1900;color:#fff200;border:1px solid #fff200;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">
-          <i class="fa fa-magnifying-glass"></i>
-        </button>
-      </div>
-      <div id="ml-cat-sugestoes" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px"></div>
+      <div id="ml-cat-breadcrumb" style="display:flex;gap:2px;flex-wrap:wrap;margin-bottom:6px;min-height:18px;align-items:center"></div>
+      <div id="ml-cat-tree" style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px;max-height:190px;overflow-y:auto;border:1px solid var(--pk-line);border-radius:8px;padding:6px;background:#0d1016"></div>
+      <input type="text" class="pk-input" id="ml-cat-manual"
+             placeholder="Ou cole um ID diretamente: MLB272431"
+             style="font-size:.84rem"
+             oninput="handleCatManualInput(this.value)">
       <input type="hidden" id="ml-input-cat">
       <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>
     </div>
