@@ -1287,6 +1287,20 @@ def _geo_override(endereco, endereco2=None, uf=None):
     return None, None
 
 
+def _public_store_name(loja):
+    endereco = (loja.get("endereco") if hasattr(loja, "get") else "") or ""
+    razao = (loja.get("razao") if hasattr(loja, "get") else "") or ""
+    base = re.sub(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b", "", endereco)
+    base = re.sub(r"\b\d{14}\b", "", base)
+    base = re.split(r"\s+-\s+|\s+-\s*$|-\s*$", base, maxsplit=1)[0]
+    base = re.sub(r"\s+", " ", base).strip(" -,.")
+    if base:
+        if re.search(r"\b(poupaqui|poup\s*aqui)\b", base, flags=re.I):
+            return base
+        return f"Drogaria Poupaqui {base}"
+    return re.sub(r"\s+", " ", razao).strip() or "Drogaria Poupaqui"
+
+
 def _known_city_location_result(termo, cidade, uf):
     if _extract_cep(termo):
         return None
@@ -2700,7 +2714,7 @@ def api_lojas_proximas():
     for l in lojas:
         item = {
             "cnpjloja":    l["cnpjloja"],
-            "razao":       l["razao"],
+            "razao":       _public_store_name(l),
             "endereco":    l["endereco"],
             "uf":          l["uf"],
             "telefone":    (l["telefone"] or "").strip(),
@@ -2783,7 +2797,7 @@ def api_produtos_proximos():
     if sem_loc:
         cur.execute(
             """
-            SELECT u.cnpjloja, u.razao
+            SELECT u.cnpjloja, u.razao, u.endereco
             FROM users u
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
             WHERE u.is_admin = FALSE
@@ -2794,7 +2808,7 @@ def api_produtos_proximos():
         todas    = cur.fetchall()
         proximas = list(todas)
         loja_info = {
-            l["cnpjloja"]: {"razao": l["razao"], "distancia_km": None, "aceita_entrega": False, "raio_entrega_km": 0, "cobra_frete": False, "valor_frete": 0}
+            l["cnpjloja"]: {"razao": _public_store_name(l), "distancia_km": None, "aceita_entrega": False, "raio_entrega_km": 0, "cobra_frete": False, "valor_frete": 0}
             for l in todas
         }
 
@@ -2816,7 +2830,7 @@ def api_produtos_proximos():
             continue
         info  = loja_info.get(p["cnpjloja"], {})
         dist  = info.get("distancia_km")
-        razao = info.get("razao", "")
+        razao = _public_store_name(info)
         aceita_entrega = bool(info.get("aceita_entrega"))
         raio_entrega = float(info.get("raio_entrega_km") or 0)
         entrega_disponivel = bool(aceita_entrega and dist is not None and dist <= raio_entrega)
@@ -2942,7 +2956,7 @@ def api_config_lojas():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT u.cnpjloja, u.razao, u.telefone,
+        SELECT u.cnpjloja, u.razao, u.endereco, u.telefone,
                COALESCE(c.whatsapp_pedidos, u.telefone) AS whatsapp_pedidos,
                COALESCE(c.aceita_whatsapp, TRUE)        AS aceita_whatsapp,
                COALESCE(c.aceita_pix, TRUE)             AS aceita_pix,
@@ -2963,7 +2977,12 @@ def api_config_lojas():
     )
     rows = cur.fetchall()
     cur.close()
-    return jsonify({r["cnpjloja"]: dict(r) for r in rows})
+    data = {}
+    for r in rows:
+        item = dict(r)
+        item["razao"] = _public_store_name(item)
+        data[r["cnpjloja"]] = item
+    return jsonify(data)
 
 
 @app.get("/produto/<ean>")
@@ -3012,6 +3031,9 @@ def produto_detalhe(ean):
             (cnpjloja,),
         )
         loja = cur.fetchone()
+        if loja:
+            loja = dict(loja)
+            loja["razao"] = _public_store_name(loja)
 
         cur.execute(
             "SELECT imagem_url FROM ecommerce_produto_imagens WHERE cnpjloja=%s AND ean=%s LIMIT 1",
@@ -5478,6 +5500,9 @@ def catalogo_loja(cnpjloja):
     if not loja:
         flash("Loja não encontrada.", "error")
         return redirect(url_for("index"))
+
+    loja = dict(loja)
+    loja["razao"] = _public_store_name(loja)
 
     q = (request.args.get("q") or "").strip()
     if loja.get("catalogo_publico") is False:
