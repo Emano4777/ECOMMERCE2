@@ -6906,6 +6906,12 @@ def admin_lojas_vitrine_edit(loja_id):
             "UPDATE ecommerce_lojas_vitrine SET cidade=%s, endereco=%s, telefone=%s, whatsapp=%s, imagem_url=%s, ordem=%s, cnpjloja=%s WHERE id=%s",
             (cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja, loja_id),
         )
+        # retroativamente vincula cliques já gravados sem cnpjloja para esta cidade
+        if cnpjloja and cidade:
+            cur.execute(
+                "UPDATE ecommerce_lojas_vitrine_cliques SET cnpjloja=%s WHERE cidade=%s AND cnpjloja IS NULL",
+                (cnpjloja, cidade),
+            )
         conn.commit()
         flash("Loja atualizada.", "success")
         return redirect(url_for("admin_lojas_vitrine"))
