@@ -488,14 +488,21 @@ def _ensure_competitor_schema():
 
 
 _CONCORRENTES = {
+    # www.drogaraia.com.br é headless (Next.js) e não expõe as rotas VTEX.
+    # O backend VTEX da Raia fica no subdomínio vtexcommercestable.
     "drogaraia": {
         "nome": "Droga Raia",
-        "base": "https://www.drogaraia.com.br",
+        "base": "https://drogaraia.vtexcommercestable.com.br",
+        "base_fallbacks": [
+            "https://raiadrogasil.vtexcommercestable.com.br",
+            "https://drogaraia.myvtex.com",
+        ],
         "cor": "#e11d48",
     },
     "drogariasaopaulo": {
         "nome": "Drogaria SP",
         "base": "https://www.drogariasaopaulo.com.br",
+        "base_fallbacks": [],
         "cor": "#1d4ed8",
     },
 }
@@ -601,40 +608,50 @@ def _parse_vtex_intelligent(data, base_url):
     return {"disponivel": True, "preco": preco, "preco_original": preco_original, "url": link or None, "nome": nome}
 
 
-def _fetch_vtex_price(ean, base_url):
-    """
-    Tenta múltiplos endpoints VTEX para obter o preço de um EAN.
-    Retorna dict com chaves (disponivel, preco, preco_original, url, nome) ou None se todos falharem.
-    """
-    attempts = [
-        # 1) Intelligent Search (moderno, menos bloqueado)
+def _build_vtex_attempts(base_url):
+    return [
         (
             f"{base_url}/_v/api/intelligent-search/product_search"
-            f"?query={ean}&page=1&count=1&sort=&operator=and&fuzzy=0",
+            f"?query={{ean}}&page=1&count=1&sort=&operator=and&fuzzy=0",
             _parse_vtex_intelligent,
         ),
-        # 2) Catalog API — busca por EAN alternateId
         (
             f"{base_url}/api/catalog_system/pub/products/search"
-            f"?fq=alternateIdValues:{ean}&_from=0&_to=1&sc=1",
+            f"?fq=alternateIdValues:{{ean}}&_from=0&_to=1&sc=1",
             _parse_vtex_catalog,
         ),
-        # 3) Catalog API — full-text (fallback para EAN como texto)
         (
             f"{base_url}/api/catalog_system/pub/products/search"
-            f"?ft={ean}&_from=0&_to=1&sc=1",
+            f"?ft={{ean}}&_from=0&_to=1&sc=1",
             _parse_vtex_catalog,
         ),
     ]
-    for url, parser in attempts:
-        raw = _vtex_get_json(url)
-        if raw is None:
-            continue
-        result = parser(raw, base_url)
-        if result is not None:
-            return result
 
-    return None  # Todos falharam (rede, anti-bot, etc.)
+
+def _fetch_vtex_price(ean, base_url, fallbacks=None):
+    """
+    Tenta múltiplos endpoints VTEX para obter o preço de um EAN.
+    Se base_url falhar com 404 em todos, tenta cada URL em fallbacks.
+    Retorna dict ou None.
+    """
+    all_bases = [base_url] + (fallbacks or [])
+    for base in all_bases:
+        attempts = [
+            (url_tpl.format(ean=ean), parser)
+            for url_tpl, parser in _build_vtex_attempts(base)
+        ]
+        got_non404 = False
+        for url, parser in attempts:
+            raw = _vtex_get_json(url)
+            if raw is None:
+                continue
+            got_non404 = True
+            result = parser(raw, base)
+            if result is not None:
+                return result
+        if got_non404:
+            break  # base respondeu (JSON válido) mas produto não encontrado — não tenta fallback
+    return None
 
 
 def _fetch_and_store_competitor_prices(eans):
@@ -642,11 +659,11 @@ def _fetch_and_store_competitor_prices(eans):
     import concurrent.futures
     _ensure_competitor_schema()
 
-    def fetch_one(ean, slug, base):
+    def fetch_one(ean, slug, base, fallbacks=None):
         erro = None
         result = None
         try:
-            result = _fetch_vtex_price(ean, base)
+            result = _fetch_vtex_price(ean, base, fallbacks=fallbacks)
         except Exception as e:
             erro = str(e)[:200]
 
@@ -698,14 +715,13 @@ def _fetch_and_store_competitor_prices(eans):
             pass
 
     tasks = [
-        (ean, slug, info["base"])
+        (ean, slug, info["base"], info.get("base_fallbacks", []))
         for ean in eans
         for slug, info in _CONCORRENTES.items()
     ]
-    # Limita a 4 workers para não sobrecarregar os servidores concorrentes
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        futures = [ex.submit(fetch_one, ean, slug, base) for ean, slug, base in tasks]
-        concurrent.futures.wait(futures, timeout=90)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        futures = [ex.submit(fetch_one, ean, slug, base, fbs) for ean, slug, base, fbs in tasks]
+        concurrent.futures.wait(futures, timeout=300)
 
 
 def _ensure_ml_schema():
@@ -4944,53 +4960,51 @@ def precificador_testar_ean():
     if not info:
         return jsonify({"erro": f"Concorrente '{slug}' desconhecido. Use: drogaraia ou drogariasaopaulo"})
 
-    base = info["base"]
-    endpoints = [
-        f"{base}/_v/api/intelligent-search/product_search?query={ean}&page=1&count=1&sort=&operator=and&fuzzy=0",
-        f"{base}/api/catalog_system/pub/products/search?fq=alternateIdValues:{ean}&_from=0&_to=1&sc=1",
-        f"{base}/api/catalog_system/pub/products/search?ft={ean}&_from=0&_to=1&sc=1",
-    ]
+    all_bases = [info["base"]] + info.get("base_fallbacks", [])
     results = []
-    for url in endpoints:
-        entry = {"url": url, "ok": False, "status": None, "corpo_preview": None, "json_ok": False, "amostra": None}
-        try:
-            from curl_cffi import requests as cffi_requests
-            referer = url.split("/_v")[0].split("/api")[0] + "/"
-            r = cffi_requests.get(
-                url,
-                headers={**_VTEX_HEADERS, "Referer": referer},
-                impersonate="chrome124",
-                timeout=12,
-                allow_redirects=True,
-            )
-            entry["status"] = r.status_code
-            body = r.text[:1000] if r.text else ""
-            entry["corpo_preview"] = body
-            if r.status_code == 200 and r.content:
-                try:
-                    parsed = r.json()
+    for base in all_bases:
+        for url_tpl, _ in _build_vtex_attempts(base):
+            url = url_tpl.format(ean=ean)
+            entry = {"base": base, "url": url, "ok": False, "status": None, "corpo_preview": None, "json_ok": False, "amostra": None}
+            try:
+                from curl_cffi import requests as cffi_requests
+                referer = url.split("/_v")[0].split("/api")[0] + "/"
+                r = cffi_requests.get(
+                    url,
+                    headers={**_VTEX_HEADERS, "Referer": referer},
+                    impersonate="chrome124",
+                    timeout=12,
+                    allow_redirects=True,
+                )
+                entry["status"] = r.status_code
+                entry["corpo_preview"] = (r.text or "")[:800]
+                if r.status_code == 200 and r.content:
+                    try:
+                        parsed = r.json()
+                        entry["ok"] = True
+                        entry["json_ok"] = True
+                        entry["tipo"] = type(parsed).__name__
+                        entry["tamanho"] = len(parsed) if isinstance(parsed, list) else (len((parsed or {}).get("products", [])) if isinstance(parsed, dict) else 0)
+                        entry["amostra"] = str(parsed)[:600]
+                    except Exception as je:
+                        entry["json_erro"] = str(je)
+            except ImportError:
+                entry["erro"] = "curl_cffi não instalado"
+                raw = _vtex_get_json(url, timeout=12)
+                if raw is not None:
                     entry["ok"] = True
-                    entry["json_ok"] = True
-                    entry["tipo"] = type(parsed).__name__
-                    entry["tamanho"] = len(parsed) if isinstance(parsed, list) else (len((parsed or {}).get("products", [])) if isinstance(parsed, dict) else 0)
-                    entry["amostra"] = str(parsed)[:600]
-                except Exception as je:
-                    entry["json_erro"] = str(je)
-        except ImportError:
-            entry["erro"] = "curl_cffi não instalado — usando urllib (pode ser bloqueado)"
-            raw = _vtex_get_json(url, timeout=12)
-            if raw is not None:
-                entry["ok"] = True
-                entry["amostra"] = str(raw)[:600]
-        except Exception as e:
-            entry["erro"] = str(e)[:300]
-        results.append(entry)
+                    entry["amostra"] = str(raw)[:600]
+            except Exception as e:
+                entry["erro"] = str(e)[:300]
+            results.append(entry)
 
-    resultado_final = _fetch_vtex_price(ean, base)
+    primary_base = info["base"]
+    fallbacks = info.get("base_fallbacks", [])
+    resultado_final = _fetch_vtex_price(ean, primary_base, fallbacks=fallbacks)
     return jsonify({
         "ean": ean,
         "concorrente": slug,
-        "base_url": base,
+        "bases_testadas": all_bases,
         "resultado_final": resultado_final,
         "tentativas": results,
     })
@@ -5006,6 +5020,18 @@ def precificador_buscar_concorrentes():
     eans = [p["ean"] for p in produtos if p.get("ean")]
     if not eans:
         return jsonify({"ok": False, "msg": "Nenhum produto encontrado."})
+
+    # Limpa registros de erro da Raia (URL antiga www.drogaraia.com.br salvou "sem_resultado")
+    try:
+        conn2 = db(); cur2 = conn2.cursor()
+        placeholders2 = ",".join(["%s"] * len(eans))
+        cur2.execute(
+            f"DELETE FROM ecommerce_competitor_prices WHERE concorrente='drogaraia' AND preco IS NULL AND ean IN ({placeholders2})",
+            eans,
+        )
+        conn2.commit(); cur2.close()
+    except Exception:
+        pass
 
     # Roda em thread separada para não bloquear a resposta
     t = threading.Thread(target=_fetch_and_store_competitor_prices, args=(eans,), daemon=True)
