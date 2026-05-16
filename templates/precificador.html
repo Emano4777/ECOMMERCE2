@@ -859,6 +859,33 @@ function setCatIdDirect(catId, catName) {
   document.getElementById('ml-cat-manual').value = catId;
   document.getElementById('ml-cat-nome').style.color = '#22c55e';
   document.getElementById('ml-cat-nome').textContent = `✓ ${catId} — ${catName}`;
+  carregarAtributos(catId);
+}
+
+async function carregarAtributos(catId) {
+  const box = document.getElementById('ml-atributos-box');
+  box.style.display = 'none';
+  box.innerHTML = '';
+  try {
+    const r = await fetch(`/api/painel/ml/atributos-categoria?cat_id=${encodeURIComponent(catId)}`);
+    const d = await r.json();
+    if (!d.ok || !d.atributos.length) return;
+    box.style.display = 'block';
+    box.innerHTML = `<div style="font-size:.78rem;font-weight:800;color:#f5c842;margin-bottom:8px;margin-top:4px">
+        <i class="fa fa-list-check me-1"></i>Atributos obrigatórios
+      </div>` +
+      d.atributos.map(a => `
+        <div class="ml-field" style="margin-bottom:8px">
+          <label style="font-size:.76rem">${a.name}</label>
+          ${a.allowed_values.length
+            ? `<select class="pk-input" id="ml-attr-${a.id}" data-attr-id="${a.id}" style="font-size:.84rem;background:#0d1016;color:var(--pk-txt)">
+                 <option value="">— selecione —</option>
+                 ${a.allowed_values.map(v => `<option value="${v.name}">${v.name}</option>`).join('')}
+               </select>`
+            : `<input type="text" class="pk-input" id="ml-attr-${a.id}" data-attr-id="${a.id}" placeholder="${a.name}" style="font-size:.84rem">`
+          }
+        </div>`).join('');
+  } catch {}
 }
 
 function handleCatManualInput(val) {
@@ -917,6 +944,8 @@ function abrirModalML(btn) {
   document.getElementById('ml-cat-manual').value   = '';
   document.getElementById('ml-cat-breadcrumb').innerHTML = '';
   document.getElementById('ml-cat-tree').innerHTML  = '';
+  document.getElementById('ml-atributos-box').style.display = 'none';
+  document.getElementById('ml-atributos-box').innerHTML = '';
 
   const info = _mlStatus[ean];
   document.getElementById('ml-btn-pausar').style.display =
@@ -978,7 +1007,11 @@ function publicarNoML() {
   fetch('/api/painel/ml/publicar', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ean, titulo: nome, preco, quantidade: qty, imagem_url: img, category_id: cat}),
+    body: JSON.stringify({ean, titulo: nome, preco, quantidade: qty, imagem_url: img, category_id: cat,
+      atributos: [...document.querySelectorAll('[data-attr-id]')]
+        .filter(el => el.value)
+        .map(el => ({id: el.dataset.attrId, value_name: el.value}))
+    }),
   })
   .then(r => r.json())
   .then(d => {
@@ -1094,6 +1127,7 @@ function pausarNoML() {
       <input type="hidden" id="ml-input-cat">
       <div id="ml-cat-nome" style="font-size:.74rem;color:#f5c842;margin-top:4px;min-height:16px"></div>
     </div>
+    <div id="ml-atributos-box" style="display:none"></div>
     <div class="ml-field">
       <label>URL da imagem (opcional)</label>
       <input type="url" class="pk-input" id="ml-input-img" placeholder="https://...">

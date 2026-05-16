@@ -6143,7 +6143,8 @@ def api_ml_publicar():
     quantidade  = int(body.get("quantidade") or 1)
     descricao   = (body.get("descricao") or titulo).strip()
     imagem_url  = (body.get("imagem_url") or "").strip()
-    category_id = (body.get("category_id") or "MLB1196").strip()  # Saúde e Beleza > Medicamentos
+    category_id = (body.get("category_id") or "MLB1196").strip()
+    extra_attrs = body.get("atributos") or []  # atributos obrigatórios da categoria
 
     if not ean or not titulo or preco <= 0:
         return jsonify({"ok": False, "erro": "EAN, título e preço são obrigatórios."}), 400
@@ -6183,7 +6184,10 @@ def api_ml_publicar():
             "listing_type_id": "gold_special",
             "condition": "new",
             "description": {"plain_text": descricao},
-            "attributes": [{"id": "GTIN", "value_name": ean}],
+            "attributes": [{"id": "GTIN", "value_name": ean}] + [
+                {"id": a["id"], "value_name": a["value_name"]}
+                for a in extra_attrs if a.get("id") and a.get("value_name")
+            ],
         }
         if pictures:
             p["pictures"] = pictures
@@ -6524,6 +6528,41 @@ def api_ml_navegar_categorias():
             "filhos": [{"id": c["id"], "name": c["name"]} for c in children],
             "is_leaf": len(children) == 0,
         })
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)}), 500
+
+
+@app.get("/api/painel/ml/atributos-categoria")
+@painel_required
+def api_ml_atributos_categoria():
+    """Retorna atributos obrigatórios de uma categoria ML para exibir no formulário."""
+    cat_id = (request.args.get("cat_id") or "").strip()
+    if not cat_id:
+        return jsonify({"ok": False, "erro": "cat_id obrigatório"}), 400
+    token = _ml_get_token()
+    if not token:
+        return jsonify({"ok": False, "erro": "Token ML não disponível"}), 401
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(f"{ML_API_BASE}/categories/{cat_id}/attributes")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            attrs = json.loads(r.read())
+        required = []
+        for a in attrs:
+            tags = a.get("tags", {})
+            if not (tags.get("required") or tags.get("catalog_required")):
+                continue
+            if a.get("id") == "GTIN":
+                continue  # preenchido automaticamente com EAN
+            required.append({
+                "id": a["id"],
+                "name": a.get("name", a["id"]),
+                "value_type": a.get("value_type", "string"),
+                "allowed_values": [{"id": v["id"], "name": v["name"]} for v in a.get("values", [])[:40]],
+            })
+        return jsonify({"ok": True, "atributos": required})
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)}), 500
 
