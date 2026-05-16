@@ -488,21 +488,21 @@ def _ensure_competitor_schema():
 
 
 _CONCORRENTES = {
-    # A Raia usa VTEX IO headless. O account name VTEX é "drogaraia".
-    # O IS exige o parâmetro channel; o Catalog API não está habilitado publicamente.
+    # Droga Raia usa VTEX IO headless (Next.js em www.drogaraia.com.br).
+    # O backend VTEX fica em drogaraia.vtexcommercestable.com.br, mas o IS
+    # requer Host: www.drogaraia.com.br para resolver o binding correto.
     "drogaraia": {
         "nome": "Droga Raia",
         "base": "https://drogaraia.vtexcommercestable.com.br",
-        "base_fallbacks": [
-            "https://raia.vtexcommercestable.com.br",
-            "https://raiadrogasil.vtexcommercestable.com.br",
-        ],
+        "vtex_host": "www.drogaraia.com.br",
+        "base_fallbacks": [],
         "search_url": "https://www.drogaraia.com.br/busca/?q={ean}",
         "cor": "#e11d48",
     },
     "drogariasaopaulo": {
         "nome": "Drogaria SP",
         "base": "https://www.drogariasaopaulo.com.br",
+        "vtex_host": None,
         "base_fallbacks": [],
         "search_url": "https://www.drogariasaopaulo.com.br/busca/?q={ean}",
         "cor": "#1d4ed8",
@@ -524,14 +524,19 @@ _VTEX_HEADERS = {
 }
 
 
-def _vtex_get_json(url, timeout=10):
-    """GET com TLS fingerprint de Chrome (curl_cffi); retorna objeto Python ou None."""
+def _vtex_get_json(url, timeout=10, host_override=None):
+    """GET com TLS fingerprint de Chrome (curl_cffi); retorna objeto Python ou None.
+    host_override: seta o header HTTP Host sem alterar o destino TLS — necessário
+    para lojas VTEX IO que resolvem o binding pelo Host header (ex: Droga Raia)."""
     referer = url.split("/_v")[0].split("/api")[0] + "/"
+    headers = {**_VTEX_HEADERS, "Referer": referer}
+    if host_override:
+        headers["Host"] = host_override
     try:
         from curl_cffi import requests as cffi_requests
         r = cffi_requests.get(
             url,
-            headers={**_VTEX_HEADERS, "Referer": referer},
+            headers=headers,
             impersonate="chrome124",
             timeout=timeout,
             allow_redirects=True,
@@ -540,12 +545,10 @@ def _vtex_get_json(url, timeout=10):
             return None
         return r.json()
     except ImportError:
-        # Fallback urllib (pode ser bloqueado por Cloudflare)
         ctx = ssl.create_default_context()
         req = urllib.request.Request(url)
-        for k, v in _VTEX_HEADERS.items():
+        for k, v in headers.items():
             req.add_header(k, v)
-        req.add_header("Referer", referer)
         try:
             with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
                 raw = r.read()
@@ -641,11 +644,10 @@ def _build_vtex_attempts(base_url):
     ]
 
 
-def _fetch_vtex_price(ean, base_url, fallbacks=None):
+def _fetch_vtex_price(ean, base_url, fallbacks=None, host_override=None):
     """
     Tenta múltiplos endpoints VTEX para obter o preço de um EAN.
-    Se base_url falhar com 404 em todos, tenta cada URL em fallbacks.
-    Retorna dict ou None.
+    host_override seta o header Host para resolver o binding VTEX IO correto.
     """
     all_bases = [base_url] + (fallbacks or [])
     for base in all_bases:
@@ -653,17 +655,17 @@ def _fetch_vtex_price(ean, base_url, fallbacks=None):
             (url_tpl.format(ean=ean), parser)
             for url_tpl, parser in _build_vtex_attempts(base)
         ]
-        got_non404 = False
+        got_valid_response = False
         for url, parser in attempts:
-            raw = _vtex_get_json(url)
+            raw = _vtex_get_json(url, host_override=host_override)
             if raw is None:
                 continue
-            got_non404 = True
+            got_valid_response = True
             result = parser(raw, base)
             if result is not None:
                 return result
-        if got_non404:
-            break  # base respondeu (JSON válido) mas produto não encontrado — não tenta fallback
+        if got_valid_response:
+            break  # base respondeu com JSON válido — não tenta fallback
     return None
 
 
@@ -672,11 +674,11 @@ def _fetch_and_store_competitor_prices(eans):
     import concurrent.futures
     _ensure_competitor_schema()
 
-    def fetch_one(ean, slug, base, fallbacks=None):
+    def fetch_one(ean, slug, base, fallbacks=None, host_override=None):
         erro = None
         result = None
         try:
-            result = _fetch_vtex_price(ean, base, fallbacks=fallbacks)
+            result = _fetch_vtex_price(ean, base, fallbacks=fallbacks, host_override=host_override)
         except Exception as e:
             erro = str(e)[:200]
 
@@ -728,12 +730,12 @@ def _fetch_and_store_competitor_prices(eans):
             pass
 
     tasks = [
-        (ean, slug, info["base"], info.get("base_fallbacks", []))
+        (ean, slug, info["base"], info.get("base_fallbacks", []), info.get("vtex_host"))
         for ean in eans
         for slug, info in _CONCORRENTES.items()
     ]
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-        futures = [ex.submit(fetch_one, ean, slug, base, fbs) for ean, slug, base, fbs in tasks]
+        futures = [ex.submit(fetch_one, ean, slug, base, fbs, host) for ean, slug, base, fbs, host in tasks]
         concurrent.futures.wait(futures, timeout=300)
 
 
@@ -4973,18 +4975,23 @@ def precificador_testar_ean():
     if not info:
         return jsonify({"erro": f"Concorrente '{slug}' desconhecido. Use: drogaraia ou drogariasaopaulo"})
 
+    host_override = info.get("vtex_host")
     all_bases = [info["base"]] + info.get("base_fallbacks", [])
     results = []
     for base in all_bases:
         for url_tpl, _ in _build_vtex_attempts(base):
             url = url_tpl.format(ean=ean)
-            entry = {"base": base, "url": url, "ok": False, "status": None, "corpo_preview": None, "json_ok": False, "amostra": None}
+            entry = {"base": base, "host_override": host_override, "url": url,
+                     "ok": False, "status": None, "corpo_preview": None, "json_ok": False, "amostra": None}
             try:
                 from curl_cffi import requests as cffi_requests
                 referer = url.split("/_v")[0].split("/api")[0] + "/"
+                req_headers = {**_VTEX_HEADERS, "Referer": referer}
+                if host_override:
+                    req_headers["Host"] = host_override
                 r = cffi_requests.get(
                     url,
-                    headers={**_VTEX_HEADERS, "Referer": referer},
+                    headers=req_headers,
                     impersonate="chrome124",
                     timeout=12,
                     allow_redirects=True,
@@ -5003,7 +5010,7 @@ def precificador_testar_ean():
                         entry["json_erro"] = str(je)
             except ImportError:
                 entry["erro"] = "curl_cffi não instalado"
-                raw = _vtex_get_json(url, timeout=12)
+                raw = _vtex_get_json(url, timeout=12, host_override=host_override)
                 if raw is not None:
                     entry["ok"] = True
                     entry["amostra"] = str(raw)[:600]
@@ -5013,7 +5020,7 @@ def precificador_testar_ean():
 
     primary_base = info["base"]
     fallbacks = info.get("base_fallbacks", [])
-    resultado_final = _fetch_vtex_price(ean, primary_base, fallbacks=fallbacks)
+    resultado_final = _fetch_vtex_price(ean, primary_base, fallbacks=fallbacks, host_override=host_override)
     return jsonify({
         "ean": ean,
         "concorrente": slug,
