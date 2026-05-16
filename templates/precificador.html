@@ -822,14 +822,17 @@ async function navCat(catId) {
       return;
     }
 
-    // Breadcrumb
+    // Breadcrumb com botão início
     const bc = d.breadcrumb || [];
-    bcEl.innerHTML = bc.map((b, i) => {
+    const homeBtn = `<button type="button" onclick="navCat('root')" title="Voltar ao início"
+                              style="background:none;border:none;color:var(--pk-muted);cursor:pointer;padding:0 2px;font-size:.73rem;font-family:inherit"><i class="fa fa-house"></i></button>`;
+    const crumbs = bc.map((b, i) => {
       const isLast = i === bc.length - 1;
-      return `<button type="button" onclick="navCat('${b.id}')"
-                       style="background:none;border:none;color:${isLast ? '#f5c842' : 'var(--pk-muted)'};cursor:pointer;padding:0 1px;font-size:.73rem;font-family:inherit;font-weight:${isLast ? '800' : '400'}">${b.name}</button>` +
-             (isLast ? '' : '<span style="color:var(--pk-line);font-size:.7rem"> › </span>');
+      return `<span style="color:var(--pk-line);font-size:.7rem"> › </span>` +
+             `<button type="button" onclick="navCat('${b.id}')"
+                       style="background:none;border:none;color:${isLast ? '#f5c842' : 'var(--pk-muted)'};cursor:pointer;padding:0 1px;font-size:.73rem;font-family:inherit;font-weight:${isLast ? '800' : '400'}">${b.name}</button>`;
     }).join('');
+    bcEl.innerHTML = homeBtn + crumbs;
 
     if (d.is_leaf) {
       setCatIdDirect(d.id, d.nome);
@@ -936,16 +939,16 @@ function abrirModalML(btn) {
              <span style="color:var(--pk-muted);font-size:.74rem;margin-left:8px;text-align:right">${c.category_name}</span>
            </button>`
         ).join('') +
-        `<button type="button" onclick="navCat('MLB1648')"
+        `<button type="button" onclick="navCat('root')"
                  style="text-align:left;background:transparent;border:1px solid var(--pk-line);border-radius:6px;padding:7px 10px;cursor:pointer;font-size:.78rem;color:var(--pk-muted);font-family:inherit;width:100%">
            <i class="fa fa-folder-tree me-1"></i>Navegar todas as categorias…
          </button>`;
       } else {
         // No history — start at Esportes e Fitness
-        navCat('MLB1648');
+        navCat('root');
       }
     })
-    .catch(() => navCat('MLB1648'));
+    .catch(() => navCat('root'));
 }
 
 function fecharModalML() {

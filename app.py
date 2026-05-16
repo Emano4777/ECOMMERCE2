@@ -6487,12 +6487,28 @@ def api_ml_categorias_usadas():
 @painel_required
 def api_ml_navegar_categorias():
     """Navega a árvore de categorias do ML via token da loja (endpoint /categories não é bloqueado pelo PolicyAgent)."""
-    cat_id = (request.args.get("cat_id") or "MLB1648").strip()
+    cat_id = (request.args.get("cat_id") or "root").strip()
     token = _ml_get_token()
     if not token:
         return jsonify({"ok": False, "erro": "Token ML não disponível."}), 401
     ctx = ssl.create_default_context()
     try:
+        # "root" retorna todas as categorias de primeiro nível do ML Brasil
+        if cat_id.lower() == "root":
+            req = urllib.request.Request(f"{ML_API_BASE}/sites/MLB/categories")
+            req.add_header("Authorization", f"Bearer {token}")
+            req.add_header("User-Agent", "Mozilla/5.0")
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                cats = json.loads(r.read())
+            return jsonify({
+                "ok": True,
+                "id": "root",
+                "nome": "Todas as categorias",
+                "breadcrumb": [],
+                "filhos": [{"id": c["id"], "name": c["name"]} for c in cats],
+                "is_leaf": False,
+            })
+
         req = urllib.request.Request(f"{ML_API_BASE}/categories/{cat_id}")
         req.add_header("Authorization", f"Bearer {token}")
         req.add_header("User-Agent", "Mozilla/5.0")
