@@ -6891,9 +6891,9 @@ def admin_lojas_vitrine_auto_vincular():
         candidatos = []
         for loja in lojas:
             end_norm = _norm(loja["endereco"] or "")
-            uf_loja  = (loja["uf"] or "").upper()
+            uf_loja  = (loja["uf"] or "").strip().upper()  # strip: alguns têm "  " em vez de "SP"
             if nome_norm in end_norm:
-                if not uf_str or uf_str == uf_loja:
+                if not uf_str or not uf_loja or uf_str == uf_loja:
                     candidatos.append(loja)
 
         if not candidatos:
