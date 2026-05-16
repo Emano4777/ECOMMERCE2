@@ -28,7 +28,8 @@
       "mcp__claude_ai_Vercel__list_deployments",
       "mcp__claude_ai_Vercel__get_deployment_build_logs",
       "Bash(git commit *)",
-      "mcp__claude_ai_Vercel__get_runtime_logs"
+      "mcp__claude_ai_Vercel__get_runtime_logs",
+      "Bash(findstr /i \"whats\\\\|track\\\\|clique\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\emano\\dns-ecommerce"

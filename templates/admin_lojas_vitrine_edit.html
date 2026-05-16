@@ -43,6 +43,17 @@
         <label class="pk-label">Ordem</label>
         <input class="pk-input" type="number" name="ordem" value="{{ loja.ordem }}" min="0">
       </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Loja vinculada (para relatórios de cliques)</label>
+        <select class="pk-input" name="cnpjloja">
+          <option value="">— Nenhuma —</option>
+          {% for l in todas_lojas %}
+          <option value="{{ l.cnpjloja }}" {% if loja.cnpjloja == l.cnpjloja %}selected{% endif %}>
+            {{ l.razao }} ({{ l.cnpjloja }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
 
       {% if loja.imagem_url %}
       <div style="grid-column:1/-1">

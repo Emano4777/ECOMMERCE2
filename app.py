@@ -6821,13 +6821,17 @@ def admin_lojas_vitrine():
     _ensure_lojas_vitrine_schema()
     conn = db()
     cur = conn.cursor()
+    # lista de lojas para o dropdown de vínculo
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin = FALSE ORDER BY razao")
+    todas_lojas = cur.fetchall()
 
     if request.method == "POST":
-        cidade   = (request.form.get("cidade") or "").strip()
-        endereco = (request.form.get("endereco") or "").strip()
-        telefone = (request.form.get("telefone") or "").strip()
-        whatsapp = (request.form.get("whatsapp") or "").strip()
-        ordem    = int(request.form.get("ordem") or 0)
+        cidade    = (request.form.get("cidade") or "").strip()
+        endereco  = (request.form.get("endereco") or "").strip()
+        telefone  = (request.form.get("telefone") or "").strip()
+        whatsapp  = (request.form.get("whatsapp") or "").strip()
+        ordem     = int(request.form.get("ordem") or 0)
+        cnpjloja  = (request.form.get("cnpjloja") or "").strip() or None
         imagem_url = None
 
         if not cidade or not endereco:
@@ -6851,20 +6855,20 @@ def admin_lojas_vitrine():
                     return redirect(url_for("admin_lojas_vitrine"))
 
         cur.execute(
-            "INSERT INTO ecommerce_lojas_vitrine (cidade, endereco, telefone, whatsapp, imagem_url, ordem) VALUES (%s,%s,%s,%s,%s,%s)",
-            (cidade, endereco, telefone, whatsapp, imagem_url, ordem),
+            "INSERT INTO ecommerce_lojas_vitrine (cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja),
         )
         conn.commit()
         flash("Loja adicionada com sucesso.", "success")
         return redirect(url_for("admin_lojas_vitrine"))
 
-    cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
+    cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
     lojas_sb = cur.fetchall()
     cur.close()
 
     lojas_ik = _load_imagekit_lojas(include_file_id=True)
 
-    return render_template("admin_lojas_vitrine.html", lojas_sb=lojas_sb, lojas_ik=lojas_ik)
+    return render_template("admin_lojas_vitrine.html", lojas_sb=lojas_sb, lojas_ik=lojas_ik, todas_lojas=todas_lojas)
 
 
 @app.route("/painel/admin/lojas-vitrine/edit/<int:loja_id>", methods=["GET", "POST"])
@@ -6873,13 +6877,16 @@ def admin_lojas_vitrine_edit(loja_id):
     _ensure_lojas_vitrine_schema()
     conn = db()
     cur = conn.cursor()
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin = FALSE ORDER BY razao")
+    todas_lojas = cur.fetchall()
 
     if request.method == "POST":
-        cidade   = (request.form.get("cidade") or "").strip()
-        endereco = (request.form.get("endereco") or "").strip()
-        telefone = (request.form.get("telefone") or "").strip()
-        whatsapp = (request.form.get("whatsapp") or "").strip()
-        ordem    = int(request.form.get("ordem") or 0)
+        cidade    = (request.form.get("cidade") or "").strip()
+        endereco  = (request.form.get("endereco") or "").strip()
+        telefone  = (request.form.get("telefone") or "").strip()
+        whatsapp  = (request.form.get("whatsapp") or "").strip()
+        ordem     = int(request.form.get("ordem") or 0)
+        cnpjloja  = (request.form.get("cnpjloja") or "").strip() or None
 
         imagem_url = request.form.get("imagem_url_atual") or None
         file = request.files.get("file")
@@ -6892,20 +6899,20 @@ def admin_lojas_vitrine_edit(loja_id):
                 return redirect(url_for("admin_lojas_vitrine_edit", loja_id=loja_id))
 
         cur.execute(
-            "UPDATE ecommerce_lojas_vitrine SET cidade=%s, endereco=%s, telefone=%s, whatsapp=%s, imagem_url=%s, ordem=%s WHERE id=%s",
-            (cidade, endereco, telefone, whatsapp, imagem_url, ordem, loja_id),
+            "UPDATE ecommerce_lojas_vitrine SET cidade=%s, endereco=%s, telefone=%s, whatsapp=%s, imagem_url=%s, ordem=%s, cnpjloja=%s WHERE id=%s",
+            (cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja, loja_id),
         )
         conn.commit()
         flash("Loja atualizada.", "success")
         return redirect(url_for("admin_lojas_vitrine"))
 
-    cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem FROM ecommerce_lojas_vitrine WHERE id=%s", (loja_id,))
+    cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja FROM ecommerce_lojas_vitrine WHERE id=%s", (loja_id,))
     loja = cur.fetchone()
     cur.close()
     if not loja:
         flash("Loja não encontrada.", "danger")
         return redirect(url_for("admin_lojas_vitrine"))
-    return render_template("admin_lojas_vitrine_edit.html", loja=loja)
+    return render_template("admin_lojas_vitrine_edit.html", loja=loja, todas_lojas=todas_lojas)
 
 
 @app.post("/painel/admin/lojas-vitrine/delete/<int:loja_id>")
