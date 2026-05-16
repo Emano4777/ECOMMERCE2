@@ -173,6 +173,19 @@
 .account-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .account-info { display:flex; gap:12px; flex-wrap:wrap; color:var(--pq-muted); font-size:.88rem; }
 .account-info strong { color:var(--pq-text); }
+.cart-recs { display:none; background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:16px; margin-bottom:20px; }
+.cart-recs-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.cart-recs-title { font-size:1rem; font-weight:900; display:flex; align-items:center; gap:8px; }
+.cart-recs-title i { color:var(--pq-red); }
+.cart-recs-sub { color:var(--pq-muted); font-size:.8rem; margin-top:2px; }
+.cart-recs-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+@media(max-width:700px){ .cart-recs-grid { grid-template-columns:repeat(2,1fr); } }
+.cart-rec-card { border:1px solid var(--pq-border); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:7px; min-width:0; }
+.cart-rec-img { width:100%; aspect-ratio:1.35; object-fit:contain; background:#f7f7f7; border-radius:8px; padding:4px; }
+.cart-rec-name { font-size:.76rem; font-weight:800; line-height:1.25; min-height:38px; overflow:hidden; }
+.cart-rec-reason { font-size:.68rem; color:var(--pq-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cart-rec-price { color:var(--pq-red); font-size:.92rem; font-weight:900; }
+.cart-rec-btn { min-height:32px; border:none; border-radius:8px; background:var(--pq-red); color:#fff; font-size:.74rem; font-weight:900; cursor:pointer; font-family:inherit; }
 </style>
 {% endblock %}
 
@@ -193,6 +206,16 @@
       </a>
     </div>
   </div>
+
+  <section id="cart-recs" class="cart-recs">
+    <div class="cart-recs-hd">
+      <div>
+        <div class="cart-recs-title"><i class="fa fa-basket-shopping"></i><span id="cart-rec-title">Complete sua compra</span></div>
+        <div class="cart-recs-sub" id="cart-rec-sub">Sugestoes relacionadas aos itens do carrinho.</div>
+      </div>
+    </div>
+    <div class="cart-recs-grid" id="cart-rec-grid"></div>
+  </section>
 
   <div id="checkout-section" style="display:none">
     {% if consumidor %}
@@ -261,6 +284,60 @@ function brl(v) {
   return 'R$ ' + n.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
 }
 
+let _cartRecItems = [];
+function cartRecCard(p, idx) {
+  const img = p.imagem
+    ? `<img class="cart-rec-img" src="${esc(p.imagem)}" alt="${esc(p.nome||'')}" loading="lazy">`
+    : `<div class="cart-rec-img" style="display:flex;align-items:center;justify-content:center;color:#ccc"><i class="fa fa-pills"></i></div>`;
+  return `<article class="cart-rec-card">
+    ${img}
+    <div class="cart-rec-name">${esc(p.nome||'Produto')}</div>
+    <div class="cart-rec-reason">${esc(p.motivo||'Relacionado')}</div>
+    <div class="cart-rec-price">${brl(p.preco)}</div>
+    <button class="cart-rec-btn" type="button" onclick="addCartRec(${idx}); this.innerHTML='<i class=&quot;fa fa-check&quot;></i> Adicionado';">
+      <i class="fa fa-cart-plus me-1"></i>Adicionar
+    </button>
+  </article>`;
+}
+
+function addCartRec(idx) {
+  const p = _cartRecItems[idx];
+  if (!p) return;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita});
+  renderCart();
+}
+
+async function carregarRecomendacoesCarrinho() {
+  const box = document.getElementById('cart-recs');
+  const grid = document.getElementById('cart-rec-grid');
+  const cart = getCart();
+  if (!cart.length) {
+    box.style.display = 'none';
+    return;
+  }
+  try {
+    const cnpjlojas = [...new Set(cart.map(i => i.cnpjloja).filter(Boolean))];
+    const r = await fetch('/api/recomendacoes', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cnpjlojas, limit:4, itens:cart.map(i => ({ean:i.ean, nome:i.nome, cnpjloja:i.cnpjloja}))})
+    });
+    const data = await r.json();
+    const produtos = data.produtos || [];
+    if (!produtos.length) {
+      box.style.display = 'none';
+      return;
+    }
+    _cartRecItems = produtos;
+    document.getElementById('cart-rec-title').textContent = data.titulo || 'Complete sua compra';
+    document.getElementById('cart-rec-sub').textContent = data.subtitulo || 'Sugestoes relacionadas aos itens do carrinho.';
+    grid.innerHTML = produtos.map(cartRecCard).join('');
+    box.style.display = '';
+  } catch {
+    box.style.display = 'none';
+  }
+}
+
 function renderDescontoQuantidade(cnpjloja, itens) {
   const regras = ((_descontosAuto[cnpjloja] || {}).quantidade || []);
   if (!regras.length) return '';
@@ -313,6 +390,7 @@ function renderCart() {
   const checkoutSec = document.getElementById('checkout-section');
 
   if (!cart.length) {
+    document.getElementById('cart-recs').style.display = 'none';
     container.innerHTML = `<div class="cart-empty">
       <i class="fa fa-cart-shopping"></i>
       <div class="empty-title">Seu carrinho está vazio</div>
@@ -510,6 +588,7 @@ function renderCart() {
     });
   });
   atualizarTotaisComFrete();
+  carregarRecomendacoesCarrinho();
 }
 
 function atualizarTotaisComFrete() {

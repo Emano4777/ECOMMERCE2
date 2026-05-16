@@ -2985,6 +2985,137 @@ def api_config_lojas():
     return jsonify(data)
 
 
+def _recommendation_tokens(nome):
+    text = _norm_text(nome or "")
+    stop = {
+        "com", "para", "por", "sem", "dos", "das", "uma", "uns", "gen", "neo", "uni",
+        "mg", "ml", "gr", "g", "cp", "cpr", "comprimido", "comprimidos", "capsula",
+        "capsulas", "xpe", "creme", "generico", "genericos",
+    }
+    return {t for t in text.split() if len(t) > 2 and t not in stop and not t.isdigit()}
+
+
+def _recommendation_reason(base_names, product_name, co_purchase=False):
+    if co_purchase:
+        return "Clientes tambem compraram"
+    names = _norm_text(" ".join(base_names))
+    prod = _norm_text(product_name)
+    if any(w in names for w in ["fralda", "infantil", "bebe"]) and any(w in prod for w in ["lenco", "pomada", "assadura", "talco"]):
+        return "Complementa cuidados do bebe"
+    if any(w in names for w in ["protetor", "solar", "fps"]) and any(w in prod for w in ["hidratante", "pos sol", "labial", "facial"]):
+        return "Combina com protecao e cuidado da pele"
+    if any(w in names for w in ["gripe", "resfriado", "tosse", "febre"]) and any(w in prod for w in ["soro", "vitamina", "termometro", "pastilha", "mel"]):
+        return "Ajuda a completar o cuidado"
+    if any(w in names for w in ["whey", "creatina", "protein"]) and any(w in prod for w in ["vitamina", "omega", "colageno", "bcaa"]):
+        return "Sugestao para sua rotina"
+    return "Relacionado ao que voce esta vendo"
+
+
+def _build_recommendations(itens, cnpjlojas, limit=8):
+    _ensure_catalog_admin_schema()
+    limit = max(1, min(int(limit or 8), 12))
+    itens = [i for i in (itens or []) if isinstance(i, dict)]
+    base_names = [(i.get("nome") or "").strip() for i in itens if (i.get("nome") or "").strip()]
+    exclude_eans = {(i.get("ean") or "").strip() for i in itens if (i.get("ean") or "").strip()}
+    cnpjs = [c.strip() for c in (cnpjlojas or []) if c and c.strip()]
+    if not cnpjs:
+        cnpjs = [c for c in {(i.get("cnpjloja") or "").strip() for i in itens} if c]
+    if not cnpjs:
+        return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
+
+    produtos = [p for p in get_dns_products_batch(cnpjs) if p.get("ean") and p.get("ean") not in exclude_eans and _has_catalog_image(p)]
+    if not produtos:
+        return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
+
+    loja_info = {}
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT cnpjloja, razao, endereco FROM users WHERE cnpjloja = ANY(%s)",
+        (cnpjs,),
+    )
+    for r in cur.fetchall():
+        item = dict(r)
+        loja_info[item["cnpjloja"]] = _public_store_name(item)
+
+    co_scores = {}
+    if exclude_eans:
+        try:
+            cur.execute(
+                """
+                SELECT i2.ean, COUNT(*) AS score
+                FROM ecommerce_pedido_itens i1
+                JOIN ecommerce_pedido_itens i2 ON i2.pedido_id = i1.pedido_id
+                JOIN ecommerce_pedidos p ON p.id = i1.pedido_id
+                WHERE i1.ean = ANY(%s)
+                  AND i2.ean <> ALL(%s)
+                  AND p.cnpjloja = ANY(%s)
+                GROUP BY i2.ean
+                ORDER BY score DESC
+                LIMIT 40
+                """,
+                (list(exclude_eans), list(exclude_eans), cnpjs),
+            )
+            co_scores = {r["ean"]: int(r["score"] or 0) for r in cur.fetchall()}
+        except Exception:
+            co_scores = {}
+    cur.close()
+    conn.close()
+
+    base_tokens = set()
+    base_cats = set()
+    for name in base_names:
+        base_tokens |= _recommendation_tokens(name)
+        base_cats.add(_classificar_produto(name))
+
+    ranked = []
+    for p in produtos:
+        pname = p.get("nome") or ""
+        cat = _classificar_produto(pname)
+        tokens = _recommendation_tokens(pname)
+        overlap = len(base_tokens & tokens)
+        co = co_scores.get(p.get("ean"), 0)
+        score = co * 100 + overlap * 8
+        if cat in base_cats:
+            score += 16
+        if p.get("qty"):
+            score += min(int(p.get("qty") or 0), 20) / 10
+        if score <= 0:
+            score = 1
+        ranked.append((score, co > 0, p))
+
+    ranked.sort(key=lambda x: (-x[0], (x[2].get("nome") or "").lower()))
+    result = []
+    seen = set()
+    for _, from_history, p in ranked:
+        ean = p.get("ean")
+        if ean in seen:
+            continue
+        seen.add(ean)
+        item = dict(p)
+        item["razao"] = loja_info.get(item.get("cnpjloja"), item.get("razao") or "Drogaria Poupaqui")
+        item["categoria"] = _classificar_produto(item.get("nome") or "")
+        item["motivo"] = _recommendation_reason(base_names, item.get("nome") or "", from_history)
+        result.append(item)
+        if len(result) >= limit:
+            break
+
+    titulo = "Quem comprou tambem levou" if co_scores else "Produtos que combinam com sua compra"
+    subtitulo = "Sugestoes baseadas em pedidos reais e itens relacionados" if co_scores else "Sugestoes relacionadas ao produto e ao contexto da farmacia"
+    return {"titulo": titulo, "subtitulo": subtitulo, "produtos": result}
+
+
+@app.post("/api/recomendacoes")
+def api_recomendacoes():
+    data = request.get_json(silent=True) or {}
+    itens = data.get("itens") or []
+    cnpjlojas = data.get("cnpjlojas") or []
+    if data.get("cnpjloja"):
+        cnpjlojas.append(data.get("cnpjloja"))
+    recs = _build_recommendations(itens, cnpjlojas, data.get("limit") or 8)
+    return jsonify(recs)
+
+
 @app.get("/produto/<ean>")
 def produto_detalhe(ean):
     cnpjloja  = (request.args.get("cnpj")  or "").strip()

@@ -48,6 +48,18 @@
 .conf-pay-status.wait { color:#854d0e; }
 .conf-pay-status.bad { color:#b91c1c; }
 .conf-footer { text-align:center; margin-top:24px; }
+.conf-recs { display:none; background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:16px; margin:18px 0; }
+.conf-recs-title { font-weight:900; display:flex; align-items:center; gap:8px; }
+.conf-recs-title i { color:var(--pq-red); }
+.conf-recs-sub { color:var(--pq-muted); font-size:.8rem; margin:3px 0 12px; }
+.conf-recs-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.conf-rec-card { border:1px solid var(--pq-border); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:7px; min-width:0; }
+.conf-rec-img { width:100%; aspect-ratio:1.35; object-fit:contain; background:#f7f7f7; border-radius:8px; padding:4px; }
+.conf-rec-name { font-size:.76rem; font-weight:800; line-height:1.25; min-height:38px; overflow:hidden; }
+.conf-rec-reason { font-size:.68rem; color:var(--pq-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.conf-rec-price { color:var(--pq-red); font-weight:900; }
+.conf-rec-btn { min-height:32px; border:none; border-radius:8px; background:var(--pq-red); color:#fff; font-size:.74rem; font-weight:900; cursor:pointer; font-family:inherit; }
+@media(max-width:520px){ .conf-recs-grid { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:520px){ .conf-qr { width:132px; height:132px; } .conf-pay { margin-left:14px; margin-right:14px; } }
 </style>
 {% endblock %}
@@ -200,6 +212,12 @@
   </div>
   {% endfor %}
 
+  <section id="conf-recs" class="conf-recs">
+    <div class="conf-recs-title"><i class="fa fa-bag-shopping"></i><span id="conf-rec-title">Para sua proxima compra</span></div>
+    <div class="conf-recs-sub" id="conf-rec-sub">Produtos relacionados ao pedido que voce acabou de fazer.</div>
+    <div class="conf-recs-grid" id="conf-rec-grid"></div>
+  </section>
+
   <div class="conf-footer">
     <a href="{{ url_for('index') }}" style="color:var(--pq-red);font-weight:700;text-decoration:none">
       <i class="fa fa-arrow-left me-1"></i>Continuar comprando
@@ -223,6 +241,57 @@ function copiarPix(id) {
     .then(() => alert('PIX copiado!'))
     .catch(() => { el.select?.(); document.execCommand('copy'); alert('PIX copiado!'); });
 }
+
+const itensConfirmacao = [
+  {% for entry in pedidos %}
+    {% set p = entry.pedido %}
+    {% for item in entry.itens %}
+      {ean: {{ (item.ean or '')|tojson }}, nome: {{ (item.nome or '')|tojson }}, cnpjloja: {{ (p.cnpjloja or '')|tojson }} },
+    {% endfor %}
+  {% endfor %}
+];
+let _confRecItems = [];
+function confBrl(v) {
+  const n = parseFloat(v)||0;
+  return 'R$ ' + n.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+}
+function confRecCard(p, idx) {
+  const img = p.imagem ? `<img class="conf-rec-img" src="${esc(p.imagem)}" alt="${esc(p.nome||'')}" loading="lazy">` : `<div class="conf-rec-img" style="display:flex;align-items:center;justify-content:center;color:#ccc"><i class="fa fa-pills"></i></div>`;
+  return `<article class="conf-rec-card">
+    ${img}
+    <div class="conf-rec-name">${esc(p.nome||'Produto')}</div>
+    <div class="conf-rec-reason">${esc(p.motivo||'Relacionado')}</div>
+    <div class="conf-rec-price">${confBrl(p.preco)}</div>
+    <button class="conf-rec-btn" type="button" onclick="addConfRec(${idx}); this.innerHTML='<i class=&quot;fa fa-check&quot;></i> Adicionado';">
+      <i class="fa fa-cart-plus me-1"></i>Comprar depois
+    </button>
+  </article>`;
+}
+function addConfRec(idx) {
+  const p = _confRecItems[idx];
+  if (!p) return;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita});
+}
+async function carregarRecsConfirmacao() {
+  if (!itensConfirmacao.length) return;
+  try {
+    const cnpjlojas = [...new Set(itensConfirmacao.map(i => i.cnpjloja).filter(Boolean))];
+    const r = await fetch('/api/recomendacoes', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cnpjlojas, limit:4, itens:itensConfirmacao})
+    });
+    const data = await r.json();
+    const produtos = data.produtos || [];
+    if (!produtos.length) return;
+    _confRecItems = produtos;
+    document.getElementById('conf-rec-title').textContent = data.titulo || 'Para sua proxima compra';
+    document.getElementById('conf-rec-sub').textContent = data.subtitulo || 'Produtos relacionados ao seu pedido.';
+    document.getElementById('conf-rec-grid').innerHTML = produtos.map(confRecCard).join('');
+    document.getElementById('conf-recs').style.display = 'block';
+  } catch {}
+}
+carregarRecsConfirmacao();
 
 const pedidosPagamento = [
   {% for entry in pedidos %}
