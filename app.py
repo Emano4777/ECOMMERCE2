@@ -2865,6 +2865,11 @@ def _ensure_lojas_vitrine_schema():
             created_at  TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    # garante coluna cnpjloja mesmo em tabelas criadas antes desta versão
+    cur.execute("""
+        ALTER TABLE ecommerce_lojas_vitrine
+        ADD COLUMN IF NOT EXISTS cnpjloja TEXT
+    """)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ecommerce_lojas_vitrine_cliques (
             id         SERIAL PRIMARY KEY,
@@ -6821,9 +6826,6 @@ def admin_lojas_vitrine():
     _ensure_lojas_vitrine_schema()
     conn = db()
     cur = conn.cursor()
-    # lista de lojas para o dropdown de vínculo
-    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin = FALSE ORDER BY razao")
-    todas_lojas = cur.fetchall()
 
     if request.method == "POST":
         cidade    = (request.form.get("cidade") or "").strip()
@@ -6864,6 +6866,8 @@ def admin_lojas_vitrine():
 
     cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
     lojas_sb = cur.fetchall()
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin = FALSE ORDER BY razao")
+    todas_lojas = cur.fetchall()
     cur.close()
 
     lojas_ik = _load_imagekit_lojas(include_file_id=True)
