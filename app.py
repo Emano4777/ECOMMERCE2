@@ -314,10 +314,12 @@ def _ensure_ml_schema():
                 ean TEXT NOT NULL,
                 titulo TEXT,
                 preco NUMERIC(10,2),
+                category_id TEXT,
                 status TEXT DEFAULT 'active',
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE ml_items ADD COLUMN IF NOT EXISTS category_id TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'ecommerce'")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_order_id TEXT")
         conn.commit(); cur.close()
@@ -6223,10 +6225,11 @@ def api_ml_publicar():
 
     ml_item_id = resp.get("id", "")
     cur.execute("""
-        INSERT INTO ml_items (ml_item_id, ean, titulo, preco, status, updated_at)
-        VALUES (%s, %s, %s, %s, 'active', NOW())
-        ON CONFLICT (ml_item_id) DO UPDATE SET preco=%s, status='active', updated_at=NOW()
-    """, (ml_item_id, ean, titulo, preco, preco))
+        INSERT INTO ml_items (ml_item_id, ean, titulo, preco, category_id, status, updated_at)
+        VALUES (%s, %s, %s, %s, %s, 'active', NOW())
+        ON CONFLICT (ml_item_id) DO UPDATE
+          SET preco=%s, category_id=%s, status='active', updated_at=NOW()
+    """, (ml_item_id, ean, titulo, preco, category_id, preco, category_id))
     conn.commit(); cur.close()
     return jsonify({"ok": True, "ml_item_id": ml_item_id, "acao": "publicado"})
 
@@ -6364,13 +6367,63 @@ def api_ml_categoria_por_item():
             data = _get_auth(f"/products/search?site_id=MLB&product_identifier={ean}")
             results = data.get("results", [])
             if results:
-                cat_id = results[0].get("domain_id") or results[0].get("category_id") or ""
-                if cat_id and cat_id.startswith("MLB"):
+                # category_id is a numeric MLB code; domain_id is like "MLB-SUPPLEMENTS" (NOT valid)
+                cat_id = results[0].get("category_id") or ""
+                # Fetch full product if category_id not in search result
+                if not cat_id:
+                    prod_id = results[0].get("id", "")
+                    if prod_id:
+                        try:
+                            prod = _get_auth(f"/products/{prod_id}")
+                            cat_id = prod.get("category_id") or ""
+                        except Exception:
+                            pass
+                # domain_id like "MLB-SUPPLEMENTS" is NOT a category_id (reject strings with hyphens)
+                if cat_id and re.match(r'^MLB\d+$', cat_id):
                     return jsonify({"ok": True, "category_id": cat_id, "category_name": _resolve_cat_name(cat_id)})
         except Exception:
             pass
 
     return jsonify({"ok": False, "erro": f"Não foi possível resolver categoria para {item_id or ean}"}), 404
+
+
+@app.get("/api/painel/ml/categorias-usadas")
+@painel_required
+def api_ml_categorias_usadas():
+    """Retorna categorias únicas já usadas em publicações ML desta loja."""
+    _ensure_ml_schema()
+    token = _ml_get_token()
+    conn = db(); cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT DISTINCT category_id
+            FROM ml_items
+            WHERE category_id IS NOT NULL AND category_id != '' AND status = 'active'
+            ORDER BY category_id
+        """)
+        cat_ids = [r["category_id"] for r in cur.fetchall()]
+    except Exception:
+        cat_ids = []
+    finally:
+        cur.close()
+
+    if not cat_ids or not token:
+        return jsonify({"ok": True, "categorias": []})
+
+    ctx = ssl.create_default_context()
+    categorias = []
+    for cat_id in cat_ids[:10]:
+        try:
+            req = urllib.request.Request(f"{ML_API_BASE}/categories/{cat_id}")
+            req.add_header("Authorization", f"Bearer {token}")
+            with urllib.request.urlopen(req, context=ctx, timeout=6) as r:
+                cd = json.loads(r.read())
+                path = cd.get("path_from_root", [])
+                name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cd.get("name", cat_id)
+                categorias.append({"category_id": cat_id, "category_name": name})
+        except Exception:
+            categorias.append({"category_id": cat_id, "category_name": cat_id})
+    return jsonify({"ok": True, "categorias": categorias})
 
 
 @app.get("/api/painel/ml/sugerir-categoria")

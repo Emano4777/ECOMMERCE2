@@ -855,26 +855,26 @@ async function extrairIdDeUrl(val) {
 
   // All IDs failed
   nomeEl.textContent = '';
-  box.innerHTML = _boxFallbackManual(idsToTry[0]);
+  box.innerHTML = _boxFallbackManual();
 }
 
-function _boxFallbackManual(firstId) {
+function _boxFallbackManual(prodNome) {
+  const busca = encodeURIComponent((prodNome || document.getElementById('ml-input-nome')?.value || 'whey protein').split(/\s+/).slice(0,4).join(' '));
   return `
-    <div style="background:#1a0d00;border:1px solid #f5c842;border-radius:8px;padding:12px;font-size:.78rem">
-      <div style="font-weight:800;color:#e8c94a;margin-bottom:6px">
-        <i class="fa fa-triangle-exclamation me-1"></i>Não foi possível detectar automaticamente
+    <div style="background:#1a0d00;border:1px solid #f5c842;border-radius:8px;padding:14px;font-size:.8rem">
+      <div style="font-weight:800;color:#e8c94a;margin-bottom:10px">
+        <i class="fa fa-circle-info me-1"></i>Como encontrar o ID da categoria no ML
       </div>
-      <div style="color:var(--pk-muted);margin-bottom:10px">
-        Acesse o Mercado Livre, abra um produto igual ao seu e copie o ID da categoria da URL ou do breadcrumb.
-        Ou use o link abaixo para ver os detalhes do item e encontrar o <code style="color:#f5c842">category_id</code>.
-      </div>
-      ${firstId ? `<a href="https://api.mercadolibre.com/items/${firstId}?attributes=category_id" target="_blank"
-         style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:8px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700;margin-bottom:8px">
-        <i class="fa fa-arrow-up-right-from-square"></i>Ver detalhes de ${firstId}
-      </a><br>` : ''}
-      <div style="color:#888;font-size:.73rem;margin-top:4px">
-        Copie o valor de <code style="color:#f5c842">"category_id"</code> (ex: MLB272431) e cole no campo acima.
-      </div>
+      <ol style="color:var(--pk-muted);margin:0 0 12px 0;padding-left:18px;line-height:1.8">
+        <li>Clique no botão abaixo para buscar seu produto no ML</li>
+        <li>Nos resultados, clique em uma <strong style="color:#e8c94a">sub-categoria</strong> no menu lateral esquerdo</li>
+        <li>Veja a URL — ela vai conter <code style="color:#f5c842;font-size:.85em">_CategoryId_MLB123456</code></li>
+        <li>Copie apenas o número <code style="color:#f5c842;font-size:.85em">MLB123456</code> e cole no campo acima</li>
+      </ol>
+      <a href="https://www.mercadolivre.com.br/${busca}" target="_blank"
+         style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:9px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
+        <i class="fa fa-arrow-up-right-from-square"></i>Buscar no Mercado Livre
+      </a>
     </div>`;
 }
 
@@ -1022,8 +1022,17 @@ function abrirModalML(btn) {
     (info && info.status === 'active') ? 'inline-flex' : 'none';
 
   document.getElementById('ml-modal').classList.add('open');
-  // Try auto-detecting category from product name when modal opens
-  setTimeout(() => detectarCategoria(), 500);
+  // Load previously-used categories from this account, then try auto-detect
+  fetch('/api/painel/ml/categorias-usadas')
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok && d.categorias.length) {
+        renderSugestoes(d.categorias, document.getElementById('ml-cat-sugestoes'));
+      } else {
+        detectarCategoria();
+      }
+    })
+    .catch(() => detectarCategoria());
 }
 
 function fecharModalML() {
