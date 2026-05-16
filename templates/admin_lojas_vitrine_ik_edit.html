@@ -47,6 +47,17 @@
         <label class="pk-label">Link WhatsApp</label>
         <input class="pk-input" type="text" name="whatsapp" value="{{ loja.whatsapp or '' }}">
       </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Loja vinculada <span style="color:var(--pk-muted);font-weight:400">(para relatórios de cliques)</span></label>
+        <select class="pk-input" name="cnpjloja">
+          <option value="">— Nenhuma —</option>
+          {% for l in todas_lojas %}
+          <option value="{{ l.cnpjloja }}" {% if loja_cnpjloja == l.cnpjloja %}selected{% endif %}>
+            {{ l.razao }} ({{ l.cnpjloja }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:16px">
       <button type="submit" class="btn-pk" style="background:var(--pk-yellow);color:#000">

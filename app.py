@@ -2886,6 +2886,12 @@ def _ensure_lojas_vitrine_schema():
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_lvc_cidade ON ecommerce_lojas_vitrine_cliques(cidade)
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_vitrine_cnpj_map (
+            cidade   TEXT PRIMARY KEY,
+            cnpjloja TEXT NOT NULL
+        )
+    """)
     conn.commit()
     cur.close()
 
@@ -2902,10 +2908,15 @@ def api_lojas_clique():
 
     conn = db()
     cur = conn.cursor()
-    # tenta achar o cnpjloja linkado a esta cidade
-    cur.execute("SELECT cnpjloja FROM ecommerce_lojas_vitrine WHERE cidade = %s LIMIT 1", (cidade,))
+    # tenta achar o cnpjloja pelo mapa explícito (funciona para lojas ImageKit e Cloudinary)
+    cur.execute("SELECT cnpjloja FROM ecommerce_vitrine_cnpj_map WHERE cidade = %s LIMIT 1", (cidade,))
     row = cur.fetchone()
     cnpjloja = row["cnpjloja"] if row else None
+    # fallback: tabela Cloudinary (lojas com cnpjloja preenchido)
+    if not cnpjloja:
+        cur.execute("SELECT cnpjloja FROM ecommerce_lojas_vitrine WHERE cidade = %s AND cnpjloja IS NOT NULL LIMIT 1", (cidade,))
+        row = cur.fetchone()
+        cnpjloja = row["cnpjloja"] if row else None
 
     cur.execute(
         "INSERT INTO ecommerce_lojas_vitrine_cliques (cidade, tipo, cnpjloja) VALUES (%s,%s,%s)",
@@ -6942,6 +6953,7 @@ def admin_lojas_vitrine_delete(loja_id):
 @admin_required
 def admin_lojas_vitrine_ik_edit(file_id):
     """Edita metadados de uma loja do ImageKit."""
+    _ensure_lojas_vitrine_schema()
     file_id = (file_id or "").strip()
     if not file_id:
         return redirect(url_for("admin_lojas_vitrine"))
@@ -6951,11 +6963,34 @@ def admin_lojas_vitrine_ik_edit(file_id):
         endereco = (request.form.get("endereco") or "").strip()
         telefone = (request.form.get("telefone") or "").strip()
         whatsapp = (request.form.get("whatsapp") or "").strip()
+        cnpjloja = (request.form.get("cnpjloja") or "").strip() or None
         try:
             _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp)
             flash("Loja atualizada no ImageKit.", "success")
         except Exception as e:
             flash(f"Erro ao atualizar: {e}", "danger")
+        # salva/atualiza mapeamento cidade→cnpjloja para rastreio de cliques
+        if cidade:
+            conn2 = db()
+            cur2 = conn2.cursor()
+            if cnpjloja:
+                cur2.execute(
+                    """
+                    INSERT INTO ecommerce_vitrine_cnpj_map (cidade, cnpjloja)
+                    VALUES (%s, %s)
+                    ON CONFLICT (cidade) DO UPDATE SET cnpjloja = EXCLUDED.cnpjloja
+                    """,
+                    (cidade, cnpjloja),
+                )
+                # retroativamente vincula cliques gravados sem cnpjloja
+                cur2.execute(
+                    "UPDATE ecommerce_lojas_vitrine_cliques SET cnpjloja=%s WHERE cidade=%s AND cnpjloja IS NULL",
+                    (cnpjloja, cidade),
+                )
+            else:
+                cur2.execute("DELETE FROM ecommerce_vitrine_cnpj_map WHERE cidade=%s", (cidade,))
+            conn2.commit()
+            cur2.close()
         return redirect(url_for("admin_lojas_vitrine"))
 
     # GET — busca dados atuais
@@ -6964,7 +6999,17 @@ def admin_lojas_vitrine_ik_edit(file_id):
     if not loja:
         flash("Loja não encontrada no ImageKit.", "danger")
         return redirect(url_for("admin_lojas_vitrine"))
-    return render_template("admin_lojas_vitrine_ik_edit.html", loja=loja, file_id=file_id)
+    # cnpjloja já vinculado (se existir)
+    conn2 = db()
+    cur2 = conn2.cursor()
+    cur2.execute("SELECT cnpjloja FROM ecommerce_vitrine_cnpj_map WHERE cidade=%s", (loja.get("cidade", ""),))
+    mapa = cur2.fetchone()
+    cur2.execute("SELECT cnpjloja, razao FROM users WHERE is_admin = FALSE ORDER BY razao")
+    todas_lojas = cur2.fetchall()
+    cur2.close()
+    loja_cnpjloja = mapa["cnpjloja"] if mapa else None
+    return render_template("admin_lojas_vitrine_ik_edit.html", loja=loja, file_id=file_id,
+                           todas_lojas=todas_lojas, loja_cnpjloja=loja_cnpjloja)
 
 
 @app.post("/painel/admin/lojas-vitrine/ik-delete/<file_id>")
