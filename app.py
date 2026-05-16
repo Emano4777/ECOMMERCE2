@@ -6197,10 +6197,12 @@ def api_ml_publicar():
     preco       = float(body.get("preco") or 0)
     quantidade  = int(body.get("quantidade") or 1)
     descricao   = (body.get("descricao") or titulo).strip()
-    imagens     = body.get("imagens") or []   # lista de URLs (múltiplas fotos)
-    imagem_url  = (body.get("imagem_url") or "").strip()  # fallback legacy
+    imagens     = body.get("imagens") or []
+    imagem_url  = (body.get("imagem_url") or "").strip()
     category_id = (body.get("category_id") or "MLB1196").strip()
     extra_attrs = body.get("atributos") or []
+    descricao   = (body.get("descricao") or titulo).strip()
+    shipping_cfg = body.get("shipping") or {}
 
     if not ean or not titulo or preco <= 0:
         return jsonify({"ok": False, "erro": "EAN, título e preço são obrigatórios."}), 400
@@ -6263,6 +6265,13 @@ def api_ml_publicar():
         }
         if pictures:
             p["pictures"] = pictures
+        # Configuração de frete
+        if shipping_cfg:
+            p["shipping"] = {
+                "mode": "me2",
+                "local_pick_up": bool(shipping_cfg.get("local_pick_up")),
+                "free_shipping": bool(shipping_cfg.get("free_shipping")),
+            }
         return p
 
     resp, code = _ml_api_post("/items", _build_payload(category_id), token)
@@ -6603,6 +6612,28 @@ def api_ml_navegar_categorias():
         })
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)}), 500
+
+
+@app.get("/api/painel/ml/config-entrega")
+@painel_required
+def api_ml_config_entrega():
+    """Retorna as configurações de entrega da loja para pré-preencher o modal ML."""
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT aceita_entrega, raio_entrega_km, cobra_frete, valor_frete, pedido_minimo_entrega
+        FROM ecommerce_config_loja WHERE cnpjloja=%s LIMIT 1
+    """, (cnpjloja,))
+    row = cur.fetchone() or {}
+    cur.close()
+    return jsonify({
+        "ok": True,
+        "aceita_entrega":         bool(row.get("aceita_entrega")),
+        "raio_entrega_km":        float(row.get("raio_entrega_km") or 0),
+        "cobra_frete":            bool(row.get("cobra_frete")),
+        "valor_frete":            float(row.get("valor_frete") or 0),
+        "pedido_minimo_entrega":  float(row.get("pedido_minimo_entrega") or 0),
+    })
 
 
 @app.post("/api/painel/ml/upload-imagem")

@@ -1057,9 +1057,30 @@ function abrirModalML(btn) {
   document.getElementById('ml-cat-tree').innerHTML  = '';
   document.getElementById('ml-atributos-box').style.display = 'none';
   document.getElementById('ml-atributos-box').innerHTML = '';
+  document.getElementById('ml-input-desc').value = '';
+  document.getElementById('ml-desc-count').textContent = '';
+  document.getElementById('ml-chk-me2').checked    = true;
+  document.getElementById('ml-chk-free').checked   = false;
+  document.getElementById('ml-chk-pickup').checked = false;
+  document.getElementById('ml-entrega-info').textContent = '';
   // Inicializa fotos com a imagem padrão do produto
   _mlImagens = img ? [_mlTransformImg(img)] : [];
   renderFotos();
+  // Carrega config de entrega da farmácia para pré-preencher checkboxes
+  fetch('/api/painel/ml/config-entrega')
+    .then(r => r.json())
+    .then(cfg => {
+      if (!cfg.ok) return;
+      if (cfg.aceita_entrega) {
+        document.getElementById('ml-chk-pickup').checked = true;
+        const info = [];
+        if (cfg.raio_entrega_km > 0) info.push(`Raio configurado: ${cfg.raio_entrega_km} km`);
+        if (cfg.cobra_frete && cfg.valor_frete > 0) info.push(`Frete: R$ ${cfg.valor_frete.toFixed(2)}`);
+        else if (!cfg.cobra_frete) info.push('Entrega grátis no site');
+        document.getElementById('ml-entrega-info').textContent = info.join(' · ');
+      }
+    })
+    .catch(() => {});
 
   const info = _mlStatus[ean];
   document.getElementById('ml-btn-pausar').style.display =
@@ -1100,12 +1121,18 @@ function fecharModalML() {
 }
 
 function publicarNoML() {
-  const ean   = document.getElementById('ml-input-ean').value;
-  const nome  = document.getElementById('ml-input-nome').value;
-  const preco = parseFloat(document.getElementById('ml-input-preco').value);
-  const qty   = parseInt(document.getElementById('ml-input-qty').value) || 1;
-  const cat   = document.getElementById('ml-input-cat').value;
+  const ean     = document.getElementById('ml-input-ean').value;
+  const nome    = document.getElementById('ml-input-nome').value;
+  const preco   = parseFloat(document.getElementById('ml-input-preco').value);
+  const qty     = parseInt(document.getElementById('ml-input-qty').value) || 1;
+  const cat     = document.getElementById('ml-input-cat').value;
+  const desc    = document.getElementById('ml-input-desc').value.trim();
   const imagens = _mlImagens.filter(u => u && u !== '__loading__');
+  const shipping = {
+    me2:         document.getElementById('ml-chk-me2').checked,
+    free_shipping: document.getElementById('ml-chk-free').checked,
+    local_pick_up: document.getElementById('ml-chk-pickup').checked,
+  };
 
   if (!preco || preco <= 0) { alert('Informe um preço válido.'); return; }
   if (!cat || !cat.toUpperCase().startsWith('MLB')) {
@@ -1122,6 +1149,8 @@ function publicarNoML() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ean, titulo: nome, preco, quantidade: qty, imagens, category_id: cat,
+      descricao: desc,
+      shipping,
       atributos: [...document.querySelectorAll('[data-attr-id]')]
         .filter(el => el.value)
         .map(el => ({id: el.dataset.attrId, value_name: el.value}))
@@ -1256,6 +1285,33 @@ function pausarNoML() {
       <div id="ml-fotos-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;min-height:78px;align-items:flex-start"></div>
       <input type="file" id="ml-foto-upload" accept="image/*" multiple style="display:none" onchange="adicionarFotosLocais(this)">
       <input type="hidden" id="ml-input-img">
+    </div>
+
+    <div class="ml-field">
+      <label>Descrição do anúncio <span id="ml-desc-count" style="color:var(--pk-muted);font-weight:400;font-size:.74rem"></span></label>
+      <textarea class="pk-input" id="ml-input-desc" rows="4" maxlength="50000"
+                placeholder="Ingredientes, modo de uso, benefícios, informações nutricionais…"
+                style="resize:vertical;line-height:1.5;font-size:.84rem"
+                oninput="document.getElementById('ml-desc-count').textContent='('+this.value.length+' chars)'"></textarea>
+    </div>
+
+    <div class="ml-field">
+      <label>Entrega</label>
+      <div id="ml-entrega-box" style="display:flex;flex-direction:column;gap:6px;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:10px;font-size:.82rem">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="ml-chk-me2" checked style="accent-color:#f5c842;width:15px;height:15px">
+          <span>Mercado Envios (ML cuida do envio pelos Correios)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="ml-chk-free" style="accent-color:#f5c842;width:15px;height:15px">
+          <span>Frete grátis</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="ml-chk-pickup" style="accent-color:#f5c842;width:15px;height:15px">
+          <span>Retirada na loja</span>
+        </label>
+        <div id="ml-entrega-info" style="color:var(--pk-muted);font-size:.74rem;margin-top:2px"></div>
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:4px">
