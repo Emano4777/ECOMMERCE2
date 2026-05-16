@@ -6307,6 +6307,63 @@ def api_ml_debug_categoria():
     return jsonify({"token_ok": True, "titulo": titulo, **resultados})
 
 
+@app.get("/api/painel/ml/categoria-de-url")
+@painel_required
+def api_ml_categoria_de_url():
+    """Baixa HTML de página do ML e extrai category_id do estado embutido."""
+    url = (request.args.get("url") or "").strip()
+    if not url or "mercado" not in url.lower():
+        return jsonify({"ok": False, "erro": "URL inválida"}), 400
+
+    import gzip as _gzip
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        req.add_header("Accept", "text/html,application/xhtml+xml,*/*;q=0.9")
+        req.add_header("Accept-Language", "pt-BR,pt;q=0.9")
+        req.add_header("Accept-Encoding", "gzip, deflate")
+        req.add_header("Referer", "https://www.mercadolivre.com.br/")
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
+            raw = r.read()
+            enc = r.headers.get("Content-Encoding", "")
+        try:
+            html = _gzip.decompress(raw).decode("utf-8", errors="ignore")
+        except Exception:
+            html = raw.decode("utf-8", errors="ignore")
+    except Exception as e:
+        return jsonify({"ok": False, "erro": f"Não conseguiu acessar a página: {e}"}), 502
+
+    # Padrões de category_id no JSON embutido do ML
+    for pat in [
+        r'"categoryId"\s*:\s*"(MLB\d+)"',
+        r'"category_id"\s*:\s*"(MLB\d+)"',
+        r'categoryId%22%3A%22(MLB\d+)',
+        r'"CATEGORY_ID"\s*:\s*"(MLB\d+)"',
+        r'category_id=(MLB\d+)',
+    ]:
+        m = re.search(pat, html)
+        if m:
+            cat_id = m.group(1)
+            token = _ml_get_token()
+            cat_name = cat_id
+            if token:
+                try:
+                    req2 = urllib.request.Request(f"{ML_API_BASE}/categories/{cat_id}")
+                    req2.add_header("Authorization", f"Bearer {token}")
+                    with urllib.request.urlopen(req2, context=ctx, timeout=8) as r2:
+                        cd = json.loads(r2.read())
+                        path = cd.get("path_from_root", [])
+                        cat_name = " › ".join(p["name"] for p in path[-3:]) if len(path) >= 2 else cd.get("name", cat_id)
+                except Exception:
+                    pass
+            return jsonify({"ok": True, "category_id": cat_id, "category_name": cat_name})
+
+    return jsonify({"ok": False, "erro": "category_id não encontrado no HTML da página"}), 404
+
+
 @app.get("/api/painel/ml/categoria-por-item")
 @painel_required
 def api_ml_categoria_por_item():

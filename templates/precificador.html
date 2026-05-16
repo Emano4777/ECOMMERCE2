@@ -829,17 +829,34 @@ async function extrairIdDeUrl(val) {
   const nomeEl = document.getElementById('ml-cat-nome');
   const box    = document.getElementById('ml-cat-sugestoes');
 
+  nomeEl.textContent = '⏳ Buscando categoria…';
+  box.innerHTML = '';
+
+  // 0) Try HTML scraping for any ML URL (works even without MLB IDs in URL)
+  if (val.includes('mercadolivre') || val.includes('mercadolibre')) {
+    try {
+      const r = await fetch(`/api/painel/ml/categoria-de-url?url=${encodeURIComponent(val)}`);
+      const d = await r.json();
+      if (d.ok && d.category_id) {
+        await setCategoryId(d.category_id, { category_name: d.category_name });
+        return;
+      }
+    } catch {}
+  }
+
   // item_id param is the actual listing — try it first
   const itemIdMatch = val.match(/item_id:?(MLB\d+)/i);
   const allIds = [...new Set((val.match(/MLB\d{5,}/gi) || []).map(x => x.toUpperCase()))];
-  if (!allIds.length) return;
+
+  if (!allIds.length) {
+    nomeEl.textContent = '';
+    box.innerHTML = _boxFallbackManual();
+    return;
+  }
 
   const idsToTry = itemIdMatch
     ? [itemIdMatch[1].toUpperCase(), ...allIds.filter(id => id !== itemIdMatch[1].toUpperCase())]
     : allIds;
-
-  nomeEl.textContent = '⏳ Buscando categoria…';
-  box.innerHTML = '';
 
   // 1) Server proxy (uses ML bearer token)
   for (const mlbId of idsToTry) {
@@ -891,9 +908,9 @@ function _boxFallbackManual() {
       </div>
       <ol style="color:var(--pk-muted);margin:0 0 12px 0;padding-left:18px;line-height:1.9">
         <li>Clique em <strong style="color:#e8c94a">Buscar no ML</strong> abaixo</li>
-        <li>Nos resultados, clique em uma <strong style="color:#e8c94a">sub-categoria</strong> no menu <strong style="color:#e8c94a">esquerdo</strong></li>
-        <li>A URL vai mudar e mostrar algo como <code style="color:#f5c842;font-size:.85em">_CategoryId_MLB123456</code></li>
-        <li>Copie o <code style="color:#f5c842;font-size:.85em">MLB123456</code> e cole no campo acima</li>
+        <li>Clique em <strong style="color:#e8c94a">qualquer produto</strong> parecido com o seu</li>
+        <li>Copie a <strong style="color:#e8c94a">URL do produto</strong> que abriu</li>
+        <li>Cole essa URL aqui no campo acima — o sistema detecta a categoria automaticamente</li>
       </ol>
       <a href="${url}" target="_blank"
          style="display:inline-flex;align-items:center;gap:7px;background:#0d1016;border:1px solid #f5c842;border-radius:7px;padding:9px 14px;color:#f5c842;text-decoration:none;font-size:.82rem;font-weight:700">
