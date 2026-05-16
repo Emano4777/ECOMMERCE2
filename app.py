@@ -6831,6 +6831,79 @@ def admin_geocodificar_todos():
 
 # ─── ADMIN: LOJAS VITRINE (imagens públicas das lojas) ────────────────────────
 
+@app.post("/painel/admin/lojas-vitrine/auto-vincular")
+@admin_required
+def admin_lojas_vitrine_auto_vincular():
+    """Vincula automaticamente cidades da vitrine às lojas cadastradas pelo endereço."""
+    _ensure_lojas_vitrine_schema()
+    conn = db()
+    cur = conn.cursor()
+
+    # carrega todas as lojas cadastradas
+    cur.execute("SELECT cnpjloja, razao, endereco, uf FROM users WHERE is_admin = FALSE")
+    lojas = cur.fetchall()
+
+    # coleta todas as cidades da vitrine (ImageKit + Cloudinary)
+    cidades_cloudinary = []
+    cur.execute("SELECT DISTINCT cidade FROM ecommerce_lojas_vitrine WHERE cidade IS NOT NULL")
+    cidades_cloudinary = [r["cidade"] for r in cur.fetchall()]
+
+    lojas_ik = _load_imagekit_lojas()
+    cidades_ik = [l["cidade"] for l in lojas_ik if l.get("cidade")]
+
+    todas_cidades = list({c for c in cidades_cloudinary + cidades_ik if c})
+
+    vinculados = 0
+    sem_match = []
+
+    for cidade_raw in todas_cidades:
+        # extrai nome e UF: "Taquaritinga/SP" → nome="Taquaritinga", uf="SP"
+        partes = cidade_raw.split("/")
+        nome_cidade = partes[0].strip()
+        uf_cidade   = partes[1].strip().upper() if len(partes) > 1 else None
+
+        match = None
+        for loja in lojas:
+            endereco_loja = (loja["endereco"] or "").lower()
+            uf_loja       = (loja["uf"] or "").upper()
+            if nome_cidade.lower() in endereco_loja:
+                if not uf_cidade or uf_cidade == uf_loja:
+                    match = loja
+                    break
+
+        if match:
+            # upsert no mapa dedicado
+            cur.execute(
+                """
+                INSERT INTO ecommerce_vitrine_cnpj_map (cidade, cnpjloja)
+                VALUES (%s, %s)
+                ON CONFLICT (cidade) DO UPDATE SET cnpjloja = EXCLUDED.cnpjloja
+                """,
+                (cidade_raw, match["cnpjloja"]),
+            )
+            # atualiza também a tabela Cloudinary se existir entrada lá
+            cur.execute(
+                "UPDATE ecommerce_lojas_vitrine SET cnpjloja=%s WHERE cidade=%s AND (cnpjloja IS NULL OR cnpjloja != %s)",
+                (match["cnpjloja"], cidade_raw, match["cnpjloja"]),
+            )
+            # retroativamente vincula cliques sem cnpjloja
+            cur.execute(
+                "UPDATE ecommerce_lojas_vitrine_cliques SET cnpjloja=%s WHERE cidade=%s AND cnpjloja IS NULL",
+                (match["cnpjloja"], cidade_raw),
+            )
+            vinculados += 1
+        else:
+            sem_match.append(cidade_raw)
+
+    conn.commit()
+    cur.close()
+
+    msg = f"{vinculados} cidade(s) vinculada(s) automaticamente."
+    if sem_match:
+        msg += f" Sem match: {', '.join(sem_match)}."
+    flash(msg, "success" if not sem_match else "info")
+    return redirect(url_for("admin_lojas_vitrine"))
+
 @app.route("/painel/admin/lojas-vitrine", methods=["GET", "POST"])
 @admin_required
 def admin_lojas_vitrine():

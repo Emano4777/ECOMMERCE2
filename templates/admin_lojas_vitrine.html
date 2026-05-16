@@ -80,9 +80,16 @@
   <div style="font-weight:900;font-size:1.25rem">
     <i class="fa fa-images me-2" style="color:var(--pk-yellow)"></i>Lojas Vitrine
   </div>
-  <a href="/lojas" target="_blank" class="btn-pk" style="font-size:.78rem">
-    <i class="fa fa-eye me-1"></i>Ver página pública
-  </a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <form method="POST" action="{{ url_for('admin_lojas_vitrine_auto_vincular') }}" style="margin:0">
+      <button type="submit" class="btn-pk-yellow" style="font-size:.78rem" title="Vincula automaticamente as cidades às lojas pelo endereço cadastrado">
+        <i class="fa fa-wand-magic-sparkles me-1"></i>Auto-vincular lojas
+      </button>
+    </form>
+    <a href="/lojas" target="_blank" class="btn-pk" style="font-size:.78rem">
+      <i class="fa fa-eye me-1"></i>Ver página pública
+    </a>
+  </div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
