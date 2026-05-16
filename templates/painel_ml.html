@@ -129,43 +129,40 @@
   </div>
 </div>
 
-<!-- ENDEREÇO DO VENDEDOR (Mercado Envios) -->
+<!-- MERCADO ENVIOS -->
 <div class="ml-card" id="card-endereco">
-  <div style="font-weight:700;font-size:.88rem;margin-bottom:6px">
-    <i class="fa fa-location-dot me-2" style="color:var(--pk-yellow)"></i>Endereço do vendedor
-    <span style="font-size:.75rem;color:var(--pk-muted);font-weight:400;margin-left:8px">— necessário para Mercado Envios</span>
+  <div style="font-weight:700;font-size:.88rem;margin-bottom:14px">
+    <i class="fa fa-truck-fast me-2" style="color:var(--pk-yellow)"></i>Mercado Envios
   </div>
+
   <div id="end-carregando" style="color:var(--pk-muted);font-size:.84rem;margin-bottom:8px">
-    <i class="fa fa-spinner fa-spin me-1"></i>Carregando endereço...
+    <i class="fa fa-spinner fa-spin me-1"></i>Verificando conta...
   </div>
   <div id="end-info" style="display:none">
     <div id="end-status-badge" style="margin-bottom:14px"></div>
 
     <!-- Endereço atual cadastrado no ML -->
-    <div id="end-atual" style="display:none;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:14px;margin-bottom:14px;font-size:.88rem">
-      <div style="font-size:.75rem;color:var(--pk-muted);margin-bottom:6px;text-transform:uppercase;font-weight:700">Endereço cadastrado no Mercado Livre</div>
+    <div id="end-atual" style="display:none;background:#0d2d1a;border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:12px;margin-bottom:14px;font-size:.85rem">
+      <div style="font-size:.74rem;color:#6ee79a;margin-bottom:4px;font-weight:700;text-transform:uppercase">
+        <i class="fa fa-check-circle me-1"></i>Endereço de despacho cadastrado no ML
+      </div>
       <div id="end-atual-texto" style="color:var(--pk-txt)"></div>
     </div>
+  </div>
 
-    <!-- Endereço sugerido pelo banco -->
-    <div id="end-sugestao" style="display:none;background:#1e1a08;border:1px solid rgba(245,200,66,.3);border-radius:8px;padding:14px;margin-bottom:14px;font-size:.88rem">
-      <div style="font-size:.75rem;color:#f5c842;margin-bottom:6px;text-transform:uppercase;font-weight:700">
-        <i class="fa fa-lightbulb me-1"></i>Endereço do cadastro da loja (sugestão)
-      </div>
-      <div id="end-sugestao-texto" style="color:var(--pk-txt);margin-bottom:10px"></div>
-      <div style="font-size:.8rem;color:var(--pk-muted)">
-        Use esse endereço ao configurar no Mercado Livre (botão abaixo).
-      </div>
-    </div>
+  <div style="background:#1e1a08;border:1px solid rgba(245,200,66,.25);border-radius:8px;padding:14px;margin-bottom:14px;font-size:.84rem;color:var(--pk-muted);line-height:1.6">
+    <strong style="color:#f5c842;display:block;margin-bottom:6px"><i class="fa fa-circle-info me-1"></i>Para ativar Mercado Envios na conta:</strong>
+    O endereço já deve estar cadastrado, mas o <strong style="color:white">Mercado Envios precisa ser ativado separadamente</strong> na conta ML.
+    Acesse as configurações de envio do seu perfil de vendedor para verificar se o ME2 está habilitado.
+    Após ativar, os anúncios publicados com a opção "Mercado Envios" passarão a oferecer frete calculado automaticamente.
+  </div>
 
-    <div style="background:#1a1020;border:1px solid rgba(240,128,144,.25);border-radius:8px;padding:12px;font-size:.82rem;color:#f08090;margin-bottom:14px">
-      <i class="fa fa-triangle-exclamation me-1"></i>
-      O Mercado Livre bloqueia alterações de cadastro feitas via API de servidores externos.
-      Configure o endereço diretamente no painel do ML usando o botão abaixo.
-    </div>
-
-    <a href="https://www.mercadolivre.com.br/perfil/endereco" target="_blank" class="btn-pk" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px">
-      <i class="fa fa-arrow-up-right-from-square"></i>Configurar endereço no Mercado Livre
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="https://www.mercadolivre.com.br/perfil/envios" target="_blank" class="btn-pk-yellow" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-size:.84rem">
+      <i class="fa fa-arrow-up-right-from-square"></i>Configurações de envio no ML
+    </a>
+    <a href="https://www.mercadolivre.com.br/perfil/endereco" target="_blank" class="btn-pk-ghost" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-size:.84rem">
+      <i class="fa fa-location-dot"></i>Endereços cadastrados
     </a>
   </div>
 </div>
@@ -191,6 +188,31 @@
   </div>
 </div>
 {% endif %}
+
+<!-- IMPORTAR PEDIDO ML -->
+<div class="ml-card">
+  <div style="font-weight:700;font-size:.88rem;margin-bottom:14px">
+    <i class="fa fa-file-import me-2" style="color:var(--pk-yellow)"></i>Importar pedido do Mercado Livre
+  </div>
+  <div id="import-msg" style="display:none;margin-bottom:10px"></div>
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+    <div style="flex:1;min-width:200px">
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">ID do pedido ML (somente números)</label>
+      <input id="ml-order-id-input" class="pk-input" placeholder="Ex: 3718918498" style="font-family:monospace">
+    </div>
+    <button onclick="importarPedidoML()" class="btn-pk" id="btn-importar">
+      <i class="fa fa-file-import me-1"></i>Importar
+    </button>
+    <button onclick="sincronizarFilaML()" class="btn-pk-ghost" id="btn-sync" title="Reprocessa pedidos recebidos via webhook que ainda não apareceram">
+      <i class="fa fa-rotate me-1"></i>Sincronizar fila
+    </button>
+  </div>
+  <div style="font-size:.78rem;color:var(--pk-muted)">
+    <i class="fa fa-circle-info me-1"></i>
+    Se um pedido apareceu no Mercado Livre mas não no painel, cole o número do pedido acima e clique em Importar.
+    O ID do pedido está na URL da venda no ML (ex: mercadolivre.com.br/vendas/<strong>3718918498</strong>).
+  </div>
+</div>
 
 <!-- COMO FUNCIONA -->
 <div class="ml-card">
@@ -242,6 +264,56 @@
 {% block extra_js %}
 {% if connected %}
 <script>
+// Importação manual de pedido ML
+window.importarPedidoML = function(){
+  var input = document.getElementById('ml-order-id-input');
+  var id = (input.value || '').replace(/\D/g, '').trim();
+  if(!id){ input.focus(); return; }
+  var btn = document.getElementById('btn-importar');
+  btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Importando...';
+  var msg = document.getElementById('import-msg');
+  msg.style.display = 'none';
+  fetch('/api/painel/ml/importar-pedido', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order_id: id})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    msg.style.display = 'block';
+    if(d.ok){
+      msg.className = 'pk-alert pk-alert-success';
+      msg.innerHTML = '<i class="fa fa-check-circle me-1"></i>' + d.mensagem +
+        (d.pedido_id ? ' <a href="/painel/pedidos/'+d.pedido_id+'" style="color:#6ee79a">Ver pedido →</a>' : '');
+      input.value = '';
+    } else {
+      msg.className = 'pk-alert pk-alert-error';
+      msg.innerHTML = '<i class="fa fa-triangle-exclamation me-1"></i>' + d.erro;
+    }
+  })
+  .catch(function(e){ msg.style.display='block'; msg.className='pk-alert pk-alert-error'; msg.innerHTML='Erro: '+e; })
+  .finally(function(){ btn.disabled=false; btn.innerHTML='<i class="fa fa-file-import me-1"></i>Importar'; });
+};
+
+window.sincronizarFilaML = function(){
+  var btn = document.getElementById('btn-sync');
+  btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Sincronizando...';
+  var msg = document.getElementById('import-msg');
+  fetch('/api/painel/ml/sincronizar-fila', {method:'POST'})
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    msg.style.display='block';
+    if(d.ok){
+      msg.className='pk-alert pk-alert-' + (d.importados > 0 ? 'success' : 'info');
+      msg.innerHTML = '<i class="fa fa-check-circle me-1"></i>' +
+        (d.importados > 0 ? d.importados + ' pedido(s) importado(s) da fila.' : 'Nenhum pedido pendente na fila.');
+    } else {
+      msg.className='pk-alert pk-alert-error'; msg.innerHTML='<i class="fa fa-triangle-exclamation me-1"></i>'+d.erro;
+    }
+  })
+  .catch(function(e){ msg.style.display='block'; msg.className='pk-alert pk-alert-error'; msg.innerHTML='Erro: '+e; })
+  .finally(function(){ btn.disabled=false; btn.innerHTML='<i class="fa fa-rotate me-1"></i>Sincronizar fila'; });
+};
+
 (function(){
   function fmtEnd(d){
     var partes = [];

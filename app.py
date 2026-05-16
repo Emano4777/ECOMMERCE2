@@ -97,6 +97,45 @@ def _upload_receita_cloudinary(file_bytes, filename):
 _thread_local = threading.local()
 _schema_ready = set()
 _schema_lock = threading.Lock()
+_migrations_loaded = False
+
+
+def _load_db_migrations():
+    """Carrega do banco quais migrações já foram aplicadas (1 query por cold-start)."""
+    global _migrations_loaded
+    if _migrations_loaded:
+        return
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pq_migrations (
+                key TEXT PRIMARY KEY,
+                applied_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.execute("SELECT key FROM pq_migrations")
+        for row in cur.fetchall():
+            _schema_ready.add(row["key"])
+        cur.close()
+        _migrations_loaded = True
+    except Exception:
+        pass
+
+
+def _mark_migration_done(key):
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO pq_migrations (key) VALUES (%s) ON CONFLICT DO NOTHING",
+            (key,),
+        )
+        conn.commit()
+        cur.close()
+    except Exception:
+        pass
 
 
 def _new_conn(statement_timeout_ms: int = 10000):
@@ -171,6 +210,7 @@ def inject_globals():
 
 
 def _ensure_precificador_schema():
+    _load_db_migrations()
     if "precificador" in _schema_ready:
         return
     with _schema_lock:
@@ -205,9 +245,11 @@ def _ensure_precificador_schema():
         conn.commit()
         cur.close()
         _schema_ready.add("precificador")
+        _mark_migration_done("precificador")
 
 
 def _ensure_consumidor_schema():
+    _load_db_migrations()
     if "consumidor" in _schema_ready:
         return
     with _schema_lock:
@@ -236,6 +278,7 @@ def _ensure_consumidor_schema():
         conn.commit()
         cur.close()
         _schema_ready.add("consumidor")
+        _mark_migration_done("consumidor")
 
 
 def _ensure_delivery_schema():
@@ -265,6 +308,7 @@ def _ensure_delivery_schema():
         conn.commit()
         cur.close()
         _schema_ready.add("delivery")
+        _mark_migration_done("delivery")
 
 
 def _ensure_receita_schema():
@@ -289,9 +333,11 @@ def _ensure_receita_schema():
         conn.commit()
         cur.close()
         _schema_ready.add("receita")
+        _mark_migration_done("receita")
 
 
 def _ensure_ml_schema():
+    _load_db_migrations()
     if "ml" in _schema_ready:
         return
     with _schema_lock:
@@ -324,6 +370,7 @@ def _ensure_ml_schema():
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_order_id TEXT")
         conn.commit(); cur.close()
         _schema_ready.add("ml")
+        _mark_migration_done("ml")
 
 
 def _norm_email(email):
@@ -3109,6 +3156,7 @@ def api_checkout():
 
 
 def _ensure_payment_schema():
+    _load_db_migrations()
     if "payment" in _schema_ready:
         return
     with _schema_lock:
@@ -3127,6 +3175,7 @@ def _ensure_payment_schema():
         conn.commit()
         cur.close()
         _schema_ready.add("payment")
+        _mark_migration_done("payment")
 
 
 def _public_base_url():
@@ -5996,23 +6045,103 @@ def ml_webhook():
     """Recebe notificações de novos pedidos do Mercado Livre."""
     _ensure_ml_schema()
     try:
-        payload = request.get_json(force=True, silent=True) or {}
-        topic   = payload.get("topic", "")
+        payload  = request.get_json(force=True, silent=True) or {}
+        topic    = payload.get("topic", "") or payload.get("type", "")
         resource = payload.get("resource", "")
 
-        if topic == "orders_v2" and resource:
-            # resource = "/orders/3718918498"
+        if ("orders" in topic or "orders" in resource) and resource:
             order_id = resource.strip("/").split("/")[-1]
             if order_id.isdigit():
-                threading.Thread(
-                    target=_process_ml_order,
-                    args=(int(order_id),),
-                    daemon=True
-                ).start()
+                # Enfileira na tabela — threads não são confiáveis em serverless
+                conn = db(); cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ml_order_queue (
+                        order_id TEXT PRIMARY KEY,
+                        received_at TIMESTAMPTZ DEFAULT NOW(),
+                        processed BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                cur.execute(
+                    "INSERT INTO ml_order_queue (order_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (order_id,)
+                )
+                conn.commit(); cur.close()
+                # Processa imediatamente (sync) — Vercel termina threads daemon antes de concluir
+                try:
+                    _process_ml_order(int(order_id))
+                except Exception as ep:
+                    print(f"[ML] Erro ao processar pedido {order_id}: {ep}")
     except Exception as e:
         print(f"[ML] Erro no webhook: {e}")
 
     return "", 200  # ML exige resposta 200 rápida
+
+
+@app.post("/api/painel/ml/importar-pedido")
+@painel_required
+def api_ml_importar_pedido():
+    """Importa manualmente um pedido ML pelo order_id."""
+    body = request.get_json(force=True) or {}
+    order_id_raw = str(body.get("order_id") or "").strip()
+    if not order_id_raw.isdigit():
+        return jsonify({"ok": False, "erro": "ID inválido — informe apenas números."}), 400
+    order_id = int(order_id_raw)
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (order_id_raw,))
+    if cur.fetchone():
+        cur.close()
+        return jsonify({"ok": False, "erro": "Pedido já importado anteriormente."})
+    cur.close()
+    try:
+        _process_ml_order(order_id)
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)}), 500
+    conn2 = db(); cur2 = conn2.cursor()
+    cur2.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (order_id_raw,))
+    row = cur2.fetchone(); cur2.close()
+    if row:
+        return jsonify({"ok": True, "mensagem": f"Pedido {order_id} importado com sucesso!", "pedido_id": str(row["id"])})
+    return jsonify({"ok": False, "erro": "Pedido não encontrado ou loja não identificada para esse CEP."})
+
+
+@app.post("/api/painel/ml/sincronizar-fila")
+@painel_required
+def api_ml_sincronizar_fila():
+    """Processa pedidos ML enfileirados que ainda não foram criados."""
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ml_order_queue (
+                order_id TEXT PRIMARY KEY,
+                received_at TIMESTAMPTZ DEFAULT NOW(),
+                processed BOOLEAN DEFAULT FALSE
+            )
+        """)
+        cur.execute("SELECT order_id FROM ml_order_queue WHERE processed=FALSE ORDER BY received_at LIMIT 20")
+        pendentes = [r["order_id"] for r in cur.fetchall()]
+        cur.close()
+    except Exception:
+        return jsonify({"ok": False, "erro": "Erro ao acessar fila."}), 500
+
+    importados = 0
+    for oid in pendentes:
+        try:
+            conn2 = db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (oid,))
+            if cur2.fetchone():
+                cur2.execute("UPDATE ml_order_queue SET processed=TRUE WHERE order_id=%s", (oid,))
+                conn2.commit(); cur2.close()
+                continue
+            cur2.close()
+            _process_ml_order(int(oid))
+            conn3 = db(); cur3 = conn3.cursor()
+            cur3.execute("UPDATE ml_order_queue SET processed=TRUE WHERE order_id=%s", (oid,))
+            conn3.commit(); cur3.close()
+            importados += 1
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "importados": importados, "pendentes": len(pendentes)})
 
 
 # ── Painel ML: configuração e status ─────────────────────────────────────────

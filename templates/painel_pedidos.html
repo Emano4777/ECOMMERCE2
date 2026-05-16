@@ -100,7 +100,7 @@
       {% for p in pedidos %}
       <tr onclick="location.href='{{ url_for('painel_pedido_detalhe', pedido_id=p.id) }}'">
         <td>
-          <code style="font-size:.78rem;color:var(--pk-yellow)">#{{ p.id|string|slice(8)|first|upper }}</code>
+          <code style="font-size:.78rem;color:var(--pk-yellow)">#{{ p.id|string|replace('-','')|upper|truncate(8,true,'') }}</code>
         </td>
         <td>
           <div style="font-weight:700">{{ p.cliente_nome }}</div>
