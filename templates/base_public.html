@@ -371,6 +371,92 @@
     .pq-prod-sec-title.warn { color: #c45e00; }
     .pq-prod-sec-body { font-size: .86rem; line-height: 1.6; color: var(--pq-text); }
     .pq-prod-loading { text-align: center; padding: 60px 20px; color: var(--pq-muted); }
+
+    /* ── CAROUSEL DE RECOMENDAÇÕES (global) ──────────────── */
+    .pq-recs-section {
+      background:#fff; border:1px solid var(--pq-border);
+      border-radius:16px; box-shadow:var(--pq-shadow);
+      padding:18px; overflow:hidden;
+      animation: pqFadeUp .45s ease both;
+    }
+    @keyframes pqFadeUp {
+      from { opacity:0; transform:translateY(16px); }
+      to   { opacity:1; transform:none; }
+    }
+    .pq-recs-header {
+      display:flex; align-items:flex-start;
+      justify-content:space-between; gap:12px; margin-bottom:14px;
+    }
+    .pq-recs-title-block { flex:1; min-width:0; }
+    .pq-recs-title { font-size:1rem; font-weight:900; display:flex; align-items:center; gap:8px; }
+    .pq-recs-title i { color:var(--pq-red); }
+    .pq-recs-sub { font-size:.78rem; color:var(--pq-muted); margin-top:3px; }
+    .pq-recs-nav { display:flex; gap:6px; flex-shrink:0; align-self:center; }
+    .pq-nav-btn {
+      width:34px; height:34px; border-radius:50%;
+      border:1.5px solid var(--pq-border);
+      background:#fff; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      font-size:.82rem; color:var(--pq-text);
+      transition:border-color .15s, background .15s, color .15s;
+    }
+    .pq-nav-btn:hover:not(:disabled) { border-color:var(--pq-red); background:var(--pq-red); color:#fff; }
+    .pq-nav-btn:disabled { opacity:.3; cursor:default; pointer-events:none; }
+    .pq-recs-track-wrap { overflow:hidden; }
+    .pq-recs-track {
+      display:flex; gap:10px;
+      overflow-x:auto; scroll-snap-type:x mandatory;
+      scrollbar-width:none; -ms-overflow-style:none;
+      scroll-behavior:smooth; padding-bottom:2px;
+    }
+    .pq-recs-track::-webkit-scrollbar { display:none; }
+    .pq-rec-card {
+      flex:0 0 190px; scroll-snap-align:start;
+      border:1px solid var(--pq-border); border-radius:12px;
+      padding:10px; background:#fff;
+      display:flex; flex-direction:column; gap:7px;
+      transition:transform .2s ease, box-shadow .2s ease;
+    }
+    .pq-rec-card:hover { transform:translateY(-4px); box-shadow:0 10px 28px rgba(0,0,0,.11); }
+    @media(max-width:520px){ .pq-rec-card { flex:0 0 calc(50vw - 28px); } }
+    .pq-rec-img-wrap {
+      width:100%; aspect-ratio:1;
+      background:linear-gradient(135deg,#f9f9f9,#efefef);
+      border-radius:8px; overflow:hidden;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .pq-rec-img-wrap img { width:100%; height:100%; object-fit:contain; padding:6px; }
+    .pq-rec-img-ph { color:#d0d0d0; font-size:2.4rem; }
+    .pq-rec-motivo-badge {
+      display:inline-flex; align-items:center; gap:4px;
+      font-size:.63rem; font-weight:800; color:var(--pq-red);
+      background:#fff0f2; border-radius:5px;
+      padding:2px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
+    }
+    .pq-rec-name {
+      font-size:.77rem; font-weight:800; line-height:1.3; color:#1a1a1a;
+      overflow:hidden; display:-webkit-box;
+      -webkit-line-clamp:2; -webkit-box-orient:vertical; min-height:2.5em;
+    }
+    .pq-rec-price { font-size:.95rem; font-weight:900; color:var(--pq-red); }
+    .pq-rec-actions { display:flex; gap:6px; margin-top:auto; }
+    .pq-rec-btn-add {
+      flex:1; min-height:34px; border:none; border-radius:8px;
+      background:var(--pq-red); color:#fff;
+      font-size:.74rem; font-weight:900; cursor:pointer;
+      font-family:inherit; display:flex; align-items:center; justify-content:center; gap:5px;
+      transition:background .15s;
+    }
+    .pq-rec-btn-add:hover { background:var(--pq-red-dk); }
+    .pq-rec-btn-add.added { background:#22c55e; cursor:default; }
+    .pq-rec-btn-view {
+      flex-shrink:0; width:34px; min-height:34px;
+      border:1.5px solid var(--pq-border); border-radius:8px;
+      background:#fff; color:var(--pq-muted); font-size:.8rem;
+      cursor:pointer; display:flex; align-items:center; justify-content:center;
+      text-decoration:none; transition:border-color .15s, color .15s;
+    }
+    .pq-rec-btn-view:hover { border-color:var(--pq-red); color:var(--pq-red); }
   </style>
   {% block extra_style %}{% endblock %}
 </head>
@@ -942,6 +1028,53 @@ function _renderModal(body, d, nome, imagem) {
         ? `<div class="pq-prod-divider"></div>${secsHtml}`
         : '<p style="font-size:.84rem;color:var(--pq-muted);margin:10px 0 0">Informações detalhadas não disponíveis para este produto.</p>'}
     </div>`;
+}
+</script>
+
+<script>
+/* ── CAROUSEL RECOMENDAÇÕES (compartilhado) ────────────── */
+function pqRecCardHtml(p, idx, addFnName, showView) {
+  const imgHtml = p.imagem
+    ? `<img src="${esc(p.imagem)}" alt="${esc(p.nome||'')}" loading="lazy" onerror="this.parentNode.innerHTML='<i class=\\'pq-rec-img-ph fa fa-pills\\'></i>'">`
+    : `<i class="pq-rec-img-ph fa fa-pills"></i>`;
+  const url = (p.ean && p.cnpjloja)
+    ? `/produto/${encodeURIComponent(p.ean)}?cnpj=${encodeURIComponent(p.cnpjloja)}&nome=${encodeURIComponent(p.nome||'')}`
+    : null;
+  const viewBtn = (showView !== false && url)
+    ? `<a class="pq-rec-btn-view" href="${url}" title="Ver produto"><i class="fa fa-eye"></i></a>`
+    : '';
+  const brl = 'R$ ' + parseFloat(p.preco||0).toFixed(2).replace('.',',');
+  return `<article class="pq-rec-card">
+    <div class="pq-rec-img-wrap">${imgHtml}</div>
+    <div class="pq-rec-motivo-badge"><i class="fa fa-wand-magic-sparkles"></i>${esc(p.motivo||'Relacionado')}</div>
+    <div class="pq-rec-name">${esc(p.nome||'Produto')}</div>
+    <div class="pq-rec-price">${brl}</div>
+    <div class="pq-rec-actions">
+      <button class="pq-rec-btn-add" type="button" onclick="${addFnName}(${idx},this)">
+        <i class="fa fa-cart-plus"></i>Adicionar
+      </button>
+      ${viewBtn}
+    </div>
+  </article>`;
+}
+
+function pqInitCarouselNav(sectionId) {
+  const track = document.getElementById(sectionId + '-track');
+  const prev  = document.getElementById(sectionId + '-prev');
+  const next  = document.getElementById(sectionId + '-next');
+  if (!track || !prev || !next) return;
+  const scrollAmt = () => {
+    const card = track.querySelector('.pq-rec-card');
+    return card ? (card.offsetWidth + 10) * 2 : track.clientWidth * 0.8;
+  };
+  prev.onclick = () => track.scrollBy({ left: -scrollAmt(), behavior: 'smooth' });
+  next.onclick = () => track.scrollBy({ left:  scrollAmt(), behavior: 'smooth' });
+  const updateBtns = () => {
+    prev.disabled = track.scrollLeft < 4;
+    next.disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
+  };
+  track.addEventListener('scroll', updateBtns, { passive: true });
+  setTimeout(updateBtns, 120);
 }
 </script>
 

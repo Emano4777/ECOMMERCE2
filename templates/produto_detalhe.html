@@ -194,22 +194,7 @@
   transition:background .15s;
 }
 .btn-retirada:hover { background:#ea6a08; }
-.rec-box { margin-top:24px; background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:16px; display:none; }
-.rec-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
-.rec-title { font-size:1rem; font-weight:900; display:flex; align-items:center; gap:8px; }
-.rec-title i { color:var(--pq-red); }
-.rec-sub { font-size:.8rem; color:var(--pq-muted); margin-top:2px; }
-.rec-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
-@media(max-width:760px){ .rec-grid { grid-template-columns:repeat(2,1fr); } }
-.rec-card { border:1px solid var(--pq-border); border-radius:10px; padding:10px; background:#fff; display:flex; flex-direction:column; gap:7px; min-width:0; }
-.rec-img { width:100%; aspect-ratio:1.35; object-fit:contain; background:#f7f7f7; border-radius:8px; padding:4px; }
-.rec-name { font-size:.76rem; font-weight:800; line-height:1.25; min-height:38px; color:#1a1a1a; overflow:hidden; }
-.rec-reason { font-size:.68rem; color:var(--pq-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.rec-price { font-size:.9rem; color:var(--pq-red); font-weight:900; }
-.rec-actions { display:flex; gap:6px; margin-top:auto; }
-.rec-actions button, .rec-actions a { flex:1; min-height:32px; border-radius:8px; font-size:.72rem; font-weight:900; display:flex; align-items:center; justify-content:center; gap:5px; text-decoration:none; cursor:pointer; }
-.rec-actions a { border:1px solid var(--pq-border); color:var(--pq-text); background:#fff; }
-.rec-actions button { border:none; color:#fff; background:var(--pq-red); }
+.pd-recs-wrap { margin-top:24px; }
 </style>
 {% endblock %}
 
@@ -384,16 +369,24 @@
     </div>
   </div>
 
-  <!-- SEÇÕES DE DETALHE -->
-  <section id="pd-recs" class="rec-box">
-    <div class="rec-hd">
-      <div>
-        <div class="rec-title"><i class="fa fa-wand-magic-sparkles"></i><span id="pd-rec-title">Veja tambem</span></div>
-        <div class="rec-sub" id="pd-rec-sub">Produtos relacionados disponiveis nesta farmacia.</div>
+  <!-- RECOMENDAÇÕES -->
+  <div class="pd-recs-wrap">
+    <section id="pd-recs" class="pq-recs-section" style="display:none">
+      <div class="pq-recs-header">
+        <div class="pq-recs-title-block">
+          <div class="pq-recs-title"><i class="fa fa-basket-shopping"></i><span id="pd-recs-title">Veja também</span></div>
+          <div class="pq-recs-sub" id="pd-recs-sub">Produtos relacionados disponíveis nesta farmácia.</div>
+        </div>
+        <div class="pq-recs-nav">
+          <button class="pq-nav-btn" id="pd-recs-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+          <button class="pq-nav-btn" id="pd-recs-next" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+        </div>
       </div>
-    </div>
-    <div class="rec-grid" id="pd-rec-grid"></div>
-  </section>
+      <div class="pq-recs-track-wrap">
+        <div class="pq-recs-track" id="pd-recs-track"></div>
+      </div>
+    </section>
+  </div>
 
   {% if d_serve or d_usar or d_alerta or d_comprar %}
   <div class="pd-details">
@@ -528,33 +521,12 @@ function toggleSec(hd) {
   hd.closest('.pd-section').classList.toggle('open');
 }
 
-function pdBrl(v) {
-  const n = parseFloat(v)||0;
-  return 'R$ ' + n.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
-}
-
 let _pdRecItems = [];
-function addPdRec(idx) {
+function addPdRec(idx, btn) {
   const p = _pdRecItems[idx];
   if (!p) return;
   addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita});
-}
-
-function recCardHtml(p, idx) {
-  const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
-  const img = p.imagem
-    ? `<img class="rec-img" src="${esc(p.imagem)}" alt="${esc(p.nome||'')}" loading="lazy">`
-    : `<div class="rec-img" style="display:flex;align-items:center;justify-content:center;color:#ccc"><i class="fa fa-pills"></i></div>`;
-  return `<article class="rec-card">
-    ${img}
-    <div class="rec-name">${esc(p.nome||'Produto')}</div>
-    <div class="rec-reason">${esc(p.motivo||'Relacionado')}</div>
-    <div class="rec-price">${pdBrl(p.preco)}</div>
-    <div class="rec-actions">
-      <a href="${url}"><i class="fa fa-eye"></i>Ver</a>
-      <button type="button" onclick="addPdRec(${idx}); this.innerHTML='<i class=&quot;fa fa-check&quot;></i>OK';"><i class="fa fa-cart-plus"></i></button>
-    </div>
-  </article>`;
+  if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>OK'; }
 }
 
 async function carregarRecomendacoesProduto() {
@@ -563,16 +535,17 @@ async function carregarRecomendacoesProduto() {
     const r = await fetch('/api/recomendacoes', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({cnpjloja:_pdCnpj, limit:4, itens:[{ean:_pdEan, nome:_pdNome, cnpjloja:_pdCnpj}]})
+      body: JSON.stringify({cnpjloja:_pdCnpj, limit:8, itens:[{ean:_pdEan, nome:_pdNome, cnpjloja:_pdCnpj}]})
     });
     const data = await r.json();
     const produtos = data.produtos || [];
     if (!produtos.length) return;
     _pdRecItems = produtos;
-    document.getElementById('pd-rec-title').textContent = data.titulo || 'Veja tambem';
-    document.getElementById('pd-rec-sub').textContent = data.subtitulo || 'Produtos relacionados disponiveis nesta farmacia.';
-    document.getElementById('pd-rec-grid').innerHTML = produtos.map(recCardHtml).join('');
-    document.getElementById('pd-recs').style.display = 'block';
+    document.getElementById('pd-recs-title').textContent = data.titulo || 'Veja também';
+    document.getElementById('pd-recs-sub').textContent = data.subtitulo || 'Produtos relacionados disponíveis nesta farmácia.';
+    document.getElementById('pd-recs-track').innerHTML = produtos.map((p,i) => pqRecCardHtml(p, i, 'addPdRec')).join('');
+    document.getElementById('pd-recs').style.display = '';
+    pqInitCarouselNav('pd-recs');
   } catch {}
 }
 
