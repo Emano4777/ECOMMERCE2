@@ -6915,5 +6915,173 @@ def api_ml_publicar_lote():
     return jsonify({"ok": True, "resultados": resultados, "publicados": publicados, "erros": erros})
 
 
+# ── Endereço do vendedor no ML ────────────────────────────────────────────────
+
+_UF_TO_ML_STATE = {
+    "AC": "BR-AC", "AL": "BR-AL", "AP": "BR-AP", "AM": "BR-AM", "BA": "BR-BA",
+    "CE": "BR-CE", "DF": "BR-DF", "ES": "BR-ES", "GO": "BR-GO", "MA": "BR-MA",
+    "MT": "BR-MT", "MS": "BR-MS", "MG": "BR-MG", "PA": "BR-PA", "PB": "BR-PB",
+    "PR": "BR-PR", "PE": "BR-PE", "PI": "BR-PI", "RJ": "BR-RJ", "RN": "BR-RN",
+    "RS": "BR-RS", "RO": "BR-RO", "RR": "BR-RR", "SC": "BR-SC", "SP": "BR-SP",
+    "SE": "BR-SE", "TO": "BR-TO",
+}
+
+
+def _parse_endereco_banco(endereco2, endereco, uf):
+    """Extrai campos de endereço a partir do texto do banco para pré-preencher o formulário."""
+    texto = (endereco2 or endereco or "").strip()
+    cep = ""
+    m_cep = re.search(r"\b(\d{5})-?(\d{3})\b", texto)
+    if m_cep:
+        cep = m_cep.group(1) + m_cep.group(2)
+
+    # Remove CEP do texto para facilitar parsing do restante
+    sem_cep = re.sub(r",?\s*\d{5}-?\d{3}", "", texto).strip(" ,")
+
+    partes = [p.strip() for p in sem_cep.split(",") if p.strip()]
+
+    logradouro = partes[0] if len(partes) >= 1 else ""
+    numero     = ""
+    bairro     = ""
+    cidade     = ""
+    estado     = uf or ""
+
+    # Tenta extrair número embutido no logradouro ("Rua X, 123")
+    m_num = re.search(r"\s+(\d+\w*)\s*$", logradouro)
+    if m_num:
+        numero    = m_num.group(1)
+        logradouro = logradouro[:m_num.start()].strip()
+
+    if len(partes) >= 2:
+        parte2 = partes[1]
+        m_num2 = re.match(r"^(\d+\w*)\s*$", parte2)
+        if m_num2:
+            numero = m_num2.group(1)
+        else:
+            bairro = parte2
+
+    if len(partes) >= 3 and not bairro:
+        bairro = partes[2]
+
+    # Cidade é a última parte que não seja UF (2 letras) nem CEP
+    for p in reversed(partes):
+        if re.match(r"^[A-Za-z]{2}$", p):
+            estado = p.upper()
+        elif re.match(r"^\d{5}-?\d{3}$", p):
+            continue
+        elif len(p) >= 3 and not re.match(r"^\d+$", p):
+            cidade = p
+            break
+
+    return {
+        "logradouro": logradouro,
+        "numero":     numero,
+        "bairro":     bairro,
+        "cidade":     cidade,
+        "estado":     estado,
+        "cep":        cep,
+    }
+
+
+@app.get("/api/painel/ml/dados-vendedor")
+@painel_required
+def api_ml_dados_vendedor():
+    """Retorna endereço atual do vendedor no ML + endereço do banco como sugestão."""
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT endereco, endereco2, uf FROM users WHERE cnpjloja=%s LIMIT 1",
+        (cnpjloja,)
+    )
+    u = cur.fetchone()
+    cur.close()
+
+    sugestao = _parse_endereco_banco(
+        u["endereco2"] if u else None,
+        u["endereco"]  if u else None,
+        u["uf"]        if u else None,
+    )
+
+    token = _ml_get_token()
+    if not token:
+        return jsonify({"ok": True, "ml_address": None, "sugestao": sugestao})
+
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(f"{ML_API_BASE}/users/me")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            me = json.loads(r.read())
+
+        addr = me.get("address") or {}
+        ml_address = {
+            "user_id":    me.get("id"),
+            "logradouro": addr.get("address") or "",
+            "numero":     addr.get("number") or "",
+            "bairro":     (addr.get("neighborhood") or {}).get("name") or "",
+            "cidade":     (addr.get("city") or {}).get("name") or "",
+            "estado":     ((addr.get("state") or {}).get("id") or "").replace("BR-", ""),
+            "cep":        (addr.get("zip_code") or "").replace("-", ""),
+        }
+        return jsonify({"ok": True, "ml_address": ml_address, "sugestao": sugestao})
+    except Exception as e:
+        return jsonify({"ok": True, "ml_address": None, "sugestao": sugestao, "aviso": str(e)})
+
+
+@app.post("/api/painel/ml/salvar-endereco")
+@painel_required
+def api_ml_salvar_endereco():
+    """Salva endereço do vendedor via API do ML (PUT /users/{id})."""
+    token = _ml_get_token()
+    if not token:
+        return jsonify({"ok": False, "erro": "Token ML não disponível."}), 401
+
+    body = request.get_json(force=True) or {}
+    logradouro = (body.get("logradouro") or "").strip()
+    numero     = (body.get("numero") or "").strip()
+    bairro     = (body.get("bairro") or "").strip()
+    cidade     = (body.get("cidade") or "").strip()
+    estado_uf  = (body.get("estado") or "").strip().upper()
+    cep        = re.sub(r"\D", "", body.get("cep") or "")
+
+    if not logradouro or not cidade or not cep or len(cep) != 8:
+        return jsonify({"ok": False, "erro": "Preencha: logradouro, cidade e CEP (8 dígitos)."}), 400
+
+    endereco_ml = logradouro
+    if numero:
+        endereco_ml = f"{logradouro}, {numero}"
+
+    state_id = _UF_TO_ML_STATE.get(estado_uf, f"BR-{estado_uf}")
+
+    # Busca o user_id no ML
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(f"{ML_API_BASE}/users/me")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            me = json.loads(r.read())
+        user_id = me.get("id")
+    except Exception as e:
+        return jsonify({"ok": False, "erro": f"Erro ao buscar usuário ML: {e}"}), 500
+
+    payload = {
+        "address": {
+            "address":      endereco_ml,
+            "zip_code":     cep,
+            "city":         {"name": cidade},
+            "state":        {"id": state_id},
+            "neighborhood": {"name": bairro},
+        }
+    }
+
+    resp, code = _ml_api_put(f"/users/{user_id}", payload, token)
+    if code in (200, 201):
+        return jsonify({"ok": True, "mensagem": "Endereço salvo com sucesso no Mercado Livre!"})
+    erro_msg = (resp or {}).get("message") or (resp or {}).get("error") or f"Erro {code}"
+    return jsonify({"ok": False, "erro": f"ML retornou: {erro_msg}"}), 400
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)

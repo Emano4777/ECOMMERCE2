@@ -129,6 +129,51 @@
   </div>
 </div>
 
+<!-- ENDEREÇO DO VENDEDOR (Mercado Envios) -->
+<div class="ml-card" id="card-endereco">
+  <div style="font-weight:700;font-size:.88rem;margin-bottom:6px">
+    <i class="fa fa-location-dot me-2" style="color:var(--pk-yellow)"></i>Endereço do vendedor
+    <span style="font-size:.75rem;color:var(--pk-muted);font-weight:400;margin-left:8px">— necessário para Mercado Envios</span>
+  </div>
+  <div id="end-msg" style="display:none;margin-bottom:12px"></div>
+  <div style="display:grid;grid-template-columns:1fr 100px;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Logradouro (rua/av)</label>
+      <input id="end-logradouro" class="pk-input" placeholder="Rua das Flores">
+    </div>
+    <div>
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Número</label>
+      <input id="end-numero" class="pk-input" placeholder="123">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 120px;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Bairro</label>
+      <input id="end-bairro" class="pk-input" placeholder="Centro">
+    </div>
+    <div>
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">Cidade</label>
+      <input id="end-cidade" class="pk-input" placeholder="São Paulo">
+    </div>
+    <div>
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">UF</label>
+      <input id="end-estado" class="pk-input" placeholder="SP" maxlength="2" style="text-transform:uppercase">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:160px 1fr;gap:10px;margin-bottom:16px">
+    <div>
+      <label style="font-size:.78rem;color:var(--pk-muted);display:block;margin-bottom:4px">CEP</label>
+      <input id="end-cep" class="pk-input" placeholder="00000-000" maxlength="9">
+    </div>
+    <div style="display:flex;align-items:flex-end">
+      <span id="end-status-ml" style="font-size:.78rem;color:var(--pk-muted)"></span>
+    </div>
+  </div>
+  <button onclick="salvarEnderecoML()" class="btn-pk" id="btn-salvar-end">
+    <i class="fa fa-floppy-disk me-1"></i>Salvar no Mercado Livre
+  </button>
+</div>
+
 <!-- INFORMAÇÕES DO APP -->
 <div class="ml-card">
   <div style="font-weight:700;font-size:.88rem;margin-bottom:14px">
@@ -196,4 +241,91 @@
   <div class="alert alert-{{ 'success' if cat=='success' else 'danger' }} mt-3" role="alert">{{ msg }}</div>
   {% endfor %}
 {% endwith %}
+{% endblock %}
+
+{% block extra_js %}
+{% if connected %}
+<script>
+(function(){
+  function fmtCep(v){ return v.replace(/\D/g,'').replace(/(\d{5})(\d{3})/,'$1-$2'); }
+
+  function showEndMsg(msg, tipo){
+    var el = document.getElementById('end-msg');
+    el.style.display = 'block';
+    el.className = 'pk-alert pk-alert-' + tipo;
+    el.innerHTML = msg;
+    setTimeout(function(){ el.style.display='none'; }, 5000);
+  }
+
+  function preencherCampos(d){
+    document.getElementById('end-logradouro').value = d.logradouro || '';
+    document.getElementById('end-numero').value     = d.numero     || '';
+    document.getElementById('end-bairro').value     = d.bairro     || '';
+    document.getElementById('end-cidade').value     = d.cidade     || '';
+    document.getElementById('end-estado').value     = (d.estado    || '').toUpperCase();
+    document.getElementById('end-cep').value        = d.cep ? fmtCep(d.cep) : '';
+  }
+
+  // Carrega endereço atual do ML ou banco
+  fetch('/api/painel/ml/dados-vendedor')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(!data.ok) return;
+      var statusEl = document.getElementById('end-status-ml');
+      if(data.ml_address && data.ml_address.logradouro){
+        preencherCampos(data.ml_address);
+        statusEl.innerHTML = '<i class="fa fa-check-circle" style="color:#22c55e"></i> Endereço já cadastrado no ML';
+      } else if(data.sugestao && data.sugestao.logradouro){
+        preencherCampos(data.sugestao);
+        statusEl.innerHTML = '<i class="fa fa-info-circle" style="color:#f5c842"></i> Pré-preenchido pelo cadastro da loja — confirme e salve';
+      } else {
+        statusEl.innerHTML = '<i class="fa fa-triangle-exclamation" style="color:#f08090"></i> Sem endereço cadastrado no ML';
+      }
+    })
+    .catch(function(){ });
+
+  window.salvarEnderecoML = function(){
+    var btn = document.getElementById('btn-salvar-end');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Salvando...';
+
+    var payload = {
+      logradouro: document.getElementById('end-logradouro').value.trim(),
+      numero:     document.getElementById('end-numero').value.trim(),
+      bairro:     document.getElementById('end-bairro').value.trim(),
+      cidade:     document.getElementById('end-cidade').value.trim(),
+      estado:     document.getElementById('end-estado').value.trim().toUpperCase(),
+      cep:        document.getElementById('end-cep').value.replace(/\D/g,''),
+    };
+
+    fetch('/api/painel/ml/salvar-endereco', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(data.ok){
+        showEndMsg('<i class="fa fa-check-circle me-1"></i>' + data.mensagem, 'success');
+        document.getElementById('end-status-ml').innerHTML =
+          '<i class="fa fa-check-circle" style="color:#22c55e"></i> Endereço salvo no ML com sucesso';
+      } else {
+        showEndMsg('<i class="fa fa-triangle-exclamation me-1"></i>' + data.erro, 'error');
+      }
+    })
+    .catch(function(e){ showEndMsg('Erro de rede: ' + e, 'error'); })
+    .finally(function(){
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-floppy-disk me-1"></i>Salvar no Mercado Livre';
+    });
+  };
+
+  // Formata CEP ao digitar
+  document.getElementById('end-cep').addEventListener('input', function(){
+    var v = this.value.replace(/\D/g,'');
+    this.value = v.length > 5 ? v.slice(0,5) + '-' + v.slice(5,8) : v;
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
