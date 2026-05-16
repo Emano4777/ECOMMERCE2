@@ -6662,23 +6662,57 @@ def api_ml_config_entrega():
 @app.post("/api/painel/ml/upload-imagem")
 @painel_required
 def api_ml_upload_imagem():
-    """Faz upload de imagem ao Cloudinary com transformações para o ML."""
-    if not _CLOUDINARY_OK:
-        return jsonify({"ok": False, "erro": "Cloudinary não configurado"}), 500
+    """Faz upload de imagem: tenta Cloudinary primeiro, fallback na API de fotos do ML."""
     f = request.files.get("imagem")
     if not f:
         return jsonify({"ok": False, "erro": "Nenhum arquivo enviado"}), 400
+
+    file_bytes = f.read()
+
+    # Tenta Cloudinary se disponível
+    if _CLOUDINARY_OK:
+        try:
+            import cloudinary.uploader as _cu
+            result = _cu.upload(
+                file_bytes,
+                folder="ml_fotos",
+                resource_type="image",
+                transformation=[
+                    {"width": 1200, "height": 1200, "crop": "pad", "background": "white"},
+                    {"format": "jpg", "quality": "auto"},
+                ],
+            )
+            return jsonify({"ok": True, "url": result["secure_url"], "via": "cloudinary"})
+        except Exception:
+            pass  # cai para fallback ML
+
+    # Fallback: API de upload de fotos do ML
+    token = _ml_get_token()
+    if not token:
+        return jsonify({"ok": False, "erro": "Token ML não disponível e Cloudinary não configurado."}), 500
     try:
-        result = cloudinary.uploader.upload(
-            f.stream,
-            folder="ml_fotos",
-            resource_type="image",
-            transformation=[
-                {"width": 1200, "height": 1200, "crop": "pad", "background": "white"},
-                {"format": "jpg", "quality": "auto"},
-            ],
+        boundary = "---PoupaquiUpload"
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="foto.jpg"\r\n'
+            f"Content-Type: image/jpeg\r\n\r\n"
+        ).encode() + file_bytes + f"\r\n--{boundary}--\r\n".encode()
+
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(
+            f"{ML_API_BASE}/pictures/items/upload",
+            data=body,
+            method="POST",
         )
-        return jsonify({"ok": True, "url": result["secure_url"]})
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+            data = json.loads(r.read())
+        url = data.get("secure_url") or data.get("url") or (data.get("variations") or [{}])[0].get("secure_url", "")
+        if url:
+            return jsonify({"ok": True, "url": url, "via": "ml"})
+        return jsonify({"ok": False, "erro": f"ML não retornou URL: {data}"}), 500
     except Exception as e:
         return jsonify({"ok": False, "erro": str(e)}), 500
 

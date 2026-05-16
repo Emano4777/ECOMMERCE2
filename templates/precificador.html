@@ -973,17 +973,17 @@ function _mlTransformImg(url) {
 function renderFotos() {
   const grid = document.getElementById('ml-fotos-grid');
   const thumbs = _mlImagens.map((url, i) => {
-    const src = url === '__loading__'
-      ? 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70"><rect fill="%230d1016" width="70" height="70"/></svg>'
-      : url;
-    return `<div style="position:relative;width:70px;height:70px;flex-shrink:0;border-radius:8px;overflow:visible">
-      <img src="${src}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid ${i===0?'#f5c842':'var(--pk-line)'}"
-           onerror="this.style.opacity='.3'">
-      ${url === '__loading__' ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border-radius:8px"><i class="fa fa-spinner fa-spin" style="color:#f5c842"></i></div>` : ''}
-      ${i === 0 ? `<span style="position:absolute;bottom:3px;left:3px;background:rgba(0,0,0,.75);color:#f5c842;font-size:.5rem;font-weight:800;padding:1px 4px;border-radius:3px;line-height:1.4">CAPA</span>` : ''}
-      ${url !== '__loading__' ? `<button type="button" onclick="removerFoto(${i})"
-        style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c8102e;border:none;color:#fff;cursor:pointer;font-size:.6rem;line-height:18px;padding:0;text-align:center">✕</button>` : ''}
-    </div>`;
+    const loading = url === '__loading__';
+    const border  = i === 0 ? '#f5c842' : 'var(--pk-line)';
+    const imgTag  = loading
+      ? `<div style="width:70px;height:70px;border-radius:8px;border:1px solid ${border};background:#0d1016;display:flex;align-items:center;justify-content:center"><i class="fa fa-spinner fa-spin" style="color:#f5c842"></i></div>`
+      : `<img src="${url.replace(/"/g,'%22')}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid ${border}" onerror="this.style.opacity='.3'">`;
+    const capaBadge = i === 0
+      ? `<span style="position:absolute;bottom:3px;left:3px;background:rgba(0,0,0,.75);color:#f5c842;font-size:.5rem;font-weight:800;padding:1px 4px;border-radius:3px;line-height:1.4">CAPA</span>`
+      : '';
+    const rmBtn = loading ? '' :
+      `<button type="button" onclick="removerFoto(${i})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c8102e;border:none;color:#fff;cursor:pointer;font-size:.6rem;line-height:18px;padding:0;text-align:center">✕</button>`;
+    return `<div style="position:relative;width:70px;height:70px;flex-shrink:0">${imgTag}${capaBadge}${rmBtn}</div>`;
   }).join('');
 
   const addBtn = _mlImagens.length < 8 ? `
