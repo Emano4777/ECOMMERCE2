@@ -1,0 +1,207 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Detalhe da Reclamação{% endblock %}
+
+{% block extra_style %}
+<style>
+.rec-grid { display:grid; grid-template-columns:1fr 320px; gap:18px; align-items:start; }
+@media(max-width:900px){ .rec-grid { grid-template-columns:1fr; } }
+
+/* status banner */
+.rec-status-banner { border-radius:12px; padding:14px 18px; margin-bottom:14px; display:flex; gap:12px; align-items:flex-start; }
+.rec-status-banner.aberta          { background:#2a1e00; border:1.5px solid #fbbf24; }
+.rec-status-banner.em_andamento    { background:#0d1e2d; border:1.5px solid #38bdf8; }
+.rec-status-banner.aguardando_cliente { background:#0d2d1a; border:1.5px solid #22c55e; }
+.rec-status-banner.finalizada      { background:#111; border:1.5px solid #374151; }
+.rec-status-icon { font-size:1.4rem; flex-shrink:0; margin-top:2px; }
+.rec-status-title { font-weight:900; font-size:.95rem; margin-bottom:4px; }
+.rec-status-sub { font-size:.83rem; color:var(--pk-muted); line-height:1.5; }
+.rec-prazo { font-size:.78rem; font-weight:800; margin-top:6px; }
+.prazo-ok   { color:#22c55e; }
+.prazo-warn { color:#f5c842; }
+.prazo-venc { color:#f08090; }
+
+/* chat */
+.chat-box { background:var(--pk-card); border:1px solid var(--pk-line); border-radius:12px; overflow:hidden; }
+.chat-head { padding:12px 18px; background:#0d1016; border-bottom:1px solid var(--pk-line); font-weight:800; font-size:.9rem; display:flex; align-items:center; gap:8px; color:var(--pk-yellow); }
+.chat-msgs { padding:16px 18px; display:flex; flex-direction:column; gap:10px; max-height:460px; overflow-y:auto; }
+.msg { max-width:82%; }
+.msg-loja    { align-self:flex-end; }
+.msg-cliente { align-self:flex-start; }
+.msg-bubble { padding:10px 14px; border-radius:14px; font-size:.88rem; line-height:1.5; }
+.msg-loja    .msg-bubble { background:var(--pk-yellow); color:#111; border-bottom-right-radius:4px; }
+.msg-cliente .msg-bubble { background:#1e2435; color:var(--pk-txt); border-bottom-left-radius:4px; }
+.msg-meta { font-size:.72rem; color:var(--pk-muted); margin-top:3px; }
+.msg-loja .msg-meta { text-align:right; }
+.chat-input { border-top:1px solid var(--pk-line); padding:14px 18px; display:flex; gap:10px; }
+.chat-input textarea { flex:1; background:#0d1016; border:1px solid var(--pk-line); border-radius:10px; padding:9px 12px; font-family:inherit; font-size:.9rem; color:var(--pk-txt); resize:none; outline:none; }
+.chat-input textarea:focus { border-color:var(--pk-yellow); }
+.btn-send { background:var(--pk-yellow); color:#111; border:none; border-radius:10px; padding:9px 18px; font-weight:800; font-size:.9rem; cursor:pointer; white-space:nowrap; }
+.btn-send:hover { opacity:.85; }
+
+/* sidebar */
+.side-card { background:var(--pk-card); border:1px solid var(--pk-line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+.side-title { font-weight:800; color:var(--pk-yellow); font-size:.88rem; margin-bottom:12px; display:flex; align-items:center; gap:7px; }
+.info-row { display:flex; justify-content:space-between; gap:8px; font-size:.83rem; margin-bottom:7px; }
+.info-row span:first-child { color:var(--pk-muted); }
+.info-row span:last-child { font-weight:700; text-align:right; }
+
+/* advertências */
+.adv-item { background:#2a0810; border-radius:8px; padding:8px 12px; font-size:.8rem; color:#f87171; margin-bottom:6px; }
+
+/* resolver btn */
+.btn-resolver { width:100%; background:#22c55e; color:#111; border:none; border-radius:10px; padding:11px 18px; font-weight:900; font-size:.92rem; cursor:pointer; margin-top:4px; }
+.btn-resolver:hover { background:#16a34a; }
+.btn-resolver:disabled { opacity:.5; cursor:default; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+  <div style="font-weight:900;font-size:1.2rem">
+    <i class="fa fa-triangle-exclamation me-2" style="color:var(--pk-yellow)"></i>
+    Reclamação <code style="color:var(--pk-yellow);font-size:.85rem">#{{ rec.id|string|upper|truncate(8,true,'') }}</code>
+  </div>
+  <a href="{{ url_for('painel_reclamacoes') }}" style="color:var(--pk-muted);text-decoration:none;font-size:.88rem">
+    <i class="fa fa-arrow-left me-1"></i>Voltar
+  </a>
+</div>
+
+{% set status = rec.status %}
+
+{# Banner de status #}
+<div class="rec-status-banner {{ status }}" style="margin-bottom:18px">
+  <div class="rec-status-icon">
+    {% if status == 'aberta' %}<i class="fa fa-hourglass-half" style="color:#fbbf24"></i>
+    {% elif status == 'em_andamento' %}<i class="fa fa-comments" style="color:#38bdf8"></i>
+    {% elif status == 'aguardando_cliente' %}<i class="fa fa-circle-check" style="color:#22c55e"></i>
+    {% else %}<i class="fa fa-lock" style="color:#6b7280"></i>
+    {% endif %}
+  </div>
+  <div>
+    <div class="rec-status-title">{{ status_label.get(status, status) }}</div>
+    {% if status == 'aberta' %}
+      <div class="rec-status-sub">O cliente está aguardando sua resposta. Responda pelo chat abaixo o mais rápido possível.</div>
+      {% if rec.prazo_loja_responder %}
+        {% set diff = (rec.prazo_loja_responder - now).total_seconds() %}
+        {% if diff > 43200 %}
+          <div class="rec-prazo prazo-ok"><i class="fa fa-clock me-1"></i>Prazo: {{ rec.prazo_loja_responder.strftime('%d/%m/%Y %H:%M') }}</div>
+        {% elif diff > 0 %}
+          <div class="rec-prazo prazo-warn"><i class="fa fa-triangle-exclamation me-1"></i>Prazo próximo: {{ rec.prazo_loja_responder.strftime('%d/%m/%Y %H:%M') }}</div>
+        {% else %}
+          <div class="rec-prazo prazo-venc"><i class="fa fa-circle-xmark me-1"></i>Prazo vencido — advertência aplicada</div>
+        {% endif %}
+      {% endif %}
+    {% elif status == 'em_andamento' %}
+      <div class="rec-status-sub">Reclamação em andamento. Continue a conversa com o cliente e quando resolver, marque como resolvida.</div>
+    {% elif status == 'aguardando_cliente' %}
+      <div class="rec-status-sub">Você marcou como resolvida. Aguardando confirmação do cliente.</div>
+      {% if rec.prazo_cliente_confirmar %}
+        <div class="rec-prazo prazo-warn"><i class="fa fa-clock me-1"></i>Se o cliente não confirmar até {{ rec.prazo_cliente_confirmar.strftime('%d/%m/%Y %H:%M') }}, será finalizada automaticamente.</div>
+      {% endif %}
+    {% else %}
+      <div class="rec-status-sub">Reclamação finalizada em {{ rec.finalizada_em.strftime('%d/%m/%Y %H:%M') if rec.finalizada_em else '' }}.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="rec-grid">
+  {# CHAT #}
+  <div>
+    <div class="chat-box">
+      <div class="chat-head"><i class="fa fa-comments"></i>Chat com o cliente</div>
+      <div class="chat-msgs" id="chat-msgs">
+        {% if not msgs %}
+          <div style="color:var(--pk-muted);font-size:.85rem;text-align:center;padding:20px 0">Nenhuma mensagem ainda.</div>
+        {% endif %}
+        {% for m in msgs %}
+        <div class="msg msg-{{ m.autor }}">
+          <div class="msg-bubble">{{ m.mensagem }}</div>
+          <div class="msg-meta">
+            {{ 'Farmácia' if m.autor == 'loja' else rec.consumidor_nome }} · {{ m.enviada_em.strftime('%d/%m %H:%M') if m.enviada_em else '' }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if status != 'finalizada' %}
+      <form class="chat-input" method="post" action="{{ url_for('painel_reclamacao_mensagem', reclamacao_id=rec.id) }}">
+        <textarea name="mensagem" rows="2" placeholder="Digite sua resposta ao cliente…" required></textarea>
+        <button class="btn-send" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+      </form>
+      {% else %}
+      <div style="padding:12px 18px;border-top:1px solid var(--pk-line);font-size:.83rem;color:var(--pk-muted);text-align:center">
+        <i class="fa fa-lock me-1"></i>Reclamação finalizada — chat encerrado
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# SIDEBAR #}
+  <div>
+    {# Info do cliente #}
+    <div class="side-card">
+      <div class="side-title"><i class="fa fa-user"></i>Cliente</div>
+      <div class="info-row"><span>Nome</span><span>{{ rec.consumidor_nome }}</span></div>
+      <div class="info-row"><span>Telefone</span><span>{{ rec.consumidor_tel or '—' }}</span></div>
+      <div class="info-row"><span>E-mail</span><span style="font-size:.78rem">{{ rec.consumidor_email or '—' }}</span></div>
+    </div>
+
+    {# Info da reclamação #}
+    <div class="side-card">
+      <div class="side-title"><i class="fa fa-circle-info"></i>Reclamação</div>
+      <div class="info-row"><span>Motivo</span><span>{{ motivos.get(rec.motivo, rec.motivo) }}</span></div>
+      <div class="info-row"><span>Aberta em</span><span>{{ rec.aberta_em.strftime('%d/%m/%Y %H:%M') if rec.aberta_em else '—' }}</span></div>
+      {% if pedido %}
+      <div class="info-row">
+        <span>Pedido</span>
+        <span>
+          <a href="{{ url_for('painel_pedido_detalhe', pedido_id=pedido.id) }}"
+             style="color:var(--pk-yellow);text-decoration:none;font-size:.8rem">
+            #{{ pedido.id|string|upper|truncate(8,true,'') }}
+          </a>
+        </span>
+      </div>
+      <div class="info-row"><span>Status pedido</span><span>{{ pedido.status|capitalize }}</span></div>
+      <div class="info-row"><span>Total</span><span style="color:var(--pk-yellow)">{{ money(pedido.total) }}</span></div>
+      {% endif %}
+    </div>
+
+    {# Ação: marcar como resolvido #}
+    {% if status in ('aberta', 'em_andamento') %}
+    <div class="side-card">
+      <div class="side-title"><i class="fa fa-circle-check"></i>Resolver reclamação</div>
+      <p style="font-size:.83rem;color:var(--pk-muted);line-height:1.5;margin-bottom:12px">
+        Após solucionar o problema com o cliente, clique abaixo. O cliente terá 72 horas para confirmar a resolução.
+      </p>
+      <form method="post" action="{{ url_for('painel_reclamacao_marcar_resolvido', reclamacao_id=rec.id) }}">
+        <button class="btn-resolver" type="submit">
+          <i class="fa fa-check me-1"></i>Marcar como resolvida
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    {# Advertências #}
+    {% if advertencias %}
+    <div class="side-card">
+      <div class="side-title" style="color:#f87171"><i class="fa fa-shield-exclamation"></i>Advertências da loja ({{ advertencias|length }})</div>
+      {% for adv in advertencias %}
+      <div class="adv-item">
+        <i class="fa fa-triangle-exclamation me-1"></i>{{ adv.motivo }}
+        <div style="font-size:.72rem;opacity:.7;margin-top:2px">{{ adv.criada_em.strftime('%d/%m/%Y %H:%M') if adv.criada_em else '' }}</div>
+      </div>
+      {% endfor %}
+      {% if advertencias|length >= 3 %}
+      <div style="font-size:.8rem;color:#f87171;margin-top:8px;line-height:1.4">
+        <i class="fa fa-circle-exclamation me-1"></i><strong>Prioridade reduzida:</strong> sua loja tem 3 ou mais advertências. Os produtos aparecem com menor prioridade na plataforma.
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  const cm = document.getElementById('chat-msgs');
+  if (cm) cm.scrollTop = cm.scrollHeight;
+</script>
+{% endblock %}

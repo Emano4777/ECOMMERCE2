@@ -182,5 +182,73 @@
       <strong>{{ money(pedido.total) }}</strong>
     </div>
   </div>
+
+  {# ── RECLAMAÇÃO ───────────────────────────────────────────────────── #}
+  {% if reclamacao %}
+    {% set rs = reclamacao.status %}
+    <div style="background:{% if rs == 'finalizada' %}#f9fafb{% elif rs == 'aguardando_cliente' %}#f0fff4{% else %}#fff7dd{% endif %};border:1.5px solid {% if rs == 'finalizada' %}#d1d5db{% elif rs == 'aguardando_cliente' %}#86efac{% else %}#fbbf24{% endif %};border-radius:14px;padding:16px 18px;margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          <i class="fa fa-{% if rs == 'finalizada' %}lock{% elif rs == 'aguardando_cliente' %}circle-check{% else %}triangle-exclamation{% endif %}"
+             style="color:{% if rs == 'finalizada' %}#9ca3af{% elif rs == 'aguardando_cliente' %}#16a34a{% else %}#d97706{% endif %}"></i>
+          <div>
+            <div style="font-weight:900;font-size:.88rem;color:{% if rs == 'finalizada' %}#6b7280{% elif rs == 'aguardando_cliente' %}#15803d{% else %}#92400e{% endif %}">
+              {% if rs == 'aberta' %}Reclamação aberta — aguardando resposta da farmácia
+              {% elif rs == 'em_andamento' %}Reclamação em andamento
+              {% elif rs == 'aguardando_cliente' %}A farmácia marcou como resolvida — confirme se foi solucionado
+              {% else %}Reclamação finalizada
+              {% endif %}
+            </div>
+            <div style="font-size:.78rem;color:#6b7280;margin-top:2px">Protocolo #{{ reclamacao.id|string|upper|truncate(8,true,'') }}</div>
+          </div>
+        </div>
+        <a href="{{ url_for('minha_reclamacao', reclamacao_id=reclamacao.id) }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:{% if rs == 'aguardando_cliente' %}#16a34a{% else %}var(--pq-red){% endif %};color:#fff;border-radius:10px;padding:8px 16px;font-weight:800;font-size:.84rem;text-decoration:none">
+          <i class="fa fa-comments"></i>
+          {% if rs == 'aguardando_cliente' %}Confirmar resolução{% else %}Ver reclamação{% endif %}
+        </a>
+      </div>
+    </div>
+  {% elif pedido.status in ['pago', 'enviado', 'entregue'] %}
+    <div style="border-top:1px solid var(--pq-border);padding:14px 18px">
+      <button onclick="document.getElementById('form-reclamacao').classList.toggle('hidden')"
+        style="background:transparent;border:1.5px solid #e5e7eb;border-radius:10px;padding:8px 16px;font-size:.82rem;font-weight:700;color:#6b7280;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px">
+        <i class="fa fa-triangle-exclamation"></i>Tive um problema com este pedido
+      </button>
+      <div id="form-reclamacao" class="hidden" style="margin-top:14px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px">
+        <div style="font-weight:900;font-size:.95rem;color:#78350f;margin-bottom:12px"><i class="fa fa-triangle-exclamation me-2"></i>Abrir reclamação</div>
+        <form method="post" action="{{ url_for('abrir_reclamacao', pedido_id=pedido.id) }}">
+          <div style="margin-bottom:10px">
+            <label style="font-size:.82rem;font-weight:700;color:#78350f;display:block;margin-bottom:4px">Qual foi o problema?</label>
+            <select name="motivo" required
+              style="width:100%;padding:9px 12px;border:1px solid #fde68a;border-radius:8px;font-family:inherit;font-size:.9rem;background:#fff;color:#111">
+              <option value="">Selecione…</option>
+              {% for key, label in motivos.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:.82rem;font-weight:700;color:#78350f;display:block;margin-bottom:4px">Descreva o problema (mín. 20 caracteres)</label>
+            <textarea name="descricao" rows="3" required minlength="20"
+              style="width:100%;padding:9px 12px;border:1px solid #fde68a;border-radius:8px;font-family:inherit;font-size:.9rem;resize:vertical;background:#fff;color:#111"
+              placeholder="Ex: Recebi o produto com validade vencida em 03/2025…"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button type="submit"
+              style="background:var(--pq-red);color:#fff;border:none;border-radius:10px;padding:9px 20px;font-weight:800;font-size:.88rem;cursor:pointer;font-family:inherit">
+              <i class="fa fa-paper-plane me-1"></i>Abrir reclamação
+            </button>
+            <button type="button" onclick="document.getElementById('form-reclamacao').classList.add('hidden')"
+              style="background:transparent;border:1px solid #d1d5db;border-radius:10px;padding:8px 14px;font-size:.82rem;font-weight:700;color:#6b7280;cursor:pointer;font-family:inherit">
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+</div>
+<style>.hidden{display:none!important}</style>
 </div>
 {% endblock %}

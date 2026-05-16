@@ -1,0 +1,81 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Minhas reclamações{% endblock %}
+
+{% block extra_style %}
+<style>
+.rec-list-wrap { max-width:860px; margin:0 auto; padding:28px 16px 70px; }
+.rec-list-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; }
+.rec-list-head h1 { font-size:1.45rem; font-weight:900; margin:0; display:flex; align-items:center; gap:10px; }
+
+.rec-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:16px 18px; margin-bottom:12px; display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; text-decoration:none; color:inherit; transition:transform .15s, box-shadow .15s; }
+.rec-card:hover { color:inherit; transform:translateY(-1px); box-shadow:0 8px 28px rgba(0,0,0,.12); }
+.rec-store { font-weight:900; margin-bottom:3px; }
+.rec-meta { color:var(--pq-muted); font-size:.82rem; display:flex; gap:12px; flex-wrap:wrap; }
+.rec-side { text-align:right; }
+
+.rs-pill { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.78rem; font-weight:900; margin-bottom:6px; }
+.rs-aberta            { background:#fff7dd; color:#92400e; }
+.rs-em_andamento      { background:#eaf6ff; color:#0369a1; }
+.rs-aguardando_cliente { background:#f0fff4; color:#15803d; }
+.rs-finalizada        { background:#f3f4f6; color:#6b7280; }
+
+.rec-prazo { font-size:.74rem; font-weight:800; }
+.prazo-warn { color:#b45309; }
+.prazo-venc { color:#dc2626; }
+
+.rec-empty { text-align:center; background:#fff; border:1px solid var(--pq-border); border-radius:16px; padding:54px 20px; color:var(--pq-muted); }
+.rec-empty i { font-size:3rem; opacity:.25; margin-bottom:12px; }
+@media(max-width:620px){ .rec-card { grid-template-columns:1fr; } .rec-side { text-align:left; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rec-list-wrap">
+  <div class="rec-list-head">
+    <h1><i class="fa fa-triangle-exclamation" style="color:var(--pq-red)"></i>Minhas reclamações</h1>
+    <a href="{{ url_for('meus_pedidos') }}" style="color:var(--pq-red);font-weight:800;text-decoration:none">Ver pedidos</a>
+  </div>
+
+  {% if reclamacoes %}
+    {% for r in reclamacoes %}
+    <a class="rec-card" href="{{ url_for('minha_reclamacao', reclamacao_id=r.id) }}">
+      <div>
+        <div class="rec-store">{{ r.razao }}</div>
+        <div class="rec-meta">
+          <span>Protocolo #{{ r.id|string|upper|truncate(8,true,'') }}</span>
+          <span>{{ motivos.get(r.motivo, r.motivo) }}</span>
+          <span>{{ r.aberta_em.strftime('%d/%m/%Y %H:%M') if r.aberta_em else '' }}</span>
+        </div>
+      </div>
+      <div class="rec-side">
+        <div class="rs-pill rs-{{ r.status }}">
+          <i class="fa fa-circle"></i>
+          {% if r.status == 'aberta' %}Aguardando farmácia
+          {% elif r.status == 'em_andamento' %}Em andamento
+          {% elif r.status == 'aguardando_cliente' %}Confirmar resolução
+          {% else %}Finalizada
+          {% endif %}
+        </div>
+        {% if r.status == 'aberta' and r.prazo_loja_responder %}
+          {% set diff = (r.prazo_loja_responder - now).total_seconds() %}
+          {% if diff <= 0 %}
+            <div class="rec-prazo prazo-venc"><i class="fa fa-circle-xmark me-1"></i>Prazo vencido</div>
+          {% elif diff < 43200 %}
+            <div class="rec-prazo prazo-warn"><i class="fa fa-clock me-1"></i>Prazo próximo</div>
+          {% endif %}
+        {% elif r.status == 'aguardando_cliente' %}
+          <div style="font-size:.78rem;color:#15803d;font-weight:800"><i class="fa fa-arrow-right me-1"></i>Sua confirmação</div>
+        {% endif %}
+        <div style="color:var(--pq-red);font-size:.78rem;font-weight:900;margin-top:2px">Ver detalhes</div>
+      </div>
+    </a>
+    {% endfor %}
+  {% else %}
+    <div class="rec-empty">
+      <i class="fa fa-circle-check"></i>
+      <h5>Nenhuma reclamação</h5>
+      <p>Você ainda não abriu nenhuma reclamação sobre seus pedidos.</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

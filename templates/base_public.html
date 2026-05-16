@@ -407,6 +407,13 @@
           <span>{{ consumidor.email }}</span>
         </div>
         <a class="pq-user-item" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i>Meus pedidos</a>
+        {% if consumidor_rec_abertas > 0 %}
+        <a class="pq-user-item" href="{{ url_for('minhas_reclamacoes') }}">
+          <i class="fa fa-triangle-exclamation" style="color:#d97706"></i>
+          Minhas reclamações
+          <span style="background:#c8102e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:900;padding:1px 7px;margin-left:auto">{{ consumidor_rec_abertas }}</span>
+        </a>
+        {% endif %}
         <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i>Meus cupons</a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i>Editar perfil</a>
         <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i>Sair</a>

@@ -240,6 +240,46 @@
   border-radius: 4px; padding: 1px 6px;
   font-size: .7rem; font-weight: 700;
 }
+
+/* ── CONCORRENTES ── */
+.conc-cell { min-width: 160px; }
+.conc-item { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: .78rem; }
+.conc-item:last-child { margin-bottom: 0; }
+.conc-logo { font-size: .68rem; font-weight: 900; padding: 1px 5px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
+.conc-raia { background: rgba(225,29,72,.15); color: #fb7185; }
+.conc-sp   { background: rgba(29,78,216,.15); color: #60a5fa; }
+.conc-preco { font-weight: 800; color: var(--pk-txt); }
+.conc-preco.mais-barato { color: #22c55e; }
+.conc-preco.mais-caro   { color: #f08090; }
+.conc-preco.igual       { color: var(--pk-muted); }
+.conc-nd    { color: var(--pk-muted); font-size: .72rem; }
+.conc-indisponivel { color: #4b5563; font-size: .72rem; }
+
+.btn-conc {
+  background: rgba(245,200,66,.08);
+  border: 1px solid rgba(245,200,66,.3);
+  color: var(--pk-yellow);
+  border-radius: 7px;
+  padding: 6px 13px;
+  font-size: .82rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s;
+}
+.btn-conc:hover { background: rgba(245,200,66,.16); }
+.btn-conc:disabled { opacity: .45; cursor: wait; }
+
+.conc-last { font-size: .74rem; color: var(--pk-muted); display: flex; align-items: center; gap: 6px; }
+.conc-pulse { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; animation: pulse-green 1.5s infinite; display: inline-block; }
+@keyframes pulse-green { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* card mobile concorrentes */
+.pf-card-conc { margin-top: 8px; border-top: 1px solid var(--pk-line); padding-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+.pf-card-conc-item { display: flex; align-items: center; gap: 5px; font-size: .76rem; }
 </style>
 {% endblock %}
 
@@ -249,7 +289,7 @@
     <i class="fa fa-tags me-2" style="color:var(--pk-yellow)"></i>Precificador DNS/Vitnatu
     <small>{{ razao }}</small>
   </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <button form="form-salvar" type="submit" class="btn-pk-yellow">
       <i class="fa fa-floppy-disk me-1"></i>Salvar preços
     </button>
@@ -259,7 +299,35 @@
     <button onclick="document.getElementById('import-panel').classList.toggle('d-none')" class="btn-pk-ghost">
       <i class="fa fa-file-excel me-1"></i>Importar planilha
     </button>
+    <button class="btn-conc" id="btn-conc" onclick="buscarConcorrentes(this)">
+      <i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes
+    </button>
   </div>
+</div>
+
+<!-- PAINEL CONCORRENTES -->
+<div id="conc-status-bar" style="display:{% if competitor_last_update %}flex{% else %}none{% endif %};align-items:center;gap:10px;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:8px 14px;margin-bottom:12px;flex-wrap:wrap">
+  <span class="conc-last">
+    <i class="fa fa-chart-bar" style="color:var(--pk-yellow)"></i>
+    Preços concorrentes:
+    <span id="conc-update-txt">
+      {% if competitor_last_update %}última consulta {{ competitor_last_update.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+    </span>
+  </span>
+  <span id="conc-searching" style="display:none" class="conc-last">
+    <span class="conc-pulse"></span>Buscando preços em segundo plano…
+  </span>
+  <span style="margin-left:auto;font-size:.74rem;color:#4b5563;display:flex;align-items:center;gap:8px">
+    Droga Raia · Drogaria SP &nbsp;|&nbsp; VTEX público
+    <button onclick="debugEan()" title="Testar um EAN específico"
+      style="background:rgba(255,255,255,.07);border:1px solid var(--pk-line);border-radius:6px;padding:3px 8px;font-size:.72rem;color:var(--pk-muted);cursor:pointer;font-family:inherit">
+      <i class="fa fa-bug me-1"></i>Testar EAN
+    </button>
+  </span>
+</div>
+<div id="conc-debug-box" style="display:none;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:.8rem">
+  <strong style="color:var(--pk-yellow)">Resultado do teste:</strong>
+  <pre id="conc-debug-pre" style="color:#a3e635;font-size:.72rem;white-space:pre-wrap;margin:8px 0 0;max-height:200px;overflow:auto"></pre>
 </div>
 
 <!-- IMPORT PANEL -->
@@ -379,6 +447,7 @@
           <th>Estoque</th>
           <th>Preço base</th>
           <th>Preço ecommerce</th>
+          <th class="conc-cell">Concorrentes <span style="font-size:.68rem;opacity:.5;font-weight:400">Raia · SP</span></th>
           <th style="width:120px">Ações</th>
         </tr>
       </thead>
@@ -449,6 +518,36 @@
                 <i class="fa fa-check me-1"></i>personalizado
               </div>
             {% endif %}
+          </td>
+
+          <!-- CONCORRENTES -->
+          {% set cp = competitor_map.get(p.ean, {}) %}
+          <td class="conc-cell" id="conc-{{ p.ean }}"
+              data-ean="{{ p.ean }}"
+              data-meu="{{ p.preco or p.preco_ref or 0 }}">
+            {% for slug, info in concorrentes.items() %}
+              {% set c = cp.get(slug) %}
+              <div class="conc-item">
+                <span class="conc-logo conc-{{ 'raia' if slug == 'drogaraia' else 'sp' }}">
+                  {{ 'Raia' if slug == 'drogaraia' else 'SP' }}
+                </span>
+                {% if c and c.preco %}
+                  {% set meu = (p.preco or p.preco_ref or 0)|float %}
+                  {% set dele = c.preco|float %}
+                  <a href="{{ c.url }}" target="_blank" style="text-decoration:none"
+                     class="conc-preco {% if meu > 0 and meu < dele %}mais-barato{% elif meu > 0 and meu > dele %}mais-caro{% else %}igual{% endif %}">
+                    R$ {{ '%.2f'|format(dele) }}
+                  </a>
+                  {% if not c.disponivel %}
+                    <span class="conc-indisponivel">(indisponível)</span>
+                  {% endif %}
+                {% elif c and not c.preco and c.disponivel == False %}
+                  <span class="conc-nd">não encontrado</span>
+                {% else %}
+                  <span class="conc-nd">—</span>
+                {% endif %}
+              </div>
+            {% endfor %}
           </td>
 
           <!-- AÇÕES -->
@@ -532,6 +631,31 @@
                  placeholder="{{ '%.2f'|format(p.preco_ref|float) if p.preco_ref else '0.00' }}"/>
         </div>
       </div>
+
+      {# Concorrentes mobile #}
+      {% set cp = competitor_map.get(p.ean, {}) %}
+      {% if cp %}
+      <div class="pf-card-conc" id="conc-card-{{ p.ean }}">
+        {% for slug, info in concorrentes.items() %}
+          {% set c = cp.get(slug) %}
+          <div class="pf-card-conc-item">
+            <span class="conc-logo conc-{{ 'raia' if slug == 'drogaraia' else 'sp' }}">
+              {{ 'Raia' if slug == 'drogaraia' else 'SP' }}
+            </span>
+            {% if c and c.preco %}
+              {% set meu = (p.preco or p.preco_ref or 0)|float %}
+              {% set dele = c.preco|float %}
+              <a href="{{ c.url }}" target="_blank" style="text-decoration:none"
+                 class="conc-preco {% if meu > 0 and meu < dele %}mais-barato{% elif meu > 0 and meu > dele %}mais-caro{% else %}igual{% endif %}">
+                R$ {{ '%.2f'|format(dele) }}
+              </a>
+            {% else %}
+              <span class="conc-nd">—</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
 
       <div class="pf-card-actions">
         {% if p.oculto %}
@@ -1233,6 +1357,106 @@ function pausarNoML() {
     }
     fecharModalML();
   });
+}
+
+// ── CONCORRENTES ─────────────────────────────────────────────────────────────
+let _concPolling = null;
+
+function buscarConcorrentes(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Buscando…';
+  document.getElementById('conc-status-bar').style.display = 'flex';
+  document.getElementById('conc-searching').style.display  = 'inline-flex';
+  document.getElementById('conc-update-txt').style.opacity = '.4';
+
+  fetch('/painel/precificador/buscar-concorrentes', { method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      // Poll a cada 4s até ter dados frescos
+      if (_concPolling) clearInterval(_concPolling);
+      _concPolling = setInterval(pollConcorrentes, 4000);
+      // Para o poll após 90s no máximo
+      setTimeout(() => { if (_concPolling) { clearInterval(_concPolling); _concPolling = null; } }, 90000);
+    } else {
+      alert(data.msg || 'Erro ao iniciar busca.');
+      resetBtnConc(btn);
+    }
+  })
+  .catch(() => resetBtnConc(btn));
+}
+
+function resetBtnConc(btn) {
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes';
+  document.getElementById('conc-searching').style.display = 'none';
+  document.getElementById('conc-update-txt').style.opacity = '1';
+}
+
+function pollConcorrentes() {
+  fetch('/painel/precificador/status-concorrentes')
+  .then(r => r.json())
+  .then(data => {
+    if (!data || !data.precos) return;
+    renderConcorrentes(data.precos, data.last_update);
+  });
+}
+
+function debugEan() {
+  const ean = prompt('Digite o EAN para testar (ex: 7896004718873):');
+  if (!ean) return;
+  const slug = prompt('Concorrente? (drogaraia ou drogariasaopaulo):', 'drogaraia') || 'drogaraia';
+  document.getElementById('conc-debug-box').style.display = 'block';
+  document.getElementById('conc-debug-pre').textContent = 'Consultando…';
+  fetch(`/painel/precificador/testar-ean?ean=${ean}&concorrente=${slug}`)
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('conc-debug-pre').textContent = JSON.stringify(d, null, 2);
+    })
+    .catch(e => {
+      document.getElementById('conc-debug-pre').textContent = 'Erro: ' + e;
+    });
+}
+
+function renderConcorrentes(precos, lastUpdate) {
+  const slugs = { drogaraia: 'Raia', drogariasaopaulo: 'SP' };
+  const slugClass = { drogaraia: 'conc-raia', drogariasaopaulo: 'conc-sp' };
+
+  Object.entries(precos).forEach(([ean, concMap]) => {
+    const cell = document.getElementById('conc-' + ean);
+    if (!cell) return;
+    const meu = parseFloat(cell.dataset.meu) || 0;
+    let html = '';
+    Object.entries(slugs).forEach(([slug, label]) => {
+      const c = concMap[slug];
+      let priceHtml = '<span class="conc-nd">—</span>';
+      if (c && c.preco) {
+        const dele = parseFloat(c.preco);
+        let cls = 'igual';
+        if (meu > 0 && meu < dele) cls = 'mais-barato';
+        else if (meu > 0 && meu > dele) cls = 'mais-caro';
+        const link = c.url ? `href="${c.url}" target="_blank"` : '';
+        priceHtml = `<a ${link} style="text-decoration:none" class="conc-preco ${cls}">R$ ${dele.toFixed(2).replace('.',',')}</a>`;
+        if (c.disponivel === false) priceHtml += ' <span class="conc-indisponivel">(indisponível)</span>';
+      } else if (c && c.disponivel === false) {
+        priceHtml = '<span class="conc-nd">não encontrado</span>';
+      }
+      html += `<div class="conc-item"><span class="conc-logo ${slugClass[slug]}">${label}</span>${priceHtml}</div>`;
+    });
+    cell.innerHTML = html;
+  });
+
+  if (lastUpdate) {
+    const txt = document.getElementById('conc-update-txt');
+    if (txt) { txt.textContent = 'última consulta ' + lastUpdate; txt.style.opacity = '1'; }
+    const srch = document.getElementById('conc-searching');
+    if (srch) srch.style.display = 'none';
+    const btn = document.getElementById('btn-conc');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes'; }
+    if (_concPolling) { clearInterval(_concPolling); _concPolling = null; }
+  }
 }
 </script>
 

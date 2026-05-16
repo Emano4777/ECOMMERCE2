@@ -6,21 +6,82 @@
 .orders-wrap { max-width:860px; margin:0 auto; padding:28px 16px 70px; }
 .orders-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; }
 .orders-head h1 { font-size:1.45rem; font-weight:900; margin:0; display:flex; align-items:center; gap:10px; }
-.order-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:16px 18px; margin-bottom:12px; display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; text-decoration:none; color:inherit; transition:transform .15s, box-shadow .15s; }
-.order-card:hover { color:inherit; transform:translateY(-1px); box-shadow:0 8px 28px rgba(0,0,0,.12); }
+
+/* Card container */
+.order-card {
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:14px;
+  box-shadow:var(--pq-shadow);
+  margin-bottom:12px;
+  overflow:hidden;
+  transition:transform .15s, box-shadow .15s;
+}
+.order-card:hover { transform:translateY(-1px); box-shadow:0 8px 28px rgba(0,0,0,.12); }
+
+/* Inner link row */
+.order-card-link {
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:12px;
+  align-items:center;
+  padding:16px 18px;
+  text-decoration:none;
+  color:inherit;
+}
 .order-main { min-width:0; }
 .order-store { font-weight:900; margin-bottom:3px; }
 .order-meta { color:var(--pq-muted); font-size:.82rem; display:flex; gap:12px; flex-wrap:wrap; }
-.order-side { text-align:right; }
+.order-side { text-align:right; flex-shrink:0; }
 .order-total { color:var(--pq-red); font-weight:900; font-size:1.05rem; }
 .order-hint { color:var(--pq-red); font-size:.78rem; font-weight:900; margin-top:3px; }
+
 .status { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.78rem; font-weight:900; background:#fff7dd; color:#8a6200; margin-bottom:6px; }
-.status.pago { background:#e9fff0; color:#15803d; }
-.status.enviado { background:#eaf6ff; color:#0369a1; }
-.status.cancelado { background:#fff0f0; color:#b00020; }
+.status.pago     { background:#e9fff0; color:#15803d; }
+.status.enviado  { background:#eaf6ff; color:#0369a1; }
+.status.entregue { background:#e9fff0; color:#15803d; }
+.status.cancelado{ background:#fff0f0; color:#b00020; }
+
+/* Strip de reclamação */
+.rec-strip {
+  border-top:1px solid var(--pq-border);
+  padding:9px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.rec-strip-aberta            { background:#fffbeb; border-top-color:#fde68a; }
+.rec-strip-em_andamento      { background:#eaf6ff; border-top-color:#bae6fd; }
+.rec-strip-aguardando_cliente{ background:#f0fff4; border-top-color:#86efac; }
+.rec-strip-finalizada        { background:#f9fafb; border-top-color:#e5e7eb; }
+
+.rec-strip-label { font-size:.78rem; font-weight:800; display:flex; align-items:center; gap:6px; flex:1; min-width:0; }
+.rec-strip-aberta .rec-strip-label            { color:#92400e; }
+.rec-strip-em_andamento .rec-strip-label      { color:#0369a1; }
+.rec-strip-aguardando_cliente .rec-strip-label{ color:#15803d; }
+.rec-strip-finalizada .rec-strip-label        { color:#9ca3af; }
+.rec-strip-link { font-size:.75rem; font-weight:900; color:var(--pq-red); text-decoration:none; white-space:nowrap; flex-shrink:0; }
+
+/* Área do botão "Tive um problema" */
+.quick-area { padding:4px 18px 14px; }
+.btn-quick-rec { background:transparent; border:1.5px solid #e5e7eb; border-radius:8px; padding:5px 12px; font-size:.74rem; font-weight:700; color:#9ca3af; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:5px; }
+.btn-quick-rec:hover { border-color:#c8102e; color:#c8102e; }
+.quick-form { display:none; margin-top:10px; background:#fffbeb; border:1.5px solid #fde68a; border-radius:10px; padding:12px 14px; }
+.quick-form select, .quick-form textarea { width:100%; padding:7px 10px; border:1px solid #fde68a; border-radius:7px; font-family:inherit; font-size:.84rem; margin-bottom:8px; background:#fff; color:#111; box-sizing:border-box; }
+.quick-form-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.btn-quick-submit { background:var(--pq-red); color:#fff; border:none; border-radius:7px; padding:7px 14px; font-weight:800; font-size:.82rem; cursor:pointer; font-family:inherit; }
+.btn-quick-cancel { background:transparent; border:1px solid #d1d5db; border-radius:7px; padding:6px 12px; font-size:.8rem; color:#6b7280; cursor:pointer; font-family:inherit; }
+
 .orders-empty { text-align:center; background:#fff; border:1px solid var(--pq-border); border-radius:16px; padding:54px 20px; color:var(--pq-muted); }
-.orders-empty i { font-size:3rem; opacity:.25; margin-bottom:12px; }
-@media(max-width:620px){ .order-card { grid-template-columns:1fr; } .order-side { text-align:left; } }
+.orders-empty i { font-size:3rem; opacity:.25; margin-bottom:12px; display:block; }
+
+@media(max-width:540px){
+  .order-card-link { grid-template-columns:1fr; }
+  .order-side { text-align:left; }
+  .rec-strip { flex-direction:column; align-items:flex-start; gap:6px; }
+}
 </style>
 {% endblock %}
 
@@ -33,21 +94,62 @@
 
   {% if pedidos %}
     {% for p in pedidos %}
-    <a class="order-card" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
-      <div class="order-main">
-        <div class="order-store">{{ p.razao }}</div>
-        <div class="order-meta">
-          <span>Pedido #{{ p.id[:8].upper() }}</span>
-          <span>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '' }}</span>
-          <span>{{ 'Cartão' if p.forma_pagamento == 'mercadopago' else p.forma_pagamento|capitalize }}</span>
+    {% set rec = rec_map.get(p.id|string) %}
+    <div class="order-card">
+      <a class="order-card-link" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
+        <div class="order-main">
+          <div class="order-store">{{ p.razao }}</div>
+          <div class="order-meta">
+            <span>Pedido #{{ p.id[:8].upper() }}</span>
+            <span>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '' }}</span>
+            <span>{{ 'Cartão' if p.forma_pagamento == 'mercadopago' else p.forma_pagamento|capitalize }}</span>
+          </div>
+        </div>
+        <div class="order-side">
+          <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ p.status|capitalize }}</div>
+          <div class="order-total">{{ money(p.total) }}</div>
+          <div class="order-hint">Ver detalhes</div>
+        </div>
+      </a>
+
+      {# ── Strip de reclamação ── #}
+      {% if rec %}
+      <div class="rec-strip rec-strip-{{ rec.status }}">
+        <div class="rec-strip-label">
+          {% if rec.status == 'aberta' %}<i class="fa fa-hourglass-half"></i>Reclamação aberta — aguardando resposta da farmácia
+          {% elif rec.status == 'em_andamento' %}<i class="fa fa-comments"></i>Reclamação em andamento
+          {% elif rec.status == 'aguardando_cliente' %}<i class="fa fa-circle-check"></i>Farmácia marcou como resolvida — confirme
+          {% else %}<i class="fa fa-lock"></i>Reclamação finalizada
+          {% endif %}
+        </div>
+        <a class="rec-strip-link" href="{{ url_for('minha_reclamacao', reclamacao_id=rec.id) }}">
+          {% if rec.status == 'aguardando_cliente' %}Confirmar resolução →{% else %}Acompanhar →{% endif %}
+        </a>
+      </div>
+      {% elif p.status in ['pago', 'enviado', 'entregue'] %}
+      <div class="quick-area">
+        <button class="btn-quick-rec" onclick="toggleQuick('{{ p.id }}')">
+          <i class="fa fa-triangle-exclamation"></i>Tive um problema
+        </button>
+        <div class="quick-form" id="qf-{{ p.id }}">
+          <form method="post" action="{{ url_for('abrir_reclamacao', pedido_id=p.id) }}">
+            <select name="motivo" required>
+              <option value="">Selecione o problema…</option>
+              {% for key, label in motivos.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <textarea name="descricao" rows="2" required minlength="20"
+              placeholder="Descreva o problema com pelo menos 20 caracteres…"></textarea>
+            <div class="quick-form-actions">
+              <button class="btn-quick-submit" type="submit"><i class="fa fa-paper-plane me-1"></i>Abrir reclamação</button>
+              <button class="btn-quick-cancel" type="button" onclick="toggleQuick('{{ p.id }}')">Cancelar</button>
+            </div>
+          </form>
         </div>
       </div>
-      <div class="order-side">
-        <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ p.status|capitalize }}</div>
-        <div class="order-total">{{ money(p.total) }}</div>
-        <div class="order-hint">Ver detalhes</div>
-      </div>
-    </a>
+      {% endif %}
+    </div>
     {% endfor %}
   {% else %}
     <div class="orders-empty">
@@ -57,4 +159,10 @@
     </div>
   {% endif %}
 </div>
+<script>
+function toggleQuick(id) {
+  const el = document.getElementById('qf-' + id);
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+</script>
 {% endblock %}

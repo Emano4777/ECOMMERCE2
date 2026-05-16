@@ -196,6 +196,7 @@ def fmt_brl(val):
 @app.context_processor
 def inject_globals():
     consumidor = None
+    consumidor_rec_abertas = 0
     if session.get("consumidor_id"):
         consumidor = {
             "id": session.get("consumidor_id"),
@@ -206,7 +207,22 @@ def inject_globals():
             "lat": session.get("consumidor_lat"),
             "lng": session.get("consumidor_lng"),
         }
-    return {"money": fmt_brl, "now": datetime.now(timezone.utc), "consumidor": consumidor}
+        try:
+            cur = db().cursor()
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM ecommerce_reclamacoes WHERE consumidor_id=%s AND status NOT IN ('finalizada')",
+                (session["consumidor_id"],),
+            )
+            consumidor_rec_abertas = (cur.fetchone() or {}).get("n", 0) or 0
+            cur.close()
+        except Exception:
+            consumidor_rec_abertas = 0
+    return {
+        "money": fmt_brl,
+        "now": datetime.now(timezone.utc),
+        "consumidor": consumidor,
+        "consumidor_rec_abertas": consumidor_rec_abertas,
+    }
 
 
 def _ensure_precificador_schema():
@@ -334,6 +350,347 @@ def _ensure_receita_schema():
         cur.close()
         _schema_ready.add("receita")
         _mark_migration_done("receita")
+
+
+def _ensure_reclamacao_schema():
+    _ensure_receita_schema()
+    if "reclamacao" in _schema_ready:
+        return
+    with _schema_lock:
+        if "reclamacao" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_reclamacoes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pedido_id UUID NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                consumidor_id UUID NOT NULL,
+                motivo TEXT NOT NULL,
+                descricao TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'aberta',
+                prazo_loja_responder TIMESTAMPTZ,
+                prazo_cliente_confirmar TIMESTAMPTZ,
+                advertencia_loja BOOLEAN DEFAULT FALSE,
+                aberta_em TIMESTAMPTZ DEFAULT NOW(),
+                finalizada_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_reclamacao_msgs (
+                id SERIAL PRIMARY KEY,
+                reclamacao_id UUID NOT NULL,
+                autor TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                enviada_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_loja_advertencias (
+                id SERIAL PRIMARY KEY,
+                cnpjloja TEXT NOT NULL,
+                reclamacao_id UUID,
+                motivo TEXT NOT NULL,
+                tipo TEXT NOT NULL DEFAULT 'advertencia',
+                criada_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS prioridade_reduzida BOOLEAN DEFAULT FALSE")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("reclamacao")
+        _mark_migration_done("reclamacao")
+
+
+def _processar_prazos_reclamacao(rec_id):
+    """Verifica e aplica penalidades/auto-finalização por prazo vencido. Idempotente."""
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM ecommerce_reclamacoes WHERE id=%s LIMIT 1", (rec_id,))
+        rec = cur.fetchone()
+        if not rec:
+            cur.close()
+            return
+        now = datetime.now(timezone.utc)
+        status = rec["status"]
+
+        if (status == "aberta"
+                and rec.get("prazo_loja_responder")
+                and now > rec["prazo_loja_responder"]
+                and not rec.get("advertencia_loja")):
+            # Prazo da loja venceu → advertência
+            cnpjloja = rec["cnpjloja"]
+            cur.execute(
+                "UPDATE ecommerce_reclamacoes SET advertencia_loja=TRUE WHERE id=%s",
+                (rec_id,)
+            )
+            cur.execute(
+                """
+                INSERT INTO ecommerce_loja_advertencias (cnpjloja, reclamacao_id, motivo, tipo)
+                VALUES (%s, %s, %s, 'advertencia')
+                """,
+                (cnpjloja, rec_id, "Não respondeu reclamação dentro de 48 horas")
+            )
+            # Conta advertências ativas → reduz prioridade a partir de 3
+            cur.execute(
+                "SELECT COUNT(*) AS total FROM ecommerce_loja_advertencias WHERE cnpjloja=%s",
+                (cnpjloja,)
+            )
+            total = (cur.fetchone() or {}).get("total", 0) or 0
+            if total >= 3:
+                cur.execute(
+                    "UPDATE ecommerce_config_loja SET prioridade_reduzida=TRUE WHERE cnpjloja=%s",
+                    (cnpjloja,)
+                )
+            conn.commit()
+
+        elif status == "aguardando_cliente" and rec.get("prazo_cliente_confirmar") and now > rec["prazo_cliente_confirmar"]:
+            # Prazo do cliente venceu → auto-finaliza sem punição
+            cur.execute(
+                "UPDATE ecommerce_reclamacoes SET status='finalizada', finalizada_em=NOW() WHERE id=%s",
+                (rec_id,)
+            )
+            conn.commit()
+
+        cur.close()
+    except Exception:
+        pass
+
+
+def _ensure_competitor_schema():
+    _load_db_migrations()
+    if "competitor" in _schema_ready:
+        return
+    with _schema_lock:
+        if "competitor" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_competitor_prices (
+                ean TEXT NOT NULL,
+                concorrente TEXT NOT NULL,
+                nome TEXT,
+                preco NUMERIC(10,2),
+                preco_original NUMERIC(10,2),
+                disponivel BOOLEAN DEFAULT TRUE,
+                url TEXT,
+                consultado_em TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (ean, concorrente)
+            )
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add("competitor")
+        _mark_migration_done("competitor")
+
+
+_CONCORRENTES = {
+    "drogaraia": {
+        "nome": "Droga Raia",
+        "base": "https://www.drogaraia.com.br",
+        "cor": "#e11d48",
+    },
+    "drogariasaopaulo": {
+        "nome": "Drogaria SP",
+        "base": "https://www.drogariasaopaulo.com.br",
+        "cor": "#1d4ed8",
+    },
+}
+
+_VTEX_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+_VTEX_HEADERS = {
+    "User-Agent": _VTEX_UA,
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    "X-Requested-With": "XMLHttpRequest",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+
+
+def _vtex_get_json(url, timeout=10):
+    """Faz GET com headers de browser; retorna objeto Python ou None em erro."""
+    ctx = ssl.create_default_context()
+    req = urllib.request.Request(url)
+    for k, v in _VTEX_HEADERS.items():
+        req.add_header(k, v)
+    req.add_header("Referer", url.split("/_v")[0].split("/api")[0] + "/")
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+            raw = r.read()
+            if not raw:
+                return None
+            return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _parse_vtex_catalog(data, base_url):
+    """Extrai preço da resposta do endpoint legado /api/catalog_system."""
+    if not isinstance(data, list) or not data:
+        return None
+    produto = data[0]
+    nome = produto.get("productName") or produto.get("productTitle")
+    link = produto.get("link") or produto.get("linkText") or ""
+    if link and not link.startswith("http"):
+        link = f"{base_url}/{link.lstrip('/')}"
+
+    preco = preco_original = None
+    disponivel = False
+    for item in produto.get("items", []):
+        for seller in item.get("sellers", []):
+            offer = seller.get("commertialOffer", {})
+            qty = offer.get("AvailableQuantity", 0)
+            if qty and qty > 0:
+                disponivel = True
+            p  = offer.get("Price")
+            lp = offer.get("ListPrice")
+            if p and (preco is None or p < preco):
+                preco = p
+                preco_original = lp
+        if preco is not None:
+            break
+
+    if preco is None and not disponivel:
+        return {"disponivel": False, "preco": None, "preco_original": None, "url": link or None, "nome": nome}
+    return {"disponivel": disponivel, "preco": preco, "preco_original": preco_original, "url": link or None, "nome": nome}
+
+
+def _parse_vtex_intelligent(data, base_url):
+    """Extrai preço da resposta do endpoint _v/api/intelligent-search."""
+    products = (data or {}).get("products") or []
+    if not products:
+        return None
+    p = products[0]
+    nome = p.get("productName") or p.get("name")
+    link = p.get("link") or p.get("linkText") or ""
+    if link and not link.startswith("http"):
+        link = f"{base_url}/{link.lstrip('/')}"
+
+    pr = p.get("priceRange", {})
+    selling = pr.get("sellingPrice", {})
+    listing = pr.get("listPrice", {})
+    preco = selling.get("lowPrice") or selling.get("highPrice")
+    preco_original = listing.get("highPrice") or listing.get("lowPrice")
+    disponivel = bool(preco and preco > 0)
+
+    if not disponivel:
+        return {"disponivel": False, "preco": None, "preco_original": None, "url": link or None, "nome": nome}
+    return {"disponivel": True, "preco": preco, "preco_original": preco_original, "url": link or None, "nome": nome}
+
+
+def _fetch_vtex_price(ean, base_url):
+    """
+    Tenta múltiplos endpoints VTEX para obter o preço de um EAN.
+    Retorna dict com chaves (disponivel, preco, preco_original, url, nome) ou None se todos falharem.
+    """
+    attempts = [
+        # 1) Intelligent Search (moderno, menos bloqueado)
+        (
+            f"{base_url}/_v/api/intelligent-search/product_search"
+            f"?query={ean}&page=1&count=1&sort=&operator=and&fuzzy=0",
+            _parse_vtex_intelligent,
+        ),
+        # 2) Catalog API — busca por EAN alternateId
+        (
+            f"{base_url}/api/catalog_system/pub/products/search"
+            f"?fq=alternateIdValues:{ean}&_from=0&_to=1&sc=1",
+            _parse_vtex_catalog,
+        ),
+        # 3) Catalog API — full-text (fallback para EAN como texto)
+        (
+            f"{base_url}/api/catalog_system/pub/products/search"
+            f"?ft={ean}&_from=0&_to=1&sc=1",
+            _parse_vtex_catalog,
+        ),
+    ]
+    for url, parser in attempts:
+        raw = _vtex_get_json(url)
+        if raw is None:
+            continue
+        result = parser(raw, base_url)
+        if result is not None:
+            return result
+
+    return None  # Todos falharam (rede, anti-bot, etc.)
+
+
+def _fetch_and_store_competitor_prices(eans):
+    """Busca preços de todos os EANs em paralelo e salva no banco. Roda em thread separada."""
+    import concurrent.futures
+    _ensure_competitor_schema()
+
+    def fetch_one(ean, slug, base):
+        erro = None
+        result = None
+        try:
+            result = _fetch_vtex_price(ean, base)
+        except Exception as e:
+            erro = str(e)[:200]
+
+        if result is None and erro is None:
+            erro = "sem_resultado"  # todos endpoints falharam
+
+        try:
+            conn = _new_conn(statement_timeout_ms=10000)
+            cur = conn.cursor()
+            # Garante coluna erro (migracao lazy)
+            try:
+                cur.execute("ALTER TABLE ecommerce_competitor_prices ADD COLUMN IF NOT EXISTS erro TEXT")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            if result is not None:
+                cur.execute("""
+                    INSERT INTO ecommerce_competitor_prices
+                        (ean, concorrente, nome, preco, preco_original, disponivel, url, consultado_em, erro)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NULL)
+                    ON CONFLICT (ean, concorrente) DO UPDATE SET
+                        nome=EXCLUDED.nome, preco=EXCLUDED.preco,
+                        preco_original=EXCLUDED.preco_original,
+                        disponivel=EXCLUDED.disponivel, url=EXCLUDED.url,
+                        consultado_em=NOW(), erro=NULL
+                """, (
+                    ean, slug,
+                    result.get("nome"),
+                    result.get("preco"),
+                    result.get("preco_original"),
+                    result.get("disponivel", False),
+                    result.get("url"),
+                ))
+            else:
+                # Salva o erro para debug sem sobrescrever preço válido existente
+                cur.execute("""
+                    INSERT INTO ecommerce_competitor_prices
+                        (ean, concorrente, disponivel, consultado_em, erro)
+                    VALUES (%s, %s, FALSE, NOW(), %s)
+                    ON CONFLICT (ean, concorrente) DO UPDATE SET
+                        consultado_em=NOW(), erro=EXCLUDED.erro
+                    WHERE ecommerce_competitor_prices.preco IS NULL
+                """, (ean, slug, erro))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+    tasks = [
+        (ean, slug, info["base"])
+        for ean in eans
+        for slug, info in _CONCORRENTES.items()
+    ]
+    # Limita a 4 workers para não sobrecarregar os servidores concorrentes
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futures = [ex.submit(fetch_one, ean, slug, base) for ean, slug, base in tasks]
+        concurrent.futures.wait(futures, timeout=90)
 
 
 def _ensure_ml_schema():
@@ -2599,6 +2956,7 @@ def consumidor_logout():
 @_consumer_required
 def meus_pedidos():
     _ensure_consumidor_schema()
+    _ensure_reclamacao_schema()
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -2614,14 +2972,28 @@ def meus_pedidos():
         (session["consumidor_id"],),
     )
     pedidos = cur.fetchall()
+    # Mapa pedido_id → reclamação ativa
+    rec_map = {}
+    if pedidos:
+        ids = tuple(str(p["id"]) for p in pedidos)
+        placeholders = ",".join(["%s"] * len(ids))
+        cur.execute(
+            f"SELECT pedido_id, id, status FROM ecommerce_reclamacoes WHERE pedido_id IN ({placeholders}) AND consumidor_id=%s ORDER BY aberta_em DESC",
+            (*ids, session["consumidor_id"]),
+        )
+        for row in cur.fetchall():
+            pid = str(row["pedido_id"])
+            if pid not in rec_map:
+                rec_map[pid] = dict(row)
     cur.close()
-    return render_template("meus_pedidos.html", pedidos=pedidos)
+    return render_template("meus_pedidos.html", pedidos=pedidos, rec_map=rec_map, motivos=_MOTIVOS_RECLAMACAO)
 
 
 @app.get("/meus-pedidos/<pedido_id>")
 @_consumer_required
 def meu_pedido_detalhe(pedido_id):
     _ensure_receita_schema()
+    _ensure_reclamacao_schema()
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -2642,8 +3014,243 @@ def meu_pedido_detalhe(pedido_id):
         return redirect(url_for("meus_pedidos"))
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
+    # Reclamação ativa (se houver)
+    cur.execute(
+        "SELECT id, status FROM ecommerce_reclamacoes WHERE pedido_id=%s AND consumidor_id=%s ORDER BY aberta_em DESC LIMIT 1",
+        (pedido_id, session["consumidor_id"]),
+    )
+    reclamacao = cur.fetchone()
     cur.close()
-    return render_template("meu_pedido_detalhe.html", pedido=dict(pedido), itens=itens)
+    return render_template(
+        "meu_pedido_detalhe.html",
+        pedido=dict(pedido),
+        itens=itens,
+        reclamacao=dict(reclamacao) if reclamacao else None,
+        motivos=_MOTIVOS_RECLAMACAO,
+    )
+
+
+# ─── RECLAMAÇÕES: CONSUMIDOR ─────────────────────────────────────────────────
+
+_MOTIVOS_RECLAMACAO = {
+    "produto_vencido":  "Produto vencido",
+    "produto_errado":   "Produto errado / diferente do pedido",
+    "nao_entregue":     "Produto não entregue",
+    "entrega_danificada": "Produto chegou danificado",
+    "outro":            "Outro motivo",
+}
+
+_STATUS_RECLAMACAO_LABEL = {
+    "aberta":             "Aberta — aguardando resposta da farmácia",
+    "em_andamento":       "Em andamento",
+    "aguardando_cliente": "Aguardando sua confirmação",
+    "finalizada":         "Finalizada",
+}
+
+
+@app.get("/minhas-reclamacoes")
+@_consumer_required
+def minhas_reclamacoes():
+    _ensure_reclamacao_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT r.id, r.motivo, r.status, r.aberta_em, r.finalizada_em,
+               r.prazo_loja_responder, r.prazo_cliente_confirmar,
+               u.razao,
+               p.id AS pedido_id
+        FROM ecommerce_reclamacoes r
+        JOIN users u ON u.cnpjloja = r.cnpjloja
+        JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+        WHERE r.consumidor_id = %s
+        ORDER BY r.aberta_em DESC
+        LIMIT 100
+        """,
+        (consumidor_id,),
+    )
+    reclamacoes = cur.fetchall()
+    cur.close()
+    return render_template(
+        "minhas_reclamacoes.html",
+        reclamacoes=reclamacoes,
+        motivos=_MOTIVOS_RECLAMACAO,
+        status_label=_STATUS_RECLAMACAO_LABEL,
+    )
+
+
+@app.post("/meus-pedidos/<pedido_id>/reclamacao")
+@_consumer_required
+def abrir_reclamacao(pedido_id):
+    _ensure_reclamacao_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+
+    # Garante que o pedido pertence ao consumidor e está em status adequado
+    cur.execute(
+        "SELECT id, cnpjloja, status FROM ecommerce_pedidos WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (pedido_id, consumidor_id),
+    )
+    pedido = cur.fetchone()
+    if not pedido:
+        flash("Pedido não encontrado.", "error")
+        cur.close()
+        return redirect(url_for("meus_pedidos"))
+    if pedido["status"] not in ("pago", "enviado", "entregue"):
+        flash("Só é possível abrir reclamação em pedidos pagos, enviados ou entregues.", "error")
+        cur.close()
+        return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+
+    # Verifica se já existe reclamação aberta para este pedido
+    cur.execute(
+        "SELECT id FROM ecommerce_reclamacoes WHERE pedido_id=%s AND status NOT IN ('finalizada') LIMIT 1",
+        (pedido_id,),
+    )
+    existente = cur.fetchone()
+    if existente:
+        cur.close()
+        return redirect(url_for("minha_reclamacao", reclamacao_id=existente["id"]))
+
+    motivo    = (request.form.get("motivo") or "").strip()
+    descricao = (request.form.get("descricao") or "").strip()
+
+    if motivo not in _MOTIVOS_RECLAMACAO:
+        flash("Selecione um motivo válido.", "error")
+        cur.close()
+        return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+    if len(descricao) < 20:
+        flash("Descreva o problema com pelo menos 20 caracteres.", "error")
+        cur.close()
+        return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+
+    prazo_loja = datetime.now(timezone.utc) + timedelta(hours=48)
+    cur.execute(
+        """
+        INSERT INTO ecommerce_reclamacoes
+            (pedido_id, cnpjloja, consumidor_id, motivo, descricao, status, prazo_loja_responder)
+        VALUES (%s, %s, %s, %s, %s, 'aberta', %s)
+        RETURNING id
+        """,
+        (pedido_id, pedido["cnpjloja"], consumidor_id, motivo, descricao, prazo_loja),
+    )
+    rec_id = cur.fetchone()["id"]
+    # Mensagem inicial automática com a descrição
+    cur.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'cliente', %s)",
+        (rec_id, descricao),
+    )
+    conn.commit()
+    cur.close()
+    flash("Reclamação aberta. A farmácia tem 48 horas para responder.", "success")
+    return redirect(url_for("minha_reclamacao", reclamacao_id=rec_id))
+
+
+@app.get("/minha-reclamacao/<reclamacao_id>")
+@_consumer_required
+def minha_reclamacao(reclamacao_id):
+    _ensure_reclamacao_schema()
+    consumidor_id = session["consumidor_id"]
+    _processar_prazos_reclamacao(reclamacao_id)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT r.*, u.razao
+        FROM ecommerce_reclamacoes r
+        JOIN users u ON u.cnpjloja = r.cnpjloja
+        WHERE r.id=%s AND r.consumidor_id=%s
+        LIMIT 1
+        """,
+        (reclamacao_id, consumidor_id),
+    )
+    rec = cur.fetchone()
+    if not rec:
+        flash("Reclamação não encontrada.", "error")
+        cur.close()
+        return redirect(url_for("meus_pedidos"))
+    cur.execute(
+        "SELECT * FROM ecommerce_reclamacao_msgs WHERE reclamacao_id=%s ORDER BY enviada_em",
+        (reclamacao_id,),
+    )
+    msgs = cur.fetchall()
+    cur.close()
+    return render_template(
+        "minha_reclamacao.html",
+        rec=dict(rec),
+        msgs=msgs,
+        motivos=_MOTIVOS_RECLAMACAO,
+        status_label=_STATUS_RECLAMACAO_LABEL,
+    )
+
+
+@app.post("/minha-reclamacao/<reclamacao_id>/mensagem")
+@_consumer_required
+def reclamacao_cliente_mensagem(reclamacao_id):
+    _ensure_reclamacao_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_reclamacoes WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (reclamacao_id, consumidor_id),
+    )
+    rec = cur.fetchone()
+    if not rec or rec["status"] == "finalizada":
+        cur.close()
+        return redirect(url_for("meus_pedidos"))
+
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if len(mensagem) < 2:
+        flash("Digite uma mensagem.", "error")
+        cur.close()
+        return redirect(url_for("minha_reclamacao", reclamacao_id=reclamacao_id))
+
+    cur.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'cliente', %s)",
+        (reclamacao_id, mensagem),
+    )
+    # Se estava aguardando cliente, volta para em_andamento
+    if rec["status"] == "aguardando_cliente":
+        cur.execute(
+            "UPDATE ecommerce_reclamacoes SET status='em_andamento', prazo_cliente_confirmar=NULL WHERE id=%s",
+            (reclamacao_id,),
+        )
+    conn.commit()
+    cur.close()
+    return redirect(url_for("minha_reclamacao", reclamacao_id=reclamacao_id))
+
+
+@app.post("/minha-reclamacao/<reclamacao_id>/confirmar-resolucao")
+@_consumer_required
+def reclamacao_confirmar_resolucao(reclamacao_id):
+    _ensure_reclamacao_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_reclamacoes WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (reclamacao_id, consumidor_id),
+    )
+    rec = cur.fetchone()
+    if not rec or rec["status"] != "aguardando_cliente":
+        flash("Esta ação não está disponível para esta reclamação.", "error")
+        cur.close()
+        return redirect(url_for("minha_reclamacao", reclamacao_id=reclamacao_id))
+
+    cur.execute(
+        "UPDATE ecommerce_reclamacoes SET status='finalizada', finalizada_em=NOW() WHERE id=%s",
+        (reclamacao_id,),
+    )
+    cur.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'cliente', %s)",
+        (reclamacao_id, "✅ Cliente confirmou que o problema foi resolvido. Reclamação finalizada."),
+    )
+    conn.commit()
+    cur.close()
+    flash("Reclamação finalizada. Obrigado pelo retorno!", "success")
+    return redirect(url_for("meus_pedidos"))
 
 
 @app.get("/perfil")
@@ -3822,6 +4429,199 @@ def painel_avaliar_receita(pedido_id):
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
 
+# ─── PAINEL: RECLAMAÇÕES ─────────────────────────────────────────────────────
+
+@app.get("/painel/reclamacoes")
+@painel_required
+def painel_reclamacoes():
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    sf = (request.args.get("status") or "").strip()
+
+    # Processa prazos de todas as reclamações abertas desta loja (lazy)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM ecommerce_reclamacoes
+        WHERE cnpjloja=%s AND status NOT IN ('finalizada')
+        """,
+        (cnpjloja,),
+    )
+    for row in cur.fetchall():
+        _processar_prazos_reclamacao(row["id"])
+
+    query = """
+        SELECT r.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel
+        FROM ecommerce_reclamacoes r
+        JOIN ecommerce_consumidores c ON c.id = r.consumidor_id
+        WHERE r.cnpjloja=%s
+    """
+    params = [cnpjloja]
+    if sf:
+        query += " AND r.status=%s"
+        params.append(sf)
+    query += " ORDER BY r.aberta_em DESC LIMIT 200"
+    cur.execute(query, params)
+    reclamacoes = cur.fetchall()
+
+    # Conta advertências desta loja
+    cur.execute(
+        "SELECT COUNT(*) AS total FROM ecommerce_loja_advertencias WHERE cnpjloja=%s",
+        (cnpjloja,),
+    )
+    total_adv = (cur.fetchone() or {}).get("total", 0) or 0
+
+    # Conta abertas urgentes (prazo vencendo em < 12h ou já vencido)
+    cur.execute(
+        """
+        SELECT COUNT(*) AS urgentes FROM ecommerce_reclamacoes
+        WHERE cnpjloja=%s AND status='aberta'
+          AND prazo_loja_responder < NOW() + INTERVAL '12 hours'
+        """,
+        (cnpjloja,),
+    )
+    urgentes = (cur.fetchone() or {}).get("urgentes", 0) or 0
+    cur.close()
+
+    return render_template(
+        "painel_reclamacoes.html",
+        reclamacoes=reclamacoes,
+        sf=sf,
+        total_adv=total_adv,
+        urgentes=urgentes,
+        motivos=_MOTIVOS_RECLAMACAO,
+    )
+
+
+@app.get("/painel/reclamacoes/<reclamacao_id>")
+@painel_required
+def painel_reclamacao_detalhe(reclamacao_id):
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    _processar_prazos_reclamacao(reclamacao_id)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT r.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel, c.email AS consumidor_email
+        FROM ecommerce_reclamacoes r
+        JOIN ecommerce_consumidores c ON c.id = r.consumidor_id
+        WHERE r.id=%s AND r.cnpjloja=%s
+        LIMIT 1
+        """,
+        (reclamacao_id, cnpjloja),
+    )
+    rec = cur.fetchone()
+    if not rec:
+        flash("Reclamação não encontrada.", "error")
+        cur.close()
+        return redirect(url_for("painel_reclamacoes"))
+    cur.execute(
+        "SELECT * FROM ecommerce_reclamacao_msgs WHERE reclamacao_id=%s ORDER BY enviada_em",
+        (reclamacao_id,),
+    )
+    msgs = cur.fetchall()
+
+    # Pedido relacionado
+    cur.execute(
+        "SELECT id, status, total, criado_em FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
+        (rec["pedido_id"],),
+    )
+    pedido = cur.fetchone()
+
+    # Advertências desta loja
+    cur.execute(
+        "SELECT * FROM ecommerce_loja_advertencias WHERE cnpjloja=%s ORDER BY criada_em DESC LIMIT 10",
+        (cnpjloja,),
+    )
+    advertencias = cur.fetchall()
+    cur.close()
+
+    return render_template(
+        "painel_reclamacao_detalhe.html",
+        rec=dict(rec),
+        msgs=msgs,
+        pedido=dict(pedido) if pedido else None,
+        advertencias=advertencias,
+        motivos=_MOTIVOS_RECLAMACAO,
+        status_label=_STATUS_RECLAMACAO_LABEL,
+    )
+
+
+@app.post("/painel/reclamacoes/<reclamacao_id>/mensagem")
+@painel_required
+def painel_reclamacao_mensagem(reclamacao_id):
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_reclamacoes WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (reclamacao_id, cnpjloja),
+    )
+    rec = cur.fetchone()
+    if not rec or rec["status"] == "finalizada":
+        cur.close()
+        return redirect(url_for("painel_reclamacoes"))
+
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if len(mensagem) < 2:
+        flash("Digite uma mensagem.", "error")
+        cur.close()
+        return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+    cur.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (reclamacao_id, mensagem),
+    )
+    # Se estava aberta (sem resposta), passa para em_andamento
+    if rec["status"] == "aberta":
+        cur.execute(
+            "UPDATE ecommerce_reclamacoes SET status='em_andamento' WHERE id=%s",
+            (reclamacao_id,),
+        )
+    conn.commit()
+    cur.close()
+    return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+
+@app.post("/painel/reclamacoes/<reclamacao_id>/marcar-resolvido")
+@painel_required
+def painel_reclamacao_marcar_resolvido(reclamacao_id):
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_reclamacoes WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (reclamacao_id, cnpjloja),
+    )
+    rec = cur.fetchone()
+    if not rec or rec["status"] in ("finalizada", "aguardando_cliente"):
+        flash("Ação inválida para o status atual.", "error")
+        cur.close()
+        return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+    prazo_cliente = datetime.now(timezone.utc) + timedelta(hours=72)
+    cur.execute(
+        """
+        UPDATE ecommerce_reclamacoes
+        SET status='aguardando_cliente', prazo_cliente_confirmar=%s
+        WHERE id=%s
+        """,
+        (prazo_cliente, reclamacao_id),
+    )
+    cur.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (reclamacao_id, "🔔 A farmácia marcou esta reclamação como resolvida. Por favor, confirme se o problema foi solucionado."),
+    )
+    conn.commit()
+    cur.close()
+    flash("Reclamação marcada como resolvida. O cliente tem 72 horas para confirmar.", "success")
+    return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+
 # ─── PAINEL: CONFIGURAÇÕES ────────────────────────────────────────────────────
 
 @app.get("/painel/config")
@@ -4077,10 +4877,33 @@ def painel_home():
 @app.get("/painel/precificador")
 @painel_required
 def precificador():
+    _ensure_competitor_schema()
     cnpjloja = session.get("cnpjloja")
     q = (request.args.get("q") or "").strip()
     produtos = get_dns_products(cnpjloja, q or None)
     _publicados, bloqueados_sem_imagem = _split_catalog_image_status(produtos)
+
+    # Carrega preços concorrentes cacheados no banco
+    eans = [p["ean"] for p in produtos if p.get("ean")]
+    competitor_map = {}   # {ean: {slug: {preco, preco_original, disponivel, url, consultado_em}}}
+    competitor_last_update = None
+    if eans:
+        conn = db()
+        cur = conn.cursor()
+        placeholders = ",".join(["%s"] * len(eans))
+        cur.execute(
+            f"SELECT * FROM ecommerce_competitor_prices WHERE ean IN ({placeholders}) ORDER BY consultado_em DESC",
+            eans,
+        )
+        for row in cur.fetchall():
+            d = dict(row)
+            ean = d["ean"]
+            slug = d["concorrente"]
+            competitor_map.setdefault(ean, {})[slug] = d
+            if competitor_last_update is None or (d.get("consultado_em") and d["consultado_em"] > competitor_last_update):
+                competitor_last_update = d.get("consultado_em")
+        cur.close()
+
     return render_template(
         "precificador.html",
         produtos=produtos,
@@ -4088,7 +4911,105 @@ def precificador():
         q=q,
         razao=session.get("razao"),
         is_admin=session.get("is_admin"),
+        competitor_map=competitor_map,
+        competitor_last_update=competitor_last_update,
+        concorrentes=_CONCORRENTES,
     )
+
+
+@app.get("/painel/precificador/testar-ean")
+@painel_required
+def precificador_testar_ean():
+    """Debug: testa a busca de preço de concorrente para um EAN específico e retorna o resultado bruto."""
+    ean = (request.args.get("ean") or "").strip()
+    slug = (request.args.get("concorrente") or "drogaraia").strip()
+    if not ean:
+        return jsonify({"erro": "Informe ?ean=<codigo>"})
+    info = _CONCORRENTES.get(slug)
+    if not info:
+        return jsonify({"erro": f"Concorrente '{slug}' desconhecido. Use: drogaraia ou drogariasaopaulo"})
+
+    base = info["base"]
+    endpoints = [
+        f"{base}/_v/api/intelligent-search/product_search?query={ean}&page=1&count=1&sort=&operator=and&fuzzy=0",
+        f"{base}/api/catalog_system/pub/products/search?fq=alternateIdValues:{ean}&_from=0&_to=1&sc=1",
+        f"{base}/api/catalog_system/pub/products/search?ft={ean}&_from=0&_to=1&sc=1",
+    ]
+    results = []
+    for url in endpoints:
+        raw = _vtex_get_json(url, timeout=12)
+        results.append({
+            "url": url,
+            "ok": raw is not None,
+            "tipo": type(raw).__name__ if raw is not None else None,
+            "tamanho": len(raw) if isinstance(raw, list) else (len(raw.get("products", [])) if isinstance(raw, dict) else 0),
+            "amostra": str(raw)[:600] if raw is not None else None,
+        })
+
+    resultado_final = _fetch_vtex_price(ean, base)
+    return jsonify({
+        "ean": ean,
+        "concorrente": slug,
+        "base_url": base,
+        "resultado_final": resultado_final,
+        "tentativas": results,
+    })
+
+
+@app.post("/painel/precificador/buscar-concorrentes")
+@painel_required
+def precificador_buscar_concorrentes():
+    """Dispara busca de preços em background para todos os EANs do catálogo desta loja."""
+    _ensure_competitor_schema()
+    cnpjloja = session.get("cnpjloja")
+    produtos = get_dns_products(cnpjloja, None)
+    eans = [p["ean"] for p in produtos if p.get("ean")]
+    if not eans:
+        return jsonify({"ok": False, "msg": "Nenhum produto encontrado."})
+
+    # Roda em thread separada para não bloquear a resposta
+    t = threading.Thread(target=_fetch_and_store_competitor_prices, args=(eans,), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "total": len(eans), "msg": f"Buscando preços de {len(eans)} produtos em segundo plano…"})
+
+
+@app.get("/painel/precificador/status-concorrentes")
+@painel_required
+def precificador_status_concorrentes():
+    """Retorna preços atuais em cache para todos os EANs da loja (polling)."""
+    _ensure_competitor_schema()
+    cnpjloja = session.get("cnpjloja")
+    produtos = get_dns_products(cnpjloja, None)
+    eans = [p["ean"] for p in produtos if p.get("ean")]
+    if not eans:
+        return jsonify({"precos": {}, "last_update": None})
+    conn = db()
+    cur = conn.cursor()
+    placeholders = ",".join(["%s"] * len(eans))
+    cur.execute(
+        f"SELECT ean, concorrente, preco, preco_original, disponivel, url, consultado_em FROM ecommerce_competitor_prices WHERE ean IN ({placeholders})",
+        eans,
+    )
+    precos: dict = {}
+    last_update = None
+    for row in cur.fetchall():
+        d = dict(row)
+        ean = d["ean"]
+        slug = d["concorrente"]
+        precos.setdefault(ean, {})[slug] = {
+            "preco": float(d["preco"]) if d.get("preco") is not None else None,
+            "preco_original": float(d["preco_original"]) if d.get("preco_original") is not None else None,
+            "disponivel": d.get("disponivel"),
+            "url": d.get("url"),
+        }
+        ts = d.get("consultado_em")
+        if ts and (last_update is None or ts > last_update):
+            last_update = ts
+    cur.close()
+    return jsonify({
+        "precos": precos,
+        "last_update": last_update.strftime("%d/%m/%Y %H:%M") if last_update else None,
+    })
 
 
 @app.post("/painel/precificador/salvar")
