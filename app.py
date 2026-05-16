@@ -488,21 +488,23 @@ def _ensure_competitor_schema():
 
 
 _CONCORRENTES = {
-    # www.drogaraia.com.br é headless (Next.js) e não expõe as rotas VTEX.
-    # O backend VTEX da Raia fica no subdomínio vtexcommercestable.
+    # A Raia usa VTEX IO headless. O account name VTEX é "drogaraia".
+    # O IS exige o parâmetro channel; o Catalog API não está habilitado publicamente.
     "drogaraia": {
         "nome": "Droga Raia",
         "base": "https://drogaraia.vtexcommercestable.com.br",
         "base_fallbacks": [
+            "https://raia.vtexcommercestable.com.br",
             "https://raiadrogasil.vtexcommercestable.com.br",
-            "https://drogaraia.myvtex.com",
         ],
+        "search_url": "https://www.drogaraia.com.br/busca/?q={ean}",
         "cor": "#e11d48",
     },
     "drogariasaopaulo": {
         "nome": "Drogaria SP",
         "base": "https://www.drogariasaopaulo.com.br",
         "base_fallbacks": [],
+        "search_url": "https://www.drogariasaopaulo.com.br/busca/?q={ean}",
         "cor": "#1d4ed8",
     },
 }
@@ -609,17 +611,28 @@ def _parse_vtex_intelligent(data, base_url):
 
 
 def _build_vtex_attempts(base_url):
+    # channel é obrigatório em algumas contas VTEX IO (ex: drogaraia)
+    ch = "%7B%22salesChannel%22%3A%221%22%7D"  # {"salesChannel":"1"} url-encoded
     return [
+        # IS sem channel (funciona na maioria das lojas)
         (
             f"{base_url}/_v/api/intelligent-search/product_search"
             f"?query={{ean}}&page=1&count=1&sort=&operator=and&fuzzy=0",
             _parse_vtex_intelligent,
         ),
+        # IS com channel explícito (necessário em contas VTEX IO headless)
+        (
+            f"{base_url}/_v/api/intelligent-search/product_search"
+            f"?query={{ean}}&page=1&count=1&sort=&operator=and&fuzzy=0&channel={ch}",
+            _parse_vtex_intelligent,
+        ),
+        # Catalog API por EAN
         (
             f"{base_url}/api/catalog_system/pub/products/search"
             f"?fq=alternateIdValues:{{ean}}&_from=0&_to=1&sc=1",
             _parse_vtex_catalog,
         ),
+        # Catalog API full-text
         (
             f"{base_url}/api/catalog_system/pub/products/search"
             f"?ft={{ean}}&_from=0&_to=1&sc=1",
@@ -5033,10 +5046,21 @@ def precificador_buscar_concorrentes():
     except Exception:
         pass
 
-    # Roda em thread separada para não bloquear a resposta
-    t = threading.Thread(target=_fetch_and_store_competitor_prices, args=(eans,), daemon=True)
-    t.start()
-    return jsonify({"ok": True, "total": len(eans), "msg": f"Buscando preços de {len(eans)} produtos em segundo plano…"})
+    # Retorna lista de EANs para que o JS processe em lotes síncronos
+    return jsonify({"ok": True, "eans": eans, "total": len(eans)})
+
+
+@app.post("/painel/precificador/buscar-lote")
+@painel_required
+def precificador_buscar_lote():
+    """Processa um lote de EANs de forma síncrona. O JS chama em sequência para cobrir todos os produtos."""
+    _ensure_competitor_schema()
+    data = request.get_json(silent=True) or {}
+    eans_lote = [str(e).strip() for e in (data.get("eans") or []) if e][:20]
+    if not eans_lote:
+        return jsonify({"ok": False, "msg": "Sem EANs"})
+    _fetch_and_store_competitor_prices(eans_lote)
+    return jsonify({"ok": True, "processados": len(eans_lote)})
 
 
 @app.get("/painel/precificador/status-concorrentes")

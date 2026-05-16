@@ -1360,66 +1360,70 @@ function pausarNoML() {
 }
 
 // ── CONCORRENTES ─────────────────────────────────────────────────────────────
-let _concBuscaAtiva = false;
+const LOTE_SIZE = 15;
 
-function handleConcBtn(btn) {
-  if (_concBuscaAtiva) {
-    pollConcorrentes();
-  } else {
-    buscarConcorrentes(btn);
-  }
-}
+function handleConcBtn(btn) { buscarConcorrentes(btn); }
 
-function buscarConcorrentes(btn) {
+async function buscarConcorrentes(btn) {
   btn.disabled = true;
-  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Buscando…';
   document.getElementById('conc-status-bar').style.display = 'flex';
-  document.getElementById('conc-searching').style.display  = 'inline-flex';
-  document.getElementById('conc-update-txt').style.opacity = '.4';
+  const srchEl = document.getElementById('conc-searching');
+  srchEl.style.display = 'inline-flex';
 
-  fetch('/painel/precificador/buscar-concorrentes', { method: 'POST',
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.ok) {
-      // Busca iniciada — auto-refresh único após 45s, depois botão manual
-      _concBuscaAtiva = true;
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Aguarde ~45s…';
-      document.getElementById('conc-searching').innerHTML = '<span class="conc-pulse"></span>Buscando preços em segundo plano…';
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa fa-rotate-right me-1"></i>Atualizar preços';
-        pollConcorrentes();
-      }, 45000);
-    } else {
-      alert(data.msg || 'Erro ao iniciar busca.');
-      resetBtnConc(btn);
-    }
-  })
-  .catch(() => resetBtnConc(btn));
+  // 1) Busca lista de EANs a processar
+  let eans = [];
+  try {
+    const r = await fetch('/painel/precificador/buscar-concorrentes', {
+      method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}
+    });
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || 'Erro'); resetBtnConc(btn); return; }
+    eans = d.eans || [];
+  } catch(e) { resetBtnConc(btn); return; }
+
+  const total = eans.length;
+  if (!total) { resetBtnConc(btn); return; }
+
+  // 2) Processa em lotes síncronos — cada chamada bloqueia até terminar o lote
+  let done = 0;
+  for (let i = 0; i < total; i += LOTE_SIZE) {
+    const lote = eans.slice(i, i + LOTE_SIZE);
+    btn.innerHTML = `<i class="fa fa-spinner fa-spin me-1"></i>${done}/${total} produtos…`;
+    srchEl.innerHTML = `<span class="conc-pulse"></span>Consultando ${done + lote.length}/${total} produtos…`;
+    try {
+      await fetch('/painel/precificador/buscar-lote', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({eans: lote})
+      });
+    } catch(e) { /* continua mesmo se um lote falhar */ }
+    done += lote.length;
+  }
+
+  // 3) Todos os lotes processados — carrega resultados
+  srchEl.innerHTML = '<span class="conc-pulse"></span>Carregando resultados…';
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Carregando…';
+  await pollConcorrentes();
 }
 
 function resetBtnConc(btn) {
-  _concBuscaAtiva = false;
   btn.disabled = false;
   btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes';
-  document.getElementById('conc-searching').style.display = 'none';
+  const srch = document.getElementById('conc-searching');
+  if (srch) srch.style.display = 'none';
   document.getElementById('conc-update-txt').style.opacity = '1';
 }
 
-function pollConcorrentes() {
+async function pollConcorrentes() {
   const btn = document.getElementById('btn-conc');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Carregando…'; }
-  fetch('/painel/precificador/status-concorrentes')
-  .then(r => r.json())
-  .then(data => {
-    if (!data || !data.precos) { if (btn) resetBtnConc(btn); return; }
-    renderConcorrentes(data.precos, data.last_update);
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-rotate-right me-1"></i>Atualizar preços'; }
-  })
-  .catch(() => { if (btn) resetBtnConc(btn); });
+  try {
+    const r = await fetch('/painel/precificador/status-concorrentes');
+    const data = await r.json();
+    if (data && data.precos) renderConcorrentes(data.precos, data.last_update);
+  } catch(e) {}
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes'; }
+  const srch = document.getElementById('conc-searching');
+  if (srch) srch.style.display = 'none';
 }
 
 function debugEan() {
@@ -1438,6 +1442,11 @@ function debugEan() {
     });
 }
 
+const _CONC_SEARCH = {
+  drogaraia: 'https://www.drogaraia.com.br/busca/?q=',
+  drogariasaopaulo: 'https://www.drogariasaopaulo.com.br/busca/?q='
+};
+
 function renderConcorrentes(precos, lastUpdate) {
   const slugs = { drogaraia: 'Raia', drogariasaopaulo: 'SP' };
   const slugClass = { drogaraia: 'conc-raia', drogariasaopaulo: 'conc-sp' };
@@ -1449,7 +1458,7 @@ function renderConcorrentes(precos, lastUpdate) {
     let html = '';
     Object.entries(slugs).forEach(([slug, label]) => {
       const c = concMap[slug];
-      let priceHtml = '<span class="conc-nd">—</span>';
+      let priceHtml;
       if (c && c.preco) {
         const dele = parseFloat(c.preco);
         let cls = 'igual';
@@ -1458,8 +1467,12 @@ function renderConcorrentes(precos, lastUpdate) {
         const link = c.url ? `href="${c.url}" target="_blank"` : '';
         priceHtml = `<a ${link} style="text-decoration:none" class="conc-preco ${cls}">R$ ${dele.toFixed(2).replace('.',',')}</a>`;
         if (c.disponivel === false) priceHtml += ' <span class="conc-indisponivel">(indisponível)</span>';
-      } else if (c && c.disponivel === false) {
-        priceHtml = '<span class="conc-nd">não encontrado</span>';
+      } else if (c) {
+        // Não encontrado — mostra link de busca manual
+        const searchUrl = _CONC_SEARCH[slug] + encodeURIComponent(ean);
+        priceHtml = `<a href="${searchUrl}" target="_blank" class="conc-nd" title="Buscar manualmente" style="text-decoration:none;color:inherit">não enc. ↗</a>`;
+      } else {
+        priceHtml = '<span class="conc-nd">—</span>';
       }
       html += `<div class="conc-item"><span class="conc-logo ${slugClass[slug]}">${label}</span>${priceHtml}</div>`;
     });
@@ -1471,7 +1484,6 @@ function renderConcorrentes(precos, lastUpdate) {
     if (txt) { txt.textContent = 'última consulta ' + lastUpdate; txt.style.opacity = '1'; }
     const srch = document.getElementById('conc-searching');
     if (srch) srch.style.display = 'none';
-    _concBuscaAtiva = false;
     const btn = document.getElementById('btn-conc');
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes'; }
   }
