@@ -1,0 +1,167 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Lojas Vitrine{% endblock %}
+
+{% block extra_style %}
+<style>
+.lv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+.lv-card {
+  background: #0d1016;
+  border: 1px solid var(--pk-line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.lv-card-img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  display: block;
+  background: #1a1d24;
+}
+.lv-card-img-ph {
+  width: 100%;
+  height: 200px;
+  background: #1a1d24;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3a3d44;
+  font-size: 3rem;
+}
+.lv-card-body {
+  padding: 14px;
+}
+.lv-card-cidade {
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--pk-txt);
+  margin-bottom: 6px;
+}
+.lv-card-info {
+  font-size: .78rem;
+  color: var(--pk-muted);
+  margin-bottom: 4px;
+  word-break: break-word;
+  line-height: 1.4;
+}
+.lv-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+  <div style="font-weight:900;font-size:1.25rem">
+    <i class="fa fa-store me-2" style="color:var(--pk-yellow)"></i>Lojas Vitrine
+    <span style="font-size:.8rem;font-weight:600;color:var(--pk-muted);margin-left:8px">— imagens públicas das lojas</span>
+  </div>
+  <a href="/lojas" target="_blank" class="btn-pk" style="font-size:.78rem">
+    <i class="fa fa-eye me-1"></i>Ver página pública
+  </a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for cat, msg in messages %}
+      <div class="pk-alert pk-alert-{{ 'ok' if cat == 'success' else 'err' }}" style="margin-bottom:14px">{{ msg }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<!-- FORM: adicionar nova loja -->
+<div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:14px;padding:22px;margin-bottom:28px">
+  <div style="font-weight:800;font-size:.95rem;margin-bottom:16px;color:var(--pk-txt)">
+    <i class="fa fa-plus me-2" style="color:var(--pk-yellow)"></i>Adicionar Nova Loja
+  </div>
+  <form method="POST" enctype="multipart/form-data" action="{{ url_for('admin_lojas_vitrine') }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label class="pk-label">Cidade *</label>
+        <input class="pk-input" type="text" name="cidade" placeholder="Ex: Adamantina/SP" required>
+      </div>
+      <div>
+        <label class="pk-label">Telefone</label>
+        <input class="pk-input" type="text" name="telefone" placeholder="(99) 99999-9999">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Endereço *</label>
+        <input class="pk-input" type="text" name="endereco" placeholder="Rua, número, bairro, cidade" required>
+      </div>
+      <div>
+        <label class="pk-label">Link WhatsApp</label>
+        <input class="pk-input" type="text" name="whatsapp" placeholder="https://wa.me/5599999999999">
+      </div>
+      <div>
+        <label class="pk-label">Ordem (menor aparece primeiro)</label>
+        <input class="pk-input" type="number" name="ordem" value="0" min="0">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Imagem da Loja</label>
+        <input class="pk-input" type="file" name="file" accept="image/*">
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <button type="submit" class="btn-pk" style="background:var(--pk-yellow);color:#000">
+        <i class="fa fa-plus me-1"></i>Adicionar Loja
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- GRID de lojas cadastradas -->
+{% if lojas %}
+<div style="font-weight:800;font-size:.9rem;color:var(--pk-muted);margin-bottom:12px">
+  {{ lojas | length }} loja(s) cadastrada(s)
+</div>
+<div class="lv-grid">
+  {% for loja in lojas %}
+  <div class="lv-card">
+    {% if loja.imagem_url %}
+      <img class="lv-card-img" src="{{ loja.imagem_url }}" alt="{{ loja.cidade }}">
+    {% else %}
+      <div class="lv-card-img-ph"><i class="fa fa-store"></i></div>
+    {% endif %}
+    <div class="lv-card-body">
+      <div class="lv-card-cidade">{{ loja.cidade }}</div>
+      <div class="lv-card-info"><i class="fa fa-location-dot me-1" style="color:#e8760a"></i>{{ loja.endereco }}</div>
+      {% if loja.telefone %}
+      <div class="lv-card-info"><i class="fa fa-phone me-1" style="color:var(--pk-muted)"></i>{{ loja.telefone }}</div>
+      {% endif %}
+      {% if loja.whatsapp %}
+      <div class="lv-card-info"><i class="fab fa-whatsapp me-1" style="color:#22c55e"></i>
+        <a href="{{ loja.whatsapp }}" target="_blank" style="color:#22c55e;text-decoration:none;font-size:.75rem">Abrir WhatsApp</a>
+      </div>
+      {% endif %}
+      <div class="lv-card-info" style="margin-top:6px;color:var(--pk-muted);font-size:.72rem">Ordem: {{ loja.ordem }}</div>
+
+      <div class="lv-card-actions">
+        <a href="{{ url_for('admin_lojas_vitrine_edit', loja_id=loja.id) }}" class="btn-pk" style="font-size:.75rem;padding:6px 12px">
+          <i class="fa fa-pen me-1"></i>Editar
+        </a>
+        <form method="POST" action="{{ url_for('admin_lojas_vitrine_delete', loja_id=loja.id) }}"
+              onsubmit="return confirm('Excluir loja {{ loja.cidade }}?')">
+          <button type="submit" class="btn-pk" style="font-size:.75rem;padding:6px 12px;background:#3d0a10;color:#f08090;border:1px solid #7a1425">
+            <i class="fa fa-trash me-1"></i>Excluir
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div style="text-align:center;padding:50px 20px;color:var(--pk-muted);border:1px dashed var(--pk-line);border-radius:14px">
+  <i class="fa fa-store" style="font-size:2.5rem;color:#2a2d36;display:block;margin-bottom:12px"></i>
+  Nenhuma loja cadastrada ainda. Use o formulário acima para adicionar.
+</div>
+{% endif %}
+{% endblock %}

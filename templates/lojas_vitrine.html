@@ -1,0 +1,255 @@
+{% extends "base_public.html" %}
+{% block title %}Nossas Lojas - Poupaqui{% endblock %}
+
+{% block extra_style %}
+<style>
+.lv-hero {
+  background: var(--pq-red);
+  color: #fff;
+  text-align: center;
+  padding: 36px 20px 28px;
+}
+.lv-hero h1 {
+  font-size: 1.8rem;
+  font-weight: 900;
+  margin: 0 0 6px;
+  letter-spacing: -.3px;
+}
+.lv-hero p {
+  font-size: .95rem;
+  opacity: .88;
+  margin: 0;
+}
+
+.lv-search-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px 0;
+}
+.lv-search {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 50px;
+  padding: 8px 16px;
+  width: 100%;
+  max-width: 420px;
+  gap: 10px;
+  box-shadow: var(--pq-shadow);
+  transition: border-color .15s;
+}
+.lv-search:focus-within { border-color: var(--pq-red); }
+.lv-search i { color: var(--pq-muted); font-size: .9rem; }
+.lv-search input {
+  border: none;
+  outline: none;
+  flex: 1;
+  font-family: inherit;
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--pq-text);
+  background: transparent;
+}
+
+.lv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+  max-width: 1200px;
+  margin: 24px auto 60px;
+  padding: 0 16px;
+}
+
+.lv-card {
+  background: #fff;
+  border-radius: var(--pq-radius);
+  border: 1px solid var(--pq-border);
+  box-shadow: var(--pq-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform .18s, box-shadow .18s;
+}
+.lv-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 24px rgba(0,0,0,.12);
+}
+.lv-card-img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  background: #f5f5f5;
+}
+.lv-card-img-ph {
+  width: 100%;
+  height: 180px;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d0d0d0;
+  font-size: 3rem;
+}
+.lv-card-body {
+  padding: 14px 16px 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lv-card-cidade {
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--pq-text);
+  margin-bottom: 2px;
+}
+.lv-card-info {
+  font-size: .78rem;
+  color: var(--pq-muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+.lv-card-info i {
+  color: var(--pq-red);
+  width: 14px;
+  flex-shrink: 0;
+}
+.lv-card-info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+}
+.lv-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.lv-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 50px;
+  font-size: .8rem;
+  font-weight: 800;
+  text-decoration: none;
+  padding: 9px 14px;
+  transition: background .15s, color .15s;
+  border: none;
+  cursor: pointer;
+}
+.lv-btn-wpp {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1.5px solid #bbf7d0;
+}
+.lv-btn-wpp:hover { background: #15803d; color: #fff; border-color: #15803d; }
+.lv-btn-maps {
+  background: #fff0f0;
+  color: var(--pq-red);
+  border: 1.5px solid #fecdd3;
+}
+.lv-btn-maps:hover { background: var(--pq-red); color: #fff; border-color: var(--pq-red); }
+
+.lv-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--pq-muted);
+  font-size: .95rem;
+}
+.lv-empty i { font-size: 3rem; color: #e0e0e0; margin-bottom: 14px; display: block; }
+
+.lv-hidden { display: none !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="lv-hero">
+  <h1><i class="fa fa-store me-2"></i>Nossas Lojas</h1>
+  <p>Encontre a Poupaqui mais perto de você</p>
+</div>
+
+<div class="lv-search-wrap">
+  <div class="lv-search">
+    <i class="fa fa-magnifying-glass"></i>
+    <input id="lv-search-input" type="text" placeholder="Buscar por cidade ou endereço…" autocomplete="off">
+  </div>
+</div>
+
+{% if lojas %}
+<div class="lv-grid" id="lv-grid">
+  {% for loja in lojas %}
+  <div class="lv-card" data-busca="{{ (loja.cidade ~ ' ' ~ loja.endereco) | lower }}">
+    {% if loja.imagem_url %}
+      <img class="lv-card-img" src="{{ loja.imagem_url }}" alt="Loja {{ loja.cidade }}" loading="lazy">
+    {% else %}
+      <div class="lv-card-img-ph"><i class="fa fa-store"></i></div>
+    {% endif %}
+
+    <div class="lv-card-body">
+      <div class="lv-card-cidade">{{ loja.cidade }}</div>
+
+      <div class="lv-card-info-row lv-card-info">
+        <i class="fa fa-location-dot"></i>
+        <span>{{ loja.endereco }}</span>
+      </div>
+
+      {% if loja.telefone %}
+      <div class="lv-card-info-row lv-card-info">
+        <i class="fa fa-phone"></i>
+        <span>{{ loja.telefone }}</span>
+      </div>
+      {% endif %}
+
+      <div class="lv-card-actions">
+        {% if loja.whatsapp %}
+        <a class="lv-btn lv-btn-wpp" href="{{ loja.whatsapp }}" target="_blank" rel="noopener">
+          <i class="fab fa-whatsapp"></i> WhatsApp
+        </a>
+        {% endif %}
+        <a class="lv-btn lv-btn-maps"
+           href="https://www.google.com/maps/search/?api=1&query={{ loja.endereco | urlencode }}"
+           target="_blank" rel="noopener">
+          <i class="fa fa-map-location-dot"></i> Como Chegar
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div id="lv-nenhum" class="lv-empty" style="display:none">
+  <i class="fa fa-magnifying-glass"></i>
+  Nenhuma loja encontrada para essa busca.
+</div>
+
+{% else %}
+<div class="lv-empty">
+  <i class="fa fa-store"></i>
+  Nenhuma loja cadastrada ainda.
+</div>
+{% endif %}
+
+<script>
+(function () {
+  const input = document.getElementById('lv-search-input');
+  const nenhum = document.getElementById('lv-nenhum');
+  if (!input) return;
+  input.addEventListener('input', function () {
+    const q = this.value.toLowerCase().trim();
+    let vis = 0;
+    document.querySelectorAll('#lv-grid .lv-card').forEach(function (card) {
+      const match = !q || card.dataset.busca.includes(q);
+      card.classList.toggle('lv-hidden', !match);
+      if (match) vis++;
+    });
+    if (nenhum) nenhum.style.display = vis === 0 ? 'block' : 'none';
+  });
+})();
+</script>
+{% endblock %}

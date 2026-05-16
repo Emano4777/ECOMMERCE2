@@ -142,6 +142,9 @@
     <a href="{{ url_for('admin_lojas') }}" {% if request.endpoint == 'admin_lojas' %}class="active"{% endif %}>
       <i class="fa fa-store me-1"></i>Lojas
     </a>
+    <a href="{{ url_for('admin_lojas_vitrine') }}" {% if request.endpoint in ('admin_lojas_vitrine','admin_lojas_vitrine_edit') %}class="active"{% endif %}>
+      <i class="fa fa-images me-1"></i>Lojas Vitrine
+    </a>
     {% endif %}
     <a href="{{ url_for('index') }}" target="_blank">
       <i class="fa fa-globe me-1"></i>Ver site

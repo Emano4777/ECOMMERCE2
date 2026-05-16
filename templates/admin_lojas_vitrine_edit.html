@@ -1,0 +1,68 @@
+{% extends "painel_base.html" %}
+{% block title %}Editar Loja - {{ loja.cidade }}{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+  <a href="{{ url_for('admin_lojas_vitrine') }}" class="btn-pk" style="font-size:.78rem;padding:6px 12px">
+    <i class="fa fa-arrow-left me-1"></i>Voltar
+  </a>
+  <div style="font-weight:900;font-size:1.15rem">
+    <i class="fa fa-pen me-2" style="color:var(--pk-yellow)"></i>Editar: {{ loja.cidade }}
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for cat, msg in messages %}
+      <div class="pk-alert pk-alert-{{ 'ok' if cat == 'success' else 'err' }}" style="margin-bottom:14px">{{ msg }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:14px;padding:22px;max-width:680px">
+  <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="imagem_url_atual" value="{{ loja.imagem_url or '' }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label class="pk-label">Cidade *</label>
+        <input class="pk-input" type="text" name="cidade" value="{{ loja.cidade }}" required>
+      </div>
+      <div>
+        <label class="pk-label">Telefone</label>
+        <input class="pk-input" type="text" name="telefone" value="{{ loja.telefone or '' }}">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Endereço *</label>
+        <input class="pk-input" type="text" name="endereco" value="{{ loja.endereco }}" required>
+      </div>
+      <div>
+        <label class="pk-label">Link WhatsApp</label>
+        <input class="pk-input" type="text" name="whatsapp" value="{{ loja.whatsapp or '' }}">
+      </div>
+      <div>
+        <label class="pk-label">Ordem</label>
+        <input class="pk-input" type="number" name="ordem" value="{{ loja.ordem }}" min="0">
+      </div>
+
+      {% if loja.imagem_url %}
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Imagem atual</label>
+        <img src="{{ loja.imagem_url }}" alt="{{ loja.cidade }}"
+             style="width:100%;max-width:340px;height:180px;object-fit:cover;border-radius:10px;display:block;margin-top:6px">
+      </div>
+      {% endif %}
+
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Nova imagem (substitui a atual)</label>
+        <input class="pk-input" type="file" name="file" accept="image/*">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button type="submit" class="btn-pk" style="background:var(--pk-yellow);color:#000">
+        <i class="fa fa-floppy-disk me-1"></i>Salvar
+      </button>
+      <a href="{{ url_for('admin_lojas_vitrine') }}" class="btn-pk" style="background:#1a1d24">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

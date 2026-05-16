@@ -2688,6 +2688,135 @@ def index():
     return render_template("index.html", lojas=lojas)
 
 
+@app.get("/lojas")
+def lojas_vitrine():
+    _ensure_lojas_vitrine_schema()
+
+    # Busca do ImageKit (lojas legadas do poupaqui-admin)
+    lojas_ik = _load_imagekit_lojas()
+
+    # Busca do Supabase (lojas novas adicionadas pelo painel dns-ecommerce)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT cidade, endereco, telefone, whatsapp, imagem_url FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
+    rows = cur.fetchall()
+    cur.close()
+    lojas_sb = [
+        {
+            "cidade": r["cidade"],
+            "endereco": r["endereco"],
+            "telefone": r["telefone"],
+            "whatsapp": r["whatsapp"],
+            "imagem_url": r["imagem_url"],
+        }
+        for r in rows
+    ]
+
+    # Normaliza lojas do ImageKit para o mesmo formato
+    lojas_ik_norm = [
+        {
+            "cidade": l.get("cidade", ""),
+            "endereco": l.get("endereco", ""),
+            "telefone": l.get("telefone", ""),
+            "whatsapp": l.get("whatsapp", ""),
+            "imagem_url": l.get("url", ""),
+        }
+        for l in lojas_ik
+    ]
+
+    # Combina: ImageKit primeiro (já vem ordenado por cidade), depois Supabase
+    from itertools import chain
+    todas = sorted(
+        chain(lojas_ik_norm, lojas_sb),
+        key=lambda x: (x.get("cidade") or "").lower()
+    )
+
+    return render_template("lojas_vitrine.html", lojas=todas)
+
+
+def _load_imagekit_lojas():
+    """Busca imagens das lojas no ImageKit (mesma lógica do poupaqui-admin)."""
+    import base64
+    import time
+    import urllib.request
+    import urllib.error
+    import json as _json
+
+    ik_key = os.getenv("IMAGEKIT_PRIVATE_KEY", "")
+    if not ik_key:
+        return []
+
+    token = base64.b64encode(f"{ik_key}:".encode()).decode()
+    headers = {"Authorization": f"Basic {token}"}
+
+    stores = []
+    skip = 0
+    limit = 100
+
+    try:
+        timestamp = int(time.time())
+        while True:
+            url = (
+                f"https://api.imagekit.io/v1/files"
+                f"?path=/lojas_poupAqui/&type=file&limit={limit}&skip={skip}"
+            )
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    files = _json.loads(resp.read())
+            except urllib.error.URLError:
+                break
+
+            if not files:
+                break
+
+            for img in files:
+                meta = img.get("customMetadata") or {}
+                endereco = (meta.get("endereco") or "").strip()
+                cidade   = (meta.get("cidade")   or "Sem cidade").strip()
+                telefone = (meta.get("telefone") or "").strip()
+                whatsapp = (meta.get("whatsapp") or "").strip()
+                img_url  = img.get("url", "")
+                if img_url:
+                    img_url = f"{img_url}?t={timestamp}"
+                stores.append({
+                    "cidade":    cidade,
+                    "endereco":  endereco,
+                    "telefone":  telefone,
+                    "whatsapp":  whatsapp,
+                    "url":       img_url,
+                })
+
+            if len(files) < limit:
+                break
+            skip += limit
+
+        stores.sort(key=lambda l: (l.get("cidade") or "").lower())
+    except Exception:
+        pass
+
+    return stores
+
+
+def _ensure_lojas_vitrine_schema():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_lojas_vitrine (
+            id          SERIAL PRIMARY KEY,
+            cidade      TEXT NOT NULL,
+            endereco    TEXT NOT NULL,
+            telefone    TEXT,
+            whatsapp    TEXT,
+            imagem_url  TEXT,
+            ordem       INT DEFAULT 0,
+            created_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+    cur.close()
+
+
 @app.get("/api/lojas-proximas")
 def api_lojas_proximas():
     try:
@@ -6549,6 +6678,111 @@ def admin_geocodificar_todos():
 
     flash(f"Geocodificados: {ok} OK, {fail} falhas.", "success")
     return redirect(url_for("admin_lojas"))
+
+
+# ─── ADMIN: LOJAS VITRINE (imagens públicas das lojas) ────────────────────────
+
+@app.route("/painel/admin/lojas-vitrine", methods=["GET", "POST"])
+@admin_required
+def admin_lojas_vitrine():
+    _ensure_lojas_vitrine_schema()
+    conn = db()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        cidade   = (request.form.get("cidade") or "").strip()
+        endereco = (request.form.get("endereco") or "").strip()
+        telefone = (request.form.get("telefone") or "").strip()
+        whatsapp = (request.form.get("whatsapp") or "").strip()
+        ordem    = int(request.form.get("ordem") or 0)
+        imagem_url = None
+
+        if not cidade or not endereco:
+            flash("Cidade e endereço são obrigatórios.", "danger")
+            return redirect(url_for("admin_lojas_vitrine"))
+
+        file = request.files.get("file")
+        if file and file.filename:
+            if not _CLOUDINARY_OK:
+                flash("Cloudinary não configurado — sem upload de imagem.", "warning")
+            else:
+                try:
+                    result = cloudinary.uploader.upload(
+                        file,
+                        folder="lojas_vitrine",
+                        resource_type="image",
+                    )
+                    imagem_url = result.get("secure_url")
+                except Exception as e:
+                    flash(f"Erro no upload da imagem: {e}", "danger")
+                    return redirect(url_for("admin_lojas_vitrine"))
+
+        cur.execute(
+            "INSERT INTO ecommerce_lojas_vitrine (cidade, endereco, telefone, whatsapp, imagem_url, ordem) VALUES (%s,%s,%s,%s,%s,%s)",
+            (cidade, endereco, telefone, whatsapp, imagem_url, ordem),
+        )
+        conn.commit()
+        flash("Loja adicionada com sucesso.", "success")
+        return redirect(url_for("admin_lojas_vitrine"))
+
+    cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
+    lojas = cur.fetchall()
+    cur.close()
+    return render_template("admin_lojas_vitrine.html", lojas=lojas)
+
+
+@app.route("/painel/admin/lojas-vitrine/edit/<int:loja_id>", methods=["GET", "POST"])
+@admin_required
+def admin_lojas_vitrine_edit(loja_id):
+    _ensure_lojas_vitrine_schema()
+    conn = db()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        cidade   = (request.form.get("cidade") or "").strip()
+        endereco = (request.form.get("endereco") or "").strip()
+        telefone = (request.form.get("telefone") or "").strip()
+        whatsapp = (request.form.get("whatsapp") or "").strip()
+        ordem    = int(request.form.get("ordem") or 0)
+
+        imagem_url = request.form.get("imagem_url_atual") or None
+        file = request.files.get("file")
+        if file and file.filename and _CLOUDINARY_OK:
+            try:
+                result = cloudinary.uploader.upload(file, folder="lojas_vitrine", resource_type="image")
+                imagem_url = result.get("secure_url")
+            except Exception as e:
+                flash(f"Erro no upload: {e}", "danger")
+                return redirect(url_for("admin_lojas_vitrine_edit", loja_id=loja_id))
+
+        cur.execute(
+            "UPDATE ecommerce_lojas_vitrine SET cidade=%s, endereco=%s, telefone=%s, whatsapp=%s, imagem_url=%s, ordem=%s WHERE id=%s",
+            (cidade, endereco, telefone, whatsapp, imagem_url, ordem, loja_id),
+        )
+        conn.commit()
+        flash("Loja atualizada.", "success")
+        return redirect(url_for("admin_lojas_vitrine"))
+
+    cur.execute("SELECT id, cidade, endereco, telefone, whatsapp, imagem_url, ordem FROM ecommerce_lojas_vitrine WHERE id=%s", (loja_id,))
+    loja = cur.fetchone()
+    cur.close()
+    if not loja:
+        flash("Loja não encontrada.", "danger")
+        return redirect(url_for("admin_lojas_vitrine"))
+    return render_template("admin_lojas_vitrine_edit.html", loja=loja)
+
+
+@app.post("/painel/admin/lojas-vitrine/delete/<int:loja_id>")
+@admin_required
+def admin_lojas_vitrine_delete(loja_id):
+    _ensure_lojas_vitrine_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ecommerce_lojas_vitrine WHERE id=%s", (loja_id,))
+    conn.commit()
+    cur.close()
+    flash("Loja removida.", "success")
+    return redirect(url_for("admin_lojas_vitrine"))
 
 
 @app.post("/painel/admin/operar-loja")
