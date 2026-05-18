@@ -7628,7 +7628,10 @@ def bula_download(chave):
     row = cur.fetchone()
     cur.close()
     if not row:
-        return "Bula não disponível para este produto.", 404
+        return redirect(
+            "https://consultas.anvisa.gov.br/#/bulario?nomeProduto="
+            + urllib.parse.quote(chave)
+        )
 
     jwt_bula = row["jwt_bula"]
     if jwt_bula:
