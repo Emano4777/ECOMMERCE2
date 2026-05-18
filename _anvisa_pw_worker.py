@@ -167,8 +167,17 @@ def _extrair_pdf(pdf_bytes):
             "REAÇÕES ADVERSAS", "INTERAÇÕES MEDICAMENTOSAS",
             "SUPERDOSE", "ARMAZENAMENTO", "COMO CONSERVAR",
             "DIZERES LEGAIS", "RESULTADOS DE EFICÁCIA",
+            # Numbered section headings present in ANVISA patient bulas
+            "COMO ESTE MEDICAMENTO FUNCIONA",
+            "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO",
+            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO",
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR",
+            "O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR",
+            "COMO DEVO USAR ESTE MEDICAMENTO",
         ]
-        _RE_TOC_LINE = re.compile(r"^\s*\d+[\s.]+[A-ZÁÉÍÓÚÃÕ]", re.MULTILINE)
+        _RE_TOC_LINE = re.compile(r"^\s*\d+[\s.]+[A-ZÁÉÍÓÚÃÕÇ]", re.MULTILINE)
+        # Matches numbered section boundaries: "\n3. Quando não devo..." (dot required)
+        _RE_NUM_SECTION = re.compile(r"\n\s{0,3}\d{1,2}\.\s+[A-ZÁÉÍÓÚÃÕÇ]")
 
         def _e_toc(trecho):
             linhas = [l for l in trecho.split("\n") if l.strip()]
@@ -176,6 +185,31 @@ def _extrair_pdf(pdf_bytes):
                 return True
             toc_count = sum(1 for l in linhas if _RE_TOC_LINE.match(l))
             return toc_count / len(linhas) > 0.4
+
+        def _e_tabela_curta(trecho):
+            """Detects regulatory table content: many very short fragmented lines."""
+            linhas = [l for l in trecho.split("\n") if l.strip()]
+            if len(linhas) < 4:
+                return False
+            curtas = sum(1 for l in linhas if len(l.strip()) < 25)
+            return curtas / len(linhas) > 0.55
+
+        def _limpar(trecho):
+            """Strip regulatory table lines: dates, protocol numbers, VP/VPS notations."""
+            limpas = []
+            for l in trecho.split("\n"):
+                ls = l.strip()
+                if not ls:
+                    limpas.append(l)
+                    continue
+                if re.search(r'\d{2}/\d{2}/\d{4}', ls):
+                    continue
+                if re.match(r'^(VP|VPS|VP/VPS)\s*:?\s*$', ls, re.IGNORECASE):
+                    continue
+                if re.match(r'^\d{7,}$', ls):
+                    continue
+                limpas.append(l)
+            return "\n".join(limpas).strip()
 
         def secao(inicios, fins):
             for kw in inicios:
@@ -188,17 +222,34 @@ def _extrair_pdf(pdf_bytes):
                     start = idx + len(kw)
                     while start < len(tu) and tu[start] in " \t\r\n:?!":
                         start += 1
+                    # Reject mid-sentence matches: first extracted char is closing punctuation
+                    first_char = text[start:start + 1]
+                    if first_char in ')."\',:;':
+                        continue
+                    # Reject if extracted text begins lowercase (keyword inside a sentence)
+                    if first_char and first_char.islower():
+                        continue
                     end = min(start + 5000, len(tu))
                     for fkw in fins + _TODOS_INIC:
                         fidx = tu.find(fkw, start + 60)
                         if 0 < fidx - start < end - start:
                             end = fidx
+                    # Also stop at numbered section boundaries (e.g. "3. Quando não devo usar")
+                    for nm in _RE_NUM_SECTION.finditer(tu, start + 60):
+                        if nm.start() < end:
+                            end = nm.start()
+                        break
                     if end <= start:
                         end = min(start + 5000, len(tu))
                     trecho = text[start:end].strip()
                     if len(trecho) < 60:
                         continue
                     if _e_toc(trecho):
+                        continue
+                    if _e_tabela_curta(trecho):
+                        continue
+                    trecho = _limpar(trecho)
+                    if len(trecho) < 60:
                         continue
                     _LIMITE = 4500
                     if len(trecho) > _LIMITE:
@@ -477,6 +528,7 @@ def _buscar(chave, session):
             "situacao":        "Ativo",
             "principio_ativo": pa,
             "id_produto":      id_prod,
+            "jwt_bula":        jwt_bula,
             "url_bula":        f"https://consultas.anvisa.gov.br/#/medicamentos/{id_prod}",
             "serve_para":      serve_para,
             "como_usar":       como_usar,

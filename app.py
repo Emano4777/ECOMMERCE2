@@ -26,7 +26,7 @@ from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, flash, jsonify, send_from_directory
+    url_for, session, flash, jsonify, send_from_directory, Response
 )
 
 app = Flask(__name__)
@@ -7204,6 +7204,7 @@ def _anvisa_schema():
     """)
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS id_produto INTEGER")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS tarja TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS jwt_bula TEXT")
     conn.commit()
     cur.close()
 
@@ -7509,15 +7510,16 @@ def _anvisa_salvar(chave, dados):
             INSERT INTO anvisa_cache
               (chave, encontrado, nome_anvisa, laboratorio, situacao,
                principio_ativo, url_bula, serve_para, como_usar, alertas,
-               id_produto, tarja, criado_em)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+               id_produto, tarja, jwt_bula, criado_em)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
             ON CONFLICT (chave) DO UPDATE SET
               encontrado=EXCLUDED.encontrado, nome_anvisa=EXCLUDED.nome_anvisa,
               laboratorio=EXCLUDED.laboratorio, situacao=EXCLUDED.situacao,
               principio_ativo=EXCLUDED.principio_ativo, url_bula=EXCLUDED.url_bula,
               serve_para=EXCLUDED.serve_para, como_usar=EXCLUDED.como_usar,
               alertas=EXCLUDED.alertas, id_produto=EXCLUDED.id_produto,
-              tarja=EXCLUDED.tarja, criado_em=NOW()
+              tarja=EXCLUDED.tarja, jwt_bula=EXCLUDED.jwt_bula,
+              criado_em=NOW()
             """,
             (
                 chave,
@@ -7532,6 +7534,7 @@ def _anvisa_salvar(chave, dados):
                 dados.get("alertas"),
                 dados.get("id_produto"),
                 dados.get("tarja"),
+                dados.get("jwt_bula"),
             ),
         )
         conn.commit()
@@ -7615,18 +7618,53 @@ def api_anvisa_info():
 
 @app.get("/bula/<chave>")
 def bula_download(chave):
-    """Redirect to ANVISA product page for bula access."""
+    """Download bula PDF directly from ANVISA (proxy), or redirect to product page."""
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT url_bula FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
+        "SELECT url_bula, jwt_bula FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
         (chave,),
     )
     row = cur.fetchone()
     cur.close()
-    if not row or not row["url_bula"]:
+    if not row:
         return "Bula não disponível para este produto.", 404
-    return redirect(row["url_bula"])
+
+    jwt_bula = row["jwt_bula"]
+    if jwt_bula:
+        pdf_url = (
+            "https://consultas.anvisa.gov.br/api/consulta/medicamentos"
+            f"/arquivo/bula/parecer/{jwt_bula}/?Authorization="
+        )
+        try:
+            import requests as _rq
+            r = _rq.get(pdf_url, timeout=30, headers={
+                "Authorization": "Guest",
+                "Accept": "application/pdf,*/*",
+                "Referer": "https://consultas.anvisa.gov.br/",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            })
+            if r.ok and len(r.content) > 1000:
+                safe = re.sub(r"[^a-z0-9_-]", "_", chave.lower())
+                return Response(
+                    r.content,
+                    mimetype="application/pdf",
+                    headers={
+                        "Content-Disposition": f'inline; filename="bula_{safe}.pdf"',
+                        "Content-Length": str(len(r.content)),
+                    },
+                )
+        except Exception:
+            pass
+
+    url_bula = row["url_bula"]
+    if not url_bula:
+        return "Bula não disponível para este produto.", 404
+    return redirect(url_bula)
 
 
 # ─── ADMIN: ANVISA BATCH SYNC ─────────────────────────────────────────────────
