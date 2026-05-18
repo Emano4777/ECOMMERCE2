@@ -2967,21 +2967,18 @@ def api_lojas_mapa():
     return jsonify(resultado)
 
 
-@app.post("/painel/admin/lojas-vitrine/geocodificar")
+@app.get("/painel/admin/lojas-vitrine/pendentes-coords")
 @admin_required
-def admin_lojas_vitrine_geocodificar():
-    """Geocodifica lojas sem coordenadas usando Nominatim (OSM). Processa até 20 por clique."""
+def admin_lojas_vitrine_pendentes_coords():
+    """Retorna JSON com lojas que ainda não têm coordenadas (para geocodificação client-side)."""
     _ensure_lojas_vitrine_schema()
-    import time as _time
-    import json as _json
-
     conn = db()
     cur  = conn.cursor()
     cur.execute("SELECT cidade FROM ecommerce_vitrine_coords")
     ja_feitas = {r["cidade"] for r in cur.fetchall()}
-
     cur.execute("SELECT cidade, endereco FROM ecommerce_lojas_vitrine")
     lojas_sb = [(r["cidade"], r["endereco"] or "") for r in cur.fetchall()]
+    cur.close()
 
     lojas_ik = _load_imagekit_lojas()
     lojas_ik_pairs = [(l.get("cidade",""), l.get("endereco","")) for l in lojas_ik]
@@ -2991,51 +2988,34 @@ def admin_lojas_vitrine_geocodificar():
     for cidade, endereco in chain(lojas_ik_pairs, lojas_sb):
         if cidade and cidade not in ja_feitas and cidade not in seen:
             seen.add(cidade)
-            pendentes.append((cidade, endereco))
+            pendentes.append({"cidade": cidade, "endereco": endereco})
+    return jsonify(pendentes)
 
-    LOTE = 20
-    pendentes = pendentes[:LOTE]
-    ok = falha = 0
 
-    for cidade, endereco in pendentes:
-        cidade_nome = cidade.split("/")[0].strip()
-        uf = cidade.split("/")[1].strip() if "/" in cidade else ""
-        query = f"{endereco}, {uf}, Brasil" if endereco and uf else \
-                (f"{endereco}, Brasil" if endereco else f"{cidade_nome}, {uf}, Brasil")
-        try:
-            q_enc = urllib.parse.quote(query)
-            req = urllib.request.Request(
-                f"https://nominatim.openstreetmap.org/search"
-                f"?q={q_enc}&format=json&limit=1&countrycodes=br",
-                headers={"User-Agent": "PoupAqui-Ecommerce/1.0 (admin@poupaqui.com.br)"},
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                results = _json.loads(resp.read())
-            if results:
-                lat = float(results[0]["lat"])
-                lng = float(results[0]["lon"])
-                cur.execute(
-                    "INSERT INTO ecommerce_vitrine_coords (cidade,lat,lng) VALUES (%s,%s,%s) "
-                    "ON CONFLICT (cidade) DO UPDATE SET lat=EXCLUDED.lat, lng=EXCLUDED.lng",
-                    (cidade, lat, lng),
-                )
-                conn.commit()
-                ok += 1
-            else:
-                falha += 1
-        except Exception:
-            falha += 1
-        _time.sleep(1)
-
-    restantes = len(pendentes) - ok - falha + max(0, len(seen) - LOTE)
-    msg = f"{ok} loja(s) geocodificada(s)"
-    if falha:
-        msg += f", {falha} sem resultado"
-    if restantes > 0:
-        msg += f" — clique novamente para processar as próximas ({restantes} restantes)"
+@app.post("/painel/admin/lojas-vitrine/salvar-coord")
+@admin_required
+def admin_lojas_vitrine_salvar_coord():
+    """Salva coordenadas de uma loja (chamado pelo geocodificador client-side)."""
+    _ensure_lojas_vitrine_schema()
+    data = request.get_json(silent=True) or {}
+    cidade = (data.get("cidade") or "").strip()
+    try:
+        lat = float(data["lat"])
+        lng = float(data["lng"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"ok": False, "erro": "lat/lng inválidos"}), 400
+    if not cidade:
+        return jsonify({"ok": False, "erro": "cidade obrigatória"}), 400
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO ecommerce_vitrine_coords (cidade,lat,lng) VALUES (%s,%s,%s) "
+        "ON CONFLICT (cidade) DO UPDATE SET lat=EXCLUDED.lat, lng=EXCLUDED.lng",
+        (cidade, lat, lng),
+    )
+    conn.commit()
     cur.close()
-    flash(msg, "success" if ok > 0 else "info")
-    return redirect(url_for("admin_lojas_vitrine"))
+    return jsonify({"ok": True})
 
 
 @app.get("/api/lojas-proximas")
