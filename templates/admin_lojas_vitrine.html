@@ -310,15 +310,33 @@ async function lvIniciarGeocodificacao() {
     var cidade = loja.cidade;
     var endereco = loja.endereco || '';
 
+    // "Araraquara 01/SP" → cidadeBase="Araraquara", uf="SP"
+    // "São Paulo/SP Arpoador" → cidadeBase="São Paulo", uf="SP"
     var cidadeNome = cidade.split('/')[0].trim();
-    var uf = cidade.indexOf('/') >= 0 ? cidade.split('/')[1].trim() : '';
-    var query = endereco ? (endereco + (uf ? ', ' + uf : '') + ', Brasil') : (cidadeNome + (uf ? ', ' + uf : '') + ', Brasil');
+    var cidadeBase = cidadeNome.replace(/\s+\d+$/, '').trim(); // remove sufixo numérico
+    var ufRaw = cidade.indexOf('/') >= 0 ? cidade.split('/')[1].trim() : '';
+    var uf = ufRaw.split(' ')[0].trim(); // pega só os 2 chars do UF, ignora bairro
+    var sufixo = (cidadeBase + (uf ? ', ' + uf : '') + ', Brasil');
+    // Com endereço: inclui nome da cidade para aumentar precisão
+    var query = endereco ? (endereco + ', ' + sufixo) : sufixo;
 
     try {
-      var url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(query) +
-                '&format=json&limit=1&countrycodes=br';
-      var res = await fetch(url, {headers: {'Accept-Language': 'pt-BR'}});
-      var results = await res.json();
+      // Tenta 1: query com endereço (ou cidade base)
+      var tentativas = [query];
+      // Tenta 2: só cidade base + UF (fallback sem endereço)
+      if (endereco) tentativas.push(sufixo);
+      // Tenta 3: só cidade base sem UF
+      tentativas.push(cidadeBase + ', Brasil');
+
+      var results = [];
+      for (var t = 0; t < tentativas.length; t++) {
+        if (t > 0) await new Promise(function(r){ setTimeout(r, 1100); });
+        var url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(tentativas[t]) +
+                  '&format=json&limit=1&countrycodes=br';
+        var res = await fetch(url, {headers: {'Accept-Language': 'pt-BR'}});
+        results = await res.json();
+        if (results && results.length) break;
+      }
 
       if (results && results.length) {
         var lat = parseFloat(results[0].lat);
