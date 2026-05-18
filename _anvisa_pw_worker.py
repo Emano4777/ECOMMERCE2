@@ -126,13 +126,21 @@ def _melhor_item(chave, items):
     ]
 
     if not candidatos and len(palavras_chave) >= 2:
-        # Tier 2: nome contém TODAS as palavras da chave
+        # Tier 2: nome contém TODAS as palavras da chave como palavras inteiras (não substring)
         candidatos = [
             i for i in items
-            if all(p in _norm(i.get("nomeProduto", "")) for p in palavras_chave)
+            if all(p in _norm(i.get("nomeProduto", "")).split() for p in palavras_chave)
         ]
 
     pool = candidatos if candidatos else items
+
+    # Garante que a 1ª palavra-chave aparece como palavra inteira no nome do produto
+    # (evita DIPIRONA matches DIPIRONATI como substring)
+    p0 = palavras_chave[0]
+    if len(p0) >= 5:
+        whole = [i for i in pool if p0 in _norm(i.get("nomeProduto", "")).split()]
+        if whole:
+            pool = whole
 
     # Para chave de 1 INN, prefere produtos sem combinação ("+") — evita associar
     # bisoprolol puro com "Fumarato De Bisoprolol+ Hidroclorotiazida".
