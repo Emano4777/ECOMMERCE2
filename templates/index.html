@@ -781,9 +781,12 @@ function carregarProdutos(lat, lng) {
         </div>`;
       }
 
+      // Sem produtos na região: card regional já foi inserido, não renderizar filtro
+      if (!allProdutos.length) return;
+
       hydrateFilters();
       // Busca cupons disponíveis (só se logado)
-      if (IS_CONSUMIDOR && allProdutos.length) {
+      if (IS_CONSUMIDOR) {
         const cnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))];
         Promise.all(cnpjs.map(cnpj =>
           fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
