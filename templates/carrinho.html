@@ -162,6 +162,37 @@
 .cart-empty > i { font-size:4rem; opacity:.18; display:block; margin-bottom:18px; color:#777; }
 .cart-empty .empty-title { font-size:1.15rem; font-weight:900; margin-bottom:8px; color:var(--pq-text); }
 .cart-empty .empty-btn { display:inline-flex; align-items:center; gap:8px; background:var(--pq-red); color:#fff; padding:12px 22px; border-radius:10px; font-weight:800; text-decoration:none; }
+
+/* SKELETON LOADER */
+@keyframes cart-shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+.skel {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 1200px 100%;
+  animation: cart-shimmer 1.4s infinite linear;
+  border-radius: 8px;
+}
+.cart-skeleton {
+  background:#fff; border:1px solid var(--pq-border);
+  border-radius:16px; box-shadow:var(--pq-shadow);
+  overflow:hidden; margin-bottom:20px;
+}
+.cart-skeleton-hd {
+  padding:14px 18px; background:#fafafa;
+  border-bottom:1px solid var(--pq-border);
+  display:flex; align-items:center; gap:12px;
+}
+.cart-skeleton-row {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 18px; border-bottom:1px solid var(--pq-border);
+}
+.cart-skeleton-row:last-child { border-bottom:none; }
+.cart-skeleton-foot {
+  padding:14px 18px; border-top:1px solid var(--pq-border);
+  background:#f9fafb;
+}
 .login-required-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:24px; margin-bottom:20px; }
 .login-required-card h3 { font-weight:900; font-size:1.08rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
 .login-required-card p { color:var(--pq-muted); font-size:.9rem; margin-bottom:16px; }
@@ -185,13 +216,40 @@
   </div>
 
   <div id="cart-container">
-    <div class="cart-empty">
-      <i class="fa fa-cart-shopping"></i>
-      <div class="empty-title">Seu carrinho está vazio</div>
-      <p style="margin-bottom:20px">Adicione produtos e encontre as melhores ofertas perto de você.</p>
-      <a class="empty-btn" href="{{ url_for('index') }}">
-        <i class="fa fa-arrow-left me-2"></i>Ver produtos
-      </a>
+    <!-- skeleton exibido enquanto o JS carrega os itens -->
+    <div class="cart-skeleton">
+      <div class="cart-skeleton-hd">
+        <div class="skel" style="width:20px;height:20px;border-radius:50%;flex-shrink:0"></div>
+        <div class="skel" style="width:180px;height:14px"></div>
+      </div>
+      <div class="cart-skeleton-row">
+        <div class="skel" style="width:64px;height:64px;border-radius:10px;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div class="skel" style="width:70%;height:13px"></div>
+          <div class="skel" style="width:40%;height:13px"></div>
+          <div class="skel" style="width:30%;height:11px"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+          <div class="skel" style="width:88px;height:28px;border-radius:6px"></div>
+          <div class="skel" style="width:60px;height:11px"></div>
+        </div>
+      </div>
+      <div class="cart-skeleton-row">
+        <div class="skel" style="width:64px;height:64px;border-radius:10px;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div class="skel" style="width:55%;height:13px"></div>
+          <div class="skel" style="width:35%;height:13px"></div>
+          <div class="skel" style="width:25%;height:11px"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+          <div class="skel" style="width:88px;height:28px;border-radius:6px"></div>
+          <div class="skel" style="width:60px;height:11px"></div>
+        </div>
+      </div>
+      <div class="cart-skeleton-foot" style="display:flex;gap:10px">
+        <div class="skel" style="width:110px;height:36px;border-radius:10px"></div>
+        <div class="skel" style="width:110px;height:36px;border-radius:10px"></div>
+      </div>
     </div>
   </div>
 

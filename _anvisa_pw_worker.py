@@ -224,7 +224,13 @@ def _extrair_pdf(pdf_bytes):
                 if re.match(r'^\d{7,}$', ls):
                     continue
                 limpas.append(l)
-            return "\n".join(limpas).strip()
+            result = "\n".join(limpas).strip()
+            # Remove PDF checkbox/bullet artifacts: □ ■ and similar unicode block symbols
+            result = re.sub(r'\s*[■-◿☐-☒]\s*', ' ', result)
+            # Remove literal [] used as bullet markers in some ANVISA bulas
+            result = re.sub(r' *\[\] *', ' ', result)
+            result = re.sub(r'  +', ' ', result)
+            return result.strip()
 
         def secao(inicios, fins):
             for kw in inicios:
@@ -245,10 +251,18 @@ def _extrair_pdf(pdf_bytes):
                     if first_char and first_char.islower():
                         continue
                     end = min(start + 5000, len(tu))
+                    # Only match boundaries at line-start to avoid cross-refs like
+                    # (vide "Como devo usar...") cutting the section prematurely.
+                    window = tu[start + 60: start + 6000]
                     for fkw in fins + _TODOS_INIC:
-                        fidx = tu.find(fkw, start + 60)
-                        if 0 < fidx - start < end - start:
-                            end = fidx
+                        m = re.search(
+                            r'\n[ \t]{0,6}(?:\d{1,2}[ \t.]{0,3})?' + re.escape(fkw),
+                            window,
+                        )
+                        if m:
+                            cand = start + 60 + m.start()
+                            if cand < end:
+                                end = cand
                     # Also stop at numbered section boundaries (e.g. "3. Quando não devo usar")
                     for nm in _RE_NUM_SECTION.finditer(tu, start + 60):
                         if nm.start() < end:
