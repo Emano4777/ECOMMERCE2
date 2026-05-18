@@ -112,10 +112,17 @@ def _melhor_item(chave, items):
     chave_norm = _norm(chave)
     palavras_chave = chave_norm.split()
 
-    # Tier 1: nome começa com a chave normalizada
+    def _word_boundary_start(nome_norm, cn):
+        """True se nome começa com cn e o próximo char é separador (não continua a palavra)."""
+        if not nome_norm.startswith(cn):
+            return False
+        after = nome_norm[len(cn):]
+        return not after or after[0] in " +-/"
+
+    # Tier 1: nome começa com a chave normalizada (na fronteira de palavra)
     candidatos = [
         i for i in items
-        if _norm(i.get("nomeProduto", "")).startswith(chave_norm)
+        if _word_boundary_start(_norm(i.get("nomeProduto", "")), chave_norm)
     ]
 
     if not candidatos and len(palavras_chave) >= 2:
