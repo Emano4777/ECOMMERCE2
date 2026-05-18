@@ -289,57 +289,74 @@
 }
 .idx-empty i { font-size: 3rem; opacity: .2; display: block; margin-bottom: 14px; }
 
-/* Estado vazio regional (sem lojas na área) */
+/* Estado vazio regional (sem produtos na área) */
 .idx-empty-region {
   grid-column: 1/-1;
   background: #fff;
   border: 1px solid var(--pq-border);
   border-radius: 18px;
   box-shadow: var(--pq-shadow);
-  padding: 48px 28px 40px;
+  padding: 44px 28px 36px;
   text-align: center;
-  max-width: 540px;
+  max-width: 620px;
   margin: 0 auto;
 }
 .idx-empty-region .er-icon {
-  width: 72px; height: 72px;
+  width: 68px; height: 68px;
   background: #fff5f7;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 20px;
-  font-size: 2rem; color: var(--pq-red);
+  margin: 0 auto 18px;
+  font-size: 1.9rem; color: var(--pq-red);
 }
 .idx-empty-region .er-title {
-  font-size: 1.15rem; font-weight: 900;
-  color: var(--pq-text); margin-bottom: 10px;
+  font-size: 1.1rem; font-weight: 900;
+  color: var(--pq-text); margin-bottom: 8px;
 }
 .idx-empty-region .er-sub {
-  font-size: .9rem; color: var(--pq-muted);
-  line-height: 1.55; margin-bottom: 8px;
+  font-size: .875rem; color: var(--pq-muted);
+  line-height: 1.6; margin-bottom: 22px;
+  max-width: 440px; margin-left: auto; margin-right: auto;
 }
-.idx-empty-region .er-tip {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: #f0fdf4; border: 1px solid #86efac;
-  border-radius: 8px; padding: 8px 14px;
-  font-size: .8rem; font-weight: 700; color: #166534;
-  margin-bottom: 24px;
+.er-cidades-label {
+  font-size: .72rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--pq-muted); margin-bottom: 10px;
 }
+.er-cidades {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  justify-content: center; margin-bottom: 26px;
+  min-height: 36px;
+}
+.er-cidade-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #f8f8f8; border: 1.5px solid var(--pq-border);
+  border-radius: 50px; padding: 7px 14px;
+  font-size: .82rem; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  color: var(--pq-text);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.er-cidade-chip:hover { border-color: var(--pq-red); background: #fff5f7; color: var(--pq-red); }
+.er-chip-uf {
+  font-size: .68rem; font-weight: 800; color: #999;
+  background: #ececec; border-radius: 4px; padding: 1px 5px;
+  transition: background .15s, color .15s;
+}
+.er-cidade-chip:hover .er-chip-uf { background: #fde8e8; color: var(--pq-red); }
 .idx-empty-region .er-actions {
   display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
 }
-.idx-empty-region .er-btn {
+.er-btn-loc {
   display: inline-flex; align-items: center; gap: 7px;
-  padding: 11px 20px; border-radius: 10px;
+  padding: 11px 22px; border-radius: 10px;
   font-size: .88rem; font-weight: 800;
   cursor: pointer; font-family: inherit;
-  text-decoration: none; border: none;
-  transition: background .15s, transform .12s;
+  background: #fff; color: var(--pq-red);
+  border: 1.5px solid var(--pq-red);
+  transition: background .15s;
 }
-.idx-empty-region .er-btn:hover { transform: translateY(-1px); }
-.er-btn-primary { background: var(--pq-red); color: #fff; }
-.er-btn-primary:hover { background: #a8071a; }
-.er-btn-secondary { background: #fff; color: var(--pq-red); border: 1.5px solid var(--pq-red) !important; }
-.er-btn-secondary:hover { background: #fff5f7; }
+.er-btn-loc:hover { background: #fff5f7; }
 .idx-pager {
   display: flex;
   align-items: center;
@@ -760,25 +777,25 @@ function carregarProdutos(lat, lng) {
         prodGrid.style.display = '';
         skelGrid.style.display = 'none';
         prodGrid.innerHTML = `<div class="idx-empty-region">
-          <div class="er-icon"><i class="fa fa-store-slash"></i></div>
-          <div class="er-title">Ainda não temos lojas nessa região</div>
+          <div class="er-icon"><i class="fa fa-map-location-dot"></i></div>
+          <div class="er-title">Nenhum produto disponível nessa área</div>
           <div class="er-sub">
-            Nossa rede está crescendo! Em breve novas farmácias Poupaqui<br>
-            chegarão mais perto de você.
+            Sua localização pode não estar precisa, ou esta região ainda não conta
+            com produtos cadastrados no Poupaqui. Veja as cidades já disponíveis:
           </div>
-          <div class="er-tip">
-            <i class="fa fa-circle-info"></i>
-            Os produtos das lojas mais próximas já chegam pelo app Poupaqui
+          <div class="er-cidades-label">Cidades disponíveis</div>
+          <div class="er-cidades" id="er-cidades-list">
+            <span style="font-size:.82rem;color:var(--pq-muted)">
+              <i class="fa fa-spinner fa-spin me-1"></i>Carregando…
+            </span>
           </div>
           <div class="er-actions">
-            <button class="er-btn er-btn-primary" onclick="carregarProdutos(0,0)">
-              <i class="fa fa-globe"></i>Ver todos os produtos da rede
-            </button>
-            <button class="er-btn er-btn-secondary" onclick="abrirModalLoc()">
+            <button class="er-btn-loc" onclick="abrirModalLoc()">
               <i class="fa fa-location-crosshairs"></i>Alterar localização
             </button>
           </div>
         </div>`;
+        carregarCidadesDisponiveis();
       }
 
       // Sem produtos na região: card regional já foi inserido, não renderizar filtro
@@ -809,6 +826,53 @@ function carregarProdutos(lat, lng) {
         <div>Erro ao carregar. Recarregue a página.</div>
       </div>`;
     });
+}
+
+/* Carrega chips de cidades disponíveis no estado vazio regional */
+async function carregarCidadesDisponiveis() {
+  const el = document.getElementById('er-cidades-list');
+  if (!el) return;
+  try {
+    const lojas = await fetch('/api/lojas/mapa').then(r => r.json());
+    const seen = new Set();
+    const cidades = [];
+    for (const l of lojas) {
+      if (!l.lat || !l.lng || !l.cidade) continue;
+      const key = l.cidade;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const partes = l.cidade.split('/');
+      const nome = partes[0].trim();
+      const uf   = (partes[1] || '').split(' ')[0].trim();
+      cidades.push({ nome, uf, lat: l.lat, lng: l.lng });
+    }
+    cidades.sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+    if (!cidades.length) {
+      el.innerHTML = '<span style="font-size:.82rem;color:var(--pq-muted)">Nenhuma cidade disponível no momento.</span>';
+      return;
+    }
+    el.innerHTML = cidades.map(c => {
+      const lat = c.lat, lng = c.lng;
+      const nome = c.nome.replace(/'/g, "\\'");
+      const uf   = c.uf;
+      return `<button class="er-cidade-chip"
+        onclick="irParaCidade(${lat},${lng},'${nome}','${uf}')">
+        <i class="fa fa-location-dot" style="font-size:.72rem;color:var(--pq-red)"></i>
+        ${c.nome}${c.uf ? `<span class="er-chip-uf">${c.uf}</span>` : ''}
+      </button>`;
+    }).join('');
+  } catch {
+    el.innerHTML = '<span style="font-size:.82rem;color:var(--pq-muted)">Não foi possível carregar as cidades.</span>';
+  }
+}
+
+function irParaCidade(lat, lng, nome, uf) {
+  const label = nome + (uf ? ', ' + uf : '');
+  setLocNome(label);
+  localStorage.setItem('pq_lat', lat);
+  localStorage.setItem('pq_lng', lng);
+  titleEl.textContent = 'Buscando produtos em ' + nome + '…';
+  carregarProdutos(lat, lng);
 }
 
 /* Chamado pelo base_public quando localização estiver pronta */
