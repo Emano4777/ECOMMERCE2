@@ -7616,13 +7616,49 @@ def api_anvisa_info():
     }})
 
 
+_ANVISA_PDF_HEADERS = {
+    "Authorization": "Guest",
+    "Accept": "application/pdf,*/*",
+    "Referer": "https://consultas.anvisa.gov.br/",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _anvisa_fetch_jwt(chave, id_produto):
+    """Busca JWT (idBulaPacienteProtegido) da ANVISA para produto já conhecido."""
+    try:
+        import requests as _rq
+        q = urllib.parse.quote(chave)
+        r = _rq.get(
+            f"https://consultas.anvisa.gov.br/api/consulta/bulario"
+            f"?column=PRODUTO&count=20&filter[nomeProduto]={q}&order=asc&page=1",
+            timeout=15,
+            headers={**_ANVISA_PDF_HEADERS, "Accept": "application/json"},
+        )
+        if not r.ok:
+            return None
+        items = r.json().get("content") or r.json().get("data") or []
+        for item in items:
+            if item.get("idProduto") == id_produto:
+                return item.get("idBulaPacienteProtegido") or None
+        if items:
+            return items[0].get("idBulaPacienteProtegido") or None
+    except Exception:
+        pass
+    return None
+
+
 @app.get("/bula/<chave>")
 def bula_download(chave):
-    """Download bula PDF directly from ANVISA (proxy), or redirect to product page."""
+    """Download bula PDF direto da ANVISA (proxy) ou redireciona para página do produto."""
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT url_bula, jwt_bula FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
+        "SELECT url_bula, jwt_bula, id_produto FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
         (chave,),
     )
     row = cur.fetchone()
@@ -7634,6 +7670,19 @@ def bula_download(chave):
         )
 
     jwt_bula = row["jwt_bula"]
+
+    # jwt_bula ausente (sync antigo não salvava) — busca da ANVISA e guarda no cache
+    if not jwt_bula and row["id_produto"]:
+        jwt_bula = _anvisa_fetch_jwt(chave, row["id_produto"])
+        if jwt_bula:
+            try:
+                c2 = db(); cu2 = c2.cursor()
+                cu2.execute("UPDATE anvisa_cache SET jwt_bula=%s WHERE chave=%s",
+                            (jwt_bula, chave))
+                c2.commit(); cu2.close()
+            except Exception:
+                pass
+
     if jwt_bula:
         pdf_url = (
             "https://consultas.anvisa.gov.br/api/consulta/medicamentos"
@@ -7641,16 +7690,7 @@ def bula_download(chave):
         )
         try:
             import requests as _rq
-            r = _rq.get(pdf_url, timeout=30, headers={
-                "Authorization": "Guest",
-                "Accept": "application/pdf,*/*",
-                "Referer": "https://consultas.anvisa.gov.br/",
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-            })
+            r = _rq.get(pdf_url, timeout=30, headers=_ANVISA_PDF_HEADERS)
             if r.ok and len(r.content) > 1000:
                 safe = re.sub(r"[^a-z0-9_-]", "_", chave.lower())
                 return Response(
@@ -7664,9 +7704,13 @@ def bula_download(chave):
         except Exception:
             pass
 
+    # Fallback: redireciona para a página do produto no site ANVISA
     url_bula = row["url_bula"]
     if not url_bula:
-        return "Bula não disponível para este produto.", 404
+        return redirect(
+            "https://consultas.anvisa.gov.br/#/bulario?nomeProduto="
+            + urllib.parse.quote(chave)
+        )
     return redirect(url_bula)
 
 

@@ -73,8 +73,8 @@ def _salvar(conn, chave, dados):
         INSERT INTO anvisa_cache
           (chave, encontrado, nome_anvisa, laboratorio, situacao,
            principio_ativo, url_bula, serve_para, como_usar, alertas,
-           id_produto, tarja, criado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+           id_produto, tarja, jwt_bula, criado_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
         ON CONFLICT (chave) DO UPDATE SET
           encontrado      = EXCLUDED.encontrado,
           nome_anvisa     = EXCLUDED.nome_anvisa,
@@ -87,6 +87,7 @@ def _salvar(conn, chave, dados):
           alertas         = EXCLUDED.alertas,
           id_produto      = EXCLUDED.id_produto,
           tarja           = EXCLUDED.tarja,
+          jwt_bula        = EXCLUDED.jwt_bula,
           criado_em       = NOW()
     """, (
         chave,
@@ -101,6 +102,7 @@ def _salvar(conn, chave, dados):
         dados.get("alertas"),
         dados.get("id_produto"),
         dados.get("tarja"),
+        dados.get("jwt_bula"),
     ))
     conn.commit()
     cur.close()
@@ -152,6 +154,7 @@ def main():
     """)
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS id_produto INTEGER")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS tarja TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS jwt_bula TEXT")
 
     # Garante que as tabelas de catálogo existem
     cur.execute("""
