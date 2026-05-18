@@ -159,10 +159,10 @@
     <input id="lv-search-input" type="text" placeholder="Buscar por cidade ou endereço…" autocomplete="off">
   </div>
   <div class="lv-toggle">
-    <button id="btn-cards" class="lv-toggle-btn active" onclick="lvSetView('cards')">
+    <button id="btn-cards" class="lv-toggle-btn" onclick="lvSetView('cards')">
       <i class="fa fa-grip"></i> Cards
     </button>
-    <button id="btn-mapa" class="lv-toggle-btn" onclick="lvSetView('mapa')">
+    <button id="btn-mapa" class="lv-toggle-btn active" onclick="lvSetView('mapa')">
       <i class="fa fa-map"></i> Mapa
     </button>
   </div>
@@ -171,7 +171,7 @@
 {% if lojas %}
 
 <!-- ── CARDS VIEW ───────────────────────────────────────── -->
-<div id="lv-cards-view">
+<div id="lv-cards-view" style="display:none">
   <div class="lv-grid" id="lv-grid">
     {% for loja in lojas %}
     <div class="lv-card" data-busca="{{ (loja.cidade ~ ' ' ~ loja.endereco) | lower }}">
@@ -214,7 +214,7 @@
 </div>
 
 <!-- ── MAPA VIEW ─────────────────────────────────────────── -->
-<div id="lv-mapa-view" style="display:none">
+<div id="lv-mapa-view">
   <div id="lv-mapa-container">
     <div class="lv-mapa-loading" id="lv-mapa-loading">
       <div class="lv-mapa-spinner"></div>
@@ -281,7 +281,6 @@ function lvSetView(view) {
     bMapa.classList.add('active');
     if (!_mapaIniciado) _iniciarMapa();
   }
-  try { localStorage.setItem('pq-lojas-view', view); } catch(e){}
 }
 
 /* ── carrega Leaflet + MarkerCluster via CDN ─────────────── */
@@ -392,11 +391,7 @@ async function _iniciarMapa() {
   }
 }
 
-/* ── restaura view salva ────────────────────────────────── */
-(function() {
-  try {
-    if (localStorage.getItem('pq-lojas-view') === 'mapa') lvSetView('mapa');
-  } catch(e) {}
-})();
+/* ── inicia no mapa por padrão ───────────────────────────── */
+lvSetView('mapa');
 </script>
 {% endblock %}
