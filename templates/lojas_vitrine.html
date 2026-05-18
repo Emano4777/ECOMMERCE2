@@ -233,12 +233,18 @@
 
 <script>
 /* ── busca por cidade/endereço ──────────────────────────── */
+var _mapaMarkerData = [];  // {marker, busca} — preenchido em _iniciarMapa
+var _mapaClusters = null;
+var _mapaObj = null;
+
 (function () {
   var input = document.getElementById('lv-search-input');
   var nenhum = document.getElementById('lv-nenhum');
   if (!input) return;
   input.addEventListener('input', function () {
     var q = this.value.toLowerCase().trim();
+
+    // ── Filtro no cards view
     var vis = 0;
     document.querySelectorAll('#lv-grid .lv-card').forEach(function (card) {
       var match = !q || card.dataset.busca.includes(q);
@@ -246,6 +252,29 @@
       if (match) vis++;
     });
     if (nenhum) nenhum.style.display = vis === 0 ? 'block' : 'none';
+
+    // ── Filtro no mapa view
+    if (_mapaClusters && _mapaObj) {
+      _mapaClusters.clearLayers();
+      var matched = [];
+      _mapaMarkerData.forEach(function(d) {
+        if (!q || d.busca.includes(q)) {
+          _mapaClusters.addLayer(d.marker);
+          matched.push(d.marker);
+        }
+      });
+      // Se filtragem ativa e há resultados: zoom nos marcadores filtrados
+      if (q && matched.length > 0) {
+        try {
+          var group = L.featureGroup(matched);
+          _mapaObj.fitBounds(group.getBounds(), {padding: [60, 60], maxZoom: 13});
+        } catch(e) {}
+      } else if (!q && _mapaMarkerData.length > 0) {
+        try {
+          _mapaObj.fitBounds(_mapaClusters.getBounds(), {padding: [40, 40], maxZoom: 12});
+        } catch(e) {}
+      }
+    }
   });
 })();
 
@@ -338,6 +367,8 @@ async function _iniciarMapa() {
     showCoverageOnHover: false,
     zoomToBoundsOnClick: true
   });
+  _mapaClusters = clusters;
+  _mapaObj = map;
 
   var comCoords = 0, semCoords = 0;
 
@@ -368,9 +399,14 @@ async function _iniciarMapa() {
       '<div class="lv-popup-btns">' + wpp + maps + '</div>' +
       '</div>';
 
-    L.marker([loja.lat, loja.lng], {icon: makeIcon()})
-     .bindPopup(popup, {maxWidth: 290, className: 'lv-leaflet-popup'})
-     .addTo(clusters);
+    var marker = L.marker([loja.lat, loja.lng], {icon: makeIcon()})
+      .bindPopup(popup, {maxWidth: 290, className: 'lv-leaflet-popup'});
+
+    clusters.addLayer(marker);
+    _mapaMarkerData.push({
+      marker: marker,
+      busca: ((loja.cidade || '') + ' ' + (loja.endereco || '')).toLowerCase()
+    });
   });
 
   map.addLayer(clusters);
