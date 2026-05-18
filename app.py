@@ -2970,18 +2970,38 @@ def api_lojas_mapa():
 @app.get("/painel/admin/lojas-vitrine/pendentes-coords")
 @admin_required
 def admin_lojas_vitrine_pendentes_coords():
-    """Retorna JSON com lojas que ainda não têm coordenadas (para geocodificação client-side)."""
+    """Retorna JSON com lojas que ainda não têm coordenadas (para geocodificação client-side).
+    Usa endereco2 da tabela users (endereço real de rua) via ecommerce_vitrine_cnpj_map."""
     _ensure_lojas_vitrine_schema()
     conn = db()
     cur  = conn.cursor()
     cur.execute("SELECT cidade FROM ecommerce_vitrine_coords")
     ja_feitas = {r["cidade"] for r in cur.fetchall()}
-    cur.execute("SELECT cidade, endereco FROM ecommerce_lojas_vitrine")
-    lojas_sb = [(r["cidade"], r["endereco"] or "") for r in cur.fetchall()]
+
+    # Mapa cidade → endereco2 real via cnpj_map + users
+    cur.execute("""
+        SELECT m.cidade, u.endereco2
+        FROM ecommerce_vitrine_cnpj_map m
+        JOIN users u ON u.cnpjloja = m.cnpjloja
+        WHERE u.endereco2 IS NOT NULL AND u.endereco2 <> ''
+    """)
+    endereco2_map = {r["cidade"]: r["endereco2"] for r in cur.fetchall()}
+
+    # Lojas Supabase: usa endereco2 se disponível, senão endereco da própria tabela
+    cur.execute("SELECT cidade, endereco, cnpjloja FROM ecommerce_lojas_vitrine")
+    lojas_sb = []
+    for r in cur.fetchall():
+        end = endereco2_map.get(r["cidade"]) or r["endereco"] or ""
+        lojas_sb.append((r["cidade"], end))
     cur.close()
 
     lojas_ik = _load_imagekit_lojas()
-    lojas_ik_pairs = [(l.get("cidade",""), l.get("endereco","")) for l in lojas_ik]
+    lojas_ik_pairs = []
+    for l in lojas_ik:
+        cidade = l.get("cidade", "")
+        # Para IK: endereco do metadata é só o nome da cidade — usa endereco2 do users
+        end = endereco2_map.get(cidade) or ""
+        lojas_ik_pairs.append((cidade, end))
 
     from itertools import chain
     pendentes, seen = [], set()
