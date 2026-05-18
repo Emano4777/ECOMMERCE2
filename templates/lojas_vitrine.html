@@ -146,42 +146,6 @@
   .lv-mapa-loading { height: 420px; }
 }
 
-/* ── legenda do mapa ─────────────────────────────────────── */
-.lv-legenda {
-  background: #fff; border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0,0,0,.15);
-  padding: 10px 14px; font-family: inherit;
-  font-size: .75rem; line-height: 1;
-}
-.lv-legenda-title {
-  font-weight: 900; font-size: .7rem; letter-spacing: .04em;
-  text-transform: uppercase; color: #888; margin-bottom: 8px;
-}
-.lv-legenda-item {
-  display: flex; align-items: center; gap: 8px;
-  margin-bottom: 6px; color: #333; font-weight: 700;
-  cursor: pointer; border-radius: 8px; padding: 4px 6px; margin-left: -6px;
-  transition: background .15s;
-}
-.lv-legenda-item:last-child { margin-bottom: 0; }
-.lv-legenda-item:hover { background: #f4f4f4; }
-.lv-legenda-item.lv-leg-active { background: #fde8e8; color: var(--pq-red); }
-.lv-leg-dot {
-  width: 22px; height: 22px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; font-size: .6rem; font-weight: 900; color: #fff;
-}
-.lv-leg-marker {
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #c0392b; border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,.35);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; color: #fff; font-size: .65rem;
-}
-@media (max-width: 600px) {
-  .lv-legenda { padding: 7px 10px; font-size: .7rem; }
-  .lv-leg-dot, .lv-leg-marker { width: 18px; height: 18px; font-size: .55rem; }
-}
 </style>
 {% endblock %}
 
@@ -448,57 +412,6 @@ async function _iniciarMapa() {
   });
 
   map.addLayer(clusters);
-
-  // Legenda interativa
-  var _legAtiva = null;
-  function _legSetActive(el) {
-    if (_legAtiva) _legAtiva.classList.remove('lv-leg-active');
-    _legAtiva = el;
-    if (el) el.classList.add('lv-leg-active');
-  }
-
-  var legend = L.control({position: 'bottomleft'});
-  legend.onAdd = function() {
-    var d = L.DomUtil.create('div', 'lv-legenda');
-    d.innerHTML =
-      '<div class="lv-legenda-title">Clique para navegar</div>' +
-      '<div class="lv-legenda-item" data-leg="individual">' +
-        '<div class="lv-leg-marker"><i class="fa fa-store" style="font-size:.55rem"></i></div>' +
-        '<span>Loja individual</span>' +
-      '</div>' +
-      '<div class="lv-legenda-item" data-leg="small">' +
-        '<div class="lv-leg-dot" style="background:#6db56d">2–9</div>' +
-        '<span>Poucas lojas</span>' +
-      '</div>' +
-      '<div class="lv-legenda-item" data-leg="medium">' +
-        '<div class="lv-leg-dot" style="background:#e0b030">10–99</div>' +
-        '<span>Várias lojas</span>' +
-      '</div>' +
-      '<div class="lv-legenda-item" data-leg="large">' +
-        '<div class="lv-leg-dot" style="background:#c0392b">100+</div>' +
-        '<span>Muitas lojas</span>' +
-      '</div>';
-
-    // Zoom levels: individual=14, small=10, medium=7, large=4
-    var zoomMap = {individual: 14, small: 10, medium: 7, large: 4};
-    d.querySelectorAll('.lv-legenda-item').forEach(function(item) {
-      L.DomEvent.on(item, 'click', function(e) {
-        L.DomEvent.stopPropagation(e);
-        var key = item.getAttribute('data-leg');
-        var zoom = zoomMap[key];
-        _legSetActive(item);
-        try {
-          var center = clusters.getBounds().getCenter();
-          map.flyTo(center, zoom, {duration: 1.2});
-        } catch(err) {
-          map.setZoom(zoom);
-        }
-      });
-    });
-
-    return d;
-  };
-  legend.addTo(map);
 
   // Ajusta zoom para os marcadores se houver
   if (comCoords > 0) {
