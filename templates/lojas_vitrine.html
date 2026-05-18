@@ -13,13 +13,17 @@
 .lv-hero h1 { font-size: 1.8rem; font-weight: 900; margin: 0 0 6px; }
 .lv-hero p  { font-size: .95rem; opacity: .88; margin: 0; }
 
-/* ── SEARCH ──────────────────────────────────────────────── */
-.lv-search-wrap { display: flex; justify-content: center; padding: 24px 16px 0; }
+/* ── TOOLBAR (busca + toggle) ────────────────────────────── */
+.lv-toolbar {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; flex-wrap: wrap;
+  padding: 20px 16px 0; max-width: 900px; margin: 0 auto;
+}
 .lv-search {
   display: flex; align-items: center; gap: 10px;
   background: #fff; border: 1.5px solid var(--pq-border);
   border-radius: 50px; padding: 8px 16px;
-  width: 100%; max-width: 420px;
+  flex: 1; min-width: 220px; max-width: 420px;
   box-shadow: var(--pq-shadow); transition: border-color .15s;
 }
 .lv-search:focus-within { border-color: var(--pq-red); }
@@ -29,84 +33,117 @@
   font-family: inherit; font-size: .9rem; font-weight: 700;
   color: var(--pq-text); background: transparent;
 }
+.lv-toggle {
+  display: flex; background: #fff;
+  border: 1.5px solid var(--pq-border); border-radius: 50px;
+  overflow: hidden; box-shadow: var(--pq-shadow);
+}
+.lv-toggle-btn {
+  border: none; background: transparent; cursor: pointer;
+  padding: 8px 18px; font-family: inherit; font-size: .82rem;
+  font-weight: 800; color: var(--pq-muted);
+  display: flex; align-items: center; gap: 6px;
+  transition: background .15s, color .15s;
+}
+.lv-toggle-btn.active {
+  background: var(--pq-red); color: #fff;
+}
 
 /* ── GRID + CARD ─────────────────────────────────────────── */
 .lv-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 18px;
-  align-items: stretch;          /* todas as células mesma altura */
-  max-width: 1200px;
-  margin: 24px auto 60px;
-  padding: 0 16px;
+  gap: 18px; align-items: stretch;
+  max-width: 1200px; margin: 20px auto 60px; padding: 0 16px;
 }
 .lv-card {
-  background: #fff;
-  border-radius: var(--pq-radius);
-  border: 1px solid var(--pq-border);
-  box-shadow: var(--pq-shadow);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  height: 100%;                   /* preenche toda a célula do grid */
+  background: #fff; border-radius: var(--pq-radius);
+  border: 1px solid var(--pq-border); box-shadow: var(--pq-shadow);
+  overflow: hidden; display: flex; flex-direction: column; height: 100%;
   transition: transform .18s, box-shadow .18s;
 }
 .lv-card:hover { transform: translateY(-3px); box-shadow: 0 6px 24px rgba(0,0,0,.12); }
-
 .lv-card-img {
-  width: 100%; height: 180px;
-  object-fit: cover; object-position: center;
-  display: block; background: #f5f5f5; flex-shrink: 0;
+  width: 100%; height: 180px; object-fit: cover;
+  object-position: center; display: block; background: #f5f5f5; flex-shrink: 0;
 }
 .lv-card-img-ph {
   width: 100%; height: 180px; flex-shrink: 0;
-  background: #f5f5f5; display: flex;
-  align-items: center; justify-content: center;
-  color: #d0d0d0; font-size: 3rem;
+  background: #f5f5f5; display: flex; align-items: center;
+  justify-content: center; color: #d0d0d0; font-size: 3rem;
 }
-
-.lv-card-body {
-  padding: 14px 16px 16px;
-  flex: 1;                        /* ocupa todo espaço restante */
-  display: flex;
-  flex-direction: column;
-}
-.lv-card-text { flex: 1; }        /* empurra os botões para baixo */
-
+.lv-card-body { padding: 14px 16px 16px; flex: 1; display: flex; flex-direction: column; }
+.lv-card-text { flex: 1; }
 .lv-card-cidade { font-size: 1rem; font-weight: 900; color: var(--pq-text); margin-bottom: 6px; }
-
 .lv-card-info {
-  font-size: .78rem; color: var(--pq-muted);
-  line-height: 1.45; word-break: break-word;
-  display: flex; align-items: flex-start; gap: 6px; margin-top: 4px;
+  font-size: .78rem; color: var(--pq-muted); line-height: 1.45;
+  word-break: break-word; display: flex; align-items: flex-start; gap: 6px; margin-top: 4px;
 }
 .lv-card-info i { color: var(--pq-red); width: 14px; flex-shrink: 0; margin-top: 2px; }
-
-/* ── BOTÕES — fixos na base de cada card ─────────────────── */
-.lv-card-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;               /* espaço mínimo acima dos botões */
-  flex-shrink: 0;
-}
+.lv-card-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; flex-shrink: 0; }
 .lv-btn {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   border-radius: 50px; font-size: .82rem; font-weight: 800;
   text-decoration: none; padding: 10px 14px;
   border: none; cursor: pointer; font-family: inherit;
-  transition: background .15s, color .15s;
-  width: 100%;
+  transition: background .15s, color .15s; width: 100%;
 }
 .lv-btn-wpp  { background: #f0fdf4; color: #15803d; border: 1.5px solid #bbf7d0; }
 .lv-btn-wpp:hover  { background: #15803d; color: #fff; border-color: #15803d; }
 .lv-btn-maps { background: #fff0f0; color: var(--pq-red); border: 1.5px solid #fecdd3; }
 .lv-btn-maps:hover { background: var(--pq-red); color: #fff; border-color: var(--pq-red); }
 
+/* ── MAPA ────────────────────────────────────────────────── */
+#lv-mapa-view { max-width: 1200px; margin: 20px auto 60px; padding: 0 16px; }
+#lv-mapa { height: 560px; border-radius: 14px; border: 1.5px solid var(--pq-border);
+           box-shadow: var(--pq-shadow); overflow: hidden; }
+.lv-mapa-loading {
+  height: 560px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+  color: var(--pq-muted); font-size: .9rem; font-weight: 700;
+  border-radius: 14px; border: 1.5px solid var(--pq-border);
+  background: #fafafa;
+}
+.lv-mapa-spinner {
+  width: 36px; height: 36px; border: 3px solid var(--pq-border);
+  border-top-color: var(--pq-red); border-radius: 50%;
+  animation: lv-spin .7s linear infinite;
+}
+@keyframes lv-spin { to { transform: rotate(360deg); } }
+
+/* marcador personalizado */
+.lv-marker {
+  background: var(--pq-red); color: #fff; border-radius: 50%;
+  width: 34px; height: 34px; display: flex; align-items: center;
+  justify-content: center; font-size: 15px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35);
+  border: 2px solid #fff;
+}
+/* popup do mapa */
+.lv-popup-cidade { font-size: .95rem; font-weight: 900; margin-bottom: 4px; }
+.lv-popup-end { font-size: .76rem; color: #666; margin-bottom: 10px; }
+.lv-popup-btns { display: flex; flex-direction: column; gap: 6px; }
+.lv-popup-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 50px; font-size: .78rem; font-weight: 800;
+  padding: 7px 12px; border: none; cursor: pointer;
+  font-family: inherit; width: 100%; text-decoration: none;
+}
+.lv-popup-wpp  { background: #f0fdf4; color: #15803d; border: 1.5px solid #bbf7d0; }
+.lv-popup-maps { background: #fff0f0; color: #c0392b; border: 1.5px solid #fecdd3; }
+
 /* ── EMPTY / MISC ────────────────────────────────────────── */
 .lv-empty { text-align: center; padding: 60px 20px; color: var(--pq-muted); font-size: .95rem; }
 .lv-empty i { font-size: 3rem; color: #e0e0e0; margin-bottom: 14px; display: block; }
 .lv-hidden { display: none !important; }
+.lv-mapa-sem-coords {
+  text-align: center; padding: 10px; font-size: .78rem;
+  color: var(--pq-muted); margin-top: 8px;
+}
+@media (max-width: 600px) {
+  #lv-mapa { height: 420px; }
+  .lv-mapa-loading { height: 420px; }
+}
 </style>
 {% endblock %}
 
@@ -116,72 +153,86 @@
   <p>Encontre a Poupaqui mais perto de você</p>
 </div>
 
-<div class="lv-search-wrap">
+<div class="lv-toolbar">
   <div class="lv-search">
     <i class="fa fa-magnifying-glass"></i>
     <input id="lv-search-input" type="text" placeholder="Buscar por cidade ou endereço…" autocomplete="off">
   </div>
+  <div class="lv-toggle">
+    <button id="btn-cards" class="lv-toggle-btn active" onclick="lvSetView('cards')">
+      <i class="fa fa-grip"></i> Cards
+    </button>
+    <button id="btn-mapa" class="lv-toggle-btn" onclick="lvSetView('mapa')">
+      <i class="fa fa-map"></i> Mapa
+    </button>
+  </div>
 </div>
 
 {% if lojas %}
-<div class="lv-grid" id="lv-grid">
-  {% for loja in lojas %}
-  <div class="lv-card" data-busca="{{ (loja.cidade ~ ' ' ~ loja.endereco) | lower }}">
 
-    {% if loja.imagem_url %}
-      <img class="lv-card-img" src="{{ loja.imagem_url }}" alt="Loja {{ loja.cidade }}" loading="lazy">
-    {% else %}
-      <div class="lv-card-img-ph"><i class="fa fa-store"></i></div>
-    {% endif %}
-
-    <div class="lv-card-body">
-      <div class="lv-card-text">
-        <div class="lv-card-cidade">{{ loja.cidade }}</div>
-
-        <div class="lv-card-info">
-          <i class="fa fa-location-dot"></i>
-          <span>{{ loja.endereco }}</span>
+<!-- ── CARDS VIEW ───────────────────────────────────────── -->
+<div id="lv-cards-view">
+  <div class="lv-grid" id="lv-grid">
+    {% for loja in lojas %}
+    <div class="lv-card" data-busca="{{ (loja.cidade ~ ' ' ~ loja.endereco) | lower }}">
+      {% if loja.imagem_url %}
+        <img class="lv-card-img" src="{{ loja.imagem_url }}" alt="Loja {{ loja.cidade }}" loading="lazy">
+      {% else %}
+        <div class="lv-card-img-ph"><i class="fa fa-store"></i></div>
+      {% endif %}
+      <div class="lv-card-body">
+        <div class="lv-card-text">
+          <div class="lv-card-cidade">{{ loja.cidade }}</div>
+          <div class="lv-card-info">
+            <i class="fa fa-location-dot"></i><span>{{ loja.endereco }}</span>
+          </div>
+          {% if loja.telefone %}
+          <div class="lv-card-info">
+            <i class="fa fa-phone"></i><span>{{ loja.telefone }}</span>
+          </div>
+          {% endif %}
         </div>
-
-        {% if loja.telefone %}
-        <div class="lv-card-info">
-          <i class="fa fa-phone"></i>
-          <span>{{ loja.telefone }}</span>
+        <div class="lv-card-actions">
+          {% if loja.whatsapp %}
+          <button class="lv-btn lv-btn-wpp"
+                  onclick="lvClique('{{ loja.cidade | e }}','whatsapp','{{ loja.whatsapp | e }}')">
+            <i class="fab fa-whatsapp"></i> WhatsApp
+          </button>
+          {% endif %}
+          <button class="lv-btn lv-btn-maps"
+                  onclick="lvClique('{{ loja.cidade | e }}','maps','https://www.google.com/maps/search/?api=1&query={{ loja.endereco | urlencode }}')">
+            <i class="fa fa-map-location-dot"></i> Como Chegar
+          </button>
         </div>
-        {% endif %}
-      </div>
-
-      <div class="lv-card-actions">
-        {% if loja.whatsapp %}
-        <button class="lv-btn lv-btn-wpp"
-                onclick="lvClique('{{ loja.cidade | e }}','whatsapp','{{ loja.whatsapp | e }}')">
-          <i class="fab fa-whatsapp"></i> WhatsApp
-        </button>
-        {% endif %}
-        <button class="lv-btn lv-btn-maps"
-                onclick="lvClique('{{ loja.cidade | e }}','maps','https://www.google.com/maps/search/?api=1&query={{ loja.endereco | urlencode }}')">
-          <i class="fa fa-map-location-dot"></i> Como Chegar
-        </button>
       </div>
     </div>
+    {% endfor %}
   </div>
-  {% endfor %}
+  <div id="lv-nenhum" class="lv-empty" style="display:none">
+    <i class="fa fa-magnifying-glass"></i>Nenhuma loja encontrada para essa busca.
+  </div>
 </div>
 
-<div id="lv-nenhum" class="lv-empty" style="display:none">
-  <i class="fa fa-magnifying-glass"></i>
-  Nenhuma loja encontrada para essa busca.
+<!-- ── MAPA VIEW ─────────────────────────────────────────── -->
+<div id="lv-mapa-view" style="display:none">
+  <div id="lv-mapa-container">
+    <div class="lv-mapa-loading" id="lv-mapa-loading">
+      <div class="lv-mapa-spinner"></div>
+      Carregando mapa…
+    </div>
+    <div id="lv-mapa" style="display:none"></div>
+  </div>
+  <div id="lv-mapa-sem-coords" class="lv-mapa-sem-coords" style="display:none"></div>
 </div>
 
 {% else %}
 <div class="lv-empty">
-  <i class="fa fa-store"></i>
-  Nenhuma loja cadastrada ainda.
+  <i class="fa fa-store"></i>Nenhuma loja cadastrada ainda.
 </div>
 {% endif %}
 
 <script>
-/* busca por cidade/endereço */
+/* ── busca por cidade/endereço ──────────────────────────── */
 (function () {
   var input = document.getElementById('lv-search-input');
   var nenhum = document.getElementById('lv-nenhum');
@@ -198,14 +249,154 @@
   });
 })();
 
-/* rastreia clique e abre o link */
+/* ── rastreia clique e abre link ────────────────────────── */
 function lvClique(cidade, tipo, url) {
   fetch('/api/lojas/clique', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cidade: cidade, tipo: tipo})
-  }).catch(function(){});   /* silencia erros de rede */
+  }).catch(function(){});
   window.open(url, '_blank', 'noopener');
 }
+
+/* ── toggle cards / mapa ────────────────────────────────── */
+var _mapaIniciado = false;
+
+function lvSetView(view) {
+  var cards = document.getElementById('lv-cards-view');
+  var mapa  = document.getElementById('lv-mapa-view');
+  var bCards = document.getElementById('btn-cards');
+  var bMapa  = document.getElementById('btn-mapa');
+  if (!cards) return;
+
+  if (view === 'cards') {
+    cards.style.display = '';
+    mapa.style.display  = 'none';
+    bCards.classList.add('active');
+    bMapa.classList.remove('active');
+  } else {
+    cards.style.display = 'none';
+    mapa.style.display  = '';
+    bCards.classList.remove('active');
+    bMapa.classList.add('active');
+    if (!_mapaIniciado) _iniciarMapa();
+  }
+  try { localStorage.setItem('pq-lojas-view', view); } catch(e){}
+}
+
+/* ── carrega Leaflet + MarkerCluster via CDN ─────────────── */
+function _loadCSS(href) {
+  var l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = href;
+  document.head.appendChild(l);
+}
+function _loadJS(src) {
+  return new Promise(function(res) {
+    var s = document.createElement('script');
+    s.src = src; s.onload = res; document.head.appendChild(s);
+  });
+}
+
+async function _iniciarMapa() {
+  _mapaIniciado = true;
+
+  _loadCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+  _loadCSS('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css');
+  _loadCSS('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css');
+
+  await _loadJS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+  await _loadJS('https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js');
+
+  var mapaEl = document.getElementById('lv-mapa');
+  var loading = document.getElementById('lv-mapa-loading');
+  mapaEl.style.display = '';
+  loading.style.display = 'none';
+
+  var map = L.map('lv-mapa', {zoomControl: true}).setView([-15, -53], 4);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(map);
+
+  var lojas;
+  try { lojas = await fetch('/api/lojas/mapa').then(function(r){ return r.json(); }); }
+  catch(e) { lojas = []; }
+
+  function makeIcon() {
+    return L.divIcon({
+      className: 'lv-marker',
+      html: '<i class="fa fa-store"></i>',
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+      popupAnchor: [0, -20]
+    });
+  }
+
+  var clusters = L.markerClusterGroup({
+    maxClusterRadius: 60,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true
+  });
+
+  var comCoords = 0, semCoords = 0;
+
+  lojas.forEach(function(loja) {
+    if (!loja.lat || !loja.lng) { semCoords++; return; }
+    comCoords++;
+
+    var img = loja.imagem_url
+      ? '<img src="' + loja.imagem_url + '" style="width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:8px;display:block">'
+      : '';
+    var wpp = loja.whatsapp
+      ? '<button class="lv-popup-btn lv-popup-wpp" onclick="lvClique(\'' +
+        loja.cidade.replace(/'/g,"\\'").replace(/"/g,'&quot;') +
+        "','whatsapp','" + (loja.whatsapp||'').replace(/'/g,"\\'") + '\')">' +
+        '<i class="fab fa-whatsapp"></i> WhatsApp</button>'
+      : '';
+    var mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' +
+                  encodeURIComponent(loja.endereco || loja.cidade);
+    var maps = '<button class="lv-popup-btn lv-popup-maps" onclick="lvClique(\'' +
+               loja.cidade.replace(/'/g,"\\'").replace(/"/g,'&quot;') +
+               "','maps','" + mapsUrl + '\')">' +
+               '<i class="fa fa-map-location-dot"></i> Como Chegar</button>';
+
+    var popup = '<div style="min-width:220px;max-width:270px;font-family:inherit">' +
+      img +
+      '<div class="lv-popup-cidade">' + loja.cidade + '</div>' +
+      '<div class="lv-popup-end"><i class="fa fa-location-dot" style="color:#c0392b;margin-right:4px"></i>' + (loja.endereco||'') + '</div>' +
+      '<div class="lv-popup-btns">' + wpp + maps + '</div>' +
+      '</div>';
+
+    L.marker([loja.lat, loja.lng], {icon: makeIcon()})
+     .bindPopup(popup, {maxWidth: 290, className: 'lv-leaflet-popup'})
+     .addTo(clusters);
+  });
+
+  map.addLayer(clusters);
+
+  // Ajusta zoom para os marcadores se houver
+  if (comCoords > 0) {
+    try { map.fitBounds(clusters.getBounds(), {padding: [40, 40], maxZoom: 12}); }
+    catch(e) {}
+  }
+
+  if (semCoords > 0) {
+    var el = document.getElementById('lv-mapa-sem-coords');
+    if (el) {
+      el.style.display = '';
+      el.innerHTML = '<i class="fa fa-circle-info" style="color:var(--pq-red)"></i> ' +
+        semCoords + ' loja(s) ainda sem coordenadas — use o botão <strong>Geocodificar</strong> no painel admin.';
+    }
+  }
+}
+
+/* ── restaura view salva ────────────────────────────────── */
+(function() {
+  try {
+    if (localStorage.getItem('pq-lojas-view') === 'mapa') lvSetView('mapa');
+  } catch(e) {}
+})();
 </script>
 {% endblock %}

@@ -86,6 +86,12 @@
         <i class="fa fa-wand-magic-sparkles me-1"></i>Auto-vincular lojas
       </button>
     </form>
+    <form method="POST" action="{{ url_for('admin_lojas_vitrine_geocodificar') }}" style="margin:0">
+      <button type="submit" class="btn-pk" style="font-size:.78rem;background:#1a2535;border:1px solid #3b82f6;color:#60a5fa"
+              title="Geocodifica lojas sem coordenadas para exibição no mapa (até 20 por clique, 1 req/s Nominatim)">
+        <i class="fa fa-map-pin me-1"></i>Geocodificar lojas
+      </button>
+    </form>
     <a href="/lojas" target="_blank" class="btn-pk" style="font-size:.78rem">
       <i class="fa fa-eye me-1"></i>Ver página pública
     </a>
