@@ -1,4 +1,4 @@
-"""
+﻿"""
 POUPAQUI ECOMMERCE
 Ecommerce público da rede Poupaqui — inicialmente somente produtos DNS/Vitnatu.
 
@@ -136,7 +136,7 @@ def _send_email(to: str, subject: str, html_body: str) -> bool:
 
 
 def _email_html_wrapper(titulo: str, conteudo: str) -> str:
-    """Envolve conteúdo em layout HTML de e-mail simples no estilo Poupáqui."""
+    """Envolve conteúdo em layout HTML de e-mail simples no estilo Poupaqui."""
     return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/>
 <style>
   body{{margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;}}
@@ -149,9 +149,9 @@ def _email_html_wrapper(titulo: str, conteudo: str) -> str:
   .info-box{{background:#fff9e6;border:1px solid #f5c842;border-radius:8px;padding:14px 18px;margin:16px 0;}}
 </style></head><body>
 <div class="wrap">
-  <div class="header"><h1>Poupáqui</h1></div>
+  <div class="header"><h1>Poupaqui</h1></div>
   <div class="body"><h2 style="margin-top:0;color:#c8102e">{titulo}</h2>{conteudo}</div>
-  <div class="footer">Poupáqui — Sua farmácia de confiança · <a href="https://drogariaspoupaqui.com.br" style="color:#c8102e">drogariaspoupaqui.com.br</a></div>
+  <div class="footer">Poupaqui — Sua farmácia de confiança · <a href="https://drogariaspoupaqui.com.br" style="color:#c8102e">drogariaspoupaqui.com.br</a></div>
 </div></body></html>"""
 
 
@@ -174,11 +174,11 @@ def _enviar_email_verificacao(user_id: str, email: str) -> bool:
         base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     link = f"{base}/verificar-email/{token}"
     corpo = (
-        f"<p>Clique abaixo para confirmar seu e-mail na Poupáqui:</p>"
+        f"<p>Clique abaixo para confirmar seu e-mail na Poupaqui:</p>"
         f"<p><a class='btn' href='{link}'>Confirmar meu e-mail</a></p>"
         f"<p style='font-size:.82rem;color:#888'>Se não foi você, ignore este e-mail.</p>"
     )
-    return _send_email(email, "✉️ Confirme seu e-mail — Poupáqui", _email_html_wrapper("Confirme seu e-mail", corpo))
+    return _send_email(email, "✉️ Confirme seu e-mail — Poupaqui", _email_html_wrapper("Confirme seu e-mail", corpo))
 
 
 # ─── RATE LIMITING (in-memory, best-effort) ───────────────────────────────────
@@ -8876,7 +8876,7 @@ def api_painel_produtos_loja():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MERCADO LIVRE — integração completa (Modelo C: conta única PoupáQui)
+# MERCADO LIVRE — integração completa (Modelo C: conta única Poupaqui)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── helpers de token ──────────────────────────────────────────────────────────
@@ -10704,12 +10704,12 @@ def recuperar_senha_post():
         base = _public_base_url() or request.host_url.rstrip("/")
         link = f"{base}/recuperar-senha/{token}"
         corpo = (
-            f"<p>Você solicitou a redefinição de senha na Poupáqui.</p>"
+            f"<p>Você solicitou a redefinição de senha na Poupaqui.</p>"
             f"<p>Clique no botão abaixo para criar uma nova senha. O link expira em <b>2 horas</b>.</p>"
             f"<p><a class='btn' href='{link}'>Redefinir minha senha</a></p>"
             f"<p style='font-size:.82rem;color:#888'>Se você não solicitou isso, ignore este e-mail.</p>"
         )
-        _send_email(email, "🔑 Redefinição de senha — Poupáqui", _email_html_wrapper("Redefina sua senha", corpo))
+        _send_email(email, "🔑 Redefinição de senha — Poupaqui", _email_html_wrapper("Redefina sua senha", corpo))
     cur.close()
     flash("Se este e-mail estiver cadastrado, você receberá as instruções em instantes.", "success")
     return redirect(url_for("recuperar_senha"))
@@ -10818,11 +10818,11 @@ def api_reenviar_verificacao():
     base = _public_base_url() or request.host_url.rstrip("/")
     link = f"{base}/verificar-email/{token}"
     corpo = (
-        f"<p>Clique abaixo para confirmar seu e-mail na Poupáqui:</p>"
+        f"<p>Clique abaixo para confirmar seu e-mail na Poupaqui:</p>"
         f"<p><a class='btn' href='{link}'>Confirmar meu e-mail</a></p>"
         f"<p style='font-size:.82rem;color:#888'>Se não foi você, ignore este e-mail.</p>"
     )
-    _send_email(user["email"], "✉️ Confirme seu e-mail — Poupáqui", _email_html_wrapper("Confirme seu e-mail", corpo))
+    _send_email(user["email"], "✉️ Confirme seu e-mail — Poupaqui", _email_html_wrapper("Confirme seu e-mail", corpo))
     return jsonify({"ok": True, "msg": "E-mail de verificação reenviado."})
 
 
