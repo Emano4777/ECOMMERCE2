@@ -81,6 +81,15 @@
       </div>
     </div>
     <div class="cfg-field">
+      <label>E-mail para notificações de novos pedidos <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; opcional</span></label>
+      <input class="pk-input" type="email" name="email_notificacao"
+             value="{{ config.email_notificacao or '' }}"
+             placeholder="Ex: pedidos@suafarmacia.com.br"/>
+      <div class="cfg-help">
+        Quando um novo pedido chegar, um e-mail de alerta será enviado para este endereço. Requer configuração do Resend no painel do sistema.
+      </div>
+    </div>
+    <div class="cfg-field">
       <label>WhatsApp para notificações de receita médica <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; opcional</span></label>
       <input class="pk-input" type="tel" name="whatsapp_receita"
              value="{{ config.whatsapp_receita or '' }}"

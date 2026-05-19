@@ -1,0 +1,133 @@
+{% extends "painel_base.html" %}
+{% block title %}Nomes Canônicos — Painel Poupaqui{% endblock %}
+
+{% block extra_style %}
+<style>
+.pc-header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:24px; }
+.pc-header h2 { margin:0; font-size:1.2rem; font-weight:800; }
+.pc-stats { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+.pc-stat {
+  padding:6px 14px; border-radius:20px; font-size:.8rem; font-weight:700;
+  text-decoration:none; border:1px solid var(--pk-line);
+  color:var(--pk-muted); background:transparent; transition:all .15s;
+}
+.pc-stat:hover, .pc-stat.active { background:var(--pk-yellow); color:#111; border-color:var(--pk-yellow); }
+.pc-stat span { opacity:.7; font-weight:400; margin-left:4px; }
+
+.pc-search { display:flex; gap:8px; margin-bottom:20px; }
+.pc-search input {
+  flex:1; min-width:0; background:#0d1016; border:1px solid var(--pk-line);
+  color:var(--pk-text); border-radius:8px; padding:8px 14px; font-size:.88rem;
+}
+.pc-search input:focus { outline:none; border-color:var(--pk-yellow); }
+.pc-search button {
+  background:var(--pk-yellow); color:#111; border:none; border-radius:8px;
+  padding:8px 18px; font-weight:700; font-size:.85rem; cursor:pointer; white-space:nowrap;
+}
+
+.pc-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.pc-table thead tr { background:#0d1016; position:sticky; top:57px; z-index:5; }
+.pc-table th {
+  padding:9px 12px; text-align:left; color:var(--pk-muted); font-weight:700;
+  font-size:.75rem; text-transform:uppercase; border-bottom:1px solid var(--pk-line);
+}
+.pc-table td { padding:9px 12px; border-bottom:1px solid var(--pk-line); vertical-align:middle; }
+.pc-table tr:hover td { background:rgba(255,255,255,.02); }
+.pc-ean { font-family:monospace; color:var(--pk-muted); font-size:.78rem; }
+
+.badge-cosmos  { background:#082438; color:#38bdf8; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.badge-ia      { background:#1a082a; color:#c084fc; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.badge-manual  { background:#0d2d1a; color:#22c55e; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.badge-miss    { background:#14181f; color:#5a6480; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+
+.pc-orig { color:var(--pk-muted); font-size:.76rem; margin-top:2px; }
+
+/* inline edit */
+.pc-edit-form { display:flex; gap:6px; align-items:center; }
+.pc-edit-input {
+  flex:1; min-width:120px; background:#0d1016; border:1px solid var(--pk-line);
+  color:var(--pk-text); border-radius:6px; padding:5px 10px; font-size:.82rem;
+}
+.pc-edit-input:focus { outline:none; border-color:var(--pk-yellow); }
+.pc-edit-btn {
+  background:var(--pk-yellow); color:#111; border:none; border-radius:6px;
+  padding:5px 12px; font-size:.78rem; font-weight:700; cursor:pointer; white-space:nowrap;
+}
+.pc-edit-btn:hover { opacity:.85; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pc-header">
+  <h2><i class="fa fa-tag me-2"></i>Nomes Canônicos de Produtos</h2>
+  <small style="color:var(--pk-muted)">{{ total }} EANs registrados</small>
+</div>
+
+<div class="pc-stats">
+  <a class="pc-stat {% if fonte=='todos' %}active{% endif %}"
+     href="{{ url_for('admin_produto_canon', q=q, fonte='todos') }}">
+    Todos <span>{{ total }}</span>
+  </a>
+  {% for f, cnt in stats.items() %}
+  <a class="pc-stat {% if fonte==f %}active{% endif %}"
+     href="{{ url_for('admin_produto_canon', q=q, fonte=f) }}">
+    {{ f }} <span>{{ cnt }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<form class="pc-search" method="get">
+  <input type="hidden" name="fonte" value="{{ fonte }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="Buscar por EAN, nome original ou canônico…">
+  <button type="submit"><i class="fa fa-search me-1"></i>Buscar</button>
+</form>
+
+<div style="overflow-x:auto">
+<table class="pc-table">
+  <thead>
+    <tr>
+      <th>EAN</th>
+      <th>Nome Canônico</th>
+      <th>Original (farmácia)</th>
+      <th>Fonte</th>
+      <th>Atualizado</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td class="pc-ean">{{ r.ean }}</td>
+    <td>
+      <form class="pc-edit-form" method="post" action="{{ url_for('admin_produto_canon_editar') }}">
+        <input type="hidden" name="ean" value="{{ r.ean }}">
+        <input class="pc-edit-input" type="text" name="descricao_canon" value="{{ r.descricao_canon }}">
+        <button class="pc-edit-btn" type="submit"><i class="fa fa-check"></i></button>
+      </form>
+    </td>
+    <td>
+      <div class="pc-orig">{{ r.descricao_original or '—' }}</div>
+    </td>
+    <td>
+      {% if r.fonte == 'cosmos' %}
+        <span class="badge-cosmos">cosmos</span>
+      {% elif r.fonte == 'ia' %}
+        <span class="badge-ia">IA</span>
+      {% elif r.fonte == 'manual' %}
+        <span class="badge-manual">manual</span>
+      {% else %}
+        <span class="badge-miss">{{ r.fonte }}</span>
+      {% endif %}
+    </td>
+    <td style="color:var(--pk-muted);font-size:.76rem;white-space:nowrap">
+      {{ r.atualizado_em.strftime('%d/%m/%y %H:%M') if r.atualizado_em else '—' }}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--pk-muted)">
+    Nenhum registro encontrado.
+  </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

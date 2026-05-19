@@ -1,0 +1,24 @@
+{
+  "name": "Poupáqui",
+  "short_name": "Poupáqui",
+  "description": "Produtos nas farmácias da rede Poupáqui",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#c8102e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/poupaqui-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/poupaqui-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

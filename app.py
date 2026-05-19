@@ -12,6 +12,7 @@ import math
 import time
 import json
 import random
+import secrets
 import threading
 import urllib.request
 import urllib.parse
@@ -91,6 +92,89 @@ def _upload_receita_cloudinary(file_bytes, filename):
     except Exception as e:
         app.logger.error("Cloudinary upload error: %s", e)
         return None
+
+# ─── E-MAIL (Resend) ──────────────────────────────────────────────────────────
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM    = os.getenv("RESEND_FROM", "Poupáqui <noreply@poupaqui.com.br>")
+
+
+def _send_email(to: str, subject: str, html_body: str) -> bool:
+    """Envia e-mail via Resend API. Retorna True se enviou, False se falhou/não configurado."""
+    if not RESEND_API_KEY or not to or "@" not in to:
+        return False
+    try:
+        payload = json.dumps({"from": RESEND_FROM, "to": [to], "subject": subject, "html": html_body}).encode()
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+            return resp.status in (200, 201)
+    except Exception as exc:
+        app.logger.warning("_send_email failed: %s", exc)
+        return False
+
+
+def _email_html_wrapper(titulo: str, conteudo: str) -> str:
+    """Envolve conteúdo em layout HTML de e-mail simples no estilo Poupáqui."""
+    return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/>
+<style>
+  body{{margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;}}
+  .wrap{{max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
+  .header{{background:#c8102e;padding:24px 32px;text-align:center;}}
+  .header h1{{margin:0;color:#fff;font-size:1.4rem;}}
+  .body{{padding:28px 32px;color:#222;font-size:.95rem;line-height:1.6;}}
+  .footer{{background:#f9f9f9;border-top:1px solid #eee;padding:16px 32px;text-align:center;font-size:.78rem;color:#888;}}
+  .btn{{display:inline-block;margin:16px 0;padding:12px 28px;background:#c8102e;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;}}
+  .info-box{{background:#fff9e6;border:1px solid #f5c842;border-radius:8px;padding:14px 18px;margin:16px 0;}}
+</style></head><body>
+<div class="wrap">
+  <div class="header"><h1>Poupáqui</h1></div>
+  <div class="body"><h2 style="margin-top:0;color:#c8102e">{titulo}</h2>{conteudo}</div>
+  <div class="footer">Poupáqui — Sua farmácia de confiança · <a href="https://poupaqui.com.br" style="color:#c8102e">poupaqui.com.br</a></div>
+</div></body></html>"""
+
+
+# ─── RATE LIMITING (in-memory, best-effort) ───────────────────────────────────
+
+_rl_store: dict = {}
+_rl_lock = threading.Lock()
+
+
+def _rate_limit_check(key: str, max_calls: int, window_secs: int) -> bool:
+    """Retorna True se a chamada é permitida, False se excedeu o limite."""
+    now = time.time()
+    with _rl_lock:
+        calls = _rl_store.get(key, [])
+        calls = [t for t in calls if now - t < window_secs]
+        if len(calls) >= max_calls:
+            _rl_store[key] = calls
+            return False
+        calls.append(now)
+        _rl_store[key] = calls
+        # limpa entradas antigas para não crescer indefinidamente
+        if len(_rl_store) > 5000:
+            _rl_store.clear()
+        return True
+
+
+def _rate_limited_api(max_calls: int = 60, window_secs: int = 60):
+    """Decorator de rate limit por IP para rotas públicas."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            limit = int(os.getenv("RATE_LIMIT_PUBLIC_API", str(max_calls)))
+            ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+            if not _rate_limit_check(f"{f.__name__}:{ip}", limit, window_secs):
+                return jsonify({"error": "Muitas requisições. Tente novamente em instantes."}), 429
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
 
 # ─── DATABASE ─────────────────────────────────────────────────────────────────
 
@@ -314,6 +398,10 @@ def _ensure_consumidor_schema():
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco TEXT")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lat DOUBLE PRECISION")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lng DOUBLE PRECISION")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_token TEXT")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS reset_token TEXT")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMPTZ")
         conn.commit()
         cur.close()
         _schema_ready.add("consumidor")
@@ -329,6 +417,7 @@ def _ensure_delivery_schema():
             return
         conn = db()
         cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS email_notificacao TEXT")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS aceita_entrega BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS raio_entrega_km NUMERIC DEFAULT 0")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS cobra_frete BOOLEAN DEFAULT FALSE")
@@ -2451,7 +2540,9 @@ _SQL_ALPHA_BATCH = """
     SELECT
         el.cnpjloja,
         el.barras                                                             AS ean,
-        el.descricao                                                          AS nome,
+        COALESCE(m.descricao, pc.descricao_canon, el.descricao)              AS nome,
+        COALESCE(m.laboratorio, pc.laboratorio)                              AS laboratorio,
+        CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END  AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial)  AS preco,
         COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
@@ -2466,6 +2557,7 @@ _SQL_ALPHA_BATCH = """
     ) vg ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
 """
@@ -2502,7 +2594,9 @@ _SQL_AUTO_BATCH = """
     SELECT
         el.cnpjloja,
         el.ean,
-        el.descricao                                                              AS nome,
+        COALESCE(m.descricao, pc.descricao_canon, el.descricao)                   AS nome,
+        COALESCE(m.laboratorio, pc.laboratorio)                                   AS laboratorio,
+        CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END        AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
         COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), ''))  AS imagem
@@ -2517,6 +2611,7 @@ _SQL_AUTO_BATCH = """
     ) av ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
 """
@@ -2546,6 +2641,7 @@ def get_dns_products_batch(cnpjs):
     if cached is not None:
         return cached
     _ensure_precificador_schema()
+    _ensure_produto_canon_schema()
     conn = _new_conn_batch()
     cur = conn.cursor()
     cur.execute(_SQL_ALPHA_BATCH, (cnpjs,))
@@ -2583,7 +2679,10 @@ def get_dns_products_batch(cnpjs):
             all_extra_eans = list({ean for _, ean in extra_keys})
 
             cur.execute("""
-                SELECT e.cnpj AS cnpjloja, e.barras AS ean, e.descricao AS nome,
+                SELECT e.cnpj AS cnpjloja, e.barras AS ean,
+                       COALESCE(m.descricao, pc.descricao_canon, e.descricao) AS nome,
+                       COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
@@ -2597,6 +2696,7 @@ def get_dns_products_batch(cnpjs):
                 ) vg ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
                 WHERE e.cnpj = ANY(%s) AND e.barras = ANY(%s) AND e.estoque > 0
@@ -2610,7 +2710,10 @@ def get_dns_products_batch(cnpjs):
                     combined.append(dict(row))
 
             cur.execute("""
-                SELECT ae.cnpj_loja AS cnpjloja, ae.ean, ae.descricao_produto AS nome,
+                SELECT ae.cnpj_loja AS cnpjloja, ae.ean,
+                       COALESCE(m.descricao, pc.descricao_canon, ae.descricao_produto) AS nome,
+                       COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END AS categoria,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
@@ -2624,6 +2727,7 @@ def get_dns_products_batch(cnpjs):
                 ) av ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
                 WHERE ae.cnpj_loja = ANY(%s) AND ae.ean = ANY(%s) AND ae.quantidade_estoque > 0
@@ -3039,6 +3143,7 @@ def admin_lojas_vitrine_salvar_coord():
 
 
 @app.get("/api/lojas-proximas")
+@_rate_limited_api(max_calls=60, window_secs=60)
 def api_lojas_proximas():
     try:
         lat_usr = float(request.args["lat"])
@@ -3084,6 +3189,7 @@ def api_lojas_proximas():
 
 
 @app.get("/api/produtos-proximos")
+@_rate_limited_api(max_calls=40, window_secs=60)
 def api_produtos_proximos():
     _ensure_delivery_schema()
     _ensure_catalog_admin_schema()
@@ -3215,6 +3321,7 @@ def api_produtos_proximos():
 
 
 @app.get("/api/produto/<ean>")
+@_rate_limited_api(max_calls=120, window_secs=60)
 def api_produto(ean):
     conn = db()
     cur = conn.cursor()
@@ -3297,6 +3404,7 @@ def api_produto(ean):
 
 
 @app.get("/api/config-lojas")
+@_rate_limited_api(max_calls=30, window_secs=60)
 def api_config_lojas():
     _ensure_delivery_schema()
     cnpjs = [c.strip() for c in request.args.get("cnpjs", "").split(",") if c.strip()]
@@ -3744,6 +3852,7 @@ def consumidor_login_post():
     session["consumidor_endereco"] = user.get("endereco") or ""
     session["consumidor_lat"] = user.get("endereco_lat")
     session["consumidor_lng"] = user.get("endereco_lng")
+    session["email_verificado"] = bool(user.get("email_verificado"))
     return redirect(next_url)
 
 
@@ -3810,6 +3919,15 @@ def consumidor_criar_conta_post():
     session["consumidor_endereco"] = user.get("endereco") or ""
     session["consumidor_lat"] = user.get("endereco_lat")
     session["consumidor_lng"] = user.get("endereco_lng")
+    session["email_verificado"] = False
+
+    # Dispara e-mail de verificação em background
+    threading.Thread(
+        target=_enviar_email_verificacao,
+        args=(str(user["id"]), user["email"]),
+        daemon=True,
+    ).start()
+
     return redirect(next_url)
 
 
@@ -4265,11 +4383,13 @@ def api_checkout():
             cliente["lat"] = cliente["lat"] or _c.get("endereco_lat")
             cliente["lng"] = cliente["lng"] or _c.get("endereco_lng")
     pedidos_result = []
+    _itens_por_loja: dict = {}
 
     for fp in fp_list:
         cnpjloja   = (fp.get("cnpjloja") or "").strip()
         pagamento  = (fp.get("pagamento") or "whatsapp").strip()
         itens      = fp.get("itens", [])
+        _itens_por_loja[cnpjloja] = itens
         _receita_urls = [u for u in (fp.get("receita_urls") or []) if u and isinstance(u, str)]
         receita_url = json.dumps(_receita_urls) if _receita_urls else None
         receita_declaracao_ok = fp.get("receita_declaracao_digital_valida") is True
@@ -4627,6 +4747,14 @@ def api_checkout():
     if pedidos_result:
         session["checkout_pedido_ids"] = [p["id"] for p in pedidos_result]
     cur.close()
+
+    # E-mail de confirmação para o consumidor e notificação para cada loja
+    threading.Thread(
+        target=_disparar_emails_novos_pedidos,
+        args=(pedidos_result, _itens_por_loja, cliente),
+        daemon=True,
+    ).start()
+
     return jsonify({"pedidos": pedidos_result})
 
 
@@ -5116,6 +5244,9 @@ def painel_pedido_status(pedido_id):
     cur.close()
     if novo_status == "entregue" and ml_order_id:
         _ml_feedback_entregue(ml_order_id)
+    threading.Thread(
+        target=_email_status_pedido, args=(pedido_id, novo_status), daemon=True
+    ).start()
     flash(f"Pedido marcado como {novo_status}.", "success")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -5159,6 +5290,10 @@ def painel_confirmar_entrega(pedido_id):
     cur.close()
     if ok and is_ml and ok.get("ml_order_id"):
         _ml_feedback_entregue(ok["ml_order_id"])
+    if ok:
+        threading.Thread(
+            target=_email_status_pedido, args=(pedido_id, "entregue"), daemon=True
+        ).start()
     flash("Entrega confirmada." if ok else "Código de entrega inválido.", "success" if ok else "error")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -5916,13 +6051,14 @@ def painel_config_salvar():
     cur.execute(
         """
         INSERT INTO ecommerce_config_loja
-          (cnpjloja, whatsapp_pedidos, whatsapp_receita, aceita_whatsapp, aceita_pix, aceita_mp,
+          (cnpjloja, whatsapp_pedidos, whatsapp_receita, email_notificacao, aceita_whatsapp, aceita_pix, aceita_mp,
            aceita_entrega, raio_entrega_km, cobra_frete, valor_frete,
            pedido_minimo_entrega, pix_chave, pix_nome, mp_access_token, updated_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
         ON CONFLICT (cnpjloja) DO UPDATE SET
           whatsapp_pedidos       = EXCLUDED.whatsapp_pedidos,
           whatsapp_receita       = EXCLUDED.whatsapp_receita,
+          email_notificacao      = EXCLUDED.email_notificacao,
           aceita_whatsapp        = EXCLUDED.aceita_whatsapp,
           aceita_pix             = EXCLUDED.aceita_pix,
           aceita_mp              = EXCLUDED.aceita_mp,
@@ -5940,6 +6076,7 @@ def painel_config_salvar():
             cnpjloja,
             (f.get("whatsapp_pedidos") or "").strip(),
             (f.get("whatsapp_receita") or "").strip() or None,
+            (f.get("email_notificacao") or "").strip() or None,
             "aceita_whatsapp" in f,
             "aceita_pix"      in f,
             "aceita_mp"       in f,
@@ -8097,6 +8234,98 @@ def admin_anvisa_cache():
     )
 
 
+# ─── PRODUTO CANON ────────────────────────────────────────────────────────────
+
+def _ensure_produto_canon_schema():
+    key = "produto_canon"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS produto_canon (
+                ean               TEXT PRIMARY KEY,
+                descricao_original TEXT,
+                descricao_canon   TEXT NOT NULL,
+                laboratorio       TEXT,
+                fonte             TEXT DEFAULT 'manual',
+                criado_em         TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("ALTER TABLE produto_canon ADD COLUMN IF NOT EXISTS descricao_original TEXT")
+        cur.execute("ALTER TABLE produto_canon ADD COLUMN IF NOT EXISTS laboratorio TEXT")
+        cur.execute("ALTER TABLE produto_canon ADD COLUMN IF NOT EXISTS categoria TEXT")
+        cur.execute("ALTER TABLE produto_canon ADD COLUMN IF NOT EXISTS imagem_cosmos TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+
+
+@app.get("/painel/admin/produto-canon")
+@admin_required
+def admin_produto_canon():
+    _ensure_produto_canon_schema()
+    q = (request.args.get("q") or "").strip()
+    fonte = (request.args.get("fonte") or "todos").strip()
+    conn = db()
+    cur = conn.cursor()
+
+    where_clauses = []
+    params = []
+    if q:
+        where_clauses.append("(ean ILIKE %s OR descricao_canon ILIKE %s OR descricao_original ILIKE %s)")
+        like = f"%{q}%"
+        params += [like, like, like]
+    if fonte != "todos":
+        where_clauses.append("fonte = %s")
+        params.append(fonte)
+
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    cur.execute(
+        f"SELECT * FROM produto_canon {where_sql} ORDER BY atualizado_em DESC LIMIT 500",
+        params,
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT fonte, COUNT(*) AS cnt FROM produto_canon GROUP BY fonte ORDER BY cnt DESC
+    """)
+    stats = {r["fonte"]: r["cnt"] for r in cur.fetchall()}
+    total = sum(stats.values())
+    cur.close()
+
+    return render_template("admin_produto_canon.html",
+        rows=rows, q=q, fonte=fonte, stats=stats, total=total,
+    )
+
+
+@app.post("/painel/admin/produto-canon/editar")
+@admin_required
+def admin_produto_canon_editar():
+    _ensure_produto_canon_schema()
+    ean = (request.form.get("ean") or "").strip()
+    novo_nome = (request.form.get("descricao_canon") or "").strip()
+    if not ean or not novo_nome:
+        return ("EAN e nome são obrigatórios", 400)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO produto_canon (ean, descricao_canon, fonte, criado_em, atualizado_em)
+        VALUES (%s, %s, 'manual', NOW(), NOW())
+        ON CONFLICT (ean) DO UPDATE SET
+            descricao_canon = EXCLUDED.descricao_canon,
+            fonte           = 'manual',
+            atualizado_em   = NOW()
+    """, (ean, novo_nome))
+    conn.commit()
+    cur.close()
+    return redirect(url_for("admin_produto_canon", q=ean))
+
+
 # ─── CUPONS ───────────────────────────────────────────────────────────────────
 
 def _ensure_cupons_schema():
@@ -10221,6 +10450,311 @@ def api_ml_salvar_endereco():
         return jsonify({"ok": True, "mensagem": "Endereço salvo com sucesso no Mercado Livre!"})
     erro_msg = (resp or {}).get("message") or (resp or {}).get("error") or f"Erro {code}"
     return jsonify({"ok": False, "erro": f"ML retornou: {erro_msg}"}), 400
+
+
+# ─── E-MAIL TRANSACIONAL ──────────────────────────────────────────────────────
+
+_STATUS_LABEL = {
+    "pendente":  "Pendente",
+    "pago":      "Pago ✓",
+    "enviado":   "Enviado / Saiu para entrega",
+    "entregue":  "Entregue ✓",
+    "cancelado": "Cancelado",
+}
+
+
+def _disparar_emails_novos_pedidos(pedidos_result: list, itens_por_loja: dict, cliente: dict):
+    """Envia confirmação ao consumidor e alerta para cada loja. Roda em thread daemon."""
+    if not RESEND_API_KEY:
+        return
+    try:
+        consumidor_email = (cliente.get("email") or "").strip()
+        consumidor_nome  = (cliente.get("nome") or "Cliente").split()[0]
+
+        for ped in pedidos_result:
+            pedido_id = ped.get("id", "")
+            cnpjloja  = ped.get("cnpjloja", "")
+            razao     = ped.get("razao") or "Farmácia"
+            total_fmt = f"R$ {ped.get('total', 0):.2f}".replace(".", ",")
+            tipo      = "Entrega" if ped.get("tipo_entrega") == "entrega" else "Retirada na loja"
+            pagamento = ped.get("pagamento", "").replace("_", " ").title()
+            itens     = itens_por_loja.get(cnpjloja, [])
+
+            itens_html = "".join(
+                f"<tr><td style='padding:6px 0;border-bottom:1px solid #eee'>{html.escape(str(i.get('nome','Produto')))}</td>"
+                f"<td style='padding:6px 0;border-bottom:1px solid #eee;text-align:right'>{i.get('qty',1)}×</td>"
+                f"<td style='padding:6px 0;border-bottom:1px solid #eee;text-align:right'>R$ {float(i.get('preco',0)):.2f}</td></tr>"
+                for i in itens
+            )
+            itens_table = (
+                f"<table width='100%' cellspacing='0' style='margin:12px 0'><thead>"
+                f"<tr><th style='text-align:left;font-size:.8rem;color:#888'>Produto</th>"
+                f"<th style='text-align:right;font-size:.8rem;color:#888'>Qtd</th>"
+                f"<th style='text-align:right;font-size:.8rem;color:#888'>Preço</th></tr></thead>"
+                f"<tbody>{itens_html}</tbody></table>"
+            ) if itens_html else ""
+
+            # — Consumidor
+            if consumidor_email and "@" in consumidor_email:
+                corpo_consumidor = (
+                    f"<p>Olá, <b>{html.escape(consumidor_nome)}</b>!</p>"
+                    f"<p>Seu pedido <b>#{pedido_id[:8].upper()}</b> foi recebido com sucesso.</p>"
+                    f"<div class='info-box'>"
+                    f"<b>Farmácia:</b> {html.escape(razao)}<br>"
+                    f"<b>Total:</b> {total_fmt}<br>"
+                    f"<b>Forma de pagamento:</b> {html.escape(pagamento)}<br>"
+                    f"<b>Modalidade:</b> {html.escape(tipo)}"
+                    f"</div>"
+                    f"{itens_table}"
+                    f"<p>Acompanhe seus pedidos acessando <b>Meus Pedidos</b> no site.</p>"
+                )
+                _send_email(
+                    consumidor_email,
+                    f"✅ Pedido #{pedido_id[:8].upper()} recebido — {razao}",
+                    _email_html_wrapper("Pedido recebido!", corpo_consumidor),
+                )
+
+            # — Loja: busca e-mail de notificação
+            try:
+                conn2 = _new_conn()
+                cur2  = conn2.cursor()
+                cur2.execute(
+                    "SELECT email_notificacao FROM ecommerce_config_loja WHERE cnpjloja=%s LIMIT 1",
+                    (cnpjloja,),
+                )
+                row = cur2.fetchone()
+                cur2.close()
+                conn2.close()
+                loja_email = ((row or {}).get("email_notificacao") or "").strip()
+            except Exception:
+                loja_email = ""
+
+            if loja_email and "@" in loja_email:
+                corpo_loja = (
+                    f"<p>Um novo pedido foi recebido!</p>"
+                    f"<div class='info-box'>"
+                    f"<b>Pedido:</b> #{pedido_id[:8].upper()}<br>"
+                    f"<b>Cliente:</b> {html.escape(cliente.get('nome',''))} · {html.escape(cliente.get('telefone',''))}<br>"
+                    f"<b>Total:</b> {total_fmt}<br>"
+                    f"<b>Modalidade:</b> {html.escape(tipo)}<br>"
+                    f"<b>Pagamento:</b> {html.escape(pagamento)}"
+                    f"</div>"
+                    f"{itens_table}"
+                    f"<p>Acesse o <b>Painel da Loja</b> para ver os detalhes e atualizar o status.</p>"
+                )
+                _send_email(
+                    loja_email,
+                    f"🛒 Novo pedido #{pedido_id[:8].upper()} — {razao}",
+                    _email_html_wrapper("Novo pedido recebido", corpo_loja),
+                )
+    except Exception as exc:
+        app.logger.warning("_disparar_emails_novos_pedidos error: %s", exc)
+
+
+def _email_status_pedido(pedido_id: str, novo_status: str):
+    """Avisa o consumidor quando o status do pedido muda. Roda em thread daemon."""
+    if not RESEND_API_KEY:
+        return
+    try:
+        conn2 = _new_conn()
+        cur2  = conn2.cursor()
+        cur2.execute(
+            """
+            SELECT p.cliente_nome, p.cliente_email, p.total, p.tipo_entrega, u.razao
+            FROM ecommerce_pedidos p
+            JOIN users u ON u.cnpjloja = p.cnpjloja
+            WHERE p.id = %s LIMIT 1
+            """,
+            (pedido_id,),
+        )
+        row = cur2.fetchone()
+        cur2.close()
+        conn2.close()
+        if not row:
+            return
+        email = (row.get("cliente_email") or "").strip()
+        if not email or "@" not in email:
+            return
+        nome     = (row.get("cliente_nome") or "Cliente").split()[0]
+        razao    = row.get("razao") or "Farmácia"
+        total_fmt = f"R$ {float(row.get('total', 0)):.2f}".replace(".", ",")
+        label    = _STATUS_LABEL.get(novo_status, novo_status.title())
+        tipo     = "Entrega" if (row.get("tipo_entrega") or "") == "entrega" else "Retirada na loja"
+
+        corpo = (
+            f"<p>Olá, <b>{html.escape(nome)}</b>!</p>"
+            f"<p>Seu pedido <b>#{pedido_id[:8].upper()}</b> teve o status atualizado.</p>"
+            f"<div class='info-box'>"
+            f"<b>Farmácia:</b> {html.escape(razao)}<br>"
+            f"<b>Novo status:</b> <span style='color:#c8102e;font-weight:bold'>{html.escape(label)}</span><br>"
+            f"<b>Total:</b> {total_fmt}<br>"
+            f"<b>Modalidade:</b> {html.escape(tipo)}"
+            f"</div>"
+            f"<p>Acesse <b>Meus Pedidos</b> para acompanhar todas as atualizações.</p>"
+        )
+        _send_email(
+            email,
+            f"📦 Pedido #{pedido_id[:8].upper()} — {label}",
+            _email_html_wrapper(f"Status: {label}", corpo),
+        )
+    except Exception as exc:
+        app.logger.warning("_email_status_pedido error: %s", exc)
+
+
+# ─── RECUPERAÇÃO DE SENHA ─────────────────────────────────────────────────────
+
+@app.get("/recuperar-senha")
+def recuperar_senha():
+    if session.get("consumidor_id"):
+        return redirect(url_for("index"))
+    return render_template("consumidor_recuperar_senha.html")
+
+
+@app.post("/recuperar-senha")
+def recuperar_senha_post():
+    _ensure_consumidor_schema()
+    email = _norm_email(request.form.get("email"))
+    if not _valid_email(email):
+        flash("Informe um e-mail válido.", "error")
+        return redirect(url_for("recuperar_senha"))
+
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT id FROM ecommerce_consumidores WHERE email=%s LIMIT 1", (email,))
+    user = cur.fetchone()
+
+    if user:
+        token = secrets.token_urlsafe(32)
+        expira = datetime.now(timezone.utc) + timedelta(hours=2)
+        cur.execute(
+            "UPDATE ecommerce_consumidores SET reset_token=%s, reset_token_expira=%s WHERE id=%s",
+            (token, expira, user["id"]),
+        )
+        conn.commit()
+        base = _public_base_url() or request.host_url.rstrip("/")
+        link = f"{base}/recuperar-senha/{token}"
+        corpo = (
+            f"<p>Você solicitou a redefinição de senha na Poupáqui.</p>"
+            f"<p>Clique no botão abaixo para criar uma nova senha. O link expira em <b>2 horas</b>.</p>"
+            f"<p><a class='btn' href='{link}'>Redefinir minha senha</a></p>"
+            f"<p style='font-size:.82rem;color:#888'>Se você não solicitou isso, ignore este e-mail.</p>"
+        )
+        threading.Thread(
+            target=_send_email,
+            args=(email, "🔑 Redefinição de senha — Poupáqui", _email_html_wrapper("Redefina sua senha", corpo)),
+            daemon=True,
+        ).start()
+    cur.close()
+    flash("Se este e-mail estiver cadastrado, você receberá as instruções em instantes.", "success")
+    return redirect(url_for("recuperar_senha"))
+
+
+@app.get("/recuperar-senha/<token>")
+def recuperar_senha_token(token):
+    _ensure_consumidor_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT id FROM ecommerce_consumidores WHERE reset_token=%s AND reset_token_expira > NOW() LIMIT 1",
+        (token,),
+    )
+    user = cur.fetchone()
+    cur.close()
+    if not user:
+        flash("Link inválido ou expirado. Solicite novamente.", "error")
+        return redirect(url_for("recuperar_senha"))
+    return render_template("consumidor_nova_senha.html", token=token)
+
+
+@app.post("/recuperar-senha/<token>")
+def recuperar_senha_token_post(token):
+    _ensure_consumidor_schema()
+    senha = request.form.get("senha") or ""
+    confirma = request.form.get("confirma") or ""
+    if senha != confirma:
+        flash("As senhas não coincidem.", "error")
+        return redirect(url_for("recuperar_senha_token", token=token))
+    if len(senha) < 6 or senha.isdigit() or len(set(senha)) < 4:
+        flash("Crie uma senha com pelo menos 6 caracteres e variedade.", "error")
+        return redirect(url_for("recuperar_senha_token", token=token))
+
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE ecommerce_consumidores
+        SET senha_hash=%s, reset_token=NULL, reset_token_expira=NULL
+        WHERE reset_token=%s AND reset_token_expira > NOW()
+        RETURNING id
+        """,
+        (generate_password_hash(senha), token),
+    )
+    ok = cur.fetchone()
+    conn.commit(); cur.close()
+    if not ok:
+        flash("Link inválido ou expirado. Solicite novamente.", "error")
+        return redirect(url_for("recuperar_senha"))
+    flash("Senha redefinida com sucesso! Faça login.", "success")
+    return redirect(url_for("consumidor_login"))
+
+
+# ─── VERIFICAÇÃO DE E-MAIL ────────────────────────────────────────────────────
+
+@app.get("/verificar-email/<token>")
+def verificar_email(token):
+    _ensure_consumidor_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_consumidores SET email_verificado=TRUE, email_token=NULL WHERE email_token=%s RETURNING id",
+        (token,),
+    )
+    ok = cur.fetchone()
+    conn.commit(); cur.close()
+    if ok:
+        session["email_verificado"] = True
+        flash("E-mail verificado com sucesso!", "success")
+    else:
+        flash("Link de verificação inválido ou já utilizado.", "error")
+    return redirect(url_for("index"))
+
+
+@app.post("/api/reenviar-verificacao")
+def api_reenviar_verificacao():
+    if not session.get("consumidor_id"):
+        return jsonify({"error": "Não autenticado."}), 401
+    _ensure_consumidor_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT email, email_verificado FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
+        (session["consumidor_id"],),
+    )
+    user = cur.fetchone()
+    if not user or user.get("email_verificado"):
+        cur.close()
+        return jsonify({"ok": True, "msg": "E-mail já verificado."})
+    token = secrets.token_urlsafe(32)
+    cur.execute(
+        "UPDATE ecommerce_consumidores SET email_token=%s WHERE id=%s",
+        (token, session["consumidor_id"]),
+    )
+    conn.commit(); cur.close()
+    base = _public_base_url() or request.host_url.rstrip("/")
+    link = f"{base}/verificar-email/{token}"
+    corpo = (
+        f"<p>Clique abaixo para confirmar seu e-mail na Poupáqui:</p>"
+        f"<p><a class='btn' href='{link}'>Confirmar meu e-mail</a></p>"
+        f"<p style='font-size:.82rem;color:#888'>Se não foi você, ignore este e-mail.</p>"
+    )
+    threading.Thread(
+        target=_send_email,
+        args=(user["email"], "✉️ Confirme seu e-mail — Poupáqui", _email_html_wrapper("Confirme seu e-mail", corpo)),
+        daemon=True,
+    ).start()
+    return jsonify({"ok": True, "msg": "E-mail de verificação reenviado."})
+
+
+# ─── LGPD — POLÍTICA DE PRIVACIDADE ──────────────────────────────────────────
+
+@app.get("/politica-de-privacidade")
+def politica_privacidade():
+    return render_template("politica_privacidade.html")
 
 
 if __name__ == "__main__":

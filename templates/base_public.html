@@ -7,6 +7,12 @@
 
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='poupaqui-logo.png') }}"/>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}"/>
+  <meta name="theme-color" content="#c8102e"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Poupáqui"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
@@ -725,6 +731,13 @@
     {% endif %}
   {% endwith %}
 
+  {% if session.get('consumidor_id') and not session.get('email_verificado') %}
+  <div id="banner-email-verify" class="pq-alert pq-alert-info" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <span><i class="fa fa-envelope me-1"></i> Confirme seu e-mail para garantir acesso completo à conta.</span>
+    <button onclick="reenviarVerificacao(this)" style="background:var(--pq-yellow);border:0;border-radius:6px;padding:4px 12px;font-weight:800;font-size:.8rem;cursor:pointer">Reenviar e-mail</button>
+  </div>
+  {% endif %}
+
   {% block content %}{% endblock %}
 </div>
 
@@ -1252,5 +1265,48 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharDrawer
 </script>
 
 {% block extra_js %}{% endblock %}
+
+<!-- ── LGPD COOKIE BANNER ─────────────────────────────────── -->
+<div id="lgpd-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a1a;color:#eee;padding:14px 20px;display:flex;align-items:center;flex-wrap:wrap;gap:12px;font-size:.82rem;box-shadow:0 -2px 12px rgba(0,0,0,.3)">
+  <i class="fa fa-cookie-bite" style="color:var(--pq-yellow);font-size:1.1rem"></i>
+  <span style="flex:1;min-width:200px">Usamos cookies para melhorar sua experiência. Ao continuar navegando, você concorda com nossa
+    <a href="{{ url_for('politica_privacidade') }}" style="color:var(--pq-yellow);font-weight:700">Política de Privacidade</a>.
+  </span>
+  <button onclick="lgpdAceitar()" style="background:var(--pq-red);color:#fff;border:0;border-radius:8px;padding:8px 18px;font-weight:900;cursor:pointer;white-space:nowrap">Aceitar</button>
+</div>
+
+<script>
+/* ── SERVICE WORKER (PWA) ────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
+
+/* ── LGPD ────────────────────────────────────────────── */
+(function() {
+  const b = document.getElementById('lgpd-banner');
+  if (!b) return;
+  if (!localStorage.getItem('pq_lgpd_ok')) b.style.display = 'flex';
+})();
+function lgpdAceitar() {
+  localStorage.setItem('pq_lgpd_ok', '1');
+  const b = document.getElementById('lgpd-banner');
+  if (b) b.style.display = 'none';
+}
+
+/* ── REENVIO VERIFICAÇÃO DE E-MAIL ──────────────────── */
+function reenviarVerificacao(btn) {
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  fetch('/api/reenviar-verificacao', {method:'POST', headers:{'Content-Type':'application/json'}})
+    .then(r => r.json())
+    .then(d => {
+      btn.textContent = d.ok ? 'Enviado!' : 'Erro';
+      if (d.ok) {
+        const banner = document.getElementById('banner-email-verify');
+        if (banner) banner.innerHTML = '<i class="fa fa-check-circle me-1"></i> E-mail de verificação enviado! Verifique sua caixa de entrada.';
+      }
+    })
+    .catch(() => { btn.textContent = 'Erro'; btn.disabled = false; });
+}
+</script>
 </body>
 </html>

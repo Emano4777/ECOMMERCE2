@@ -1,0 +1,35 @@
+{% extends "base_public.html" %}
+{% block title %}Nova senha — Poupáqui{% endblock %}
+
+{% block extra_style %}
+<style>
+.auth-wrap { max-width:460px; margin:0 auto; padding:36px 16px 70px; }
+.auth-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
+.auth-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+.auth-card p { color:var(--pq-muted); margin:0 0 22px; font-size:.92rem; }
+.auth-field { margin-bottom:14px; }
+.auth-field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
+.auth-field input { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; outline:none; }
+.auth-field input:focus { border-color:var(--pq-red); }
+.auth-btn { width:100%; border:0; background:var(--pq-red); color:#fff; border-radius:12px; padding:13px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <form class="auth-card" method="post" action="{{ url_for('recuperar_senha_token_post', token=token) }}">
+    <h1><i class="fa fa-lock" style="color:var(--pq-red)"></i>Criar nova senha</h1>
+    <p>Escolha uma senha segura com pelo menos 6 caracteres.</p>
+
+    <div class="auth-field">
+      <label for="senha">Nova senha</label>
+      <input id="senha" name="senha" type="password" autocomplete="new-password" required minlength="6">
+    </div>
+    <div class="auth-field">
+      <label for="confirma">Confirmar nova senha</label>
+      <input id="confirma" name="confirma" type="password" autocomplete="new-password" required minlength="6">
+    </div>
+    <button class="auth-btn" type="submit">Salvar nova senha</button>
+  </form>
+</div>
+{% endblock %}

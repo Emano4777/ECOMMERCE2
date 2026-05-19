@@ -30,7 +30,13 @@
       "Bash(git commit *)",
       "mcp__claude_ai_Vercel__get_runtime_logs",
       "Bash(findstr /i \"whats\\\\|track\\\\|clique\")",
-      "mcp__claude_ai_Vercel__deploy_to_vercel"
+      "mcp__claude_ai_Vercel__deploy_to_vercel",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\emano\\\\dns-ecommerce\" -Name \"*.html\" -Recurse)",
+      "Bash(Select-Object -First 20)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from app import _candidate_images, _external_image, _detectar_tarja; print\\('OK'\\)\")",
+      "Bash(python -c \"from app import _detectar_tarja, _external_image; print\\('OK'\\)\")",
+      "Bash(python -c \"from preencher_medicamentos_imagens_seguras import _candidate_images, _anvisa_for_name, _is_bad_image, _is_clean_image, _external_image; print\\('OK'\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\emano\\dns-ecommerce"
