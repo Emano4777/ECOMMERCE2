@@ -1,9 +1,6 @@
 {
   "version": 2,
-  "builds": [{ "src": "app.py", "use": "@vercel/python" }],
-  "functions": {
-    "app.py": { "maxDuration": 60 }
-  },
+  "builds": [{ "src": "app.py", "use": "@vercel/python", "config": { "maxDuration": 60 } }],
   "headers": [
     {
       "source": "/static/(.*)",
