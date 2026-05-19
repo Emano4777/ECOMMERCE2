@@ -1299,13 +1299,33 @@ function reenviarVerificacao(btn) {
   fetch('/api/reenviar-verificacao', {method:'POST', headers:{'Content-Type':'application/json'}})
     .then(r => r.json())
     .then(d => {
-      btn.textContent = d.ok ? 'Enviado!' : 'Erro';
+      const banner = document.getElementById('banner-email-verify');
+      if (d.ja_verificado) {
+        if (banner) banner.remove();
+        return;
+      }
+      if (d.rate_limited) {
+        btn.textContent = 'Reenviar e-mail';
+        btn.disabled = false;
+        if (banner) {
+          const span = banner.querySelector('span');
+          if (span) span.textContent = `⏱ Aguarde ${d.espera}s para reenviar novamente.`;
+          // re-habilita o botão após o tempo de espera
+          setTimeout(() => {
+            btn.disabled = false; btn.textContent = 'Reenviar e-mail';
+            if (span) span.innerHTML = '<i class="fa fa-envelope me-1"></i> Confirme seu e-mail para garantir acesso completo à conta.';
+          }, d.espera * 1000);
+        }
+        return;
+      }
       if (d.ok) {
-        const banner = document.getElementById('banner-email-verify');
-        if (banner) banner.innerHTML = '<i class="fa fa-check-circle me-1"></i> E-mail de verificação enviado! Verifique sua caixa de entrada.';
+        if (banner) banner.innerHTML = '<i class="fa fa-check-circle me-1"></i> E-mail enviado! Verifique sua caixa de entrada e clique no link de confirmação.';
+      } else {
+        btn.textContent = 'Tentar novamente';
+        btn.disabled = false;
       }
     })
-    .catch(() => { btn.textContent = 'Erro'; btn.disabled = false; });
+    .catch(() => { btn.textContent = 'Reenviar e-mail'; btn.disabled = false; });
 }
 </script>
 </body>

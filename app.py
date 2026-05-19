@@ -151,7 +151,7 @@ def _email_html_wrapper(titulo: str, conteudo: str) -> str:
 <div class="wrap">
   <div class="header"><h1>Poupáqui</h1></div>
   <div class="body"><h2 style="margin-top:0;color:#c8102e">{titulo}</h2>{conteudo}</div>
-  <div class="footer">Poupáqui — Sua farmácia de confiança · <a href="https://poupaqui.com.br" style="color:#c8102e">poupaqui.com.br</a></div>
+  <div class="footer">Poupáqui — Sua farmácia de confiança · <a href="https://drogariaspoupaqui.com.br" style="color:#c8102e">drogariaspoupaqui.com.br</a></div>
 </div></body></html>"""
 
 
@@ -161,7 +161,7 @@ def _enviar_email_verificacao(user_id: str, email: str) -> bool:
         token = secrets.token_urlsafe(32)
         conn = db(); cur = conn.cursor()
         cur.execute(
-            "UPDATE ecommerce_consumidores SET email_token=%s WHERE id=%s",
+            "UPDATE ecommerce_consumidores SET email_token=%s, email_token_enviado_em=NOW() WHERE id=%s",
             (token, user_id),
         )
         conn.commit(); cur.close()
@@ -462,6 +462,7 @@ def _ensure_consumidor_auth_columns():
         cur = conn.cursor()
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_token TEXT")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_token_enviado_em TIMESTAMPTZ")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS reset_token TEXT")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMPTZ")
         conn.commit()
@@ -10788,16 +10789,29 @@ def api_reenviar_verificacao():
     _ensure_consumidor_auth_columns()
     conn = db(); cur = conn.cursor()
     cur.execute(
-        "SELECT email, email_verificado FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
+        "SELECT email, email_verificado, email_token_enviado_em FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
         (session["consumidor_id"],),
     )
     user = cur.fetchone()
     if not user or user.get("email_verificado"):
         cur.close()
-        return jsonify({"ok": True, "msg": "E-mail já verificado."})
+        return jsonify({"ok": True, "ja_verificado": True, "msg": "E-mail já verificado."})
+    # Rate limit: 1 reenvio a cada 2 minutos
+    ultimo = user.get("email_token_enviado_em")
+    if ultimo:
+        import datetime as _dt
+        agora = _dt.datetime.now(_dt.timezone.utc)
+        if ultimo.tzinfo is None:
+            ultimo = ultimo.replace(tzinfo=_dt.timezone.utc)
+        segundos = (agora - ultimo).total_seconds()
+        if segundos < 120:
+            cur.close()
+            espera = int(120 - segundos)
+            return jsonify({"ok": False, "rate_limited": True, "espera": espera,
+                            "msg": f"Aguarde {espera}s antes de reenviar."}), 429
     token = secrets.token_urlsafe(32)
     cur.execute(
-        "UPDATE ecommerce_consumidores SET email_token=%s WHERE id=%s",
+        "UPDATE ecommerce_consumidores SET email_token=%s, email_token_enviado_em=NOW() WHERE id=%s",
         (token, session["consumidor_id"]),
     )
     conn.commit(); cur.close()
