@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.db
+*.sqlite3
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.bak
+*.tmp
+.env
+.vscode/
+.git/
+.claude/
+
+# Keep runtime files.
+!requirements.txt
+!vercel.json
+!app.py
+!static/**
+!templates/**
