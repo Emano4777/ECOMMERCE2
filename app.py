@@ -112,7 +112,7 @@ def _send_email(to: str, subject: str, html_body: str) -> bool:
             method="POST",
         )
         ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
             return resp.status in (200, 201)
     except Exception as exc:
         app.logger.warning("_send_email failed: %s", exc)
@@ -3961,13 +3961,7 @@ def consumidor_criar_conta_post():
     session["consumidor_lng"] = user.get("endereco_lng")
     session["email_verificado"] = False
 
-    # Dispara e-mail de verificação em background
-    threading.Thread(
-        target=_enviar_email_verificacao,
-        args=(str(user["id"]), user["email"]),
-        daemon=True,
-    ).start()
-
+    _enviar_email_verificacao(str(user["id"]), user["email"])
     return redirect(next_url)
 
 
@@ -4789,11 +4783,7 @@ def api_checkout():
     cur.close()
 
     # E-mail de confirmação para o consumidor e notificação para cada loja
-    threading.Thread(
-        target=_disparar_emails_novos_pedidos,
-        args=(pedidos_result, _itens_por_loja, cliente),
-        daemon=True,
-    ).start()
+    _disparar_emails_novos_pedidos(pedidos_result, _itens_por_loja, cliente)
 
     return jsonify({"pedidos": pedidos_result})
 
@@ -5284,9 +5274,7 @@ def painel_pedido_status(pedido_id):
     cur.close()
     if novo_status == "entregue" and ml_order_id:
         _ml_feedback_entregue(ml_order_id)
-    threading.Thread(
-        target=_email_status_pedido, args=(pedido_id, novo_status), daemon=True
-    ).start()
+    _email_status_pedido(pedido_id, novo_status)
     flash(f"Pedido marcado como {novo_status}.", "success")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -5331,9 +5319,7 @@ def painel_confirmar_entrega(pedido_id):
     if ok and is_ml and ok.get("ml_order_id"):
         _ml_feedback_entregue(ok["ml_order_id"])
     if ok:
-        threading.Thread(
-            target=_email_status_pedido, args=(pedido_id, "entregue"), daemon=True
-        ).start()
+        _email_status_pedido(pedido_id, "entregue")
     flash("Entrega confirmada." if ok else "Código de entrega inválido.", "success" if ok else "error")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -10678,11 +10664,7 @@ def recuperar_senha_post():
             f"<p><a class='btn' href='{link}'>Redefinir minha senha</a></p>"
             f"<p style='font-size:.82rem;color:#888'>Se você não solicitou isso, ignore este e-mail.</p>"
         )
-        threading.Thread(
-            target=_send_email,
-            args=(email, "🔑 Redefinição de senha — Poupáqui", _email_html_wrapper("Redefina sua senha", corpo)),
-            daemon=True,
-        ).start()
+        _send_email(email, "🔑 Redefinição de senha — Poupáqui", _email_html_wrapper("Redefina sua senha", corpo))
     cur.close()
     flash("Se este e-mail estiver cadastrado, você receberá as instruções em instantes.", "success")
     return redirect(url_for("recuperar_senha"))
@@ -10782,11 +10764,7 @@ def api_reenviar_verificacao():
         f"<p><a class='btn' href='{link}'>Confirmar meu e-mail</a></p>"
         f"<p style='font-size:.82rem;color:#888'>Se não foi você, ignore este e-mail.</p>"
     )
-    threading.Thread(
-        target=_send_email,
-        args=(user["email"], "✉️ Confirme seu e-mail — Poupáqui", _email_html_wrapper("Confirme seu e-mail", corpo)),
-        daemon=True,
-    ).start()
+    _send_email(user["email"], "✉️ Confirme seu e-mail — Poupáqui", _email_html_wrapper("Confirme seu e-mail", corpo))
     return jsonify({"ok": True, "msg": "E-mail de verificação reenviado."})
 
 
