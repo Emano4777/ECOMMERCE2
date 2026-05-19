@@ -13,6 +13,7 @@ import time
 import json
 import random
 import secrets
+import hashlib
 import threading
 import urllib.request
 import urllib.parse
@@ -75,6 +76,11 @@ try:
     _CLOUDINARY_OK = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
 except Exception:
     _CLOUDINARY_OK = False
+
+def _cloudinary_sign(params_str: str) -> str:
+    secret = os.getenv("CLOUDINARY_API_SECRET", "")
+    return hashlib.sha1(f"{params_str}{secret}".encode()).hexdigest()
+
 
 def _upload_receita_cloudinary(file_bytes, filename):
     """Faz upload de PDF de receita no Cloudinary (resource_type raw). Retorna URL segura ou None."""
@@ -7230,6 +7236,24 @@ def admin_lojas_vitrine_auto_vincular():
     flash(msg, "success" if not sem_match else "info")
     return redirect(url_for("admin_lojas_vitrine"))
 
+@app.get("/api/cloudinary-signature")
+@admin_required
+def api_cloudinary_signature():
+    """Gera assinatura para upload direto do browser para o Cloudinary."""
+    if not _CLOUDINARY_OK:
+        return jsonify({"error": "Cloudinary não configurado"}), 400
+    folder = request.args.get("folder", "lojas_vitrine")
+    ts = int(time.time())
+    params_str = f"folder={folder}&timestamp={ts}"
+    return jsonify({
+        "signature": _cloudinary_sign(params_str),
+        "timestamp": ts,
+        "api_key": os.getenv("CLOUDINARY_API_KEY", ""),
+        "cloud_name": os.getenv("CLOUDINARY_CLOUD_NAME", ""),
+        "folder": folder,
+    })
+
+
 @app.route("/painel/admin/lojas-vitrine", methods=["GET", "POST"])
 @admin_required
 def admin_lojas_vitrine():
@@ -7244,27 +7268,12 @@ def admin_lojas_vitrine():
         whatsapp  = (request.form.get("whatsapp") or "").strip()
         ordem     = int(request.form.get("ordem") or 0)
         cnpjloja  = (request.form.get("cnpjloja") or "").strip() or None
-        imagem_url = None
+        # imagem_url já vem pronta do upload direto browser→Cloudinary
+        imagem_url = (request.form.get("imagem_url") or "").strip() or None
 
         if not cidade or not endereco:
             flash("Cidade e endereço são obrigatórios.", "danger")
             return redirect(url_for("admin_lojas_vitrine"))
-
-        file = request.files.get("file")
-        if file and file.filename:
-            if not _CLOUDINARY_OK:
-                flash("Cloudinary não configurado — sem upload de imagem.", "warning")
-            else:
-                try:
-                    result = cloudinary.uploader.upload(
-                        file,
-                        folder="lojas_vitrine",
-                        resource_type="image",
-                    )
-                    imagem_url = result.get("secure_url")
-                except Exception as e:
-                    flash(f"Erro no upload da imagem: {e}", "danger")
-                    return redirect(url_for("admin_lojas_vitrine"))
 
         cur.execute(
             "INSERT INTO ecommerce_lojas_vitrine (cidade, endereco, telefone, whatsapp, imagem_url, ordem, cnpjloja) VALUES (%s,%s,%s,%s,%s,%s,%s)",
@@ -7302,15 +7311,9 @@ def admin_lojas_vitrine_edit(loja_id):
         ordem     = int(request.form.get("ordem") or 0)
         cnpjloja  = (request.form.get("cnpjloja") or "").strip() or None
 
-        imagem_url = request.form.get("imagem_url_atual") or None
-        file = request.files.get("file")
-        if file and file.filename and _CLOUDINARY_OK:
-            try:
-                result = cloudinary.uploader.upload(file, folder="lojas_vitrine", resource_type="image")
-                imagem_url = result.get("secure_url")
-            except Exception as e:
-                flash(f"Erro no upload: {e}", "danger")
-                return redirect(url_for("admin_lojas_vitrine_edit", loja_id=loja_id))
+        # nova URL vinda do upload direto browser→Cloudinary; fallback para a atual
+        nova_url = (request.form.get("imagem_url") or "").strip()
+        imagem_url = nova_url or request.form.get("imagem_url_atual") or None
 
         cur.execute(
             "UPDATE ecommerce_lojas_vitrine SET cidade=%s, endereco=%s, telefone=%s, whatsapp=%s, imagem_url=%s, ordem=%s, cnpjloja=%s WHERE id=%s",

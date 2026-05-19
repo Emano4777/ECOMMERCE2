@@ -106,12 +106,13 @@
   {% endif %}
 {% endwith %}
 
-<!-- FORM: nova loja (Cloudinary → Supabase) -->
+<!-- FORM: nova loja (upload direto browser → Cloudinary) -->
 <details style="background:#0d1016;border:1px solid var(--pk-line);border-radius:12px;padding:18px;margin-bottom:8px">
   <summary style="cursor:pointer;font-weight:800;font-size:.9rem;color:var(--pk-yellow);list-style:none">
     <i class="fa fa-plus me-1"></i> Adicionar Nova Loja (Cloudinary)
   </summary>
-  <form method="POST" enctype="multipart/form-data" action="{{ url_for('admin_lojas_vitrine') }}" style="margin-top:16px">
+  <form method="POST" action="{{ url_for('admin_lojas_vitrine') }}" style="margin-top:16px" id="frmNovaLoja">
+    <input type="hidden" name="imagem_url" id="nova_imagem_url">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div>
         <label class="pk-label">Cidade *</label>
@@ -144,14 +145,61 @@
       </div>
       <div style="grid-column:1/-1">
         <label class="pk-label">Imagem</label>
-        <input class="pk-input" type="file" name="file" accept="image/*">
+        <input class="pk-input" type="file" id="nova_file_input" accept="image/*">
+        <div id="nova_upload_status" style="font-size:.76rem;margin-top:5px;color:var(--pk-muted)"></div>
+        <img id="nova_preview" src="" style="display:none;max-height:80px;margin-top:8px;border-radius:6px">
       </div>
     </div>
-    <button type="submit" class="btn-pk" style="margin-top:14px;background:var(--pk-yellow);color:#000">
+    <button type="submit" class="btn-pk" id="btnNovaLoja" style="margin-top:14px;background:var(--pk-yellow);color:#000">
       <i class="fa fa-plus me-1"></i>Adicionar
     </button>
   </form>
 </details>
+
+<script>
+(function(){
+  const fileInput  = document.getElementById('nova_file_input');
+  const statusEl   = document.getElementById('nova_upload_status');
+  const previewEl  = document.getElementById('nova_preview');
+  const urlInput   = document.getElementById('nova_imagem_url');
+  const btn        = document.getElementById('btnNovaLoja');
+
+  fileInput.addEventListener('change', async function() {
+    const file = this.files[0];
+    if (!file) return;
+    statusEl.textContent = 'Enviando imagem…';
+    btn.disabled = true;
+
+    try {
+      const sigRes = await fetch('/api/cloudinary-signature?folder=lojas_vitrine');
+      const sig    = await sigRes.json();
+      if (sig.error) throw new Error(sig.error);
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('api_key',   sig.api_key);
+      fd.append('timestamp', sig.timestamp);
+      fd.append('signature', sig.signature);
+      fd.append('folder',    sig.folder);
+
+      const upRes = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloud_name}/image/upload`, {method:'POST', body:fd});
+      const up    = await upRes.json();
+      if (!up.secure_url) throw new Error(up.error?.message || 'Falha no upload');
+
+      urlInput.value    = up.secure_url;
+      previewEl.src     = up.secure_url;
+      previewEl.style.display = 'block';
+      statusEl.style.color = '#22c55e';
+      statusEl.textContent = 'Imagem enviada com sucesso!';
+    } catch(e) {
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'Erro: ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
 
 <!-- LEGENDA -->
 <div style="display:flex;gap:14px;margin:12px 0 4px;font-size:.72rem;color:var(--pk-muted)">
