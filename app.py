@@ -109,7 +109,11 @@ def _send_email(to: str, subject: str, html_body: str) -> bool:
         req = urllib.request.Request(
             "https://api.resend.com/emails",
             data=payload,
-            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "PoupaquiApp/1.0",
+            },
             method="POST",
         )
         ctx = ssl.create_default_context()
@@ -10827,6 +10831,27 @@ def api_verificar_email_existe():
 @app.get("/politica-de-privacidade")
 def politica_privacidade():
     return render_template("politica_privacidade.html")
+
+
+@app.get("/api/dbg-email")
+def api_dbg_email():
+    if request.args.get("t") != os.getenv("SECRET_KEY", ""):
+        return jsonify({"error": "forbidden"}), 403
+    to = request.args.get("to", "emano4775@gmail.com")
+    payload = json.dumps({"from": RESEND_FROM, "to": [to], "subject": "DBG Test", "html": "<p>ok</p>"}).encode()
+    req = urllib.request.Request(
+        "https://api.resend.com/emails", data=payload,
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json", "User-Agent": "PoupaquiApp/1.0"}, method="POST",
+    )
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            return jsonify({"ok": True, "status": resp.status, "from": RESEND_FROM, "key": RESEND_API_KEY[:12]})
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return jsonify({"ok": False, "status": exc.code, "body": body, "from": RESEND_FROM, "key": RESEND_API_KEY[:12]}), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "from": RESEND_FROM, "key": RESEND_API_KEY[:12]}), 200
 
 
 if __name__ == "__main__":
