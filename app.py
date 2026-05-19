@@ -6922,8 +6922,6 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         produtos.append({"cnpjloja": cnpjloja, "ean": ean, "nome": nome, "qty": row.get("qty") or 0, "imagem": row.get("imagem") or ""})
 
     _apply_safe_catalog_images(produtos, cur=cur)
-    _fill_missing_catalog_images(produtos, cnpjloja=cnpjloja, max_sync=len(produtos))
-    _apply_safe_catalog_images(produtos, cur=cur)
 
     publicados = 0
     sem_imagem = 0
@@ -7015,7 +7013,7 @@ def admin_loja_catalogo_config():
     conn.commit()
     cur.close()
     _batch_cache_clear()
-    flash("ConfiguraÃ§Ã£o do catÃ¡logo atualizada.", "success")
+    flash("Configuração do catálogo atualizada.", "success")
     return redirect(url_for("admin_lojas"))
 
 
@@ -7042,13 +7040,9 @@ def admin_loja_catalogo_toggle():
         cur.close()
         _batch_cache_clear()
         if ativo:
-            stats = _sync_catalogo_loja_admin(cnpjloja, cfg.get("min") or 5, cfg.get("categorias") or "todos")
-            flash(
-                f"CatÃ¡logo habilitado. Sincronizados: {stats['publicados']} publicados, {stats['sem_imagem']} bloqueados por imagem.",
-                "success",
-            )
+            flash("Catálogo habilitado. Clique em Sincronizar para publicar os produtos.", "success")
         else:
-            flash("CatÃ¡logo ocultado dos consumidores.", "success")
+            flash("Catálogo ocultado dos consumidores.", "success")
     return redirect(url_for("admin_lojas"))
 
 
@@ -7063,7 +7057,7 @@ def admin_loja_catalogo_sync():
     categorias = request.form.get("categorias_publicacao") or "todos"
     stats = _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias)
     flash(
-        f"SincronizaÃ§Ã£o concluÃ­da: {stats['publicados']} publicados, {stats['sem_imagem']} bloqueados por imagem.",
+        f"Sincronização concluída: {stats['publicados']} publicados, {stats['sem_imagem']} sem imagem (serão preenchidos automaticamente).",
         "success",
     )
     return redirect(url_for("admin_lojas"))
