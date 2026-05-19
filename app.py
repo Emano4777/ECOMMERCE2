@@ -503,7 +503,28 @@ def _ensure_delivery_schema():
                 cur.close()
                 _schema_ready.add("delivery")
                 _mark_migration_done("delivery")
-    _ensure_loja_email_column()  # sempre chamado, independente do delivery já estar marcado
+    _ensure_loja_email_column()       # sempre chamado, independente do delivery já estar marcado
+    _ensure_codigo_retirada_column()  # idem
+
+
+def _ensure_codigo_retirada_column():
+    """Migração separada para codigo_retirada em ecommerce_pedidos."""
+    key = "codigo_retirada_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS codigo_retirada TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _ensure_loja_email_column():
@@ -5304,7 +5325,7 @@ def painel_pedido_status(pedido_id):
     ml_order_id = None
     if novo_status == "entregue":
         cur.execute(
-            "SELECT tipo_entrega, origem, ml_order_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+            "SELECT tipo_entrega, origem, ml_order_id, codigo_retirada FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
             (pedido_id, cnpjloja),
         )
         row = cur.fetchone()
@@ -5316,12 +5337,26 @@ def painel_pedido_status(pedido_id):
                 "error",
             )
             return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+        if row and row.get("tipo_entrega") != "entrega" and row.get("codigo_retirada"):
+            cur.close()
+            flash(
+                "Para confirmar a retirada, informe o código que o cliente mostrará no app.",
+                "error",
+            )
+            return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
         if is_ml:
             ml_order_id = row.get("ml_order_id")
-    cur.execute(
-        "UPDATE ecommerce_pedidos SET status=%s, entregue_em=CASE WHEN %s='entregue' THEN NOW() ELSE entregue_em END, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
-        (novo_status, novo_status, pedido_id, cnpjloja),
-    )
+    if novo_status == "pronto_retirada":
+        codigo = _novo_codigo_entrega()
+        cur.execute(
+            "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (codigo, pedido_id, cnpjloja),
+        )
+    else:
+        cur.execute(
+            "UPDATE ecommerce_pedidos SET status=%s, entregue_em=CASE WHEN %s='entregue' THEN NOW() ELSE entregue_em END, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (novo_status, novo_status, pedido_id, cnpjloja),
+        )
     conn.commit()
     cur.close()
     if novo_status == "entregue" and ml_order_id:
@@ -5376,6 +5411,36 @@ def painel_confirmar_entrega(pedido_id):
     if ok:
         _email_status_pedido(pedido_id, "entregue")
     flash("Entrega confirmada." if ok else "Código de entrega inválido.", "success" if ok else "error")
+    return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+
+@app.post("/painel/pedidos/<pedido_id>/confirmar-retirada")
+@painel_required
+def painel_confirmar_retirada(pedido_id):
+    _ensure_delivery_schema()
+    cnpjloja = session.get("cnpjloja")
+    codigo = (request.form.get("codigo_retirada") or "").strip()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE ecommerce_pedidos
+        SET status='entregue', entregue_em=NOW(), atualizado_em=NOW()
+        WHERE id=%s AND cnpjloja=%s AND codigo_retirada=%s AND tipo_entrega!='entrega'
+        RETURNING id
+        """,
+        (pedido_id, cnpjloja, codigo),
+    )
+    ok = cur.fetchone()
+    conn.commit()
+    cur.close()
+    if ok:
+        _email_status_pedido(pedido_id, "entregue")
+    flash(
+        "Retirada confirmada com sucesso!" if ok
+        else "Código inválido. Peça ao cliente o código exibido no aplicativo.",
+        "success" if ok else "error",
+    )
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
 
@@ -10555,9 +10620,10 @@ def _auto_pronto_retirada(pedido_id: str):
         )
         row = cur2.fetchone()
         if row and (row.get("tipo_entrega") or "retirada") != "entrega" and row.get("todos_prontos_retirada"):
+            codigo = _novo_codigo_entrega()
             cur2.execute(
-                "UPDATE ecommerce_pedidos SET status='pronto_retirada', atualizado_em=NOW() WHERE id=%s",
-                (pedido_id,),
+                "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=%s, atualizado_em=NOW() WHERE id=%s",
+                (codigo, pedido_id),
             )
             conn2.commit()
             cur2.close()

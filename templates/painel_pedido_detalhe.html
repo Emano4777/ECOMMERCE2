@@ -327,6 +327,22 @@
     {% endif %}
   </form>
   {% endif %}
+  {% if pedido.tipo_entrega != 'entrega' and pedido.status == 'pronto_retirada' and pedido.codigo_retirada %}
+  <form method="post" action="{{ url_for('painel_confirmar_retirada', pedido_id=pedido.id) }}"
+        style="margin-top:14px;background:#1e1a08;border:1px solid #5a430b;border-radius:10px;padding:14px 16px">
+    <div style="font-size:.78rem;font-weight:700;color:#f5c842;margin-bottom:10px">
+      <i class="fa fa-key me-1"></i>Confirmar retirada — peça o código ao cliente
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input name="codigo_retirada" maxlength="4" placeholder="Código de 4 dígitos"
+             style="background:#0d1016;border:1px solid #5a430b;color:var(--pk-txt);border-radius:8px;padding:9px 12px;width:160px;font-size:1rem;letter-spacing:4px;font-weight:900;text-align:center">
+      <button class="status-btn s-entregue" type="submit">
+        <i class="fa fa-house-circle-check me-1"></i>Confirmar retirada
+      </button>
+    </div>
+    <div style="font-size:.72rem;color:var(--pk-muted);margin-top:8px">O cliente vê o código no acompanhamento do pedido. Só confirme após receber o código presencialmente.</div>
+  </form>
+  {% endif %}
   {% if pedido.origem == 'mercado_livre' and pedido.status == 'entregue' %}
   <form method="post" action="{{ url_for('painel_avisar_entrega_ml', pedido_id=pedido.id) }}" style="margin-top:12px">
     <button class="status-btn" type="submit" style="border-color:#fff200;color:#fff200;display:inline-flex;align-items:center;gap:6px">
