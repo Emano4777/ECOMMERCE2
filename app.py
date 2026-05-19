@@ -398,14 +398,34 @@ def _ensure_consumidor_schema():
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco TEXT")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lat DOUBLE PRECISION")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lng DOUBLE PRECISION")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("consumidor")
+        _mark_migration_done("consumidor")
+    _ensure_consumidor_auth_columns()
+
+
+def _ensure_consumidor_auth_columns():
+    """Migração separada para colunas de verificação de e-mail e reset de senha."""
+    key = "consumidor_auth_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_verificado BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS email_token TEXT")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS reset_token TEXT")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMPTZ")
         conn.commit()
         cur.close()
-        _schema_ready.add("consumidor")
-        _mark_migration_done("consumidor")
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _ensure_delivery_schema():
@@ -417,7 +437,6 @@ def _ensure_delivery_schema():
             return
         conn = db()
         cur = conn.cursor()
-        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS email_notificacao TEXT")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS aceita_entrega BOOLEAN DEFAULT FALSE")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS raio_entrega_km NUMERIC DEFAULT 0")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS cobra_frete BOOLEAN DEFAULT FALSE")
@@ -437,6 +456,27 @@ def _ensure_delivery_schema():
         cur.close()
         _schema_ready.add("delivery")
         _mark_migration_done("delivery")
+    _ensure_loja_email_column()
+
+
+def _ensure_loja_email_column():
+    """Migração separada para email_notificacao na config da loja."""
+    key = "loja_email_notif_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS email_notificacao TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _ensure_receita_schema():
@@ -10612,7 +10652,7 @@ def recuperar_senha():
 
 @app.post("/recuperar-senha")
 def recuperar_senha_post():
-    _ensure_consumidor_schema()
+    _ensure_consumidor_auth_columns()
     email = _norm_email(request.form.get("email"))
     if not _valid_email(email):
         flash("Informe um e-mail válido.", "error")
@@ -10650,7 +10690,7 @@ def recuperar_senha_post():
 
 @app.get("/recuperar-senha/<token>")
 def recuperar_senha_token(token):
-    _ensure_consumidor_schema()
+    _ensure_consumidor_auth_columns()
     conn = db(); cur = conn.cursor()
     cur.execute(
         "SELECT id FROM ecommerce_consumidores WHERE reset_token=%s AND reset_token_expira > NOW() LIMIT 1",
@@ -10666,7 +10706,7 @@ def recuperar_senha_token(token):
 
 @app.post("/recuperar-senha/<token>")
 def recuperar_senha_token_post(token):
-    _ensure_consumidor_schema()
+    _ensure_consumidor_auth_columns()
     senha = request.form.get("senha") or ""
     confirma = request.form.get("confirma") or ""
     if senha != confirma:
@@ -10699,7 +10739,7 @@ def recuperar_senha_token_post(token):
 
 @app.get("/verificar-email/<token>")
 def verificar_email(token):
-    _ensure_consumidor_schema()
+    _ensure_consumidor_auth_columns()
     conn = db(); cur = conn.cursor()
     cur.execute(
         "UPDATE ecommerce_consumidores SET email_verificado=TRUE, email_token=NULL WHERE email_token=%s RETURNING id",
@@ -10719,7 +10759,7 @@ def verificar_email(token):
 def api_reenviar_verificacao():
     if not session.get("consumidor_id"):
         return jsonify({"error": "Não autenticado."}), 401
-    _ensure_consumidor_schema()
+    _ensure_consumidor_auth_columns()
     conn = db(); cur = conn.cursor()
     cur.execute(
         "SELECT email, email_verificado FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
@@ -10748,6 +10788,20 @@ def api_reenviar_verificacao():
         daemon=True,
     ).start()
     return jsonify({"ok": True, "msg": "E-mail de verificação reenviado."})
+
+
+@app.get("/api/verificar-email-existe")
+def api_verificar_email_existe():
+    """Verifica em tempo real se o e-mail já tem cadastro — usado no formulário de criação de conta."""
+    email = _norm_email(request.args.get("email"))
+    if not _valid_email(email):
+        return jsonify({"existe": False})
+    _ensure_consumidor_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT 1 FROM ecommerce_consumidores WHERE email=%s LIMIT 1", (email,))
+    existe = cur.fetchone() is not None
+    cur.close()
+    return jsonify({"existe": existe})
 
 
 # ─── LGPD — POLÍTICA DE PRIVACIDADE ──────────────────────────────────────────

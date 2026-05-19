@@ -50,6 +50,7 @@
       <div class="auth-field">
         <label for="email">E-mail</label>
         <input id="email" name="email" type="email" autocomplete="email" required>
+        <div id="email-hint" style="font-size:.72rem;margin-top:4px"></div>
       </div>
       <div class="auth-field full">
         <label for="senha">Senha</label>
@@ -230,6 +231,36 @@ document.getElementById('frmCadastro').addEventListener('submit', async function
     alert('Erro ao verificar localização. Tente novamente.');
     btn.disabled = false; btn.textContent = 'Criar conta';
   }
+});
+
+/* ── Verificação de e-mail duplicado em tempo real ─── */
+let _emailTimer = null;
+document.getElementById('email').addEventListener('blur', function() {
+  const email = this.value.trim();
+  const hint  = document.getElementById('email-hint');
+  if (!email || !email.includes('@')) return;
+  clearTimeout(_emailTimer);
+  _emailTimer = setTimeout(() => {
+    fetch(`/api/verificar-email-existe?email=${encodeURIComponent(email)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.existe) {
+          hint.innerHTML = '<span style="color:#c8102e;font-weight:700">⚠ Este e-mail já tem uma conta. <a href="/entrar" style="color:#c8102e">Fazer login</a> ou <a href="/recuperar-senha" style="color:#c8102e">recuperar senha</a>.</span>';
+          document.getElementById('email').style.borderColor = '#c8102e';
+          document.getElementById('btnCadastrar').disabled = true;
+        } else {
+          hint.innerHTML = '';
+          document.getElementById('email').style.borderColor = '';
+          document.getElementById('btnCadastrar').disabled = false;
+        }
+      })
+      .catch(() => {});
+  }, 400);
+});
+document.getElementById('email').addEventListener('input', function() {
+  document.getElementById('email-hint').innerHTML = '';
+  this.style.borderColor = '';
+  document.getElementById('btnCadastrar').disabled = false;
 });
 </script>
 {% endblock %}
