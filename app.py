@@ -102,6 +102,7 @@ RESEND_FROM    = os.getenv("RESEND_FROM", "Poupáqui <noreply@poupaqui.com.br>")
 def _send_email(to: str, subject: str, html_body: str) -> bool:
     """Envia e-mail via Resend API. Retorna True se enviou, False se falhou/não configurado."""
     if not RESEND_API_KEY or not to or "@" not in to:
+        app.logger.warning("_send_email skipped: key=%s to=%s", bool(RESEND_API_KEY), to)
         return False
     try:
         payload = json.dumps({"from": RESEND_FROM, "to": [to], "subject": subject, "html": html_body}).encode()
@@ -113,9 +114,18 @@ def _send_email(to: str, subject: str, html_body: str) -> bool:
         )
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+            app.logger.info("_send_email ok: status=%s to=%s", resp.status, to)
             return resp.status in (200, 201)
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        app.logger.warning("_send_email HTTP %s: %s | from=%s to=%s", exc.code, body, RESEND_FROM, to)
+        return False
     except Exception as exc:
-        app.logger.warning("_send_email failed: %s", exc)
+        app.logger.warning("_send_email failed: %s | from=%s to=%s", exc, RESEND_FROM, to)
         return False
 
 
