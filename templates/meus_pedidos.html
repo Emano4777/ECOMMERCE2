@@ -37,10 +37,11 @@
 .order-hint { color:var(--pq-red); font-size:.78rem; font-weight:900; margin-top:3px; }
 
 .status { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.78rem; font-weight:900; background:#fff7dd; color:#8a6200; margin-bottom:6px; }
-.status.pago     { background:#e9fff0; color:#15803d; }
-.status.enviado  { background:#eaf6ff; color:#0369a1; }
-.status.entregue { background:#e9fff0; color:#15803d; }
-.status.cancelado{ background:#fff0f0; color:#b00020; }
+.status.pago            { background:#e9fff0; color:#15803d; }
+.status.pronto_retirada { background:#e9fff0; color:#15803d; }
+.status.enviado         { background:#eaf6ff; color:#0369a1; }
+.status.entregue        { background:#e9fff0; color:#15803d; }
+.status.cancelado       { background:#fff0f0; color:#b00020; }
 
 /* Strip de reclamação */
 .rec-strip {
@@ -106,7 +107,8 @@
           </div>
         </div>
         <div class="order-side">
-          <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ p.status|capitalize }}</div>
+          {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
+          <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ _sl.get(p.status, p.status) }}</div>
           <div class="order-total">{{ money(p.total) }}</div>
           <div class="order-hint">Ver detalhes</div>
         </div>

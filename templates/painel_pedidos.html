@@ -38,6 +38,7 @@
 .s-pendente  { background:#1e1a08; color:#f5c842; }
 .s-pago      { background:#0d2d1a; color:#22c55e; }
 .s-enviado   { background:#0d1e2d; color:#38bdf8; }
+.s-pronto_retirada { background:#0d2d1a; color:#22c55e; }
 .s-entregue  { background:#0d2d1a; color:#22c55e; }
 .s-cancelado { background:#2a0810; color:#f08090; }
 
@@ -143,7 +144,8 @@
           {{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '—' }}
         </td>
         <td>
-          <span class="status-badge s-{{ p.status }}">{{ p.status | capitalize }}</span>
+          {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
+          <span class="status-badge s-{{ p.status }}">{{ _sl.get(p.status, p.status) }}</span>
           {% if p.receita_status == 'pendente' %}
           <div style="margin-top:4px">
             <span style="background:#1e1a08;color:#f5c842;border-radius:10px;padding:2px 8px;font-size:.7rem;font-weight:700">

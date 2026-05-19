@@ -44,10 +44,11 @@
   <div style="font-weight:900;font-size:1.2rem">
     <i class="fa fa-receipt me-2" style="color:var(--pk-yellow)"></i>Pedido #{{ pedido.id[:8]|upper }}
   </div>
+  {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
   <span style="padding:4px 12px;border-radius:8px;font-size:.8rem;font-weight:700;
-    background:{% if pedido.status=='pago' %}#0d2d1a{% elif pedido.status=='enviado' %}#0d1e2d{% elif pedido.status=='cancelado' %}#2a0810{% else %}#1e1a08{% endif %};
-    color:{% if pedido.status=='pago' %}#22c55e{% elif pedido.status=='enviado' %}#38bdf8{% elif pedido.status=='cancelado' %}#f08090{% else %}#f5c842{% endif %}">
-    {{ pedido.status | capitalize }}
+    background:{% if pedido.status=='pago' %}#0d2d1a{% elif pedido.status=='pronto_retirada' %}#0d2d1a{% elif pedido.status=='enviado' %}#0d1e2d{% elif pedido.status=='cancelado' %}#2a0810{% elif pedido.status=='entregue' %}#0d2d1a{% else %}#1e1a08{% endif %};
+    color:{% if pedido.status in ['pago','pronto_retirada','entregue'] %}#22c55e{% elif pedido.status=='enviado' %}#38bdf8{% elif pedido.status=='cancelado' %}#f08090{% else %}#f5c842{% endif %}">
+    {{ _sl.get(pedido.status, pedido.status) }}
   </span>
 </div>
 
