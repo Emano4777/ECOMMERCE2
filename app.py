@@ -473,33 +473,31 @@ def _ensure_consumidor_auth_columns():
 
 def _ensure_delivery_schema():
     _ensure_consumidor_schema()
-    if "delivery" in _schema_ready:
-        return
-    with _schema_lock:
-        if "delivery" in _schema_ready:
-            return
-        conn = db()
-        cur = conn.cursor()
-        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS aceita_entrega BOOLEAN DEFAULT FALSE")
-        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS raio_entrega_km NUMERIC DEFAULT 0")
-        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS cobra_frete BOOLEAN DEFAULT FALSE")
-        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS valor_frete NUMERIC DEFAULT 0")
-        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pedido_minimo_entrega NUMERIC DEFAULT 0")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS tipo_entrega TEXT DEFAULT 'retirada'")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS endereco_entrega TEXT")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_lat DOUBLE PRECISION")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_lng DOUBLE PRECISION")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_distancia_km NUMERIC")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS frete_valor NUMERIC DEFAULT 0")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS codigo_entrega TEXT")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entregue_em TIMESTAMPTZ")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cupom_id UUID")
-        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS desconto_cupom NUMERIC DEFAULT 0")
-        conn.commit()
-        cur.close()
-        _schema_ready.add("delivery")
-        _mark_migration_done("delivery")
-    _ensure_loja_email_column()
+    if "delivery" not in _schema_ready:
+        with _schema_lock:
+            if "delivery" not in _schema_ready:
+                conn = db()
+                cur = conn.cursor()
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS aceita_entrega BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS raio_entrega_km NUMERIC DEFAULT 0")
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS cobra_frete BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS valor_frete NUMERIC DEFAULT 0")
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pedido_minimo_entrega NUMERIC DEFAULT 0")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS tipo_entrega TEXT DEFAULT 'retirada'")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS endereco_entrega TEXT")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_lat DOUBLE PRECISION")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_lng DOUBLE PRECISION")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_distancia_km NUMERIC")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS frete_valor NUMERIC DEFAULT 0")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS codigo_entrega TEXT")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entregue_em TIMESTAMPTZ")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cupom_id UUID")
+                cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS desconto_cupom NUMERIC DEFAULT 0")
+                conn.commit()
+                cur.close()
+                _schema_ready.add("delivery")
+                _mark_migration_done("delivery")
+    _ensure_loja_email_column()  # sempre chamado, independente do delivery já estar marcado
 
 
 def _ensure_loja_email_column():
