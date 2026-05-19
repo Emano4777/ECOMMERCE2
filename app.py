@@ -2349,6 +2349,8 @@ def _apply_safe_catalog_images(produtos, cur=None):
             if _own_cur:
                 cur.close()
 
+    to_persist: list = []
+
     for produto in produtos:
         ean_key = _digits(produto.get("ean")).lstrip("0")
         med = med_by_ean.get(ean_key, {})
@@ -2362,6 +2364,30 @@ def _apply_safe_catalog_images(produtos, cur=None):
         elif not imagem_atual and placeholder:
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
+            cnpj = produto.get("cnpjloja")
+            ean  = (produto.get("ean") or "").strip()
+            if cnpj and ean:
+                to_persist.append((cnpj, ean, placeholder))
+
+    # Persiste placeholders em lote para que requisições futuras os encontrem via JOIN direto
+    if to_persist:
+        try:
+            conn2 = _new_conn()
+            wc = conn2.cursor()
+            wc.executemany(
+                """
+                INSERT INTO ecommerce_produto_imagens (cnpjloja, ean, imagem_url)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (cnpjloja, ean) DO NOTHING
+                """,
+                to_persist,
+            )
+            conn2.commit()
+            wc.close()
+            conn2.close()
+        except Exception:
+            pass
+
     return produtos
 
 
