@@ -356,7 +356,6 @@ def inject_globals():
         "consumidor_rec_abertas": consumidor_rec_abertas,
     }
 
-
 def _ensure_precificador_schema():
     _load_db_migrations()
     if "precificador" in _schema_ready:
