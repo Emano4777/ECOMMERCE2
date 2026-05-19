@@ -96,7 +96,7 @@ def _upload_receita_cloudinary(file_bytes, filename):
 # ─── E-MAIL (Resend) ──────────────────────────────────────────────────────────
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-RESEND_FROM    = os.getenv("RESEND_FROM", "Poupáqui <noreply@poupaqui.com.br>")
+RESEND_FROM    = os.getenv("RESEND_FROM", "Poupaqui <noreply@drogariaspoupaqui.com.br>")
 
 
 def _send_email(to: str, subject: str, html_body: str) -> bool:
@@ -8725,6 +8725,8 @@ def api_descontos_auto():
 
 @app.get("/api/cupons/disponiveis")
 def api_cupons_disponiveis():
+    if os.getenv("CUPONS_ENABLED", "1") == "0":
+        return jsonify({"cupons": []})
     _ensure_cupons_schema()
     cnpjloja = (request.args.get("cnpj") or "").strip()
     if not cnpjloja:
