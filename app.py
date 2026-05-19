@@ -4065,7 +4065,8 @@ def meu_pedido_detalhe(pedido_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT p.*, u.razao, u.telefone, u.endereco AS loja_endereco,
+        SELECT p.*, u.razao, u.telefone,
+               u.endereco2 AS loja_endereco,
                c.whatsapp_pedidos, c.pix_chave, c.pix_nome
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
@@ -10667,7 +10668,8 @@ def _email_status_pedido(pedido_id: str, novo_status: str):
         cur2  = conn2.cursor()
         cur2.execute(
             """
-            SELECT p.cliente_nome, p.cliente_email, p.total, p.tipo_entrega, u.razao, u.endereco
+            SELECT p.cliente_nome, p.cliente_email, p.total, p.tipo_entrega, u.razao,
+                   u.endereco2 AS endereco
             FROM ecommerce_pedidos p
             JOIN users u ON u.cnpjloja = p.cnpjloja
             WHERE p.id = %s LIMIT 1
