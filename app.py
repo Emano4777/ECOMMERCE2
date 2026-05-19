@@ -151,6 +151,32 @@ def _email_html_wrapper(titulo: str, conteudo: str) -> str:
 </div></body></html>"""
 
 
+def _enviar_email_verificacao(user_id: str, email: str) -> bool:
+    """Gera token de verificação, persiste no banco e envia e-mail ao consumidor."""
+    try:
+        token = secrets.token_urlsafe(32)
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            "UPDATE ecommerce_consumidores SET email_token=%s WHERE id=%s",
+            (token, user_id),
+        )
+        conn.commit(); cur.close()
+    except Exception as exc:
+        app.logger.warning("_enviar_email_verificacao db error: %s", exc)
+        return False
+    try:
+        base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/") or request.host_url.rstrip("/")
+    except Exception:
+        base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    link = f"{base}/verificar-email/{token}"
+    corpo = (
+        f"<p>Clique abaixo para confirmar seu e-mail na Poupáqui:</p>"
+        f"<p><a class='btn' href='{link}'>Confirmar meu e-mail</a></p>"
+        f"<p style='font-size:.82rem;color:#888'>Se não foi você, ignore este e-mail.</p>"
+    )
+    return _send_email(email, "✉️ Confirme seu e-mail — Poupáqui", _email_html_wrapper("Confirme seu e-mail", corpo))
+
+
 # ─── RATE LIMITING (in-memory, best-effort) ───────────────────────────────────
 
 _rl_store: dict = {}
