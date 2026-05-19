@@ -122,10 +122,12 @@ def _send_email(to: str, subject: str, html_body: str) -> bool:
             body = exc.read().decode("utf-8", errors="replace")
         except Exception:
             pass
-        app.logger.warning("_send_email HTTP %s: %s | from=%s to=%s", exc.code, body, RESEND_FROM, to)
+        app.logger.warning("EMAIL_ERR code=%s key_prefix=%s", exc.code, RESEND_API_KEY[:12])
+        app.logger.warning("EMAIL_ERR from=%s to=%s", RESEND_FROM, to)
+        app.logger.warning("EMAIL_ERR body=%s", body[:300])
         return False
     except Exception as exc:
-        app.logger.warning("_send_email failed: %s | from=%s to=%s", exc, RESEND_FROM, to)
+        app.logger.warning("EMAIL_ERR exc=%s key_prefix=%s from=%s to=%s", str(exc)[:200], RESEND_API_KEY[:12], RESEND_FROM, to)
         return False
 
 
