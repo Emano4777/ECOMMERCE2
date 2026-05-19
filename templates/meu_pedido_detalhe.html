@@ -29,12 +29,23 @@
 </style>
 {% endblock %}
 
-{% set status_msg = {
-  'pendente': 'Seu pedido foi recebido e ainda aguarda confirmação da farmácia ou confirmação do pagamento/comprovante. Se você escolheu WhatsApp, envie a mensagem para acelerar o atendimento.',
-  'pago': 'Pagamento confirmado. A farmácia está separando ou preparando o seu pedido.',
-  'enviado': 'Pedido enviado ou liberado para retirada, conforme combinado com a farmácia.',
-  'cancelado': 'Pedido cancelado. Entre em contato com a farmácia se precisar entender o motivo.'
-} %}
+{% if pedido.tipo_entrega == 'retirada' %}
+  {% set status_msg = {
+    'pendente':        'Seu pedido foi recebido e aguarda confirmação do pagamento. Se escolheu WhatsApp, envie o comprovante para acelerar o atendimento.',
+    'pago':            'Pagamento confirmado! Aguardando a farmácia separar o seu pedido.',
+    'pronto_retirada': 'Seu pedido está pronto para retirada!',
+    'entregue':        'Pedido retirado. Obrigado pela compra!',
+    'cancelado':       'Pedido cancelado. Entre em contato com a farmácia se precisar entender o motivo.'
+  } %}
+{% else %}
+  {% set status_msg = {
+    'pendente':  'Seu pedido foi recebido e ainda aguarda confirmação da farmácia ou confirmação do pagamento/comprovante. Se você escolheu WhatsApp, envie a mensagem para acelerar o atendimento.',
+    'pago':      'Pagamento confirmado. A farmácia está preparando o seu pedido para entrega.',
+    'enviado':   'Pedido enviado! O entregador está a caminho do seu endereço.',
+    'entregue':  'Pedido entregue. Obrigado pela compra!',
+    'cancelado': 'Pedido cancelado. Entre em contato com a farmácia se precisar entender o motivo.'
+  } %}
+{% endif %}
 
 {% block content %}
 <div class="detail-wrap">
@@ -56,10 +67,31 @@
     </div>
 
     <div class="status-box">
+      {% if pedido.status == 'pronto_retirada' %}
+      <div class="status-icon" style="background:#d1fae5;color:#065f46"><i class="fa fa-store"></i></div>
+      {% elif pedido.status == 'entregue' %}
+      <div class="status-icon" style="background:#d1fae5;color:#065f46"><i class="fa fa-circle-check"></i></div>
+      {% elif pedido.status == 'cancelado' %}
+      <div class="status-icon" style="background:#fee2e2;color:#991b1b"><i class="fa fa-xmark"></i></div>
+      {% else %}
       <div class="status-icon"><i class="fa fa-clock"></i></div>
+      {% endif %}
       <div>
-        <div class="status-title">Status: {{ pedido.status|capitalize }}</div>
+        {% set status_labels = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
+        <div class="status-title">Status: {{ status_labels.get(pedido.status, pedido.status|capitalize) }}</div>
         <div class="status-text">{{ status_msg.get(pedido.status, 'A farmácia está atualizando o andamento do pedido.') }}</div>
+        {% if pedido.status == 'pronto_retirada' and pedido.tipo_entrega == 'retirada' %}
+        <div style="margin-top:10px;display:inline-flex;gap:10px;align-items:center;background:#d1fae5;border:1.5px solid #6ee7b7;border-radius:12px;padding:10px 16px">
+          <i class="fa fa-location-dot" style="color:#065f46"></i>
+          <div>
+            <div style="font-size:.72rem;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:.4px">Retire em</div>
+            <div style="font-weight:900;color:#065f46">{{ pedido.razao }}</div>
+            {% if pedido.loja_endereco %}
+            <div style="font-size:.84rem;color:#047857;margin-top:2px">{{ pedido.loja_endereco }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
         {% if pedido.tipo_entrega == 'entrega' and pedido.codigo_entrega and pedido.receita_status != 'pendente' %}
         <div style="margin-top:10px;display:inline-flex;gap:10px;align-items:center;background:#fff7dd;border:1.5px solid #fde68a;border-radius:12px;padding:10px 16px">
           <i class="fa fa-key" style="color:#b45309"></i>

@@ -161,6 +161,16 @@
              value="{{ config.pedido_minimo_entrega or 0 }}" placeholder="Ex: 50.00">
       <div class="cfg-help">O cliente só poderá escolher entrega se o valor dos produtos atingir esse mínimo.</div>
     </div>
+    <div class="cfg-field">
+      <label class="cfg-toggle">
+        <input type="checkbox" name="todos_prontos_retirada" id="chk-prontos"
+               {% if config.todos_prontos_retirada %}checked{% endif %}>
+        <span class="cfg-switch"></span>
+        <span class="cfg-toggle-label"><i class="fa fa-store" style="color:#22c55e"></i> Todos os pedidos prontos para retirada</span>
+        <span class="cfg-toggle-desc">Avança automaticamente ao pagar</span>
+      </label>
+      <div class="cfg-help">Quando ativado, pedidos com retirada na loja passam diretamente para "Pronto para retirada" assim que o pagamento é confirmado, sem aguardar confirmação manual.</div>
+    </div>
   </div>
 
   <div class="pk-card cfg-section">

@@ -489,6 +489,7 @@ def _ensure_delivery_schema():
                 cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS cobra_frete BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS valor_frete NUMERIC DEFAULT 0")
                 cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pedido_minimo_entrega NUMERIC DEFAULT 0")
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS todos_prontos_retirada BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS tipo_entrega TEXT DEFAULT 'retirada'")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS endereco_entrega TEXT")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_lat DOUBLE PRECISION")
@@ -4065,7 +4066,7 @@ def meu_pedido_detalhe(pedido_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT p.*, u.razao, u.telefone,
+        SELECT p.*, u.razao, u.telefone, u.endereco AS loja_endereco,
                c.whatsapp_pedidos, c.pix_chave, c.pix_nome
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
@@ -5017,7 +5018,11 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
         updated = cur.fetchone()
         conn.commit()
         cur.close()
-        return dict(updated) if updated else None
+        result = dict(updated) if updated else None
+        # auto-avanço para retirada com flag
+        if result and result.get("status") == "pago":
+            _auto_pronto_retirada(pedido_id)
+        return result
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         reset_db_conn()
         return None
@@ -5291,7 +5296,7 @@ def painel_sincronizar_pagamento(pedido_id):
 def painel_pedido_status(pedido_id):
     cnpjloja   = session.get("cnpjloja")
     novo_status = (request.form.get("status") or "").strip()
-    if novo_status not in {"pendente", "pago", "enviado", "entregue", "cancelado"}:
+    if novo_status not in {"pendente", "pago", "pronto_retirada", "enviado", "entregue", "cancelado"}:
         flash("Status inválido.", "error")
         return redirect(url_for("painel_pedidos"))
     conn = db()
@@ -5322,7 +5327,10 @@ def painel_pedido_status(pedido_id):
     if novo_status == "entregue" and ml_order_id:
         _ml_feedback_entregue(ml_order_id)
     _email_status_pedido(pedido_id, novo_status)
-    flash(f"Pedido marcado como {novo_status}.", "success")
+    # se ficou como pago e é retirada com flag ativada, avança automaticamente
+    if novo_status == "pago":
+        _auto_pronto_retirada(pedido_id)
+    flash(f"Pedido marcado como {_STATUS_LABEL.get(novo_status, novo_status)}.", "success")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
 
@@ -6126,8 +6134,9 @@ def painel_config_salvar():
         INSERT INTO ecommerce_config_loja
           (cnpjloja, whatsapp_pedidos, whatsapp_receita, email_notificacao, aceita_whatsapp, aceita_pix, aceita_mp,
            aceita_entrega, raio_entrega_km, cobra_frete, valor_frete,
-           pedido_minimo_entrega, pix_chave, pix_nome, mp_access_token, updated_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+           pedido_minimo_entrega, pix_chave, pix_nome, mp_access_token,
+           todos_prontos_retirada, updated_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
         ON CONFLICT (cnpjloja) DO UPDATE SET
           whatsapp_pedidos       = EXCLUDED.whatsapp_pedidos,
           whatsapp_receita       = EXCLUDED.whatsapp_receita,
@@ -6143,6 +6152,7 @@ def painel_config_salvar():
           pix_chave              = EXCLUDED.pix_chave,
           pix_nome               = EXCLUDED.pix_nome,
           mp_access_token        = EXCLUDED.mp_access_token,
+          todos_prontos_retirada = EXCLUDED.todos_prontos_retirada,
           updated_at             = NOW()
         """,
         (
@@ -6161,6 +6171,7 @@ def painel_config_salvar():
             (f.get("pix_chave")       or "").strip(),
             (f.get("pix_nome")        or "").strip(),
             (f.get("mp_access_token") or "").strip(),
+            "todos_prontos_retirada" in f,
         ),
     )
     conn.commit()
@@ -10521,12 +10532,43 @@ def api_ml_salvar_endereco():
 # ─── E-MAIL TRANSACIONAL ──────────────────────────────────────────────────────
 
 _STATUS_LABEL = {
-    "pendente":  "Pendente",
-    "pago":      "Pago ✓",
-    "enviado":   "Enviado / Saiu para entrega",
-    "entregue":  "Entregue ✓",
-    "cancelado": "Cancelado",
+    "pendente":        "Pendente",
+    "pago":            "Pago ✓",
+    "pronto_retirada": "Pronto para retirada",
+    "enviado":         "Enviado / Saiu para entrega",
+    "entregue":        "Entregue ✓",
+    "cancelado":       "Cancelado",
 }
+
+
+def _auto_pronto_retirada(pedido_id: str):
+    """Se pedido é retirada e loja tem todos_prontos_retirada=True, avança para pronto_retirada."""
+    try:
+        conn2 = _new_conn()
+        cur2  = conn2.cursor()
+        cur2.execute(
+            """SELECT p.tipo_entrega, c.todos_prontos_retirada
+               FROM ecommerce_pedidos p
+               LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+               WHERE p.id=%s AND p.status='pago' LIMIT 1""",
+            (pedido_id,),
+        )
+        row = cur2.fetchone()
+        if row and (row.get("tipo_entrega") or "retirada") != "entrega" and row.get("todos_prontos_retirada"):
+            cur2.execute(
+                "UPDATE ecommerce_pedidos SET status='pronto_retirada', atualizado_em=NOW() WHERE id=%s",
+                (pedido_id,),
+            )
+            conn2.commit()
+            cur2.close()
+            conn2.close()
+            _email_status_pedido(pedido_id, "pronto_retirada")
+            return True
+        cur2.close()
+        conn2.close()
+    except Exception as exc:
+        app.logger.warning("_auto_pronto_retirada error: %s", exc)
+    return False
 
 
 def _disparar_emails_novos_pedidos(pedidos_result: list, itens_por_loja: dict, cliente: dict):
@@ -10626,7 +10668,7 @@ def _email_status_pedido(pedido_id: str, novo_status: str):
         cur2  = conn2.cursor()
         cur2.execute(
             """
-            SELECT p.cliente_nome, p.cliente_email, p.total, p.tipo_entrega, u.razao
+            SELECT p.cliente_nome, p.cliente_email, p.total, p.tipo_entrega, u.razao, u.endereco
             FROM ecommerce_pedidos p
             JOIN users u ON u.cnpjloja = p.cnpjloja
             WHERE p.id = %s LIMIT 1
@@ -10641,23 +10683,37 @@ def _email_status_pedido(pedido_id: str, novo_status: str):
         email = (row.get("cliente_email") or "").strip()
         if not email or "@" not in email:
             return
-        nome     = (row.get("cliente_nome") or "Cliente").split()[0]
-        razao    = row.get("razao") or "Farmácia"
+        nome      = (row.get("cliente_nome") or "Cliente").split()[0]
+        razao     = row.get("razao") or "Farmácia"
+        endereco  = (row.get("endereco") or "").strip()
         total_fmt = f"R$ {float(row.get('total', 0)):.2f}".replace(".", ",")
-        label    = _STATUS_LABEL.get(novo_status, novo_status.title())
-        tipo     = "Entrega" if (row.get("tipo_entrega") or "") == "entrega" else "Retirada na loja"
+        label     = _STATUS_LABEL.get(novo_status, novo_status.title())
+        tipo_ent  = (row.get("tipo_entrega") or "retirada")
 
-        corpo = (
-            f"<p>Olá, <b>{html.escape(nome)}</b>!</p>"
-            f"<p>Seu pedido <b>#{pedido_id[:8].upper()}</b> teve o status atualizado.</p>"
-            f"<div class='info-box'>"
-            f"<b>Farmácia:</b> {html.escape(razao)}<br>"
-            f"<b>Novo status:</b> <span style='color:#c8102e;font-weight:bold'>{html.escape(label)}</span><br>"
-            f"<b>Total:</b> {total_fmt}<br>"
-            f"<b>Modalidade:</b> {html.escape(tipo)}"
-            f"</div>"
-            f"<p>Acesse <b>Meus Pedidos</b> para acompanhar todas as atualizações.</p>"
-        )
+        if novo_status == "pronto_retirada":
+            corpo = (
+                f"<p>Olá, <b>{html.escape(nome)}</b>!</p>"
+                f"<p>Seu pedido <b>#{pedido_id[:8].upper()}</b> está pronto para retirada! 🎉</p>"
+                f"<div class='info-box'>"
+                f"<b>Farmácia:</b> {html.escape(razao)}<br>"
+                f"<b>Endereço:</b> {html.escape(endereco)}<br>"
+                f"<b>Total:</b> {total_fmt}"
+                f"</div>"
+                f"<p>Apresente seu nome ou número do pedido ao balcão.</p>"
+            )
+        else:
+            tipo = "Entrega" if tipo_ent == "entrega" else "Retirada na loja"
+            corpo = (
+                f"<p>Olá, <b>{html.escape(nome)}</b>!</p>"
+                f"<p>Seu pedido <b>#{pedido_id[:8].upper()}</b> teve o status atualizado.</p>"
+                f"<div class='info-box'>"
+                f"<b>Farmácia:</b> {html.escape(razao)}<br>"
+                f"<b>Novo status:</b> <span style='color:#c8102e;font-weight:bold'>{html.escape(label)}</span><br>"
+                f"<b>Total:</b> {total_fmt}<br>"
+                f"<b>Modalidade:</b> {html.escape(tipo)}"
+                f"</div>"
+                f"<p>Acesse <b>Meus Pedidos</b> para acompanhar todas as atualizações.</p>"
+            )
         _send_email(
             email,
             f"📦 Pedido #{pedido_id[:8].upper()} — {label}",

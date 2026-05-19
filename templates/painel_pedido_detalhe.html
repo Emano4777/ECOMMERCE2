@@ -284,14 +284,30 @@
               class="status-btn s-pago {% if pedido.status=='pago' %}active{% endif %}">
         <i class="fa fa-circle-check me-1"></i>Pago
       </button>
+
+      {% if pedido.tipo_entrega == 'retirada' %}
+      {# Fluxo retirada: Pago → Pronto p/ retirada → Retirado #}
+      <button type="submit" name="status" value="pronto_retirada"
+              class="status-btn {% if pedido.status=='pronto_retirada' %}active{% endif %}"
+              style="border-color:#22c55e;color:#22c55e">
+        <i class="fa fa-store me-1"></i>Pronto p/ retirada
+      </button>
+      <button type="submit" name="status" value="entregue"
+              class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}">
+        <i class="fa fa-house-circle-check me-1"></i>Retirado
+      </button>
+      {% else %}
+      {# Fluxo entrega: Pago → Enviado → Entregue #}
       <button type="submit" name="status" value="enviado"
               class="status-btn s-enviado {% if pedido.status=='enviado' %}active{% endif %}">
-        <i class="fa fa-truck me-1"></i>Enviado / Separado
+        <i class="fa fa-truck me-1"></i>Enviado
       </button>
       <button type="submit" name="status" value="entregue"
               class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}">
         <i class="fa fa-house-circle-check me-1"></i>Entregue
       </button>
+      {% endif %}
+
       <button type="submit" name="status" value="cancelado"
               class="status-btn s-cancelado {% if pedido.status=='cancelado' %}active{% endif %}"
               onclick="return confirm('Cancelar este pedido?')">
