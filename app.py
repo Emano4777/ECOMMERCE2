@@ -2255,8 +2255,13 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             conn.commit()
             cur.close()
             return image_url
+        # Nenhuma fonte encontrou imagem — salva fallback genérico para não repetir
+        # chamadas de API em acessos futuros deste mesmo produto.
+        fallback = GENERIC_TARJA_VERMELHA_IMG
+        _upsert_catalog_image(cur, cnpjloja, ean_key, fallback)
+        conn.commit()
         cur.close()
-        return None
+        return fallback
     except Exception:
         try:
             db().rollback()
