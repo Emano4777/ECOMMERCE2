@@ -76,10 +76,10 @@ def _salvar_lote(conn, lock, itens):
         return
     with lock:
         cur = conn.cursor()
-        psycopg2.extras.execute_batch(cur, """
+        psycopg2.extras.execute_values(cur, """
             INSERT INTO produto_canon
                 (ean, descricao_original, descricao_canon, laboratorio, categoria, imagem_cosmos, fonte, criado_em, atualizado_em)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES %s
             ON CONFLICT (ean) DO UPDATE SET
                 descricao_original = EXCLUDED.descricao_original,
                 descricao_canon    = EXCLUDED.descricao_canon,
@@ -88,40 +88,66 @@ def _salvar_lote(conn, lock, itens):
                 imagem_cosmos      = COALESCE(EXCLUDED.imagem_cosmos, produto_canon.imagem_cosmos),
                 fonte              = EXCLUDED.fonte,
                 atualizado_em      = NOW()
-        """, itens)
+        """, itens, template="(%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())", page_size=100)
         conn.commit()
         cur.close()
 
 
 # ── Cosmos API ───────────────────────────────────────────────
 
-_rate_lock    = threading.Lock()
-_last_req_ts  = 0.0
-_MIN_INTERVAL = 0.35   # ~3 req/s global — conservador para evitar 429
-_session      = requests.Session()
-_session.headers.update(_COSMOS_HEADERS)
+_rate_lock       = threading.Lock()
+_last_req_ts     = 0.0
+_pause_until     = 0.0    # global: qualquer 429 bloqueia todas as threads
+_consec_429      = 0       # 429s consecutivos sem nenhum sucesso
+_quota_exhausted = False   # True → para de bater na API
+_MIN_INTERVAL    = 0.35    # ~3 req/s global
+_thread_local    = threading.local()
+
+
+def _cosmos_session():
+    s = getattr(_thread_local, "cosmos_session", None)
+    if s is None:
+        s = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=4, max_retries=0)
+        s.mount("https://", adapter)
+        s.headers.update(_COSMOS_HEADERS)
+        _thread_local.cosmos_session = s
+    return s
+
+
+def _acquire_slot():
+    """Bloqueia até conseguir um slot de requisição. Thread-safe, respeita _pause_until."""
+    global _last_req_ts, _pause_until
+    while True:
+        with _rate_lock:
+            now = time.monotonic()
+            # mais tarde entre: fim da pausa global e fim do intervalo mínimo
+            earliest = max(_pause_until, _last_req_ts + _MIN_INTERVAL)
+            wait = earliest - now
+            if wait <= 0:
+                _last_req_ts = now   # atômico: só toma o slot se realmente livre
+                return
+        time.sleep(max(wait, 0.01))
+
+
+_COSMOS_ABORT_AFTER = 16  # 429s consecutivos sem sucesso → cota esgotada
+
 
 def _buscar_cosmos(ean: str):
     """Retorna (nome, lab, cat, img, found)."""
-    global _last_req_ts
-    if not COSMOS_TOKEN:
+    global _pause_until, _last_req_ts, _consec_429, _quota_exhausted
+    if not COSMOS_TOKEN or _quota_exhausted:
         return None, None, None, None, False
 
-    for tentativa in range(4):
-        # Reserva slot de tempo SEM segurar o lock durante o sleep
-        with _rate_lock:
-            agora = time.monotonic()
-            espera = max(0.0, _MIN_INTERVAL - (agora - _last_req_ts))
-            _last_req_ts = agora + espera   # pré-aloca o próximo slot
-
-        if espera > 0:
-            time.sleep(espera)   # dorme FORA do lock → threads realmente paralelas
-
+    for tentativa in range(8):
+        if _quota_exhausted:
+            return None, None, None, None, False
+        _acquire_slot()
         try:
-            r = _session.get(
-                _COSMOS_URL.format(ean=ean),
-                timeout=6,          # reduzido: falha rápido em vez de 12s esperando
-            )
+            r = _cosmos_session().get(_COSMOS_URL.format(ean=ean), timeout=6)
+            if r.status_code in (200, 404):
+                with _rate_lock:
+                    _consec_429 = 0  # qualquer resposta válida reseta o contador
             if r.status_code == 200:
                 data  = r.json()
                 desc  = (data.get("description") or data.get("descricao") or "").strip()
@@ -137,10 +163,23 @@ def _buscar_cosmos(ean: str):
             if r.status_code == 404:
                 return None, None, None, None, False
             if r.status_code == 429:
-                backoff = 2 ** tentativa * 2.0
-                print(f"  [429] rate limit — aguardando {backoff:.0f}s", flush=True)
-                time.sleep(backoff)
-                continue
+                backoff = min(2 ** tentativa * 2.0, 64.0)
+                with _rate_lock:
+                    _consec_429 += 1
+                    if _consec_429 >= _COSMOS_ABORT_AFTER and not _quota_exhausted:
+                        _quota_exhausted = True
+                        print(
+                            f"\n  [!] {_consec_429} erros 429 consecutivos — "
+                            "cota Cosmos esgotada. Pulando para fase IA.\n"
+                            "      (amanhã rode novamente para pegar o restante)\n",
+                            flush=True,
+                        )
+                    deadline = time.monotonic() + backoff
+                    _pause_until = max(_pause_until, deadline)
+                    _last_req_ts = _pause_until  # descarta slots pré-alocados
+                if not _quota_exhausted:
+                    print(f"  [429] rate limit — aguardando {backoff:.0f}s", flush=True)
+                return None, None, None, None, False  # desiste desta tentativa
             return None, None, None, None, False
         except Exception:
             time.sleep(1)
@@ -236,6 +275,7 @@ Nomes:
 # ── main ─────────────────────────────────────────────────────
 
 def main():
+    global _MIN_INTERVAL
     ap = argparse.ArgumentParser(description="Sincronização Cosmos/IA de nomes de produtos")
     ap.add_argument("--forcar",     action="store_true",
                     help="Reprocessa produtos já em produto_canon (exceto manual)")
@@ -247,7 +287,13 @@ def main():
                     help="Pula Cosmos, processa tudo via IA")
     ap.add_argument("--workers",    type=int, default=8,
                     help="Threads paralelas para o Cosmos (padrão: 8)")
+    ap.add_argument("--save-every", type=int, default=_SAVE_EVERY,
+                    help="Quantidade de resultados para salvar por commit (padrao: 50)")
+    ap.add_argument("--rate",       type=float, default=_MIN_INTERVAL,
+                    help="Intervalo global minimo entre chamadas Cosmos em segundos (padrao: 0.35)")
     args = ap.parse_args()
+    save_every = max(10, min(int(args.save_every or _SAVE_EVERY), 500))
+    _MIN_INTERVAL = max(0.05, float(args.rate or _MIN_INTERVAL))
 
     conn = _db()
     _ensure_schema(conn)
@@ -327,7 +373,7 @@ def main():
     ia_miss     = 0
     fila_ia: list = []
     counter_lock = threading.Lock()
-    pendente_buffer = []   # acumula (ean, orig, canon, fonte) para salvar em lote
+
 
     # ── Fase 1: Cosmos em paralelo ───────────────────────────
     if not args.sem_cosmos and not args.so_ia:
@@ -368,7 +414,7 @@ def main():
                             buffer.append((ean, desc, desc, None, None, None, "cosmos_miss"))
                             print(f"[{i:5}/{total}] {pct:3}%  [--]  {ean}  ({desc[:50]})", flush=True)
 
-                        if len(buffer) >= _SAVE_EVERY:
+                        if len(buffer) >= save_every:
                             _salvar_lote(conn, db_lock, buffer)
                             buffer.clear()
 

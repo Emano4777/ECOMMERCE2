@@ -1281,6 +1281,14 @@ def _generic_placeholder_for(nome="", anvisa=None, med=None):
     return GENERIC_TARJA_PRETA_IMG if _is_black_stripe_product(nome, anvisa, med) else GENERIC_TARJA_VERMELHA_IMG
 
 
+def _placeholder_for_tarja(tarja: str | None):
+    if tarja == "preta":
+        return GENERIC_TARJA_PRETA_IMG
+    if tarja == "vermelha":
+        return GENERIC_TARJA_VERMELHA_IMG
+    return None
+
+
 def _valid_nome(nome):
     nome = (nome or "").strip()
     parts = [p for p in nome.split() if len(p) >= 2]
@@ -2360,9 +2368,13 @@ def _apply_safe_catalog_images(produtos, cur=None):
         ean_key = _digits(produto.get("ean")).lstrip("0")
         med = med_by_ean.get(ean_key, {})
         anvisa = {"tarja": produto.get("tarja") or ""}
-        placeholder = _generic_placeholder_for(produto.get("nome") or "", anvisa=anvisa, med=med)
+        placeholder = _placeholder_for_tarja(anvisa.get("tarja")) or _generic_placeholder_for(produto.get("nome") or "", anvisa=anvisa, med=med)
         imagem_atual = produto.get("imagem") or ""
-        if _looks_like_other_pharmacy_brand(imagem_atual) or (placeholder and _is_untrusted_scraped_image(imagem_atual) and _image_has_other_pharmacy_text(imagem_atual)):
+        if placeholder and anvisa.get("tarja") in ("preta", "vermelha"):
+            produto["imagem"] = placeholder
+            produto["imagem_padrao_poupaqui"] = True
+            produto["imagem_bloqueada_anvisa"] = True
+        elif _looks_like_other_pharmacy_brand(imagem_atual) or (placeholder and _is_untrusted_scraped_image(imagem_atual) and _image_has_other_pharmacy_text(imagem_atual)):
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = bool(placeholder)
             produto["imagem_bloqueada_marca_farmacia"] = True
@@ -2638,6 +2650,7 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
                     combined.append(d)
 
     _apply_safe_catalog_images(combined, cur=cur)
+    _marcar_tarja_batch(combined, cur.connection)
     combined = _dedupe_products_for_display(combined)
     cur.close()
     _schedule_fill_images(combined, cnpjloja=cnpjloja)
@@ -2880,6 +2893,7 @@ def get_dns_products_batch(cnpjs):
                     combined.append(dict(row))
 
     _apply_safe_catalog_images(combined, cur=cur)
+    _marcar_tarja_batch(combined, conn)
     cur.close()
     try:
         conn.close()
@@ -3443,10 +3457,7 @@ def api_produtos_proximos():
 
         produtos_view.append(produto_view)
 
-    conn2 = db()
     produtos_view = _dedupe_products_for_display(produtos_view)
-    _marcar_tarja_batch(produtos_view, conn2)
-    conn2.close()
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
     return jsonify({
@@ -3504,6 +3515,28 @@ def api_produto(ean):
             "imagem_med":  imagem_med,
         })
         nome_busca = nome_busca or (med["descricao"] or "")
+
+    if nome_busca:
+        try:
+            _anvisa_schema()
+            chave_anv = _anvisa_chave(nome_busca)
+            if chave_anv:
+                cur.execute(
+                    "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, receita_retida, "
+                    "exibir_imagem_publica, dizeres_receita, dizeres_imagem "
+                    "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE LIMIT 1",
+                    (chave_anv,),
+                )
+                anvisa_img = dict(cur.fetchone() or {})
+                tarja_img = _detectar_tarja(anvisa_img)
+                if tarja_img is None and _NOME_TARJA_VERMELHA_RE.search(nome_busca):
+                    tarja_img = "vermelha"
+                if tarja_img in ("preta", "vermelha") and (anvisa_img.get("exibir_imagem_publica") is False or anvisa_img.get("exibir_imagem_publica") is None):
+                    result["imagem_med"] = _placeholder_for_tarja(tarja_img) or result.get("imagem_med")
+                result["tarja"] = tarja_img
+                result["receita_retida"] = _exige_receita_digital_entrega(anvisa_img, nome_busca)
+        except Exception:
+            pass
 
     vitnatu = None
     if nome_busca:
@@ -3861,7 +3894,9 @@ def produto_detalhe(ean):
     # Fallback por nome quando anvisa_cache não tem o produto
     if tarja is None and _NOME_TARJA_VERMELHA_RE.search(nome):
         tarja = "vermelha"
-    requer_receita = tarja is not None
+    if tarja in ("preta", "vermelha") and (anvisa.get("exibir_imagem_publica") is False or anvisa.get("exibir_imagem_publica") is None):
+        imagem = _placeholder_for_tarja(tarja) or imagem
+    requer_receita = _exige_receita_digital_entrega(anvisa, nome)
 
     return render_template(
         "produto_detalhe.html",
@@ -3910,19 +3945,40 @@ def api_carrinho_get():
     if not cid:
         return jsonify({"items": []}), 200
     _ensure_carrinho_schema()
+    _anvisa_schema()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         "SELECT ean, cnpjloja, nome, preco, qty, imagem, razao, COALESCE(requer_receita,FALSE) AS requer_receita FROM ecommerce_carrinho WHERE consumidor_id=%s ORDER BY atualizado_em",
         (cid,),
     )
-    items = [
-        {"ean": r["ean"], "cnpjloja": r["cnpjloja"], "nome": r["nome"],
-         "preco": float(r["preco"] or 0), "qty": r["qty"] or 1,
-         "imagem": r["imagem"] or "", "razao": r["razao"] or "",
-         "requer_receita": bool(r["requer_receita"])}
-        for r in cur.fetchall()
-    ]
+    items = []
+    for r in cur.fetchall():
+        nome = r["nome"] or ""
+        anvisa = {}
+        tarja = None
+        chave = _anvisa_chave(nome)
+        if chave:
+            cur.execute(
+                "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, receita_retida, "
+                "venda_online_permitida, exibir_imagem_publica, dizeres_receita, dizeres_imagem "
+                "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE LIMIT 1",
+                (chave,),
+            )
+            anvisa = dict(cur.fetchone() or {})
+            tarja = _detectar_tarja(anvisa)
+        if tarja is None and _NOME_TARJA_VERMELHA_RE.search(nome):
+            tarja = "vermelha"
+        requer_receita = bool(r["requer_receita"])
+        if tarja is not None or anvisa:
+            requer_receita = _exige_receita_digital_entrega(anvisa, nome)
+        items.append({
+            "ean": r["ean"], "cnpjloja": r["cnpjloja"], "nome": nome,
+            "preco": float(r["preco"] or 0), "qty": r["qty"] or 1,
+            "imagem": r["imagem"] or "", "razao": r["razao"] or "",
+            "tarja": tarja, "requer_receita": requer_receita,
+            "receita_retida": requer_receita,
+        })
     cur.close()
     return jsonify({"items": items})
 
@@ -4700,18 +4756,38 @@ def api_checkout():
         desconto_total_aplicado = desconto_cupom + desconto_pag
         total = max(0, total - desconto_total_aplicado)
 
-        # Tarja + entrega: aceita somente receita digital original declarada pelo cliente.
-        tem_tarja_entrega = tipo_entrega == "entrega" and any(i.get("requer_receita") for i in itens)
-        if tem_tarja_entrega and not receita_url:
+        # Recalcula no servidor; nao confia apenas no booleano enviado pelo carrinho.
+        for item in itens:
+            nome_item = item.get("nome") or ""
+            anvisa_item = {}
+            chave_item = _anvisa_chave(nome_item)
+            if chave_item:
+                try:
+                    cur.execute(
+                        "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, receita_retida "
+                        "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE LIMIT 1",
+                        (chave_item,),
+                    )
+                    anvisa_item = dict(cur.fetchone() or {})
+                except Exception:
+                    anvisa_item = {}
+            tarja_item = _detectar_tarja(anvisa_item)
+            if tarja_item is None and _NOME_TARJA_VERMELHA_RE.search(nome_item):
+                anvisa_item["tarja"] = "vermelha"
+            item["requer_receita"] = _exige_receita_digital_entrega(anvisa_item, nome_item)
+
+        # Receita digital no checkout apenas para retencao/controle; tarja vermelha simples nao bloqueia.
+        tem_retencao_entrega = tipo_entrega == "entrega" and any(i.get("requer_receita") for i in itens)
+        if tem_retencao_entrega and not receita_url:
             return jsonify({
-                "error": "Carrinho contém medicamentos com tarja que exigem receita médica. Envie o PDF original da receita digital para finalizar com entrega.",
+                "error": "Carrinho contém medicamento com retenção/controle. Envie o PDF original da receita digital para finalizar com entrega.",
             }), 400
-        if tem_tarja_entrega and not receita_declaracao_ok:
+        if tem_retencao_entrega and not receita_declaracao_ok:
             return jsonify({
                 "error": "Confirme que a receita enviada é digital original, com assinatura eletrônica verificável, e não foto, print ou receita escaneada.",
             }), 400
         # Checagem de extensão: receita_url é JSON array; valida cada URL individualmente
-        if tem_tarja_entrega and receita_url:
+        if tem_retencao_entrega and receita_url:
             try:
                 _urls_check = json.loads(receita_url) if receita_url.startswith("[") else [receita_url]
             except Exception:
@@ -4721,7 +4797,7 @@ def api_checkout():
                     "error": "Para entrega com receita, o sistema aceita apenas PDF original da receita digital assinada.",
                 }), 400
 
-        receita_status = "pendente" if (tem_tarja_entrega and receita_url) else None
+        receita_status = "pendente" if (tem_retencao_entrega and receita_url) else None
         codigo_entrega = _novo_codigo_entrega() if tipo_entrega == "entrega" else None
 
         cur.execute(
@@ -6346,11 +6422,8 @@ def catalogo_loja(cnpjloja):
         produtos = []
     else:
         produtos = get_dns_products(cnpjloja, q or None)
-        produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
-    conn2 = db()
-    _marcar_tarja_batch(produtos, conn2)
-    conn2.close()
+    produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
     return render_template("catalogo_loja.html", loja=loja, produtos=produtos, q=q)
 
@@ -7601,7 +7674,13 @@ def _classificar_produto(nome: str) -> str:
         return "medicamento"
     return ""
 
+_ANVISA_SCHEMA_READY = False
+
+
 def _anvisa_schema():
+    global _ANVISA_SCHEMA_READY
+    if _ANVISA_SCHEMA_READY:
+        return
     conn = db()
     cur  = conn.cursor()
     cur.execute("""
@@ -7624,8 +7703,14 @@ def _anvisa_schema():
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS id_produto INTEGER")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS tarja TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS jwt_bula TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS receita_retida BOOLEAN")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS venda_online_permitida BOOLEAN")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS exibir_imagem_publica BOOLEAN")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS dizeres_receita TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS dizeres_imagem TEXT")
     conn.commit()
     cur.close()
+    _ANVISA_SCHEMA_READY = True
 
 
 _ANVISA_STOP_WORDS = {
@@ -7708,12 +7793,9 @@ def _anvisa_extrair_secao(html, padroes):
 
 # Tarja Preta — controle especial (Portaria 344/98 listas A/B/C)
 _TARJA_PRETA_RE = re.compile(
-    r"controle\s+especial"
-    r"|notifica[cç][aã]o\s+de\s+receita"
-    r"|receita\s+de\s+controle"
-    r"|(?:lista|port(?:aria)?\s*)\s*(?:344|[AB]\d)"
-    r"|tarja\s+preta"
-    r"|psicotr[oó]pico",
+    r"notifica[cç][aã]o\s+de\s+receita\s+[ab]"
+    r"|(?:lista|port(?:aria)?\s*)\s*[AB]\d?"
+    r"|tarja\s+preta",
     re.IGNORECASE,
 )
 
@@ -7723,7 +7805,21 @@ _TARJA_VERMELHA_RE = re.compile(
     r"|uso\s+sob\s+prescri[cç][aã]o\s+m[eé]dica"
     r"|somente\s+(?:com|sob)\s+prescri[cç][aã]o"
     r"|tarja\s+vermelha"
-    r"|medicamento\s+sujeito\s+a\s+prescri[cç][aã]o",
+    r"|medicamento\s+sujeito\s+a\s+prescri[cç][aã]o"
+    r"|receita\s+de\s+controle\s+especial"
+    r"|controle\s+especial",
+    re.IGNORECASE,
+)
+
+_RECEITA_RETENCAO_RE = re.compile(
+    r"s[oó]\s+pode\s+ser\s+vendid[oa]\s+com\s+reten[cç][aã]o\s+da\s+receita"
+    r"|com\s+reten[cç][aã]o\s+da\s+receita"
+    r"|reten[cç][aã]o\s+(?:de|da)\s+receita"
+    r"|receita\s+de\s+controle\s+especial"
+    r"|notifica[cç][aã]o\s+de\s+receita"
+    r"|controle\s+especial"
+    r"|sngpc"
+    r"|antimicrobian[oa]s?",
     re.IGNORECASE,
 )
 
@@ -7769,6 +7865,22 @@ _NOME_TARJA_VERMELHA_RE = re.compile(
     re.IGNORECASE,
 )
 
+_NOME_RECEITA_RETIDA_RE = re.compile(
+    # Antimicrobianos comuns: tarja vermelha com retencao/escrituracao.
+    r"\bamoxicilina\b|\bampicilina\b|\bcefalexina\b|\bcefadroxila\b|\bcefaclor\b"
+    r"|\bazitromicina\b|\bclaritromicina\b|\beritromicina\b"
+    r"|\bciprofloxacino\b|\blevofloxacino\b|\bnorfloxacino\b|\bofloxacino\b"
+    r"|\bmetronidazol\b|\btinidazol\b|\bsulfametoxazol\b|\btrimetoprim\b"
+    r"|\btetraciclina\b|\bdoxiciclina\b|\bminociclina\b"
+    # Receita de controle especial em tarja vermelha (quando detectado por nome).
+    r"|\bfluoxetina\b|\bsertralina\b|\bescitalopram\b|\bcitalopram\b"
+    r"|\bparoxetina\b|\bvenlafaxina\b|\bdesvenlafaxina\b|\bduloxetina\b"
+    r"|\bamitriptilina\b|\bnortriptilina\b|\bimipramina\b"
+    r"|\bcarbamazepina\b|\bfenitoina\b|\bvalproato\b|\btopiramate?\b|\blamotrigina\b"
+    r"|\bcodeina\b",
+    re.IGNORECASE,
+)
+
 
 def _detectar_tarja(anvisa: dict) -> str | None:
     """Retorna 'preta', 'vermelha' ou None (sem tarja / OTC)."""
@@ -7778,6 +7890,8 @@ def _detectar_tarja(anvisa: dict) -> str | None:
     tarja_bd = (anvisa.get("tarja") or "").strip().lower()
     if tarja_bd in ("preta", "vermelha"):
         return tarja_bd
+    if anvisa.get("receita_retida") is True:
+        return "vermelha"
     # Detecta do texto da bula
     textos = " ".join(filter(None, [
         anvisa.get("alertas") or "",
@@ -7793,13 +7907,38 @@ def _detectar_tarja(anvisa: dict) -> str | None:
 
 
 def _requer_receita(anvisa: dict) -> bool:
-    return _detectar_tarja(anvisa) is not None
+    return _exige_receita_digital_entrega(anvisa)
+
+
+def _exige_receita_digital_entrega(anvisa: dict | None, nome: str = "") -> bool:
+    """True apenas para receita com retencao/controle; tarja vermelha simples nao bloqueia checkout."""
+    anvisa = anvisa or {}
+    if anvisa.get("receita_retida") is True:
+        return True
+    if anvisa.get("receita_retida") is False and anvisa.get("tarja"):
+        return False
+    tarja = _detectar_tarja(anvisa)
+    if tarja == "preta":
+        return True
+    textos = " ".join(filter(None, [
+        anvisa.get("alertas") or "",
+        anvisa.get("como_usar") or "",
+        anvisa.get("nome_anvisa") or "",
+        anvisa.get("principio_ativo") or "",
+        anvisa.get("tarja") or "",
+        nome or "",
+    ]))
+    return bool(_RECEITA_RETENCAO_RE.search(textos) or _NOME_RECEITA_RETIDA_RE.search(nome or textos))
 
 
 def _marcar_tarja_batch(produtos: list, conn) -> list:
     """Adiciona requer_receita=True/False a cada produto da lista (in-place + retorna)."""
     if not produtos:
         return produtos
+    try:
+        _anvisa_schema()
+    except Exception:
+        pass
     nomes = [p.get("nome") or "" for p in produtos]
     chaves_map: dict[str, list[int]] = {}   # chave → índices na lista
     for i, nome in enumerate(nomes):
@@ -7817,7 +7956,8 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja "
+            "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
+            "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, dizeres_imagem "
             "FROM anvisa_cache WHERE chave = ANY(%s) AND encontrado = TRUE",
             (list(chaves_map.keys()),),
         )
@@ -7825,7 +7965,18 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
             tarja = _detectar_tarja(dict(row))
             for idx in chaves_map.get(row["chave"], []):
                 produtos[idx]["tarja"] = tarja
-                produtos[idx]["requer_receita"] = tarja is not None
+                produtos[idx]["receita_retida"] = bool(row.get("receita_retida")) if row.get("receita_retida") is not None else _exige_receita_digital_entrega(dict(row), produtos[idx].get("nome") or "")
+                produtos[idx]["requer_receita"] = bool(produtos[idx]["receita_retida"])
+                produtos[idx]["venda_online_permitida"] = row.get("venda_online_permitida")
+                produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
+                produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
+                produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
+                if tarja in ("preta", "vermelha") and row.get("exibir_imagem_publica") is False:
+                    placeholder = _placeholder_for_tarja(tarja)
+                    if placeholder:
+                        produtos[idx]["imagem"] = placeholder
+                        produtos[idx]["imagem_padrao_poupaqui"] = True
+                        produtos[idx]["imagem_bloqueada_anvisa"] = True
     except Exception:
         pass
     finally:
@@ -7837,7 +7988,16 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
             nome = p.get("nome") or ""
             if _NOME_TARJA_VERMELHA_RE.search(nome):
                 p["tarja"] = "vermelha"
-                p["requer_receita"] = True
+                p["receita_retida"] = bool(_NOME_RECEITA_RETIDA_RE.search(nome))
+                p["requer_receita"] = p["receita_retida"]
+                p["exibir_imagem_publica"] = False
+                p["dizeres_receita"] = "VENDA SOB PRESCRICAO - COM RETENCAO DA RECEITA." if p["receita_retida"] else "VENDA SOB PRESCRICAO."
+                p["dizeres_imagem"] = "Medicamento sob prescricao: nao utilizar imagem, propaganda, publicidade ou promocao no site publico."
+                placeholder = _placeholder_for_tarja("vermelha")
+                if placeholder:
+                    p["imagem"] = placeholder
+                    p["imagem_padrao_poupaqui"] = True
+                    p["imagem_bloqueada_anvisa"] = True
 
     return produtos
 
@@ -7929,8 +8089,9 @@ def _anvisa_salvar(chave, dados):
             INSERT INTO anvisa_cache
               (chave, encontrado, nome_anvisa, laboratorio, situacao,
                principio_ativo, url_bula, serve_para, como_usar, alertas,
-               id_produto, tarja, jwt_bula, criado_em)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+               id_produto, tarja, jwt_bula, receita_retida, venda_online_permitida,
+               exibir_imagem_publica, dizeres_receita, dizeres_imagem, criado_em)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
             ON CONFLICT (chave) DO UPDATE SET
               encontrado=EXCLUDED.encontrado, nome_anvisa=EXCLUDED.nome_anvisa,
               laboratorio=EXCLUDED.laboratorio, situacao=EXCLUDED.situacao,
@@ -7938,6 +8099,11 @@ def _anvisa_salvar(chave, dados):
               serve_para=EXCLUDED.serve_para, como_usar=EXCLUDED.como_usar,
               alertas=EXCLUDED.alertas, id_produto=EXCLUDED.id_produto,
               tarja=EXCLUDED.tarja, jwt_bula=EXCLUDED.jwt_bula,
+              receita_retida=EXCLUDED.receita_retida,
+              venda_online_permitida=EXCLUDED.venda_online_permitida,
+              exibir_imagem_publica=EXCLUDED.exibir_imagem_publica,
+              dizeres_receita=EXCLUDED.dizeres_receita,
+              dizeres_imagem=EXCLUDED.dizeres_imagem,
               criado_em=NOW()
             """,
             (
@@ -7954,6 +8120,11 @@ def _anvisa_salvar(chave, dados):
                 dados.get("id_produto"),
                 dados.get("tarja"),
                 dados.get("jwt_bula"),
+                dados.get("receita_retida"),
+                dados.get("venda_online_permitida"),
+                dados.get("exibir_imagem_publica"),
+                dados.get("dizeres_receita"),
+                dados.get("dizeres_imagem"),
             ),
         )
         conn.commit()
@@ -7990,7 +8161,9 @@ def api_anvisa_info():
         return jsonify({"ok": True, **{
             k: d.get(k) for k in
             ("nome_anvisa", "laboratorio", "situacao", "principio_ativo",
-             "url_bula", "serve_para", "como_usar", "alertas")
+             "url_bula", "serve_para", "como_usar", "alertas", "tarja",
+             "receita_retida", "venda_online_permitida", "exibir_imagem_publica",
+             "dizeres_receita", "dizeres_imagem")
         }})
 
     # Busca via subprocess com arquivos temporários — evita WinError 5 no Windows
@@ -8031,7 +8204,9 @@ def api_anvisa_info():
     return jsonify({"ok": True, **{
         k: dados.get(k) for k in
         ("nome_anvisa", "laboratorio", "situacao", "principio_ativo",
-         "url_bula", "serve_para", "como_usar", "alertas")
+         "url_bula", "serve_para", "como_usar", "alertas", "tarja",
+         "receita_retida", "venda_online_permitida", "exibir_imagem_publica",
+         "dizeres_receita", "dizeres_imagem")
     }})
 
 

@@ -330,7 +330,7 @@
         <i class="fa fa-file-prescription"></i>
         <div>
           <strong>Venda sob prescrição médica (Tarja Vermelha).</strong><br>
-          Para entrega, envie no carrinho o PDF original da receita digital com assinatura verificavel e aguarde a validacao do farmaceutico. Foto, print ou receita escaneada nao serao aceitos. Para retirada, apresente a receita na farmacia.
+          Medicamento sujeito a prescricao: a dispensacao deve ocorrer mediante avaliacao do farmaceutico e apresentacao da receita quando aplicavel. Este produto nao exige anexo de receita digital no carrinho, salvo se houver exigencia de retencao/controle especial.
         </div>
       </div>
       {% endif %}
@@ -344,7 +344,7 @@
       <button class="btn-add-cart" id="btn-add"
               onclick="handleAddToCart()"
               data-requer-receita="{{ 'true' if requer_receita else 'false' }}">
-        <i class="fa fa-cart-plus"></i>{% if requer_receita %}Adicionar com receita{% else %}Adicionar ao carrinho{% endif %}
+        <i class="fa fa-cart-plus"></i>{% if requer_receita %}Adicionar com receita digital{% else %}Adicionar ao carrinho{% endif %}
       </button>
 
       {% else %}
@@ -507,13 +507,13 @@ function handleAddToCart() {
   const qty = parseInt(document.getElementById('pd-qty')?.value) || 1;
   const requerReceita = document.getElementById('btn-add')?.dataset?.requerReceita === 'true';
   const tarja = {{ tarja | tojson }} || null;
-  addToCart({ean:_pdEan, nome:_pdNome, preco:_pdPreco, imagem:_pdImg, cnpjloja:_pdCnpj, razao:_pdRazao, qty, requer_receita: requerReceita, tarja});
+  addToCart({ean:_pdEan, nome:_pdNome, preco:_pdPreco, imagem:_pdImg, cnpjloja:_pdCnpj, razao:_pdRazao, qty, requer_receita: requerReceita, receita_retida: requerReceita, tarja});
   const btn = document.getElementById('btn-add');
   btn.classList.add('added');
   btn.innerHTML = '<i class="fa fa-check"></i>Adicionado!';
   setTimeout(() => {
     btn.classList.remove('added');
-    btn.innerHTML = requerReceita ? '<i class="fa fa-cart-plus"></i>Adicionar com receita' : '<i class="fa fa-cart-plus"></i>Adicionar ao carrinho';
+    btn.innerHTML = requerReceita ? '<i class="fa fa-cart-plus"></i>Adicionar com receita digital' : '<i class="fa fa-cart-plus"></i>Adicionar ao carrinho';
   }, 2000);
 }
 
@@ -525,7 +525,7 @@ let _pdRecItems = [];
 function addPdRec(idx, btn) {
   const p = _pdRecItems[idx];
   if (!p) return;
-  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita});
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.receita_retida || p.requer_receita), tarja:p.tarja||null});
   if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>OK'; }
 }
 

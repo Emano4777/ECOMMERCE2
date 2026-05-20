@@ -31,7 +31,9 @@
       "Bash(python -c \"import cloudscraper; print\\(cloudscraper.__version__\\)\")",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\emano\\\\dns-ecommerce\" -Recurse -File)",
       "Bash(Select-Object -First 50)",
-      "Bash(Format-Table Name, FullName)"
+      "Bash(Format-Table Name, FullName)",
+      "Bash(git -C \"c:/Users/emano/dns-ecommerce\" add app.py)",
+      "Bash(git -C c:/Users/emano/dns-ecommerce commit -m ' *)"
     ]
   }
 }

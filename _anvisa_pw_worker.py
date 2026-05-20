@@ -36,7 +36,7 @@ _HEADERS = {
 _FALLBACK_BLOCKLIST = frozenset([
     "CARBONATO", "VITAMINA", "GLICERINA", "EXTRATO", "MESILATO",
     "REVEST", "LEGRAND", "GLENMARK", "BIOSINTETICA", "CIMED",
-    "DOSADOR", "GOTAS", "ZYDUS",
+    "DOSADOR", "GOTAS", "ZYDUS", "BEBE", "CRIANCA", "OSORIO",
 ])
 
 # Prefixos de sal que ANVISA usa no nome oficial (ex: "CLORIDRATO DE METFORMINA").
@@ -63,7 +63,8 @@ _SALT_PREFIXES = [
 _GENERIC_FIRST_WORDS = frozenset([
     "VITAMINA", "GLICERINA", "CAPILAR", "EXTRATO", "OLEO", "OMEGA",
     "AGUA", "FITA", "HORA", "PROT", "SORO", "ROSA", "CERA",
-    "CINCO", "CLORETO", "FENO", "ACIDO", "MESILATO",
+    "CINCO", "CLORETO", "FENO", "ACIDO", "MESILATO", "TIRAS",
+    "INTIMO", "LISTO", "LAVADOR", "NATU", "VITNATU",
     # Chaves compostas que geram falso positivo se 2ª palavra não constar no nome
     "INALADOR",  # INALADOR COMPRESSOR ≠ Inalador Vick
     "COMPLEXO",  # COMPLEXO MAGNESIO ≠ Complexo B
@@ -75,6 +76,21 @@ _CHAVES_BLOQUEADAS = frozenset([
     "NATU",     # prefixo de marca Vitnatu, encontra "Natulaxe" (errado)
     "MULTI",    # genérico demais, encontra "Multiler" (errado)
     "VITAMINA", # genérico demais, encontra "Vitamina D3" vermelha (errado)
+    "CURCUMA",
+    "CURCUMA LONGA",
+])
+
+_PREFIXOS_NAO_MEDICAMENTO = frozenset([
+    "NATU", "VITNATU", "CAPILAR", "OLEO", "INTIMO", "LISTO",
+    "LAVADOR", "TIRAS", "SHAMPOO", "SABONETE", "PROTETOR",
+    "REPELENTE", "PERFUME", "MAMADEIRA", "MORDEDOR", "LANCETA",
+    "NEBULIZADOR", "MUNHEQUEIRA", "TOUCA", "LUVA", "LUVAS",
+    "GOODVIT", "CARTVIT", "GRANADO", "CLETO",
+])
+
+_QUALIFICADORES_FORMA_MARCA = frozenset([
+    "BEBE", "CRIANCA", "GOTAS", "OSORIO", "LEGRAND", "ALTHAIA",
+    "BIOSINTETICA", "MEDQUIMICA", "REVEST", "SUSP",
 ])
 
 # A API ANVISA é sensível a acentos — para drogas cujo nome oficial tem acento
@@ -94,10 +110,80 @@ def _match_valido(chave, nome_anvisa):
     """Rejeita falso positivo quando 1ª palavra é genérica e o nome retornado
     não contém as outras palavras da chave (comparação sem acento)."""
     palavras = _norm(chave).split()
+    nome_norm = _norm(nome_anvisa)
+    if len(palavras) >= 2 and palavras[1] in _QUALIFICADORES_FORMA_MARCA and "+" in nome_norm:
+        return False
     if len(palavras) < 2 or palavras[0] not in _GENERIC_FIRST_WORDS:
         return True
-    nome_norm = _norm(nome_anvisa)
     return any(p in nome_norm for p in palavras[1:])
+
+
+_RETENCAO_NORM_RE = re.compile(
+    r"SO PODE SER VENDID[OA] COM RETENCAO DA RECEITA"
+    r"|COM RETENCAO DA RECEITA"
+    r"|RECEITA DE CONTROLE ESPECIAL"
+    r"|NOTIFICACAO DE RECEITA"
+    r"|SNGPC"
+)
+
+_TARJA_PRETA_NORM_RE = re.compile(
+    r"TARJA PRETA"
+    r"|NOTIFICACAO DE RECEITA [AB]?"
+    r"|LISTA [AB][0-9]?"
+    r"|ENTORPECENTE"
+)
+
+_TARJA_VERMELHA_NORM_RE = re.compile(
+    r"TARJA VERMELHA"
+    r"|VENDA SOB PRESCRICAO"
+    r"|USO SOB PRESCRICAO"
+    r"|SOMENTE (?:COM|SOB) PRESCRI"
+    r"|MEDICAMENTO SUJEITO A PRESCRI"
+    r"|RECEITA DE CONTROLE ESPECIAL"
+)
+
+_NOME_RECEITA_RETIDA_NORM_RE = re.compile(
+    r"\bAMOXICILINA\b|\bAMPICILINA\b|\bCEFALEXINA\b|\bCEFADROXILA\b|\bCEFACLOR\b"
+    r"|\bAZITROMICINA\b|\bCLARITROMICINA\b|\bERITROMICINA\b"
+    r"|\bCIPROFLOXACINO\b|\bLEVOFLOXACINO\b|\bNORFLOXACINO\b|\bOFLOXACINO\b"
+    r"|\bMETRONIDAZOL\b|\bTINIDAZOL\b|\bSULFAMETOXAZOL\b|\bTRIMETOPRIM\b"
+    r"|\bTETRACICLINA\b|\bDOXICICLINA\b|\bMINOCICLINA\b"
+    r"|\bFLUOXETINA\b|\bSERTRALINA\b|\bESCITALOPRAM\b|\bCITALOPRAM\b"
+    r"|\bPAROXETINA\b|\bVENLAFAXINA\b|\bDESVENLAFAXINA\b|\bDULOXETINA\b"
+    r"|\bAMITRIPTILINA\b|\bNORTRIPTILINA\b|\bIMIPRAMINA\b"
+    r"|\bCARBAMAZEPINA\b|\bFENITOINA\b|\bVALPROATO\b|\bTOPIRAMAT[EO]\b|\bLAMOTRIGINA\b"
+    r"|\bCODEINA\b"
+)
+
+
+def _restricoes_sanitarias(tarja, nome="", principio_ativo="", tipo_receituario="", textos=""):
+    blob = _norm(" ".join(filter(None, [nome, principio_ativo, tipo_receituario, textos])))
+    receita_retida = bool(tarja == "preta" or _RETENCAO_NORM_RE.search(blob) or _NOME_RECEITA_RETIDA_NORM_RE.search(blob))
+    if tarja is None and receita_retida:
+        tarja = "vermelha"
+    exibir_imagem_publica = not bool(tarja or receita_retida)
+    venda_online_permitida = not bool(tarja == "preta" or receita_retida)
+
+    if tarja == "preta":
+        dizeres_receita = "Medicamento de controle especial. Venda somente mediante receita/notificacao conforme norma sanitaria aplicavel."
+    elif receita_retida:
+        dizeres_receita = "VENDA SOB PRESCRICAO - COM RETENCAO DA RECEITA."
+    elif tarja == "vermelha":
+        dizeres_receita = "VENDA SOB PRESCRICAO."
+    else:
+        dizeres_receita = None
+
+    dizeres_imagem = None
+    if not exibir_imagem_publica:
+        dizeres_imagem = "Medicamento sob prescricao: nao utilizar imagem, propaganda, publicidade ou promocao no site publico; divulgar apenas dados permitidos pela RDC 44/2009."
+
+    return {
+        "receita_retida": receita_retida,
+        "venda_online_permitida": venda_online_permitida,
+        "exibir_imagem_publica": exibir_imagem_publica,
+        "dizeres_receita": dizeres_receita,
+        "dizeres_imagem": dizeres_imagem,
+    }
 
 
 def _melhor_item(chave, items):
@@ -148,6 +234,8 @@ def _melhor_item(chave, items):
         sem_combo = [i for i in pool if "+" not in (i.get("nomeProduto") or "")]
         if sem_combo:
             pool = sem_combo
+        elif any("+" in (i.get("nomeProduto") or "") for i in pool):
+            return None
 
     # Para chave de 2 palavras, exige produto com ≤1 componente extra (≤1 "+").
     # Evita "PARACETAMOL CAFEINA" → "Paracetamol + Carisoprodol + Diclofenaco + Cafeína".
@@ -315,7 +403,8 @@ def _extrair_pdf(pdf_bytes):
              "COMO USAR", "POSOLOGIA", "SUPERDOSE", "DIZERES LEGAIS"],
         )
         tarja_pdf = None
-        if re.search(
+        tu_norm = _norm(tu)
+        if False and re.search(
             r"TARJA\s+PRETA"
             r"|RECEITA\s+DE\s+CONTROLE\s+ESPECIAL"
             r"|SUJEITO\s+A\s+CONTROLE\s+ESPECIAL"
@@ -327,12 +416,16 @@ def _extrair_pdf(pdf_bytes):
             tu,
         ):
             tarja_pdf = "preta"
-        elif re.search(
+        elif False and re.search(
             r"VENDA\s+SOB\s+PRESCRI[CÇ][AÃ]O|USO\s+SOB\s+PRESCRI[CÇ][AÃ]O"
             r"|TARJA\s+VERMELHA|MEDICAMENTO\s+SUJEITO\s+A\s+PRESCRI"
             r"|SOMENTE\s+(?:COM|SOB)\s+PRESCRI",
             tu,
         ):
+            tarja_pdf = "vermelha"
+        elif _TARJA_PRETA_NORM_RE.search(tu_norm):
+            tarja_pdf = "preta"
+        elif _TARJA_VERMELHA_NORM_RE.search(tu_norm):
             tarja_pdf = "vermelha"
 
         return serve_para, como_usar, alertas, tarja_pdf
@@ -467,6 +560,9 @@ def _api_bulario(chave, session):
 def _buscar(chave, session):
     if chave in _CHAVES_BLOQUEADAS:
         return {"encontrado": False}
+    palavras = _norm(chave).split()
+    if palavras and palavras[0] in _PREFIXOS_NAO_MEDICAMENTO:
+        return {"encontrado": False}
     try:
         items = _api_bulario(chave, session)
         if not items:
@@ -506,12 +602,14 @@ def _buscar(chave, session):
         # Tarja: 1) PDF completo  2) campo tipoReceituario  3) regex nas seções
         tarja = tarja_pdf
 
+        tipo_receituario_txt = ""
         if tarja is None:
-            # Palavras que indicam CONTROLE ESPECIAL (Portaria 344) → tarja preta
+            # Apenas sinais fortes de tarja preta/listas A-B. Controle especial
+            # amplo pode ser tarja vermelha com retenção.
             _PRETA_KW = (
-                "CONTROLE ESPECIAL", "PSICOTR",
-                "LISTA A", "LISTA B", "LISTA C5",
-                "ENTORPECENTE", "NOTIFICACAO DE RECEITA", "NOTIFICAÇÃO DE RECEITA",
+                "TARJA PRETA", "LISTA A", "LISTA B",
+                "ENTORPECENTE", "NOTIFICACAO DE RECEITA A", "NOTIFICAÇÃO DE RECEITA A",
+                "NOTIFICACAO DE RECEITA B", "NOTIFICAÇÃO DE RECEITA B",
             )
             for src in (detail, item):
                 val = str(
@@ -519,6 +617,7 @@ def _buscar(chave, session):
                 ).strip()
                 if not val or val.lower() in ("none", "null", ""):
                     continue
+                tipo_receituario_txt = val
                 val_up = val.upper()
                 if any(kw in val_up for kw in _PRETA_KW):
                     tarja = "preta"
@@ -533,12 +632,9 @@ def _buscar(chave, session):
             tu2 = textos.upper()
             if re.search(
                 r"TARJA\s+PRETA"
-                r"|RECEITA\s+DE\s+CONTROLE\s+ESPECIAL"
-                r"|SUJEITO\s+A\s+CONTROLE\s+ESPECIAL"
-                r"|NOTIFICA[CÇ][AÃ]O\s+DE\s+RECEITA"
+                r"|NOTIFICA[CÇ][AÃ]O\s+DE\s+RECEITA\s+[AB]"
                 r"|LISTA\s+[AB]\d"
-                r"|PORT(?:ARIA)?\s*344"
-                r"|PSICOTR[OÓ]PICO",
+                r"|ENTORPECENTE",
                 tu2,
             ):
                 tarja = "preta"
@@ -549,6 +645,20 @@ def _buscar(chave, session):
                 tu2,
             ):
                 tarja = "vermelha"
+
+        textos_restricao = " ".join(filter(None, [alertas or "", como_usar or "", serve_para or ""]))
+        blob_restricao = _norm(" ".join(filter(None, [nome, pa, tipo_receituario_txt, textos_restricao])))
+        if tarja == "preta" and not _TARJA_PRETA_NORM_RE.search(blob_restricao) and _RETENCAO_NORM_RE.search(blob_restricao):
+            tarja = "vermelha"
+        if tarja is None and (_RETENCAO_NORM_RE.search(blob_restricao) or _NOME_RECEITA_RETIDA_NORM_RE.search(blob_restricao)):
+            tarja = "vermelha"
+        restricoes = _restricoes_sanitarias(
+            tarja,
+            nome=nome,
+            principio_ativo=pa,
+            tipo_receituario=tipo_receituario_txt,
+            textos=textos_restricao,
+        )
 
         return {
             "encontrado":      True,
@@ -563,6 +673,7 @@ def _buscar(chave, session):
             "como_usar":       como_usar,
             "alertas":         alertas,
             "tarja":           tarja,
+            **restricoes,
         }
     except Exception as exc:
         import traceback

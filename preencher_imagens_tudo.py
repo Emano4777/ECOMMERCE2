@@ -46,6 +46,7 @@ from preencher_medicamentos_imagens_seguras import (
     _is_clean_image as _is_clean,
 )
 
+_COSMOS_THUMB_CACHE = {}
 
 
 # ── contadores ───────────────────────────────────────────────
@@ -89,6 +90,8 @@ def _count_ecom_missing(conn):
 
 def _cosmos_thumbnail_url(conn, ean):
     """Busca imagem_cosmos da produto_canon, faz upload para storage e retorna URL permanente."""
+    if ean in _COSMOS_THUMB_CACHE:
+        return _COSMOS_THUMB_CACHE[ean]
     cur = conn.cursor()
     cur.execute(
         "SELECT imagem_cosmos FROM produto_canon WHERE ean = %s AND imagem_cosmos IS NOT NULL LIMIT 1",
@@ -97,15 +100,20 @@ def _cosmos_thumbnail_url(conn, ean):
     row = cur.fetchone()
     cur.close()
     if not row:
+        _COSMOS_THUMB_CACHE[ean] = None
         return None
     src = (row["imagem_cosmos"] or "").strip()
     if not src.startswith("http"):
+        _COSMOS_THUMB_CACHE[ean] = None
         return None
     # faz download e sobe para nosso storage (evita depender do CDN Bluesoft)
     raw, ext, content_type = _download_image_for_storage(src)
     if not raw:
+        _COSMOS_THUMB_CACHE[ean] = None
         return None
-    return upload_to_supabase_storage(raw, f"cosmos-ean/{ean}.{ext}", content_type)
+    uploaded = upload_to_supabase_storage(raw, f"cosmos-ean/{ean}.{ext}", content_type)
+    _COSMOS_THUMB_CACHE[ean] = uploaded
+    return uploaded
 
 
 # ── fase 1: medicamentos ──────────────────────────────────────
@@ -154,7 +162,6 @@ def processar_medicamento(conn, med, dry_run=False):
     if chosen and not dry_run:
         cur.execute("UPDATE medicamentos SET imagem=%s WHERE id=%s", (chosen, med["id"]))
         _upsert_catalog_image_all_stores(cur, ean, chosen)
-        conn.commit()
 
     cur.close()
     return chosen
@@ -232,10 +239,16 @@ def _barra(ok, total, width=30):
     return f"[{'#'*filled}{'-'*(width-filled)}] {ok}/{total}"
 
 
-def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicial):
+def _row_key(row):
+    return str(row.get("id") or row.get("ean") or row.get("barra_norm") or row.get("barra") or "")
+
+
+def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicial, commit_every=25):
     ok = sem_fonte = 0
     rodada = 0
     total_processado = 0
+    dirty = 0
+    sem_fonte_keys = set()
     t0 = time.monotonic()
 
     print(f"\n{'='*60}")
@@ -243,7 +256,11 @@ def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicia
     print('='*60)
 
     while True:
-        rows = fetch_fn(conn, batch)
+        fetch_limit = min(max(batch, batch + len(sem_fonte_keys)), 10000)
+        rows = fetch_fn(conn, fetch_limit)
+        if not rows:
+            break
+        rows = [r for r in rows if _row_key(r) not in sem_fonte_keys][:batch]
         if not rows:
             break
         rodada += 1
@@ -254,13 +271,20 @@ def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicia
             total_processado += 1
             if resultado:
                 ok += 1
+                if not dry_run:
+                    dirty += 1
                 kind = ("TARJA_PRETA" if resultado == GENERIC_TARJA_PRETA_IMG
                         else "TARJA_VERMELHA" if resultado == GENERIC_TARJA_VERMELHA_IMG
                         else "OK")
                 print(f"  [{total_processado:5}] {kind:14}  {ean}  {nome[:45]}", flush=True)
             else:
                 sem_fonte += 1
+                sem_fonte_keys.add(_row_key(row))
                 print(f"  [{total_processado:5}] SEM FONTE      {ean}  {nome[:45]}", flush=True)
+
+            if dirty >= commit_every:
+                conn.commit()
+                dirty = 0
 
         elapsed = time.monotonic() - t0
         vel = total_processado / elapsed if elapsed > 0 else 0
@@ -269,6 +293,8 @@ def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicia
               f"{vel:.1f}/s  ETA ~{int(restante//60)}min\n", flush=True)
 
     print(f"\n{nome_fase} concluída: {ok} preenchidos  {sem_fonte} sem fonte")
+    if dirty:
+        conn.commit()
     return ok, sem_fonte
 
 
@@ -277,6 +303,7 @@ def main():
     ap.add_argument("--batch",    type=int, default=300, help="Itens por lote (padrão: 300)")
     ap.add_argument("--so-med",   action="store_true",   help="Só fase 1 (medicamentos)")
     ap.add_argument("--so-ecom",  action="store_true",   help="Só fase 2 (ecommerce)")
+    ap.add_argument("--commit-every", type=int, default=25, help="Commit a cada N imagens salvas (padrao: 25)")
     ap.add_argument("--dry-run",  action="store_true",   help="Simula sem salvar")
     args = ap.parse_args()
 
@@ -303,7 +330,7 @@ def main():
             "FASE 1 — medicamentos",
             _batch_med,
             processar_medicamento,
-            conn, args.batch, args.dry_run, med_missing,
+            conn, args.batch, args.dry_run, med_missing, args.commit_every,
         )
         total_ok  += ok
         total_sem += sem
@@ -322,7 +349,6 @@ def main():
                 if img:
                     c = conn.cursor()
                     _upsert_catalog_image_all_stores(c, ean, img)
-                    conn.commit()
                     c.close()
                     return img
                 return _fill_one_catalog_image(cnpj, ean, nome)
@@ -331,7 +357,7 @@ def main():
                 "FASE 2 — ecommerce (não-ANVISA)",
                 _batch_ecom,
                 _processar_ecom,
-                conn, args.batch, args.dry_run, ecom_missing,
+                conn, args.batch, args.dry_run, ecom_missing, args.commit_every,
             )
             total_ok  += ok
             total_sem += sem

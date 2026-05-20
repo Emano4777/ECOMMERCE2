@@ -1085,7 +1085,15 @@ function esc(s) {
 const CART_KEY = 'pq_cart';
 
 function getCart() {
-  try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; } catch { return []; }
+  try {
+    const cart = JSON.parse(localStorage.getItem(CART_KEY)) || [];
+    return cart.map(item => {
+      if (item && item.tarja === 'vermelha' && item.receita_retida !== true) {
+        return {...item, requer_receita: false};
+      }
+      return item;
+    });
+  } catch { return []; }
 }
 
 let _syncCartTimer = null;
@@ -1109,8 +1117,16 @@ function saveCart(c) {
 function addToCart(item) {
   const cart = getCart();
   const qty = Math.max(1, parseInt(item.qty) || 1);
+  item = {...item};
+  item.receita_retida = item.receita_retida === true;
+  if (item.tarja === 'vermelha' && item.receita_retida !== true) item.requer_receita = false;
   const ex = cart.find(c => c.ean === item.ean && c.cnpjloja === item.cnpjloja);
-  if (ex) { ex.qty = (ex.qty||1) + qty; }
+  if (ex) {
+    ex.qty = (ex.qty||1) + qty;
+    ex.requer_receita = !!item.requer_receita;
+    ex.receita_retida = item.receita_retida === true;
+    ex.tarja = item.tarja || ex.tarja || null;
+  }
   else     { cart.push({...item, qty}); }
   saveCart(cart);
   showCartToast(item.nome);

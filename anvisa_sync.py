@@ -24,6 +24,9 @@ import psycopg2.extras
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
+GENERIC_TARJA_VERMELHA_IMG = "https://res.cloudinary.com/dizfq460q/image/upload/v1778783063/CAIXA_GEN%C3%89RICO_-_POUPAQUI_itiyth.jpg"
+GENERIC_TARJA_PRETA_IMG = "https://res.cloudinary.com/dizfq460q/image/upload/v1778783450/ChatGPT_Image_14_de_mai._de_2026_15_30_35_wuovpb.png"
+
 _STOP_WORDS = {
     "com","de","do","da","dos","das","para","por","em","e","ou",
     "mg","mcg","ml","ui","gr","cp","caps","comp","tab","un","und",
@@ -67,29 +70,8 @@ def _db():
     return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
-def _salvar(conn, chave, dados):
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO anvisa_cache
-          (chave, encontrado, nome_anvisa, laboratorio, situacao,
-           principio_ativo, url_bula, serve_para, como_usar, alertas,
-           id_produto, tarja, jwt_bula, criado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
-        ON CONFLICT (chave) DO UPDATE SET
-          encontrado      = EXCLUDED.encontrado,
-          nome_anvisa     = EXCLUDED.nome_anvisa,
-          laboratorio     = EXCLUDED.laboratorio,
-          situacao        = EXCLUDED.situacao,
-          principio_ativo = EXCLUDED.principio_ativo,
-          url_bula        = EXCLUDED.url_bula,
-          serve_para      = EXCLUDED.serve_para,
-          como_usar       = EXCLUDED.como_usar,
-          alertas         = EXCLUDED.alertas,
-          id_produto      = EXCLUDED.id_produto,
-          tarja           = EXCLUDED.tarja,
-          jwt_bula        = EXCLUDED.jwt_bula,
-          criado_em       = NOW()
-    """, (
+def _cache_row(chave, dados):
+    return (
         chave,
         dados.get("encontrado", False),
         dados.get("nome_anvisa"),
@@ -103,9 +85,52 @@ def _salvar(conn, chave, dados):
         dados.get("id_produto"),
         dados.get("tarja"),
         dados.get("jwt_bula"),
-    ))
-    conn.commit()
-    cur.close()
+        dados.get("receita_retida"),
+        dados.get("venda_online_permitida"),
+        dados.get("exibir_imagem_publica"),
+        dados.get("dizeres_receita"),
+        dados.get("dizeres_imagem"),
+    )
+
+
+def _salvar_many(rows, page_size=50):
+    if not rows:
+        return 0
+    conn = _db()
+    try:
+        cur = conn.cursor()
+        psycopg2.extras.execute_values(cur, """
+            INSERT INTO anvisa_cache
+              (chave, encontrado, nome_anvisa, laboratorio, situacao,
+               principio_ativo, url_bula, serve_para, como_usar, alertas,
+               id_produto, tarja, jwt_bula, receita_retida, venda_online_permitida,
+               exibir_imagem_publica, dizeres_receita, dizeres_imagem, criado_em)
+            VALUES %s
+            ON CONFLICT (chave) DO UPDATE SET
+              encontrado      = EXCLUDED.encontrado,
+              nome_anvisa     = EXCLUDED.nome_anvisa,
+              laboratorio     = EXCLUDED.laboratorio,
+              situacao        = EXCLUDED.situacao,
+              principio_ativo = EXCLUDED.principio_ativo,
+              url_bula        = EXCLUDED.url_bula,
+              serve_para      = EXCLUDED.serve_para,
+              como_usar       = EXCLUDED.como_usar,
+              alertas         = EXCLUDED.alertas,
+              id_produto      = EXCLUDED.id_produto,
+              tarja           = EXCLUDED.tarja,
+              jwt_bula        = EXCLUDED.jwt_bula,
+              receita_retida  = EXCLUDED.receita_retida,
+              venda_online_permitida = EXCLUDED.venda_online_permitida,
+              exibir_imagem_publica = EXCLUDED.exibir_imagem_publica,
+              dizeres_receita = EXCLUDED.dizeres_receita,
+              dizeres_imagem  = EXCLUDED.dizeres_imagem,
+              criado_em       = NOW()
+        """, rows, template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())", page_size=page_size)
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    return len(rows)
 
 
 _INDICADORES_MEDICAMENTO = re.compile(
@@ -124,6 +149,86 @@ def _parece_medicamento(nome: str) -> bool:
     return bool(_INDICADORES_MEDICAMENTO.search(nome))
 
 
+def _placeholder_tarja(tarja):
+    tarja = (tarja or "").strip().lower()
+    if tarja == "preta":
+        return GENERIC_TARJA_PRETA_IMG
+    if tarja == "vermelha":
+        return GENERIC_TARJA_VERMELHA_IMG
+    return None
+
+
+def _aplicar_restricoes_imagem(chaves=None, page_size=200):
+    """Grava placeholder Poupaqui para medicamentos que nao podem exibir imagem publica."""
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_produto_imagens (
+            cnpjloja TEXT NOT NULL,
+            ean TEXT NOT NULL,
+            imagem_url TEXT NOT NULL,
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (cnpjloja, ean)
+        )
+    """)
+    chaves = sorted({c for c in (chaves or []) if c})
+    if chaves:
+        cur.execute("""
+            SELECT chave, tarja, exibir_imagem_publica
+            FROM anvisa_cache
+            WHERE encontrado=TRUE AND tarja IN ('preta','vermelha') AND chave = ANY(%s)
+        """, (chaves,))
+    else:
+        cur.execute("""
+            SELECT chave, tarja, exibir_imagem_publica
+            FROM anvisa_cache
+            WHERE encontrado=TRUE AND tarja IN ('preta','vermelha')
+        """)
+    restricoes = {r["chave"]: dict(r) for r in cur.fetchall()}
+    if not restricoes:
+        cur.close()
+        return 0
+
+    cur.execute("""
+        SELECT e.cnpj AS cnpjloja, e.barras AS ean, COALESCE(m.descricao, e.descricao) AS nome
+        FROM estoque e
+        LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
+        WHERE e.estoque > 0 AND COALESCE(e.barras, e.barras_norm, '') <> ''
+
+        UNION ALL
+
+        SELECT ae.cnpj_loja AS cnpjloja, ae.ean, COALESCE(m.descricao, ae.descricao_produto) AS nome
+        FROM automatiza_estoque ae
+        LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
+        WHERE ae.quantidade_estoque > 0 AND COALESCE(ae.ean, '') <> ''
+    """)
+    upserts = []
+    seen = set()
+    for row in cur.fetchall():
+        cnpj = (row.get("cnpjloja") or "").strip()
+        ean = (row.get("ean") or "").strip()
+        regra = restricoes.get(_chave(row.get("nome") or ""))
+        if not cnpj or not ean or not regra or regra.get("exibir_imagem_publica") is True:
+            continue
+        placeholder = _placeholder_tarja(regra.get("tarja"))
+        key = (cnpj, ean)
+        if placeholder and key not in seen:
+            seen.add(key)
+            upserts.append((cnpj, ean, placeholder))
+
+    if upserts:
+        psycopg2.extras.execute_values(cur, """
+            INSERT INTO ecommerce_produto_imagens (cnpjloja, ean, imagem_url, updated_at)
+            VALUES %s
+            ON CONFLICT (cnpjloja, ean) DO UPDATE
+              SET imagem_url=EXCLUDED.imagem_url, updated_at=NOW()
+        """, upserts, template="(%s,%s,%s,NOW())", page_size=page_size)
+    conn.commit()
+    cur.close()
+    conn.close()
+    return len(upserts)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Sincronização ANVISA standalone")
     ap.add_argument("--forcar", action="store_true",
@@ -132,7 +237,12 @@ def main():
                     help="Processar no máximo N chaves (0 = sem limite, útil para testes)")
     ap.add_argument("--todos", action="store_true",
                     help="Inclui produtos sem indicativo de medicamento (muito mais lento)")
+    ap.add_argument("--db-batch", type=int, default=40,
+                    help="Quantidade de resultados ANVISA para salvar por commit (padrao: 40)")
+    ap.add_argument("--sem-imagens", action="store_true",
+                    help="Nao grava placeholders no catalogo ao final")
     args = ap.parse_args()
+    db_batch = max(1, min(int(args.db_batch or 40), 200))
 
     conn = _db()
     cur  = conn.cursor()
@@ -140,6 +250,7 @@ def main():
     if args.forcar:
         cur.execute("DELETE FROM anvisa_cache WHERE encontrado=FALSE")
         conn.commit()
+        print("Produtos encontrados serao reprocessados para atualizar restricoes sanitarias.\n")
         print("Registros 'não encontrado' apagados do cache.\n")
 
     # Garante schema do anvisa_cache (idempotente)
@@ -155,6 +266,11 @@ def main():
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS id_produto INTEGER")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS tarja TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS jwt_bula TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS receita_retida BOOLEAN")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS venda_online_permitida BOOLEAN")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS exibir_imagem_publica BOOLEAN")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS dizeres_receita TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS dizeres_imagem TEXT")
 
     # Garante que as tabelas de catálogo existem
     cur.execute("""
@@ -222,9 +338,21 @@ def main():
     nomes_raw = [r["nome"] for r in cur.fetchall() if r["nome"]]
 
     # Chaves já em cache (90 dias)
-    cur.execute("SELECT chave FROM anvisa_cache WHERE criado_em > NOW() - INTERVAL '90 days'")
-    cached = {r["chave"] for r in cur.fetchall()}
+    if args.forcar:
+        cached = set()
+    else:
+        cur.execute("""
+            SELECT chave
+            FROM anvisa_cache
+            WHERE criado_em > NOW() - INTERVAL '90 days'
+              AND (
+                    encontrado = FALSE
+                    OR (receita_retida IS NOT NULL AND exibir_imagem_publica IS NOT NULL)
+                  )
+        """)
+        cached = {r["chave"] for r in cur.fetchall()}
     cur.close()
+    conn.close()  # libera antes do worker; cada batch abre/fecha sua própria conexão
 
     # Deduplica e filtra pendentes
     vistas: set = set()
@@ -247,7 +375,12 @@ def main():
 
     if not total:
         print("\nNada a processar. Cache já atualizado.")
-        conn.close()
+        if args.sem_imagens:
+            atualizadas = 0
+            print("Atualizacao de imagens sanitarias pulada por --sem-imagens.")
+        else:
+            atualizadas = _aplicar_restricoes_imagem(page_size=max(100, db_batch * 5))
+            print(f"Imagens sanitarias atualizadas no catalogo: {atualizadas}")
         return
 
     print(f"\nIniciando worker ANVISA...\n")
@@ -268,6 +401,12 @@ def main():
 
     import time as _time
 
+    ok = 0
+    falha = 0
+    feitos = 0
+    pending_rows = []
+    chaves_processadas = set()
+
     try:
         proc = subprocess.Popen(
             [sys.executable, worker, "--input", input_path, "--output", output_path],
@@ -278,6 +417,8 @@ def main():
         ok = 0
         falha = 0
         feitos = 0
+        pending_rows = []
+        chaves_processadas = set()
 
         # Aguarda o worker criar o arquivo de saída
         while not os.path.exists(output_path):
@@ -295,7 +436,12 @@ def main():
                     try:
                         rec   = json.loads(line)
                         dados = rec.get("dados") or {}
-                        _salvar(conn, rec["chave"], dados)
+                        chave_rec = rec["chave"]
+                        pending_rows.append(_cache_row(chave_rec, dados))
+                        chaves_processadas.add(chave_rec)
+                        if len(pending_rows) >= db_batch:
+                            _salvar_many(pending_rows, page_size=db_batch)
+                            pending_rows.clear()
                         feitos += 1
                         pct = round(feitos / total * 100)
                         if dados.get("encontrado"):
@@ -315,6 +461,10 @@ def main():
                         break  # worker terminou e não há mais linhas
                     _time.sleep(0.3)  # aguarda próxima linha do worker
 
+        if pending_rows:
+            _salvar_many(pending_rows, page_size=db_batch)
+            pending_rows.clear()
+
         proc.wait()
     finally:
         try:
@@ -326,10 +476,15 @@ def main():
         except OSError:
             pass
 
-    conn.close()
+    if args.sem_imagens:
+        atualizadas = 0
+        print("Atualizacao de imagens sanitarias pulada por --sem-imagens.")
+    else:
+        atualizadas = _aplicar_restricoes_imagem(chaves=chaves_processadas, page_size=max(100, db_batch * 5))
 
     print(f"\n{'='*55}")
     print(f"Concluido!  OK={ok} encontrados   NAO={falha} nao encontrados")
+    print(f"Imagens sanitarias atualizadas no catalogo: {atualizadas}")
     print(f"{'='*55}")
 
 

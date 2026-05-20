@@ -255,7 +255,7 @@ let _confRecItems = [];
 function addConfRec(idx, btn) {
   const p = _confRecItems[idx];
   if (!p) return;
-  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita});
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.receita_retida || p.requer_receita), tarja:p.tarja||null});
   if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>Adicionado'; }
 }
 async function carregarRecsConfirmacao() {

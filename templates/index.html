@@ -658,7 +658,7 @@ function addFromCard(idx) {
   const p = _cards[idx];
   if (!p) return;
   const qty = parseInt(document.getElementById('qty-' + idx)?.value) || 1;
-  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', distancia_km:p.distancia_km, aceita_entrega:p.aceita_entrega, raio_entrega_km:p.raio_entrega_km, entrega_disponivel:p.entrega_disponivel, valor_frete:p.valor_frete||0, qty, requer_receita: p.requer_receita||false, tarja: p.tarja||null});
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', distancia_km:p.distancia_km, aceita_entrega:p.aceita_entrega, raio_entrega_km:p.raio_entrega_km, entrega_disponivel:p.entrega_disponivel, valor_frete:p.valor_frete||0, qty, requer_receita: p.requer_receita||false, receita_retida:!!(p.receita_retida || p.requer_receita), tarja: p.tarja||null});
 }
 
 function renderProdutos(lista) {

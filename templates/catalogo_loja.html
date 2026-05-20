@@ -271,7 +271,7 @@
           <button type="button" onclick="changeCatalogQty('{{ loop.index }}', 1)">+</button>
         </div>
         <button class="btn-add-cart"
-                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }}})">
+                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }},receita_retida:{{ 'true' if p.receita_retida else 'false' }},tarja:'{{ p.tarja or '' }}'})">
           <i class="fa fa-cart-plus me-1"></i>{% if p.requer_receita %}Reservar{% else %}Adicionar{% endif %}
         </button>
       </div>
