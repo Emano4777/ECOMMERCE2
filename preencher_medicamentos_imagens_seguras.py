@@ -6,6 +6,7 @@ from app import (
     _anvisa_chave,
     _detectar_tarja,
     _download_image_for_storage,
+    _fetch_cosmos_api_image_url,
     _fetch_exact_barcode_image_url,
     _fetch_serper_image_result_url,
     _fetch_verified_serper_image_url,
@@ -47,7 +48,7 @@ def _anvisa_for_name(cur, nome):
         return {}
     cur.execute(
         """
-        SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja
+        SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, exibir_imagem_publica
         FROM anvisa_cache
         WHERE chave=%s AND encontrado=TRUE
         LIMIT 1
@@ -119,18 +120,30 @@ def _candidate_images(cur, med_id, ean):
     return result
 
 
-def _external_image(ean, nome):
-    source_url = (
-        _fetch_exact_barcode_image_url(ean)
-        or _fetch_verified_serper_image_url(ean, nome)
-        or _fetch_serper_image_result_url(ean, nome)
+def _external_image(ean, nome, upload=True):
+    source_fns = (
+        lambda: _fetch_exact_barcode_image_url(ean),          # OpenFoodFacts/BeautyFacts (alimentos/beleza)
+        lambda: _fetch_cosmos_api_image_url(ean),             # Bluesoft Cosmos (melhor cobertura BR)
+        lambda: _fetch_verified_serper_image_url(ean, nome),
+        lambda: _fetch_serper_image_result_url(ean, nome),
     )
-    if not source_url or _is_bad_image(source_url):
-        return None
-    raw, ext, content_type = _download_image_for_storage(source_url)
-    if not raw:
-        return None
-    return upload_to_supabase_storage(raw, f"medicamentos-auto-ean/{ean}.{ext}", content_type)
+    tried = set()
+    for get_source in source_fns:
+        source_url = get_source()
+        if not source_url or source_url in tried:
+            continue
+        tried.add(source_url)
+        if _is_bad_image(source_url):
+            continue
+        raw, ext, content_type = _download_image_for_storage(source_url)
+        if not raw:
+            continue
+        if not upload:
+            return source_url
+        uploaded = upload_to_supabase_storage(raw, f"medicamentos-auto-ean/{ean}.{ext}", content_type)
+        if uploaded:
+            return uploaded
+    return None
 
 
 def _rows_to_process(limit, only_missing, include_suspect, only_generics, suspect_only):

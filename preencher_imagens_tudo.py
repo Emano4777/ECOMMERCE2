@@ -35,6 +35,7 @@ from app import (
     _image_looks_non_product,
     _is_untrusted_scraped_image,
     _looks_like_other_pharmacy_brand,
+    _placeholder_for_tarja,
     _upsert_catalog_image_all_stores,
     db,
     upload_to_supabase_storage,
@@ -133,7 +134,7 @@ def _batch_med(conn, batch):
     return [dict(r) for r in rows]
 
 
-def processar_medicamento(conn, med, dry_run=False):
+def processar_medicamento(conn, med, dry_run=False, ecom_upsert=True):
     cur = conn.cursor()
     ean = (med.get("barra_norm") or med.get("barra") or "").strip()
     nome = med.get("descricao") or ""
@@ -143,25 +144,30 @@ def processar_medicamento(conn, med, dry_run=False):
         anvisa["tarja"] = tarja
 
     placeholder = _generic_placeholder_for(nome, anvisa=anvisa, med=med)
+    if not placeholder and tarja in ("preta", "vermelha") and anvisa.get("exibir_imagem_publica") is not True:
+        placeholder = _placeholder_for_tarja(tarja)
     chosen = None
 
     for candidate in _candidate_images(cur, med["id"], ean):
         if candidate == med.get("imagem"):
             continue
-        if _is_clean(candidate, check_ocr=True):
+        # URLs Cloudinary do nosso próprio storage são confiáveis — sem OCR
+        trusted = "res.cloudinary.com" in candidate or "/storage/v1/object/public/" in candidate
+        if _is_clean(candidate, check_ocr=not trusted):
             chosen = candidate
             break
 
     if not chosen:
         chosen = _cosmos_thumbnail_url(conn, ean)
     if not chosen:
-        chosen = _external_image(ean, nome)
+        chosen = _external_image(ean, nome, upload=not dry_run)
     if not chosen:
         chosen = placeholder
 
     if chosen and not dry_run:
         cur.execute("UPDATE medicamentos SET imagem=%s WHERE id=%s", (chosen, med["id"]))
-        _upsert_catalog_image_all_stores(cur, ean, chosen)
+        if ecom_upsert:
+            _upsert_catalog_image_all_stores(cur, ean, chosen)
 
     cur.close()
     return chosen
@@ -243,7 +249,7 @@ def _row_key(row):
     return str(row.get("id") or row.get("ean") or row.get("barra_norm") or row.get("barra") or "")
 
 
-def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicial, commit_every=25):
+def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicial, commit_every=25, delay_s=0.0):
     ok = sem_fonte = 0
     rodada = 0
     total_processado = 0
@@ -286,6 +292,9 @@ def run_fase(nome_fase, fetch_fn, process_fn, conn, batch, dry_run, total_inicia
                 conn.commit()
                 dirty = 0
 
+            if delay_s > 0 and not dry_run:
+                time.sleep(delay_s)
+
         elapsed = time.monotonic() - t0
         vel = total_processado / elapsed if elapsed > 0 else 0
         restante = (total_inicial - total_processado) / vel if vel > 0 else 0
@@ -303,9 +312,14 @@ def main():
     ap.add_argument("--batch",    type=int, default=300, help="Itens por lote (padrão: 300)")
     ap.add_argument("--so-med",   action="store_true",   help="Só fase 1 (medicamentos)")
     ap.add_argument("--so-ecom",  action="store_true",   help="Só fase 2 (ecommerce)")
-    ap.add_argument("--commit-every", type=int, default=25, help="Commit a cada N imagens salvas (padrao: 25)")
+    ap.add_argument("--commit-every", type=int, default=50, help="Commit a cada N imagens salvas (padrão: 50)")
+    ap.add_argument("--delay",    type=int, default=0,   help="Pausa em ms entre cada item (padrão: 0). Use 200-500 para economizar I/O")
+    ap.add_argument("--no-ecom-upsert", action="store_true", help="Não propaga imagem para ecommerce_produto_imagens (menos escritas no banco)")
     ap.add_argument("--dry-run",  action="store_true",   help="Simula sem salvar")
     args = ap.parse_args()
+
+    delay_s = args.delay / 1000.0
+    ecom_upsert = not args.no_ecom_upsert
 
     conn = db()
 
@@ -319,6 +333,10 @@ def main():
     print(f"  ecommerce sem imagem    : {ecom_missing:,}")
     if args.dry_run:
         print("  [DRY-RUN] nada será salvo")
+    if delay_s > 0:
+        print(f"  delay entre itens       : {args.delay}ms")
+    if not ecom_upsert:
+        print("  ecom upsert             : desativado (--no-ecom-upsert)")
     print(f"{'='*60}")
 
     t_start = time.monotonic()
@@ -326,11 +344,14 @@ def main():
     total_sem = 0
 
     if not args.so_ecom and med_missing > 0:
+        def _processar_med(conn, row, dry_run=False):
+            return processar_medicamento(conn, row, dry_run=dry_run, ecom_upsert=ecom_upsert)
+
         ok, sem = run_fase(
             "FASE 1 — medicamentos",
             _batch_med,
-            processar_medicamento,
-            conn, args.batch, args.dry_run, med_missing, args.commit_every,
+            _processar_med,
+            conn, args.batch, args.dry_run, med_missing, args.commit_every, delay_s,
         )
         total_ok  += ok
         total_sem += sem
@@ -357,7 +378,7 @@ def main():
                 "FASE 2 — ecommerce (não-ANVISA)",
                 _batch_ecom,
                 _processar_ecom,
-                conn, args.batch, args.dry_run, ecom_missing, args.commit_every,
+                conn, args.batch, args.dry_run, ecom_missing, args.commit_every, delay_s,
             )
             total_ok  += ok
             total_sem += sem

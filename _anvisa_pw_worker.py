@@ -142,6 +142,13 @@ _TARJA_VERMELHA_NORM_RE = re.compile(
     r"|RECEITA DE CONTROLE ESPECIAL"
 )
 
+_NOME_TARJA_PRETA_NORM_RE = re.compile(
+    r"\bALPRAZOLAM\b|\bBROMAZEPAM\b|\bCLONAZEPAM\b|\bDIAZEPAM\b|\bLORAZEPAM\b"
+    r"|\bNITRAZEPAM\b|\bZOLPIDEM\b|\bZOPICLONA\b|\bMIDAZOLAM\b"
+    r"|\bMORFINA\b|\bMETADONA\b|\bTRAMADOL\b|\bOXICODONA\b"
+    r"|\bMETILFENIDATO\b|\bLISDEXANFETAMINA\b"
+)
+
 _NOME_RECEITA_RETIDA_NORM_RE = re.compile(
     r"\bAMOXICILINA\b|\bAMPICILINA\b|\bCEFALEXINA\b|\bCEFADROXILA\b|\bCEFACLOR\b"
     r"|\bAZITROMICINA\b|\bCLARITROMICINA\b|\bERITROMICINA\b"
@@ -158,6 +165,8 @@ _NOME_RECEITA_RETIDA_NORM_RE = re.compile(
 
 def _restricoes_sanitarias(tarja, nome="", principio_ativo="", tipo_receituario="", textos=""):
     blob = _norm(" ".join(filter(None, [nome, principio_ativo, tipo_receituario, textos])))
+    if _NOME_TARJA_PRETA_NORM_RE.search(blob):
+        tarja = "preta"
     receita_retida = bool(tarja == "preta" or _RETENCAO_NORM_RE.search(blob) or _NOME_RECEITA_RETIDA_NORM_RE.search(blob))
     if tarja is None and receita_retida:
         tarja = "vermelha"

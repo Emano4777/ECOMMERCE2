@@ -497,8 +497,14 @@ let allProdutos = [];
 let filteredProdutos = [];
 let currentPage = 1;
 let _cards = {};
+let _currentLat = null;
+let _currentLng = null;
+let _serverSearchTimer = null;
+let _lastServerSearch = '';
 const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
 const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
+const INTERESSE_KEY = 'pq_anon_interesse';
+const _interessesRegistrados = new Set();
 
 const CAT_LABELS = {
   cosmetico: 'Dermocosméticos',
@@ -681,6 +687,17 @@ function renderProdutos(lista) {
 
 function filtrar(q) {
   filterAndRender(true);
+  const termo = (q || '').trim();
+  clearTimeout(_serverSearchTimer);
+  if (_currentLat === null || _currentLng === null) return;
+  const precisaServidor = termo.length >= 3 || /^\d{8,}$/.test(termo.replace(/\D/g, ''));
+  if (precisaServidor) {
+    _serverSearchTimer = setTimeout(() => {
+      if (termo !== _lastServerSearch) carregarProdutos(_currentLat, _currentLng, termo);
+    }, 450);
+  } else if (!termo && _lastServerSearch) {
+    _serverSearchTimer = setTimeout(() => carregarProdutos(_currentLat, _currentLng, ''), 250);
+  }
 }
 
 function filterAndRender(resetPage=false) {
@@ -752,8 +769,70 @@ function clearFilters() {
   filterAndRender(true);
 }
 
-function carregarProdutos(lat, lng) {
-  fetch(`/api/produtos-proximos?lat=${lat}&lng=${lng}`)
+function anonInteresseId() {
+  let id = localStorage.getItem(INTERESSE_KEY);
+  if (!id) {
+    id = (window.crypto?.randomUUID?.() || ('anon-' + Date.now() + '-' + Math.random().toString(16).slice(2)));
+    localStorage.setItem(INTERESSE_KEY, id);
+  }
+  return id;
+}
+
+function parseInteresseLabel(label) {
+  const clean = (label || '').replace(/,?\s*\d{5}-?\d{3}\b/g, '').trim();
+  const parts = clean.split(/\s+-\s+|,\s*/).map(p => p.trim()).filter(Boolean);
+  let uf = '';
+  let cidade = '';
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    const ufMatch = p.match(/\b([A-Z]{2})\b/);
+    if (ufMatch) {
+      uf = ufMatch[1];
+      cidade = parts[i - 1] || p.replace(/\b[A-Z]{2}\b/, '').trim();
+      break;
+    }
+  }
+  if (!cidade) cidade = parts.length >= 2 ? parts[parts.length - 2] : (parts[0] || '');
+  cidade = cidade.replace(/\bBR\b|\bBrasil\b/gi, '').trim();
+  return { cidade, uf };
+}
+
+function registrarInteresseRegional(data, lat, lng, motivo, cidadesDisponiveis=[]) {
+  const label = localStorage.getItem('pq_loc_nome') || '';
+  const parsed = parseInteresseLabel(label);
+  const key = [
+    motivo,
+    parsed.cidade || label || `${Number(lat).toFixed(3)},${Number(lng).toFixed(3)}`,
+    parsed.uf
+  ].join('|');
+  if (_interessesRegistrados.has(key)) return;
+  _interessesRegistrados.add(key);
+
+  fetch('/api/interesse-regiao', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      anon_id: anonInteresseId(),
+      motivo,
+      cidade: parsed.cidade,
+      uf: parsed.uf,
+      localizacao_label: label,
+      lat,
+      lng,
+      raio_km: data.raio_km,
+      raio_fallback_km: data.raio_fallback_km,
+      cidades_disponiveis: cidadesDisponiveis
+    })
+  }).catch(() => {});
+}
+
+function carregarProdutos(lat, lng, busca='') {
+  _currentLat = lat;
+  _currentLng = lng;
+  _lastServerSearch = (busca || '').trim();
+  const params = new URLSearchParams({lat, lng});
+  if (_lastServerSearch) params.set('q', _lastServerSearch);
+  fetch(`/api/produtos-proximos?${params.toString()}`)
     .then(r => r.json())
     .then(data => {
       allProdutos = data.produtos || [];
@@ -776,6 +855,7 @@ function carregarProdutos(lat, lng) {
           if (data.fora_raio) {
             badgeWrn.textContent   = `Exibindo farmácias até ${data.raio_fallback_km || 60} km porque não há produtos dentro de ${data.raio_km} km`;
             badgeWrn.style.display = '';
+            registrarInteresseRegional(data, lat, lng, 'fora_raio');
           } else {
             badgeWrn.style.display = 'none';
           }
@@ -804,7 +884,8 @@ function carregarProdutos(lat, lng) {
             </button>
           </div>
         </div>`;
-        carregarCidadesDisponiveis();
+        carregarCidadesDisponiveis()
+          .then(cidades => registrarInteresseRegional(data, lat, lng, 'sem_produtos', cidades));
       }
 
       // Sem produtos na região: card regional já foi inserido, não renderizar filtro
@@ -840,7 +921,7 @@ function carregarProdutos(lat, lng) {
 /* Carrega chips de cidades disponíveis no estado vazio regional */
 async function carregarCidadesDisponiveis() {
   const el = document.getElementById('er-cidades-list');
-  if (!el) return;
+  if (!el) return [];
   try {
     const lojas = await fetch('/api/lojas/mapa').then(r => r.json());
     const seen = new Set();
@@ -858,7 +939,7 @@ async function carregarCidadesDisponiveis() {
     cidades.sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
     if (!cidades.length) {
       el.innerHTML = '<span style="font-size:.82rem;color:var(--pq-muted)">Nenhuma cidade disponível no momento.</span>';
-      return;
+      return [];
     }
     el.innerHTML = cidades.map(c => {
       const lat = c.lat, lng = c.lng;
@@ -870,8 +951,10 @@ async function carregarCidadesDisponiveis() {
         ${c.nome}${c.uf ? `<span class="er-chip-uf">${c.uf}</span>` : ''}
       </button>`;
     }).join('');
+    return cidades.map(c => ({ cidade: c.nome, uf: c.uf }));
   } catch {
     el.innerHTML = '<span style="font-size:.82rem;color:var(--pq-muted)">Não foi possível carregar as cidades.</span>';
+    return [];
   }
 }
 
@@ -881,13 +964,13 @@ function irParaCidade(lat, lng, nome, uf) {
   localStorage.setItem('pq_lat', lat);
   localStorage.setItem('pq_lng', lng);
   titleEl.textContent = 'Buscando produtos em ' + nome + '…';
-  carregarProdutos(lat, lng);
+  carregarProdutos(lat, lng, document.getElementById('search-inp')?.value || '');
 }
 
 /* Chamado pelo base_public quando localização estiver pronta */
 function onLocationReady(lat, lng) {
   titleEl.textContent = 'Buscando produtos próximos…';
-  carregarProdutos(lat, lng);
+  carregarProdutos(lat, lng, document.getElementById('search-inp')?.value || '');
 }
 
 /* Usa localização salva ou aguarda 3s antes de carregar sem localização */

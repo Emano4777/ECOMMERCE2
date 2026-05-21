@@ -433,6 +433,39 @@
     </div>
   </div>
 </div>
+
+{% if session.get('is_admin') %}
+<div class="rel-panel" style="margin-bottom:18px">
+  <div class="rel-panel-title">
+    <span><i class="fa fa-map-location-dot me-2"></i>Regiões com procura sem cobertura</span>
+    <span class="rel-pill">{{ relatorio.interesses_regiao|length }} regiões</span>
+  </div>
+  {% if relatorio.interesses_regiao %}
+  <table class="rel-table">
+    <thead><tr><th>Região</th><th>Motivo</th><th>Buscas</th><th>Visitantes</th><th>Última busca</th></tr></thead>
+    <tbody>
+    {% for r in relatorio.interesses_regiao %}
+    <tr>
+      <td>
+        <div class="rel-prod-name">{{ r.cidade }}{% if r.uf %} / {{ r.uf }}{% endif %}</div>
+      </td>
+      <td>
+        <span class="rel-pill {% if r.motivo == 'fora_raio' %}warn{% else %}bad{% endif %}">
+          {{ 'Fora do raio' if r.motivo == 'fora_raio' else 'Sem produtos' }}
+        </span>
+      </td>
+      <td><span class="rel-pill good">{{ r.buscas|int }}</span></td>
+      <td>{{ r.visitantes|int }}</td>
+      <td class="rel-muted">{{ r.ultima_busca.strftime('%d/%m/%Y %H:%M') if r.ultima_busca else '-' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="rel-empty">Nenhuma procura sem cobertura registrada no período.</div>
+  {% endif %}
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

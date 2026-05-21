@@ -2002,11 +2002,43 @@ _OTHER_PHARMACY_BRANDS_RE = re.compile(
     r"|droga\s*raia|drogasil|pague\s*menos|panvel|nissei|venancio"
     r"|ultrafarma|drogaria\s+araujo|drogaria\s+minas|farm[aá]cia\s+brito"
     r"|drogaria\s+santa|drogariasantaterezinha|farmacias?\s+heroos|farmaciasheroos|farmais|nova\s*farmais"
-    r"|meu\s+mundo\s+fit|formosa|farmasesi|drogaria\s+canabrava",
+    r"|meu\s+mundo\s+fit|formosa|farmasesi|drogaria\s+canabrava"
+    r"|drogarias?|farm[aá]cias?|(?<!consulta)remedios|(?<!farma)c[eê]utic"
+    r"|(?<!farma)farma(?!c[eê]utic)",
     re.IGNORECASE,
 )
 
 _OCR_TEXT_CACHE = {}
+
+
+def _fetch_cosmos_api_image_url(ean):
+    """Chama a API Bluesoft Cosmos diretamente pelo EAN e retorna a URL da thumbnail.
+
+    Compartilha a mesma cota diária do cosmos_sync.py. Usar como fallback apenas
+    quando o produto não está em produto_canon.imagem_cosmos.
+    """
+    token = os.getenv("COSMOS_TOKEN", "").strip()
+    if not token:
+        return None
+    ean_digits = _digits(ean)
+    if len(ean_digits) < 8:
+        return None
+    try:
+        req = urllib.request.Request(
+            f"https://api.cosmos.bluesoft.com.br/gtins/{ean_digits}",
+            headers={
+                "X-Cosmos-Token": token,
+                "User-Agent": "Cosmos-API-Request",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    thumb = (data.get("thumbnail") or "").strip()
+    return thumb if thumb.startswith("http") else None
+
 
 _NON_PRODUCT_IMAGE_RE = re.compile(
     r"sua\s+sa[uú]de|f[aá]cil\s+e\s+acess[ií]vel|tempo\s+e\s+dinheiro"
@@ -2022,7 +2054,7 @@ def _looks_like_other_pharmacy_brand(*values):
 
 
 def _ocr_space_api_key():
-    return os.getenv("OCR_SPACE_API_KEY", "helloworld").strip()
+    return os.getenv("OCR_SPACE_API_KEY", "").strip()
 
 
 def _ocr_image_text(image_url):
@@ -2085,50 +2117,60 @@ def _is_untrusted_scraped_image(image_url):
 
 
 def _fetch_serper_image_result_url(ean, nome):
+    """Busca imagem via Serper (Google Images).
+
+    Tenta 3 variações de query em ordem crescente de abrangência:
+    1. EAN entre aspas (exato)
+    2. EAN sem aspas (mais resultados)
+    3. EAN + primeiras palavras do nome (quando EAN sozinho não tem resultados)
+
+    A verificação de EAN é garantida pela query — os filtros de farmácia/banner
+    protegem contra imagens inadequadas.
+    """
     api_key = _serper_api_key()
     ean_digits = _digits(ean)
     if not api_key or len(ean_digits) < 8:
         return None
-    try:
-        data = _post_json(
-            "https://google.serper.dev/images",
-            {"q": f'"{ean_digits}"', "num": 10, "gl": "br", "hl": "pt-br"},
-            headers={"X-API-KEY": api_key},
-            timeout=12,
-        )
-    except Exception:
-        return None
 
-    for item in (data.get("images") or [])[:10]:
-        image_url = _first_valid_url(item.get("imageUrl"), item.get("thumbnailUrl"))
-        page_url = item.get("link") or ""
-        title = item.get("title") or ""
-        if not image_url:
+    # monta as queries em ordem de prioridade
+    nome_curto = " ".join((nome or "").split()[:4])
+    queries = [
+        f'{ean_digits} {nome_curto}'.strip() if nome_curto else ean_digits,
+        f'"{ean_digits}" {nome_curto}'.strip() if nome_curto else f'"{ean_digits}"',
+        f'"{ean_digits}"',
+        ean_digits,
+    ]
+    # remove duplicatas mantendo ordem
+    seen_q: set = set()
+    queries = [q for q in queries if not (q in seen_q or seen_q.add(q))]
+
+    for q in queries:
+        try:
+            data = _post_json(
+                "https://google.serper.dev/images",
+                {"q": q, "num": 10, "gl": "br", "hl": "pt-br"},
+                headers={"X-API-KEY": api_key},
+                timeout=12,
+            )
+        except Exception:
+            return None
+        images = data.get("images") or []
+        if not images:
             continue
-        if _looks_like_other_pharmacy_brand(image_url, page_url, title):
-            continue
-        if _image_has_other_pharmacy_text(image_url):
-            continue
-        if _image_looks_non_product(image_url):
-            continue
-        proof_blob = " ".join([image_url, page_url, title])
-        if ean_digits in _digits(proof_blob):
-            return image_url
-        if page_url.startswith(("http://", "https://")):
-            try:
-                req = urllib.request.Request(
-                    page_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Poupaqui image verifier)"},
-                )
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    ctype = (r.headers.get("Content-Type") or "").lower()
-                    if "text/html" not in ctype:
-                        continue
-                    html_text = r.read(300000).decode("utf-8", "ignore")
-                if ean_digits in _digits(html_text):
-                    return image_url
-            except Exception:
+        for item in images[:10]:
+            image_url = _first_valid_url(item.get("imageUrl"), item.get("thumbnailUrl"))
+            page_url = item.get("link") or ""
+            title = item.get("title") or ""
+            if not image_url:
                 continue
+            if _looks_like_other_pharmacy_brand(image_url, page_url, title):
+                continue
+            if _image_has_other_pharmacy_text(image_url):
+                continue
+            if _image_looks_non_product(image_url):
+                continue
+            return image_url
+        # se ainda há queries restantes, tenta a próxima
     return None
 
 
@@ -2140,9 +2182,16 @@ def _download_image_for_storage(image_url):
         )
         with urllib.request.urlopen(req, timeout=10) as r:
             content_type = r.headers.get("Content-Type", "")
-            if not content_type.lower().startswith("image/"):
-                return None, None, None
             raw = r.read(4 * 1024 * 1024)
+        if not content_type.lower().startswith("image/"):
+            if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                content_type = "image/png"
+            elif raw.startswith(b"\xff\xd8\xff"):
+                content_type = "image/jpeg"
+            elif raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+                content_type = "image/webp"
+            else:
+                return None, None, None
         ext, content_type = _image_ext_from_content_type(content_type, image_url)
         return raw, ext, content_type
     except Exception:
@@ -2244,12 +2293,21 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
         cached = cur.fetchone()
         image_url = image_url or _first_valid_url(cached["imagem_url"] if cached else None)
         if not image_url:
-            source_url = _fetch_exact_barcode_image_url(ean_digits)
-            if not source_url and nome:
-                source_url = _fetch_verified_serper_image_url(ean_digits, nome)
-            if not source_url and nome:
-                source_url = _fetch_serper_image_result_url(ean_digits, nome)
-            if source_url:
+            source_urls = [_fetch_exact_barcode_image_url(ean_digits)]
+            if nome:
+                source_urls.append(_fetch_verified_serper_image_url(ean_digits, nome))
+                source_urls.append(_fetch_serper_image_result_url(ean_digits, nome))
+            seen_sources = set()
+            for source_url in source_urls:
+                if not source_url or source_url in seen_sources:
+                    continue
+                seen_sources.add(source_url)
+                if (
+                    _looks_like_other_pharmacy_brand(source_url)
+                    or _image_has_other_pharmacy_text(source_url)
+                    or _image_looks_non_product(source_url)
+                ):
+                    continue
                 raw, ext, content_type = _download_image_for_storage(source_url)
                 if raw:
                     image_url = upload_to_supabase_storage(
@@ -2257,6 +2315,8 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
                         f"auto-ean/{ean_digits}.{ext}",
                         content_type,
                     )
+                    if image_url:
+                        break
         if image_url:
             _upsert_catalog_image(cur, cnpjloja, ean_key, image_url)
             _upsert_catalog_image_all_stores(cur, ean_digits, image_url)
@@ -2457,6 +2517,14 @@ _SQL_ALPHA = """
                               WHERE cloudinary_url IS NOT NULL)
                   )
             )
+            OR EXISTS (
+                SELECT 1
+                FROM ecommerce_produto_imagens epi0
+                WHERE epi0.cnpjloja = e.cnpj
+                  AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                  AND epi0.imagem_url IS NOT NULL
+                  AND TRIM(epi0.imagem_url) <> ''
+            )
             OR e.descricao ILIKE ANY(ARRAY[
                 '%%anasol%%','%%vit natu%%','%%vitnatu%%',
                 '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
@@ -2511,6 +2579,14 @@ _SQL_AUTO = """
                               WHERE cloudinary_url IS NOT NULL)
                   )
             )
+            OR EXISTS (
+                SELECT 1
+                FROM ecommerce_produto_imagens epi0
+                WHERE epi0.cnpjloja = ae.cnpj_loja
+                  AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
+                  AND epi0.imagem_url IS NOT NULL
+                  AND TRIM(epi0.imagem_url) <> ''
+            )
             OR ae.descricao_produto ILIKE ANY(ARRAY[
                 '%%anasol%%','%%vit natu%%','%%vitnatu%%',
                 '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
@@ -2559,10 +2635,10 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
     args_auto  = [cnpjloja]
     if q:
         like = f"%{q.lower()}%"
-        busca_alpha = "AND LOWER(e.descricao) LIKE %s"
-        busca_auto  = "AND LOWER(ae.descricao_produto) LIKE %s"
-        args_alpha.append(like)
-        args_auto.append(like)
+        busca_alpha = "AND (LOWER(e.descricao) LIKE %s OR COALESCE(e.barras_norm, e.barras, '') LIKE %s)"
+        busca_auto  = "AND (LOWER(ae.descricao_produto) LIKE %s OR COALESCE(ae.ean, '') LIKE %s)"
+        args_alpha.extend([like, f"%{q}%"])
+        args_auto.extend([like, f"%{q}%"])
 
     cur.execute(_SQL_ALPHA.format(busca=busca_alpha), args_alpha)
     alpha = cur.fetchall()
@@ -2681,6 +2757,14 @@ _SQL_ALPHA_BATCH = """
                               WHERE cloudinary_url IS NOT NULL)
                   )
             )
+            OR EXISTS (
+                SELECT 1
+                FROM ecommerce_produto_imagens epi0
+                WHERE epi0.cnpjloja = e.cnpj
+                  AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                  AND epi0.imagem_url IS NOT NULL
+                  AND TRIM(epi0.imagem_url) <> ''
+            )
             OR e.descricao ILIKE ANY(ARRAY[
                 '%%anasol%%','%%vit natu%%','%%vitnatu%%',
                 '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
@@ -2734,6 +2818,14 @@ _SQL_AUTO_BATCH = """
                     OR id IN (SELECT medicamento_id FROM medicamentos_imagens
                               WHERE cloudinary_url IS NOT NULL)
                   )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM ecommerce_produto_imagens epi0
+                WHERE epi0.cnpjloja = ae.cnpj_loja
+                  AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
+                  AND epi0.imagem_url IS NOT NULL
+                  AND TRIM(epi0.imagem_url) <> ''
             )
             OR ae.descricao_produto ILIKE ANY(ARRAY[
                 '%%anasol%%','%%vit natu%%','%%vitnatu%%',
@@ -3156,6 +3248,38 @@ def _ensure_lojas_vitrine_schema():
             lng    DOUBLE PRECISION NOT NULL
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_interesses_regiao (
+            id                    SERIAL PRIMARY KEY,
+            anon_id               TEXT NOT NULL,
+            consumidor_id          UUID,
+            cidade_interesse       TEXT,
+            uf_interesse           TEXT,
+            localizacao_label      TEXT,
+            lat                    DOUBLE PRECISION,
+            lng                    DOUBLE PRECISION,
+            raio_km                NUMERIC,
+            raio_fallback_km       NUMERIC,
+            motivo                 TEXT NOT NULL DEFAULT 'sem_produtos',
+            cidades_disponiveis    JSONB DEFAULT '[]'::jsonb,
+            contador               INTEGER DEFAULT 1,
+            primeiro_registro_em   TIMESTAMPTZ DEFAULT NOW(),
+            ultimo_registro_em     TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_eir_anon_regiao_motivo
+        ON ecommerce_interesses_regiao (
+            anon_id,
+            COALESCE(cidade_interesse, ''),
+            COALESCE(uf_interesse, ''),
+            motivo
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_eir_regiao
+        ON ecommerce_interesses_regiao(cidade_interesse, uf_interesse)
+    """)
     conn.commit()
     cur.close()
 
@@ -3185,6 +3309,96 @@ def api_lojas_clique():
     cur.execute(
         "INSERT INTO ecommerce_lojas_vitrine_cliques (cidade, tipo, cnpjloja) VALUES (%s,%s,%s)",
         (cidade, tipo, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/interesse-regiao")
+@_rate_limited_api(max_calls=30, window_secs=60)
+def api_interesse_regiao():
+    """Registra regiões onde o usuário procurou e não encontrou cobertura no raio atual."""
+    _ensure_lojas_vitrine_schema()
+    data = request.get_json(silent=True) or {}
+    anon_id = (data.get("anon_id") or "").strip()[:80]
+    if not anon_id:
+        return jsonify({"ok": False, "erro": "anon_id obrigatório"}), 400
+
+    label = (data.get("localizacao_label") or "").strip()[:240]
+    cidade = (data.get("cidade") or "").strip()[:120]
+    uf = (data.get("uf") or "").strip().upper()[:2]
+    if not cidade and label:
+        cidade_parse, uf_parse = _parse_cidade_uf(label)
+        cidade = (cidade_parse or "").strip()[:120]
+        uf = uf or (uf_parse or "").strip().upper()[:2]
+
+    motivo = (data.get("motivo") or "sem_produtos").strip()[:40]
+    if motivo not in ("sem_produtos", "fora_raio"):
+        motivo = "sem_produtos"
+
+    def _num_or_none(value):
+        try:
+            if value is None or value == "":
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    cidades = data.get("cidades_disponiveis") or []
+    if not isinstance(cidades, list):
+        cidades = []
+    cidades = [
+        {
+            "cidade": str(c.get("cidade") or c.get("nome") or "")[:120],
+            "uf": str(c.get("uf") or "")[:2].upper(),
+        }
+        for c in cidades[:30]
+        if isinstance(c, dict) and (c.get("cidade") or c.get("nome"))
+    ]
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ecommerce_interesses_regiao (
+            anon_id, consumidor_id, cidade_interesse, uf_interesse, localizacao_label,
+            lat, lng, raio_km, raio_fallback_km, motivo, cidades_disponiveis
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+        ON CONFLICT (
+            anon_id,
+            COALESCE(cidade_interesse, ''),
+            COALESCE(uf_interesse, ''),
+            motivo
+        )
+        DO UPDATE SET
+            consumidor_id = COALESCE(EXCLUDED.consumidor_id, ecommerce_interesses_regiao.consumidor_id),
+            localizacao_label = COALESCE(NULLIF(EXCLUDED.localizacao_label, ''), ecommerce_interesses_regiao.localizacao_label),
+            lat = COALESCE(EXCLUDED.lat, ecommerce_interesses_regiao.lat),
+            lng = COALESCE(EXCLUDED.lng, ecommerce_interesses_regiao.lng),
+            raio_km = COALESCE(EXCLUDED.raio_km, ecommerce_interesses_regiao.raio_km),
+            raio_fallback_km = COALESCE(EXCLUDED.raio_fallback_km, ecommerce_interesses_regiao.raio_fallback_km),
+            cidades_disponiveis = CASE
+                WHEN EXCLUDED.cidades_disponiveis <> '[]'::jsonb THEN EXCLUDED.cidades_disponiveis
+                ELSE ecommerce_interesses_regiao.cidades_disponiveis
+            END,
+            contador = ecommerce_interesses_regiao.contador + 1,
+            ultimo_registro_em = NOW()
+        """,
+        (
+            anon_id,
+            session.get("consumidor_id"),
+            cidade or None,
+            uf or None,
+            label or None,
+            _num_or_none(data.get("lat")),
+            _num_or_none(data.get("lng")),
+            _num_or_none(data.get("raio_km")),
+            _num_or_none(data.get("raio_fallback_km")),
+            motivo,
+            json.dumps(cidades, ensure_ascii=False),
+        ),
     )
     conn.commit()
     cur.close()
@@ -3354,6 +3568,7 @@ def api_produtos_proximos():
 
     raio    = float(request.args.get("raio", 30))
     raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
+    busca_q = (request.args.get("q") or "").strip()
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
 
     conn = db()
@@ -3428,6 +3643,19 @@ def api_produtos_proximos():
 
     cnpjs        = [l["cnpjloja"] for l in proximas]
     produtos_raw = get_dns_products_batch(cnpjs)
+    if busca_q:
+        seen_search = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+        for cnpj in cnpjs[:30]:
+            try:
+                for p in get_dns_products(cnpj, busca_q):
+                    key = (p.get("cnpjloja") or cnpj, p.get("ean"))
+                    if key in seen_search:
+                        continue
+                    p = {**p, "cnpjloja": cnpj}
+                    produtos_raw.append(p)
+                    seen_search.add(key)
+            except Exception:
+                continue
 
     # Deduplica por EAN: mantém da farmácia mais próxima
     produtos_view = []
@@ -3458,6 +3686,18 @@ def api_produtos_proximos():
         produtos_view.append(produto_view)
 
     produtos_view = _dedupe_products_for_display(produtos_view)
+
+    if busca_q:
+        q_norm = _norm_text(busca_q)
+        produtos_view = [
+            p for p in produtos_view
+            if q_norm in _norm_text(" ".join([
+                p.get("ean") or "",
+                p.get("nome") or "",
+                p.get("razao") or "",
+                p.get("laboratorio") or "",
+            ]))
+        ]
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
     return jsonify({
@@ -6186,6 +6426,7 @@ def painel_relatorios():
     # ── Vitrine cliques (WhatsApp / Maps) ─────────────────────────────────────
     _ensure_lojas_vitrine_schema()
     vitrine_stats = {"whatsapp": 0, "maps": 0, "total": 0, "por_dia": []}
+    interesses_regiao = []
     try:
         cur2 = conn.cursor()
         cur2.execute(
@@ -6220,6 +6461,34 @@ def painel_relatorios():
         cur2.close()
     except Exception:
         pass
+
+    if session.get("is_admin"):
+        try:
+            cur3 = conn.cursor()
+            cur3.execute(
+                """
+                SELECT
+                  COALESCE(NULLIF(cidade_interesse, ''), 'Não identificada') AS cidade,
+                  COALESCE(NULLIF(uf_interesse, ''), '') AS uf,
+                  motivo,
+                  COALESCE(SUM(contador), 0) AS buscas,
+                  COUNT(*) AS visitantes,
+                  MAX(ultimo_registro_em) AS ultima_busca
+                FROM ecommerce_interesses_regiao
+                WHERE ultimo_registro_em >= %s AND ultimo_registro_em < %s
+                GROUP BY COALESCE(NULLIF(cidade_interesse, ''), 'Não identificada'),
+                         COALESCE(NULLIF(uf_interesse, ''), ''),
+                         motivo
+                ORDER BY buscas DESC, visitantes DESC, ultima_busca DESC
+                LIMIT 12
+                """,
+                (inicio_dt, fim_dt),
+            )
+            interesses_regiao = [dict(r) for r in cur3.fetchall()]
+            cur3.close()
+        except Exception:
+            interesses_regiao = []
+    relatorio["interesses_regiao"] = interesses_regiao
 
     return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros,
                            vitrine_stats=vitrine_stats)
@@ -7889,6 +8158,14 @@ def _detectar_tarja(anvisa: dict) -> str | None:
     # Campo direto salvo pelo worker (API ANVISA)
     tarja_bd = (anvisa.get("tarja") or "").strip().lower()
     if tarja_bd in ("preta", "vermelha"):
+        blob_bd = " ".join(filter(None, [
+            anvisa.get("nome_anvisa") or "",
+            anvisa.get("principio_ativo") or "",
+            anvisa.get("alertas") or "",
+            anvisa.get("como_usar") or "",
+        ]))
+        if tarja_bd == "vermelha" and _CONTROLADO_TARJA_PRETA_RE.search(blob_bd):
+            return "preta"
         return tarja_bd
     if anvisa.get("receita_retida") is True:
         return "vermelha"
