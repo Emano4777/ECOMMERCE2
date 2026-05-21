@@ -2406,7 +2406,7 @@ def _apply_safe_catalog_images(produtos, cur=None):
                 """
                 SELECT DISTINCT ON (LTRIM(COALESCE(barra_norm, barra, ''), '0'))
                        LTRIM(COALESCE(barra_norm, barra, ''), '0') AS ean_key,
-                       descricao, classe, laboratorio
+                       descricao, marca, classe, laboratorio
                 FROM medicamentos
                 WHERE LTRIM(COALESCE(barra_norm, barra, ''), '0') = ANY(%s)
                 ORDER BY LTRIM(COALESCE(barra_norm, barra, ''), '0'),
@@ -2427,10 +2427,14 @@ def _apply_safe_catalog_images(produtos, cur=None):
     for produto in produtos:
         ean_key = _digits(produto.get("ean")).lstrip("0")
         med = med_by_ean.get(ean_key, {})
+        if med.get("laboratorio") and not (produto.get("laboratorio") or "").strip():
+            produto["laboratorio"] = med["laboratorio"]
+        if med.get("marca") and not (produto.get("marca") or "").strip():
+            produto["marca"] = med["marca"]
         anvisa = {"tarja": produto.get("tarja") or ""}
         placeholder = _placeholder_for_tarja(anvisa.get("tarja")) or _generic_placeholder_for(produto.get("nome") or "", anvisa=anvisa, med=med)
         imagem_atual = produto.get("imagem") or ""
-        if placeholder and anvisa.get("tarja") in ("preta", "vermelha"):
+        if placeholder and anvisa.get("tarja") in ("preta", "vermelha") and produto.get("exibir_imagem_publica") is False:
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
             produto["imagem_bloqueada_anvisa"] = True
@@ -2536,6 +2540,8 @@ _SQL_ALPHA = """
     SELECT
         el.barras                                                            AS ean,
         el.descricao                                                         AS nome,
+        COALESCE(m.laboratorio, pc.laboratorio)                              AS laboratorio,
+        m.marca                                                              AS marca,
         el.qty,
         COALESCE(vg.preco_venda, el.preco_referencial)                       AS preco_ref,
         ep.preco_customizado                                                  AS preco_custom,
@@ -2553,6 +2559,7 @@ _SQL_ALPHA = """
     ) vg ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
 """
@@ -2598,6 +2605,8 @@ _SQL_AUTO = """
     SELECT
         el.ean,
         el.descricao_produto                                                      AS nome,
+        COALESCE(m.laboratorio, pc.laboratorio)                                   AS laboratorio,
+        m.marca                                                                   AS marca,
         el.qty,
         COALESCE(av.preco_venda, el.valor_final_produto)                          AS preco_ref,
         ep.preco_customizado                                                       AS preco_custom,
@@ -2615,6 +2624,7 @@ _SQL_AUTO = """
     ) av ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
 """
@@ -2668,6 +2678,8 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
                    ep.preco_customizado AS preco_custom,
                    COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
                    e.custo_medio AS custo,
+                   COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                   m.marca AS marca,
                    COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
             FROM estoque e
             LEFT JOIN LATERAL (
@@ -2679,6 +2691,7 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
             ) vg ON TRUE
             LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
             LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
             WHERE e.cnpj = %s AND e.barras = ANY(%s)
@@ -2701,6 +2714,8 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
                        ep.preco_customizado AS preco_custom,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                        ae.custo AS custo,
+                       COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       m.marca AS marca,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
                 FROM automatiza_estoque ae
                 LEFT JOIN LATERAL (
@@ -2712,6 +2727,7 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
                 ) av ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
                 WHERE ae.cnpj_loja = %s AND ae.ean = ANY(%s)
@@ -2778,6 +2794,7 @@ _SQL_ALPHA_BATCH = """
         el.barras                                                             AS ean,
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)              AS nome,
         COALESCE(m.laboratorio, pc.laboratorio)                              AS laboratorio,
+        m.marca                                                              AS marca,
         CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END  AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial)  AS preco,
@@ -2840,6 +2857,7 @@ _SQL_AUTO_BATCH = """
         el.ean,
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)                   AS nome,
         COALESCE(m.laboratorio, pc.laboratorio)                                   AS laboratorio,
+        m.marca                                                                   AS marca,
         CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END        AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
@@ -2926,6 +2944,7 @@ def get_dns_products_batch(cnpjs):
                 SELECT e.cnpj AS cnpjloja, e.barras AS ean,
                        COALESCE(m.descricao, pc.descricao_canon, e.descricao) AS nome,
                        COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       m.marca AS marca,
                        CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
@@ -2957,6 +2976,7 @@ def get_dns_products_batch(cnpjs):
                 SELECT ae.cnpj_loja AS cnpjloja, ae.ean,
                        COALESCE(m.descricao, pc.descricao_canon, ae.descricao_produto) AS nome,
                        COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       m.marca AS marca,
                        CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END AS categoria,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
@@ -3771,7 +3791,7 @@ def api_produto(ean):
                 tarja_img = _detectar_tarja(anvisa_img)
                 if tarja_img is None and _NOME_TARJA_VERMELHA_RE.search(nome_busca):
                     tarja_img = "vermelha"
-                if tarja_img in ("preta", "vermelha") and (anvisa_img.get("exibir_imagem_publica") is False or anvisa_img.get("exibir_imagem_publica") is None):
+                if tarja_img in ("preta", "vermelha") and anvisa_img.get("exibir_imagem_publica") is False:
                     result["imagem_med"] = _placeholder_for_tarja(tarja_img) or result.get("imagem_med")
                 result["tarja"] = tarja_img
                 result["receita_retida"] = _exige_receita_digital_entrega(anvisa_img, nome_busca)
@@ -4134,7 +4154,7 @@ def produto_detalhe(ean):
     # Fallback por nome quando anvisa_cache não tem o produto
     if tarja is None and _NOME_TARJA_VERMELHA_RE.search(nome):
         tarja = "vermelha"
-    if tarja in ("preta", "vermelha") and (anvisa.get("exibir_imagem_publica") is False or anvisa.get("exibir_imagem_publica") is None):
+    if tarja in ("preta", "vermelha") and anvisa.get("exibir_imagem_publica") is False:
         imagem = _placeholder_for_tarja(tarja) or imagem
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
 

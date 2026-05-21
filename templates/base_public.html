@@ -537,6 +537,14 @@
       overflow:hidden; display:-webkit-box;
       -webkit-line-clamp:2; -webkit-box-orient:vertical; min-height:2.5em;
     }
+    .pq-rec-lab {
+      display:flex; align-items:center; gap:4px;
+      min-width:0; color:var(--pq-muted); font-size:.68rem; font-weight:800;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      margin-top:-2px;
+    }
+    .pq-rec-lab i { color:var(--pq-red); flex:0 0 auto; opacity:.8; }
+    .pq-rec-lab span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
     .pq-rec-price { font-size:.95rem; font-weight:900; color:var(--pq-red); }
     .pq-rec-actions { display:flex; gap:6px; margin-top:auto; }
     .pq-rec-btn-add {
@@ -1230,11 +1238,13 @@ function pqRecCardHtml(p, idx, addFnName, showView) {
   const viewBtn = (showView !== false && url)
     ? `<a class="pq-rec-btn-view" href="${url}" title="Ver produto"><i class="fa fa-eye"></i></a>`
     : '';
+  const lab = (p.laboratorio || p.fabricante || p.marca || '').trim();
   const brl = 'R$ ' + parseFloat(p.preco||0).toFixed(2).replace('.',',');
   return `<article class="pq-rec-card">
     <div class="pq-rec-img-wrap">${imgHtml}</div>
     <div class="pq-rec-motivo-badge"><i class="fa fa-wand-magic-sparkles"></i>${esc(p.motivo||'Relacionado')}</div>
     <div class="pq-rec-name">${esc(p.nome||'Produto')}</div>
+    ${lab ? `<div class="pq-rec-lab" title="${esc(lab)}"><i class="fa fa-flask"></i><span>${esc(lab)}</span></div>` : ''}
     <div class="pq-rec-price">${brl}</div>
     <div class="pq-rec-actions">
       <button class="pq-rec-btn-add" type="button" onclick="${addFnName}(${idx},this)">

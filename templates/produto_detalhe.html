@@ -179,6 +179,26 @@
   align-items:flex-start;
 }
 .receita-box i { font-size:1.1rem; color:#d97706; margin-top:2px; flex-shrink:0; }
+.pd-legal-warnings {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.pd-legal-box {
+  border:1px solid #777;
+  background:#fff;
+  color:#666;
+  padding:11px 13px;
+  font-size:.8rem;
+  font-weight:900;
+  line-height:1.25;
+  text-transform:uppercase;
+  letter-spacing:.01em;
+}
+.pd-legal-box.strong {
+  border-color:#555;
+  color:#555;
+}
 .btn-retirada {
   width:100%;
   background:#f97316;
@@ -208,6 +228,9 @@
 {% set d_comprar = vitnatu.porque_comprar if e_medicamento else None %}
 {% set tem_anvisa = anvisa and anvisa.encontrado and (anvisa.serve_para or anvisa.como_usar or anvisa.alertas or anvisa.url_bula) %}
 {% set anvisa_ativo = 'ativ' in (anvisa.situacao or '')|lower %}
+{% set med_classe_norm = (med.classe or '')|lower %}
+{% set nome_norm = (nome or '')|lower %}
+{% set e_generico = 'generic' in med_classe_norm or 'genéric' in med_classe_norm or 'generico' in nome_norm or 'genérico' in nome_norm %}
 
 <div class="pd-wrap">
 
@@ -262,11 +285,11 @@
           </span>
           {% if tarja == 'preta' %}
           <span class="tarja-badge preta">
-            <i class="fa fa-prescription"></i>Tarja Preta — Controle Especial
+            <i class="fa fa-prescription"></i>Tarja Preta - Controle especial
           </span>
           {% elif tarja == 'vermelha' %}
           <span class="tarja-badge">
-            <i class="fa fa-prescription"></i>Tarja Vermelha — Prescrição Médica
+            <i class="fa fa-prescription"></i>{% if requer_receita %}Tarja Vermelha - Receita retida{% else %}Tarja Vermelha - Venda sob prescrição{% endif %}
           </span>
           {% endif %}
         {% elif tipo_produto == 'cosmetico' %}
@@ -321,17 +344,44 @@
       <div class="receita-box">
         <i class="fa fa-file-prescription"></i>
         <div>
-          <strong>Medicamento de controle especial (Tarja Preta).</strong><br>
-          Para entrega, envie no carrinho o PDF original da receita digital com assinatura qualificada ICP-Brasil e aguarde a validacao do farmaceutico. Foto, print ou receita escaneada nao serao aceitos. Para retirada, apresente a receita na farmacia.
+          <strong>Medicamento sujeito a controle especial (Tarja Preta).</strong><br>
+          Venda sob prescricao e com retencao/controle da receita, conforme a categoria do medicamento. Para entrega, a farmacia deve conferir e reter a via original ou validar a prescricao eletronica aplicavel antes da dispensacao.
         </div>
       </div>
       {% elif tarja == 'vermelha' %}
       <div class="receita-box">
         <i class="fa fa-file-prescription"></i>
         <div>
-          <strong>Venda sob prescrição médica (Tarja Vermelha).</strong><br>
-          Medicamento sujeito a prescricao: a dispensacao deve ocorrer mediante avaliacao do farmaceutico e apresentacao da receita quando aplicavel. Este produto nao exige anexo de receita digital no carrinho, salvo se houver exigencia de retencao/controle especial.
+          <strong>Venda sob prescricao (Tarja Vermelha).</strong><br>
+          {% if requer_receita %}
+          Este medicamento exige retencao/controle da receita. Para entrega, a farmacia deve conferir e reter a via original ou validar a prescricao eletronica aplicavel antes da dispensacao.
+          {% else %}
+          Medicamento sujeito a prescricao simples. A dispensacao deve ocorrer mediante avaliacao do farmaceutico e apresentacao da receita quando aplicavel; nao ha retencao de receita indicada para este item no cadastro atual.
+          {% endif %}
         </div>
+      </div>
+      {% endif %}
+
+      {% if e_medicamento %}
+      <div class="pd-legal-warnings">
+        <div class="pd-legal-box">
+          {{ nome }} é um medicamento. Seu uso pode trazer riscos. Procure um médico ou um farmacêutico. Leia a bula. Medicamentos podem causar efeitos indesejados. Evite a automedicação: informe-se com o farmacêutico.
+        </div>
+        {% if tarja == 'preta' %}
+        <div class="pd-legal-box strong">
+          {% if anvisa.dizeres_receita %}{{ anvisa.dizeres_receita }}{% else %}Venda sob prescrição. O abuso deste medicamento pode causar dependência.{% endif %}
+          {% if e_generico %} Medicamento genérico - Lei n.º 9.787/99.{% endif %}
+        </div>
+        {% elif tarja == 'vermelha' %}
+        <div class="pd-legal-box strong">
+          {% if anvisa.dizeres_receita %}{{ anvisa.dizeres_receita }}{% elif requer_receita %}Venda sob prescrição com retenção da receita.{% else %}Venda sob prescrição.{% endif %}
+          {% if e_generico %} Medicamento genérico - Lei n.º 9.787/99.{% endif %}
+        </div>
+        {% elif e_generico %}
+        <div class="pd-legal-box strong">
+          Medicamento genérico - Lei n.º 9.787/99.
+        </div>
+        {% endif %}
       </div>
       {% endif %}
 
@@ -344,7 +394,7 @@
       <button class="btn-add-cart" id="btn-add"
               onclick="handleAddToCart()"
               data-requer-receita="{{ 'true' if requer_receita else 'false' }}">
-        <i class="fa fa-cart-plus"></i>{% if requer_receita %}Adicionar com receita digital{% else %}Adicionar ao carrinho{% endif %}
+        <i class="fa fa-cart-plus"></i>{% if requer_receita %}Reservar com receita{% else %}Adicionar ao carrinho{% endif %}
       </button>
 
       {% else %}
@@ -513,7 +563,7 @@ function handleAddToCart() {
   btn.innerHTML = '<i class="fa fa-check"></i>Adicionado!';
   setTimeout(() => {
     btn.classList.remove('added');
-    btn.innerHTML = requerReceita ? '<i class="fa fa-cart-plus"></i>Adicionar com receita digital' : '<i class="fa fa-cart-plus"></i>Adicionar ao carrinho';
+    btn.innerHTML = requerReceita ? '<i class="fa fa-cart-plus"></i>Reservar com receita' : '<i class="fa fa-cart-plus"></i>Adicionar ao carrinho';
   }, 2000);
 }
 

@@ -98,6 +98,21 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.prod-lab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: .72rem;
+  font-weight: 800;
+  color: var(--pq-muted);
+  margin: -2px 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prod-lab i { color: var(--pq-red); flex: 0 0 auto; opacity: .8; }
+.prod-lab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .prod-preco {
   font-size: 1.35rem;
   font-weight: 900;
@@ -235,14 +250,20 @@
     <!-- CORPO -->
     <div class="prod-body">
       <div class="prod-nome">{{ p.nome }}</div>
+      {% set lab_card = p.laboratorio or p.marca %}
+      {% if lab_card %}
+      <div class="prod-lab" title="{{ lab_card }}">
+        <i class="fa fa-flask"></i><span>{{ lab_card }}</span>
+      </div>
+      {% endif %}
 
       {% if p.tarja == 'preta' %}
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px">
-        <i class="fa fa-prescription"></i>Tarja Preta — Controle Especial
+        <i class="fa fa-prescription"></i>Tarja Preta - Controle especial
       </span>
       {% elif p.tarja == 'vermelha' %}
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px">
-        <i class="fa fa-prescription"></i>Tarja Vermelha — Prescrição Médica
+        <i class="fa fa-prescription"></i>{% if p.receita_retida %}Tarja Vermelha - Receita retida{% else %}Tarja Vermelha - Venda sob prescrição{% endif %}
       </span>
       {% endif %}
 

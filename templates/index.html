@@ -175,13 +175,20 @@
   min-height: 2.25em;
 }
 .prod-lab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
   font-size: .7rem;
+  font-weight: 800;
   color: var(--pq-muted);
-  margin-top: -2px;
+  margin-top: -1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.prod-lab i { color: var(--pq-red); flex: 0 0 auto; opacity: .8; }
+.prod-lab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .prod-preco {
   font-size: 1.1rem;
   font-weight: 900;
@@ -594,6 +601,7 @@ function hydrateFilters() {
 function cardHtml(p, idx) {
   _cards[idx] = p;
   const prodUrl = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
+  const lab = (p.laboratorio || p.fabricante || p.marca || '').trim();
   const imgTag = p.imagem
     ? `<img src="${esc(p.imagem)}" alt="${esc(p.nome)}" loading="lazy"
             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
@@ -613,7 +621,7 @@ function cardHtml(p, idx) {
       </div>
       <div class="prod-body">
         <div class="prod-nome">${esc(p.nome)}</div>
-        ${p.laboratorio ? `<div class="prod-lab">${esc(p.laboratorio)}</div>` : ''}
+        ${lab ? `<div class="prod-lab" title="${esc(lab)}"><i class="fa fa-flask"></i><span>${esc(lab)}</span></div>` : ''}
         ${(() => {
           const cp = melhorCupomParaProduto(p);
           if (cp) {
@@ -633,7 +641,7 @@ function cardHtml(p, idx) {
             <i class="fa fa-tag"></i><span>-</span>
           </div>`;
         })()}
-        ${p.tarja === 'preta' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Preta — Controle Especial</span>` : p.tarja === 'vermelha' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Vermelha — Prescrição Médica</span>` : ''}
+        ${p.tarja === 'preta' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Preta - Controle especial</span>` : p.tarja === 'vermelha' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px"><i class="fa fa-prescription"></i>${p.receita_retida ? 'Tarja Vermelha - Receita retida' : 'Tarja Vermelha - Venda sob prescrição'}</span>` : ''}
         <div class="prod-loja-row">
           <span class="prod-loja-nome"><i class="fa fa-store me-1"></i>${esc(p.razao)}</span>
           ${distBadge}
