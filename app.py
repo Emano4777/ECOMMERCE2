@@ -2435,7 +2435,8 @@ def _apply_safe_catalog_images(produtos, cur=None):
         anvisa = {"tarja": produto.get("tarja") or ""}
         placeholder = _placeholder_for_tarja(anvisa.get("tarja")) or _generic_placeholder_for(produto.get("nome") or "", anvisa=anvisa, med=med)
         imagem_atual = produto.get("imagem") or ""
-        if placeholder and anvisa.get("tarja") in ("preta", "vermelha") and produto.get("exibir_imagem_publica") is False:
+        _tipo_p = _classificar_produto(produto.get("nome") or "")
+        if _tipo_p not in _TIPOS_NAO_MEDICAMENTO and placeholder and anvisa.get("tarja") in ("preta", "vermelha") and produto.get("exibir_imagem_publica") is False:
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
             produto["imagem_bloqueada_anvisa"] = True
@@ -2796,7 +2797,7 @@ _SQL_ALPHA_BATCH = """
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)              AS nome,
         COALESCE(m.laboratorio, pc.laboratorio)                              AS laboratorio,
         m.marca                                                              AS marca,
-        CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END  AS categoria,
+        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)  AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial)  AS preco,
         COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
@@ -2859,7 +2860,7 @@ _SQL_AUTO_BATCH = """
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)                   AS nome,
         COALESCE(m.laboratorio, pc.laboratorio)                                   AS laboratorio,
         m.marca                                                                   AS marca,
-        CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END        AS categoria,
+        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)        AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
         COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), ''))  AS imagem
@@ -2946,7 +2947,7 @@ def get_dns_products_batch(cnpjs):
                        COALESCE(m.descricao, pc.descricao_canon, e.descricao) AS nome,
                        COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
                        m.marca AS marca,
-                       CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END AS categoria,
+                       COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
@@ -2978,7 +2979,7 @@ def get_dns_products_batch(cnpjs):
                        COALESCE(m.descricao, pc.descricao_canon, ae.descricao_produto) AS nome,
                        COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
                        m.marca AS marca,
-                       CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END AS categoria,
+                       COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
@@ -3701,7 +3702,7 @@ def api_produtos_proximos():
             "valor_frete": frete_valor,
         }
 
-        categoria = _classificar_produto(p.get("nome") or "")
+        categoria = p.get("categoria") or _classificar_produto(p.get("nome") or "")
         produto_view = {**p, "razao": razao, "distancia_km": dist, "categoria": categoria, **entrega_meta}
 
         produtos_view.append(produto_view)
@@ -3790,11 +3791,13 @@ def api_produto(ean):
                 )
                 anvisa_img = dict(cur.fetchone() or {})
                 tarja_img = _detectar_tarja(anvisa_img)
-                if tarja_img is None and _NOME_TARJA_VERMELHA_RE.search(nome_busca):
+                _tipo_busca = _classificar_produto(nome_busca)
+                _is_med_busca = _tipo_busca not in _TIPOS_NAO_MEDICAMENTO
+                if tarja_img is None and _is_med_busca and _NOME_TARJA_VERMELHA_RE.search(nome_busca):
                     tarja_img = "vermelha"
-                if tarja_img == "preta":
+                if tarja_img == "preta" and _is_med_busca:
                     result["imagem_med"] = _placeholder_for_tarja("preta") or result.get("imagem_med")
-                elif tarja_img == "vermelha" and anvisa_img.get("exibir_imagem_publica") is False:
+                elif tarja_img == "vermelha" and anvisa_img.get("exibir_imagem_publica") is False and _is_med_busca:
                     result["imagem_med"] = _placeholder_for_tarja("vermelha") or result.get("imagem_med")
                 result["tarja"] = tarja_img
                 result["receita_retida"] = _exige_receita_digital_entrega(anvisa_img, nome_busca)
@@ -3987,7 +3990,7 @@ def _build_recommendations(itens, cnpjlojas, limit=8):
         seen.add(ean)
         item = dict(p)
         item["razao"] = loja_info.get(item.get("cnpjloja"), item.get("razao") or "Drogaria Poupaqui")
-        item["categoria"] = _classificar_produto(item.get("nome") or "")
+        item["categoria"] = item.get("categoria") or _classificar_produto(item.get("nome") or "")
         item["motivo"] = _recommendation_reason(base_names, item.get("nome") or "", from_history)
         result.append(item)
         if len(result) >= limit:
@@ -4155,11 +4158,12 @@ def produto_detalhe(ean):
 
     tarja = _detectar_tarja(anvisa)
     # Fallback por nome quando anvisa_cache não tem o produto
-    if tarja is None and _NOME_TARJA_VERMELHA_RE.search(nome):
+    _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
+    if tarja is None and _is_med and _NOME_TARJA_VERMELHA_RE.search(nome):
         tarja = "vermelha"
-    if tarja == "preta":
+    if tarja == "preta" and _is_med:
         imagem = _placeholder_for_tarja("preta") or imagem
-    elif tarja == "vermelha" and anvisa.get("exibir_imagem_publica") is False:
+    elif tarja == "vermelha" and anvisa.get("exibir_imagem_publica") is False and _is_med:
         imagem = _placeholder_for_tarja("vermelha") or imagem
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
 
@@ -7592,8 +7596,13 @@ _ADMIN_CATEGORIAS_PUBLICACAO = {
     "todos": "Todos",
     "medicamento": "Medicamentos",
     "nao_medicamento": "Não medicamentos",
-    "cosmetico": "Cosméticos",
+    "dermocosmetico": "Dermocosméticos",
+    "perfumaria": "Perfumaria",
     "suplemento": "Suplementos",
+    "higiene": "Higiene Pessoal",
+    "correlato": "Correlatos e Equipamentos",
+    "nutricao": "Nutrição",
+    "varejo": "Varejo/Conveniência",
     "desconhecido": "Outros/sem categoria",
 }
 
@@ -8196,19 +8205,50 @@ def health():
 #   4. produto_detalhe lê do cache → passa var `anvisa` ao template
 #   5. /bula/<chave> faz proxy do PDF com Authorization: Guest
 
-_TIPO_COSMETICO = re.compile(
-    r"\b(fps|spf|protetor|solar|bb.?cream|cc.?cream|hidratante|clareador|"
-    r"base\b|sérum|serum|loção|locao|tônico|tonico|esfoliante|mascara.facial|"
-    r"shampoo|condicionador|sabonete|creme.facial|antiacne|antiidade|"
-    r"demaquilante|primer|blush|batom|bronzeador|autobronzeador|"
-    r"anasol|unispray)\b",
+_TIPO_DERMOCOSMETICO = re.compile(
+    r"\b(fps|spf|protetor.solar|bb.?cream|cc.?cream|hidratante.facial|clareador|"
+    r"sérum|serum|tônico.facial|esfoliante|mascara.facial|creme.facial|"
+    r"antiacne|antiidade|oleo.capilar|mascara.capilar|shampoo.anticaspa)\b",
+    re.IGNORECASE,
+)
+_TIPO_PERFUMARIA = re.compile(
+    r"\b(perfume|colonia|eau.de|esmalte|acetona|removedor.esmalte|"
+    r"tintura.capilar|coloracao.capilar|batom|blush|primer|bronzeador|"
+    r"autobronzeador|delineador|sombra|base.maquiagem|glitter|"
+    r"mascara.de.cilios|anasol|unispray|desodorante.aerossol|desodorante.spray)\b",
+    re.IGNORECASE,
+)
+_TIPO_HIGIENE = re.compile(
+    r"\b(sabonete|shampoo|condicionador|pasta.dental|creme.dental|escova.dental|"
+    r"fio.dental|enxaguante|desodorante(?!.*(aerossol|spray))|absorvente|fralda|"
+    r"lenco.umedecido|algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|"
+    r"protetor.diario|talco|antisseptico.bucal)\b",
+    re.IGNORECASE,
+)
+_TIPO_CORRELATO = re.compile(
+    r"\b(agulha|seringa|luva|gaze|atadura|esparadrapo|curativo|band.?aid|"
+    r"lanceta|tira.reagente|glicemia|glicosimetro|termometro|nebulizador|"
+    r"inalador|cateter|sonda|ostomia|esfigmo|agua.oxigenada|povidine|pvpi|"
+    r"clorexidina|soro.fisiologico|agua.destilada|alcool.isopropanol)\b",
+    re.IGNORECASE,
+)
+_TIPO_NUTRICAO = re.compile(
+    r"\b(dieta.enteral|formula.infantil|aptamil|enfamil|nan\b|leite.sem.lactose|"
+    r"alimento.diabet|isoton[io]|energetico|papinha|adocante|"
+    r"sucralose|stevi[ao]|frutose|maltit|fresubin|ensure\b|nutren)\b",
+    re.IGNORECASE,
+)
+_TIPO_VAREJO = re.compile(
+    r"\b(bala\b|balas\b|chiclete|biscoito|agua.mineral|suco\b|pilha\b|pilhas\b|"
+    r"bateria.alcalina|produto.limpeza|detergente|papel.sulfite)\b",
     re.IGNORECASE,
 )
 _TIPO_SUPLEMENTO = re.compile(
     r"\b(whey|proteina|creatina|bcaa|glutamina|albumina|colageno|colágeno|"
     r"termogenico|termogênico|pre.treino|omega|ômega|probiotico|probiótico|"
-    r"fibras?\b|maltodextrina|dextrose|aminoacido|aminoácido|"
-    r"pronabol|ricosol|goodvit|vit.?natu|vitnatu)\b",
+    r"fibras?\b|maltodextrina|dextrose|aminoacido|aminoácido|melatonina|"
+    r"pronabol|ricosol|goodvit|vit.?natu|vitnatu|vitamina|complexo.b|"
+    r"zinco|calcio|ferro|magnesio|potassio|acido.folico|biotina)\b",
     re.IGNORECASE,
 )
 _TIPO_MEDICAMENTO = re.compile(
@@ -8218,13 +8258,27 @@ _TIPO_MEDICAMENTO = re.compile(
     re.IGNORECASE,
 )
 
+_TIPOS_NAO_MEDICAMENTO = frozenset({
+    "suplemento", "dermocosmetico", "perfumaria", "higiene", "correlato", "nutricao", "varejo",
+})
+
 
 def _classificar_produto(nome: str) -> str:
-    """Retorna 'cosmetico', 'suplemento', 'medicamento' ou '' (desconhecido)."""
+    """Retorna categoria do produto pelo nome (fallback regex; prefira tipo_ia do banco)."""
     if not nome:
         return ""
-    if _TIPO_COSMETICO.search(nome):
-        return "cosmetico"
+    if _TIPO_HIGIENE.search(nome):
+        return "higiene"
+    if _TIPO_DERMOCOSMETICO.search(nome):
+        return "dermocosmetico"
+    if _TIPO_PERFUMARIA.search(nome):
+        return "perfumaria"
+    if _TIPO_CORRELATO.search(nome):
+        return "correlato"
+    if _TIPO_NUTRICAO.search(nome):
+        return "nutricao"
+    if _TIPO_VAREJO.search(nome):
+        return "varejo"
     if _TIPO_SUPLEMENTO.search(nome):
         return "suplemento"
     if _TIPO_MEDICAMENTO.search(nome):
@@ -8636,7 +8690,9 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
                 produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
                 produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
                 produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-                if tarja in ("preta", "vermelha") and row.get("exibir_imagem_publica") is False:
+                _tipo = _classificar_produto(produtos[idx].get("nome") or "")
+                _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
+                if _is_med and tarja in ("preta", "vermelha") and row.get("exibir_imagem_publica") is False:
                     placeholder = _placeholder_for_tarja(tarja)
                     if placeholder:
                         produtos[idx]["imagem"] = placeholder
@@ -8651,6 +8707,9 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
     for p in produtos:
         if not p.get("requer_receita"):
             nome = p.get("nome") or ""
+            _tipo = _classificar_produto(nome)
+            if _tipo in _TIPOS_NAO_MEDICAMENTO:
+                continue
             if _NOME_TARJA_VERMELHA_RE.search(nome):
                 p["tarja"] = "vermelha"
                 p["receita_retida"] = bool(_NOME_RECEITA_RETIDA_RE.search(nome))

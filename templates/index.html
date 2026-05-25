@@ -200,6 +200,40 @@
 .idx-fd-sep {
   height: 1px; background: var(--pq-border); margin: 4px 0;
 }
+.idx-sort-hint {
+  font-weight: 400; font-size: .68rem; color: var(--pq-muted);
+  text-transform: none; letter-spacing: 0; margin-left: 4px;
+}
+.idx-sort-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.idx-sort-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 10px; background: #fff;
+  color: var(--pq-text); font-family: inherit;
+  font-size: .88rem; font-weight: 600;
+  cursor: pointer; text-align: left;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.idx-sort-opt i { color: var(--pq-muted); width: 14px; flex-shrink: 0; font-size: .8rem; transition: color .15s; }
+.idx-sort-opt span:nth-child(2) { flex: 1; }
+.idx-sort-opt:hover { border-color: var(--pq-red); background: #fff5f7; color: var(--pq-red); }
+.idx-sort-opt:hover i { color: var(--pq-red); }
+.idx-sort-opt.sel-1 { border-color: var(--pq-red); background: var(--pq-red); color: #fff; font-weight: 800; }
+.idx-sort-opt.sel-1 i { color: rgba(255,255,255,.8); }
+.idx-sort-opt.sel-2 { border-color: #f5a623; background: #fff8ec; color: #7a4e00; font-weight: 800; }
+.idx-sort-opt.sel-2 i { color: #f5a623; }
+.idx-sort-badge {
+  font-size: .65rem; font-weight: 900;
+  width: 18px; height: 18px;
+  border-radius: 50%; display: none;
+  align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.idx-sort-opt.sel-1 .idx-sort-badge { display: flex; background: rgba(255,255,255,.25); color: #fff; }
+.idx-sort-opt.sel-2 .idx-sort-badge { display: flex; background: #f5a623; color: #fff; }
 .idx-fd-foot {
   display: flex; gap: 10px; padding: 14px 20px;
   border-top: 1px solid var(--pq-border);
@@ -578,14 +612,34 @@
     <div class="idx-fd-sep"></div>
 
     <div class="idx-fd-field">
-      <label for="sort-select">Ordenar por</label>
-      <select id="sort-select" onchange="filterAndRender(true)">
-        <option value="distance_asc">Mais perto (padrão)</option>
-        <option value="price_asc">Menor preço (crescente)</option>
-        <option value="price_desc">Maior preço (decrescente)</option>
-        <option value="name_asc">Nome A–Z (crescente)</option>
-        <option value="name_desc">Nome Z–A (decrescente)</option>
-      </select>
+      <label>Ordenar por <span class="idx-sort-hint">selecione até 2</span></label>
+      <div class="idx-sort-list" id="sort-list">
+        <button type="button" class="idx-sort-opt" data-sort="distance_asc" onclick="toggleSort('distance_asc')">
+          <i class="fa fa-location-dot"></i>
+          <span>Mais perto</span>
+          <span class="idx-sort-badge"></span>
+        </button>
+        <button type="button" class="idx-sort-opt" data-sort="price_asc" onclick="toggleSort('price_asc')">
+          <i class="fa fa-arrow-up"></i>
+          <span>Menor preço</span>
+          <span class="idx-sort-badge"></span>
+        </button>
+        <button type="button" class="idx-sort-opt" data-sort="price_desc" onclick="toggleSort('price_desc')">
+          <i class="fa fa-arrow-down"></i>
+          <span>Maior preço</span>
+          <span class="idx-sort-badge"></span>
+        </button>
+        <button type="button" class="idx-sort-opt" data-sort="name_asc" onclick="toggleSort('name_asc')">
+          <i class="fa fa-arrow-down-a-z"></i>
+          <span>Nome A–Z</span>
+          <span class="idx-sort-badge"></span>
+        </button>
+        <button type="button" class="idx-sort-opt" data-sort="name_desc" onclick="toggleSort('name_desc')">
+          <i class="fa fa-arrow-up-z-a"></i>
+          <span>Nome Z–A</span>
+          <span class="idx-sort-badge"></span>
+        </button>
+      </div>
     </div>
 
     <div class="idx-fd-sep"></div>
@@ -663,7 +717,10 @@ const badgeOk  = document.getElementById('idx-badge-ok');
 const badgeWrn = document.getElementById('idx-badge-warn');
 const storeSel = document.getElementById('filter-store');
 const catSel = document.getElementById('filter-category');
-const sortSel = document.getElementById('sort-select');
+// sort-select kept as hidden proxy for compatibility; actual state in selectedSorts[]
+const sortSel = { value: 'distance_asc' };   // proxy object
+const sortSel2 = null;
+let selectedSorts = ['distance_asc'];  // ordered: [primary, secondary?]
 const pageSizeSel = document.getElementById('page-size');
 const pagerEl = document.getElementById('idx-pager');
 
@@ -683,10 +740,18 @@ const INTERESSE_KEY = 'pq_anon_interesse';
 const _interessesRegistrados = new Set();
 
 const CAT_LABELS = {
-  cosmetico: 'Dermocosméticos',
-  suplemento: 'Suplementos',
-  medicamento: 'Medicamentos',
-  outros: 'Outros produtos'
+  medicamento:      'Medicamentos',
+  generico:         'Medicamentos Genéricos',
+  similar:          'Medicamentos Similares',
+  referencia:       'Medicamentos de Referência',
+  suplemento:       'Suplementos',
+  dermocosmetico:   'Dermocosméticos',
+  perfumaria:       'Perfumaria',
+  higiene:          'Higiene Pessoal',
+  correlato:        'Correlatos e Equipamentos',
+  nutricao:         'Nutrição',
+  varejo:           'Varejo/Conveniência',
+  outros:           'Outros produtos',
 };
 
 function brl(v) {
@@ -702,8 +767,13 @@ function productCategory(p) {
   const cat = (p.categoria || '').trim();
   if (cat) return cat;
   const nome = normTxt(p.nome);
-  if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|calm)\b/.test(nome)) return 'suplemento';
-  if (/\b(fps|protetor|facial|creme|locao|gel|shampoo|sabonete|solar|hidratante)\b/.test(nome)) return 'cosmetico';
+  if (/\b(sabonete|shampoo|condicionador|pasta.?dental|escova.?dental|desodorante(?!.*(aerossol|spray))|absorvente|fralda|algodao|cotonete|preservativo)\b/.test(nome)) return 'higiene';
+  if (/\b(fps|spf|protetor.?solar|facial|serum|creme.?anti|mascara.?capilar|oleo.?capilar|anticaspa)\b/.test(nome)) return 'dermocosmetico';
+  if (/\b(perfume|colonia|esmalte|acetona|removedor.?esmalte|tintura.?capilar|batom|blush|primer|bronzeador|delineador|aerossol|spray)\b/.test(nome)) return 'perfumaria';
+  if (/\b(agulha|seringa|gaze|atadura|curativo|band.?aid|lanceta|glicemia|termometro|nebulizador|agua.?oxigenada|clorexidina)\b/.test(nome)) return 'correlato';
+  if (/\b(formula.?infantil|dieta.?enteral|isoton|energetico|papinha|adocante|sucralose|fresubin|nutren)\b/.test(nome)) return 'nutricao';
+  if (/\b(bala|chiclete|biscoito|pilha|bateria.?alcalina)\b/.test(nome)) return 'varejo';
+  if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|probiotico|melatonina)\b/.test(nome)) return 'suplemento';
   if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
   return 'outros';
 }
@@ -765,6 +835,7 @@ function hydrateFilters() {
       .join('');
   if ([...stores.keys()].includes(currentStore)) storeSel.value = currentStore;
   if (cats.has(currentCat)) catSel.value = currentCat;
+  renderSortList();
 }
 
 function cardHtml(p, idx) {
@@ -901,12 +972,22 @@ function filtrar(q) {
   }
 }
 
+function _applySortKey(sort, a, b) {
+  if (sort === 'price_asc')  return priceOf(a) - priceOf(b);
+  if (sort === 'price_desc') return priceOf(b) - priceOf(a);
+  if (sort === 'name_asc')   return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+  if (sort === 'name_desc')  return (b.nome || '').localeCompare(a.nome || '', 'pt-BR');
+  if (sort === 'distance_asc') return distanceOf(a) - distanceOf(b);
+  return 0;
+}
+
 function filterAndRender(resetPage=false) {
   if (resetPage) currentPage = 1;
   const q = normTxt(document.getElementById('search-inp')?.value || '').trim();
   const store = storeSel.value;
   const cat = catSel.value;
-  const sort = sortSel.value;
+  const sort = selectedSorts[0] || 'distance_asc';
+  const sort2 = selectedSorts[1] || '';
   const pageSize = parseInt(pageSizeSel.value, 10) || 25;
   const precoMax = parseFloat(document.getElementById('filter-preco-max')?.value) || 0;
 
@@ -919,10 +1000,13 @@ function filterAndRender(resetPage=false) {
   });
 
   filteredProdutos.sort((a, b) => {
-    if (sort === 'price_asc')  return priceOf(a) - priceOf(b) || distanceOf(a) - distanceOf(b);
-    if (sort === 'price_desc') return priceOf(b) - priceOf(a) || distanceOf(a) - distanceOf(b);
-    if (sort === 'name_asc')   return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
-    if (sort === 'name_desc')  return (b.nome || '').localeCompare(a.nome || '', 'pt-BR');
+    const primary = _applySortKey(sort, a, b);
+    if (primary !== 0) return primary;
+    if (sort2 && sort2 !== sort) {
+      const secondary = _applySortKey(sort2, a, b);
+      if (secondary !== 0) return secondary;
+    }
+    // default tiebreaker: distance then price
     return distanceOf(a) - distanceOf(b) || priceOf(a) - priceOf(b);
   });
 
@@ -975,11 +1059,41 @@ function setPageSizeDrawer(value) {
   setPageSize(value);
 }
 
+function toggleSort(key) {
+  const idx = selectedSorts.indexOf(key);
+  if (idx !== -1) {
+    selectedSorts.splice(idx, 1);
+    if (selectedSorts.length === 0) selectedSorts = ['distance_asc'];
+  } else {
+    if (selectedSorts.length >= 2) selectedSorts.pop();
+    selectedSorts.push(key);
+    // if only one selected keep it as sole primary
+    if (selectedSorts.length > 1 && selectedSorts[0] === selectedSorts[1]) selectedSorts.pop();
+  }
+  sortSel.value = selectedSorts[0] || 'distance_asc';
+  renderSortList();
+  filterAndRender(true);
+}
+
+function renderSortList() {
+  document.querySelectorAll('.idx-sort-opt').forEach(btn => {
+    const key = btn.dataset.sort;
+    const pos = selectedSorts.indexOf(key);
+    btn.classList.remove('sel-1', 'sel-2');
+    const badge = btn.querySelector('.idx-sort-badge');
+    badge.textContent = '';
+    if (pos === 0) { btn.classList.add('sel-1'); badge.textContent = '1'; }
+    else if (pos === 1) { btn.classList.add('sel-2'); badge.textContent = '2'; }
+  });
+}
+
 function clearFilters() {
   document.getElementById('search-inp').value = '';
   storeSel.value = '';
   catSel.value = '';
+  selectedSorts = ['distance_asc'];
   sortSel.value = 'distance_asc';
+  renderSortList();
   const pm = document.getElementById('filter-preco-max');
   if (pm) pm.value = '';
   const pmr = document.getElementById('filter-preco-max-range');
@@ -1010,7 +1124,7 @@ function updateFiltroCount() {
   const count = [
     storeSel.value,
     catSel.value,
-    sortSel.value !== 'distance_asc' ? '1' : '',
+    (selectedSorts[0] !== 'distance_asc' || selectedSorts.length > 1) ? '1' : '',
     pm
   ].filter(Boolean).length;
   const badge = document.getElementById('idx-filtro-count');
