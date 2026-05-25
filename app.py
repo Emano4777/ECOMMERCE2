@@ -2435,7 +2435,8 @@ def _apply_safe_catalog_images(produtos, cur=None):
         anvisa = {"tarja": produto.get("tarja") or ""}
         placeholder = _placeholder_for_tarja(anvisa.get("tarja")) or _generic_placeholder_for(produto.get("nome") or "", anvisa=anvisa, med=med)
         imagem_atual = produto.get("imagem") or ""
-        _tipo_p = _classificar_produto(produto.get("nome") or "")
+        _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _classificar_produto(produto.get("nome") or "")
+        _tipo_p = _TIPO_ALIAS.get(_tipo_p_raw, _tipo_p_raw)
         if _tipo_p not in _TIPOS_NAO_MEDICAMENTO and placeholder and anvisa.get("tarja") in ("preta", "vermelha") and produto.get("exibir_imagem_publica") is False:
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
@@ -7596,10 +7597,8 @@ _ADMIN_CATEGORIAS_PUBLICACAO = {
     "todos": "Todos",
     "medicamento": "Medicamentos",
     "nao_medicamento": "Não medicamentos",
-    "dermocosmetico": "Dermocosméticos",
-    "perfumaria": "Perfumaria",
     "suplemento": "Suplementos",
-    "higiene": "Higiene Pessoal",
+    "perfumaria": "Perfumaria e Higiene",
     "correlato": "Correlatos e Equipamentos",
     "nutricao": "Nutrição",
     "varejo": "Varejo/Conveniência",
@@ -8205,24 +8204,16 @@ def health():
 #   4. produto_detalhe lê do cache → passa var `anvisa` ao template
 #   5. /bula/<chave> faz proxy do PDF com Authorization: Guest
 
-_TIPO_DERMOCOSMETICO = re.compile(
-    r"\b(fps|spf|protetor.solar|bb.?cream|cc.?cream|hidratante.facial|clareador|"
-    r"sérum|serum|tônico.facial|esfoliante|mascara.facial|creme.facial|"
-    r"antiacne|antiidade|oleo.capilar|mascara.capilar|shampoo.anticaspa)\b",
-    re.IGNORECASE,
-)
 _TIPO_PERFUMARIA = re.compile(
-    r"\b(perfume|colonia|eau.de|esmalte|acetona|removedor.esmalte|"
-    r"tintura.capilar|coloracao.capilar|batom|blush|primer|bronzeador|"
-    r"autobronzeador|delineador|sombra|base.maquiagem|glitter|"
-    r"mascara.de.cilios|anasol|unispray|desodorante.aerossol|desodorante.spray)\b",
-    re.IGNORECASE,
-)
-_TIPO_HIGIENE = re.compile(
     r"\b(sabonete|shampoo|condicionador|pasta.dental|creme.dental|escova.dental|"
-    r"fio.dental|enxaguante|desodorante(?!.*(aerossol|spray))|absorvente|fralda|"
-    r"lenco.umedecido|algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|"
-    r"protetor.diario|talco|antisseptico.bucal)\b",
+    r"fio.dental|enxaguante|desodorante|absorvente|fralda|lenco.umedecido|"
+    r"algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|protetor.diario|"
+    r"talco|antisseptico.bucal|fps|spf|protetor.solar|bb.?cream|cc.?cream|"
+    r"hidratante.facial|clareador|sérum|serum|tônico.facial|esfoliante|"
+    r"mascara.facial|creme.facial|antiacne|antiidade|oleo.capilar|mascara.capilar|"
+    r"perfume|colonia|eau.de|esmalte|acetona|removedor.esmalte|tintura.capilar|"
+    r"batom|blush|primer|bronzeador|autobronzeador|delineador|sombra|glitter|"
+    r"anasol|unispray)\b",
     re.IGNORECASE,
 )
 _TIPO_CORRELATO = re.compile(
@@ -8259,20 +8250,23 @@ _TIPO_MEDICAMENTO = re.compile(
 )
 
 _TIPOS_NAO_MEDICAMENTO = frozenset({
-    "suplemento", "dermocosmetico", "perfumaria", "higiene", "correlato", "nutricao", "varejo",
+    "suplemento", "perfumaria", "correlato", "nutricao", "varejo",
 })
+
+# aliases para valores antigos ainda presentes no banco
+_TIPO_ALIAS = {
+    "cosmetico":     "perfumaria",
+    "higiene":       "perfumaria",
+    "dermocosmetico":"perfumaria",
+    "alimento":      "nutricao",
+    "outro":         "varejo",
+}
 
 
 def _classificar_produto(nome: str) -> str:
     """Retorna categoria do produto pelo nome (fallback regex; prefira tipo_ia do banco)."""
     if not nome:
         return ""
-    if _TIPO_HIGIENE.search(nome):
-        return "higiene"
-    if _TIPO_DERMOCOSMETICO.search(nome):
-        return "dermocosmetico"
-    if _TIPO_PERFUMARIA.search(nome):
-        return "perfumaria"
     if _TIPO_CORRELATO.search(nome):
         return "correlato"
     if _TIPO_NUTRICAO.search(nome):
@@ -8281,6 +8275,8 @@ def _classificar_produto(nome: str) -> str:
         return "varejo"
     if _TIPO_SUPLEMENTO.search(nome):
         return "suplemento"
+    if _TIPO_PERFUMARIA.search(nome):
+        return "perfumaria"
     if _TIPO_MEDICAMENTO.search(nome):
         return "medicamento"
     return ""

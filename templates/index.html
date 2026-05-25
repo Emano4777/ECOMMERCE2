@@ -740,18 +740,20 @@ const INTERESSE_KEY = 'pq_anon_interesse';
 const _interessesRegistrados = new Set();
 
 const CAT_LABELS = {
-  medicamento:      'Medicamentos',
-  generico:         'Medicamentos Genéricos',
-  similar:          'Medicamentos Similares',
-  referencia:       'Medicamentos de Referência',
-  suplemento:       'Suplementos',
-  dermocosmetico:   'Dermocosméticos',
-  perfumaria:       'Perfumaria',
-  higiene:          'Higiene Pessoal',
-  correlato:        'Correlatos e Equipamentos',
-  nutricao:         'Nutrição',
-  varejo:           'Varejo/Conveniência',
-  outros:           'Outros produtos',
+  medicamento:    'Medicamentos',
+  generico:       'Medicamentos Genéricos',
+  similar:        'Medicamentos Similares',
+  referencia:     'Medicamentos de Referência',
+  suplemento:     'Suplementos',
+  perfumaria:     'Perfumaria e Higiene',
+  correlato:      'Correlatos e Equipamentos',
+  nutricao:       'Nutrição',
+  varejo:         'Varejo/Conveniência',
+  // aliases para valores antigos ainda no banco
+  cosmetico:      'Perfumaria e Higiene',
+  higiene:        'Perfumaria e Higiene',
+  dermocosmetico: 'Perfumaria e Higiene',
+  alimento:       'Nutrição',
 };
 
 function brl(v) {
@@ -763,19 +765,18 @@ function normTxt(s) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
+const _CAT_ALIAS = {cosmetico:'perfumaria', higiene:'perfumaria', dermocosmetico:'perfumaria', alimento:'nutricao', outros:'varejo'};
 function productCategory(p) {
-  const cat = (p.categoria || '').trim();
-  if (cat) return cat;
+  const raw = (p.categoria || '').trim();
+  if (raw) return _CAT_ALIAS[raw] || raw;
   const nome = normTxt(p.nome);
-  if (/\b(sabonete|shampoo|condicionador|pasta.?dental|escova.?dental|desodorante(?!.*(aerossol|spray))|absorvente|fralda|algodao|cotonete|preservativo)\b/.test(nome)) return 'higiene';
-  if (/\b(fps|spf|protetor.?solar|facial|serum|creme.?anti|mascara.?capilar|oleo.?capilar|anticaspa)\b/.test(nome)) return 'dermocosmetico';
-  if (/\b(perfume|colonia|esmalte|acetona|removedor.?esmalte|tintura.?capilar|batom|blush|primer|bronzeador|delineador|aerossol|spray)\b/.test(nome)) return 'perfumaria';
   if (/\b(agulha|seringa|gaze|atadura|curativo|band.?aid|lanceta|glicemia|termometro|nebulizador|agua.?oxigenada|clorexidina)\b/.test(nome)) return 'correlato';
   if (/\b(formula.?infantil|dieta.?enteral|isoton|energetico|papinha|adocante|sucralose|fresubin|nutren)\b/.test(nome)) return 'nutricao';
   if (/\b(bala|chiclete|biscoito|pilha|bateria.?alcalina)\b/.test(nome)) return 'varejo';
-  if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|probiotico|melatonina)\b/.test(nome)) return 'suplemento';
+  if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|probiotico|melatonina|vitnatu)\b/.test(nome)) return 'suplemento';
+  if (/\b(sabonete|shampoo|condicionador|pasta.?dental|escova.?dental|desodorante|absorvente|fralda|algodao|cotonete|preservativo|fps|spf|protetor.?solar|facial|serum|perfume|colonia|esmalte|acetona|removedor.?esmalte|tintura|batom|blush|primer|bronzeador|delineador)\b/.test(nome)) return 'perfumaria';
   if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
-  return 'outros';
+  return 'varejo';
 }
 
 function priceOf(p) {

@@ -156,19 +156,17 @@ ON CONFLICT (ean) DO UPDATE SET
 
 TIPOS_VALIDOS = {
     "generico", "similar", "referencia",
-    "suplemento", "dermocosmetico", "perfumaria", "higiene", "correlato", "nutricao", "varejo",
+    "suplemento", "perfumaria", "correlato", "nutricao", "varejo",
 }
 CAT_DE_TIPO = {
-    "generico":       "medicamento",
-    "similar":        "medicamento",
-    "referencia":     "medicamento",
-    "suplemento":     "suplemento",
-    "dermocosmetico": "dermocosmetico",
-    "perfumaria":     "perfumaria",
-    "higiene":        "higiene",
-    "correlato":      "correlato",
-    "nutricao":       "nutricao",
-    "varejo":         "varejo",
+    "generico":   "medicamento",
+    "similar":    "medicamento",
+    "referencia": "medicamento",
+    "suplemento": "suplemento",
+    "perfumaria": "perfumaria",
+    "correlato":  "correlato",
+    "nutricao":   "nutricao",
+    "varejo":     "varejo",
 }
 
 
@@ -222,26 +220,14 @@ Você é especialista em classificação de produtos de farmácia do mercado bra
            whey protein, creatina, BCAA, melatonina, fitoterápicos, chás medicinais, própolis, polivitamínicos.
   Produtos Vitnatu são SEMPRE suplemento.
 
-"dermocosmetico"
-  Dermocosmético — produto de cuidado com pele/cabelo com finalidade terapêutica estética, sem ser medicamento.
-  Exemplos: protetor solar (FPS/SPF), hidratante facial, sérum facial, tônico facial, esfoliante, creme anti-age,
-           anti-rugas, clareador de pele, tratamento anti-acne (não medicamento), BB cream, CC cream,
-           shampoo anticaspa terapêutico, máscara capilar tratamento, óleo capilar tratamento, Bepantol derma.
-  NÃO inclui: acetona, esmalte, perfume, maquiagem (= perfumaria); sabonete/shampoo comum (= higiene).
-
 "perfumaria"
-  Perfumaria e beleza — produtos de fragrância, coloração e maquiagem sem finalidade terapêutica.
-  Exemplos: perfume, colônia, água de toilette, desodorante spray/aerossol, esmalte para unhas, acetona,
-           removedor de esmalte, tintura capilar (coloração), batom, blush, base/primer, delineador,
-           máscara de cílios (maquiagem), bronzeador/autobronzeador, glitter, sombra, lápis de sobrancelha.
-  NÃO inclui: protetores solares com FPS (= dermocosmetico); sabonete/shampoo (= higiene).
-
-"higiene"
-  Higiene pessoal funcional — produtos de uso cotidiano sem finalidade estética avançada.
-  Exemplos: sabonete (corpo/rosto), shampoo comum, condicionador comum, pasta dental, escova dental,
-           fio dental, enxaguante bucal, desodorante roll-on/bastão/creme, absorvente, protetor diário,
-           fralda, lenço umedecido, algodão, hastes flexíveis (cotonete), papel higiênico, preservativo,
-           talco higiênico, creme para assadura bebê, álcool gel 70%, antisséptico bucal.
+  Perfumaria, higiene pessoal e beleza — tudo que não é medicamento nem suplemento voltado a cuidado pessoal.
+  Exemplos: perfume, colônia, desodorante, esmalte para unhas, acetona, removedor de esmalte,
+           tintura capilar, batom, blush, maquiagem, bronzeador, protetor solar (FPS/SPF), hidratante facial,
+           sérum, creme anti-age, shampoo, condicionador, sabonete, pasta dental, escova dental, fio dental,
+           enxaguante bucal, absorvente, fralda, lenço umedecido, algodão, hastes flexíveis (cotonete),
+           papel higiênico, preservativo, talco, creme para assadura, álcool gel 70%, antisséptico bucal.
+  Use para qualquer produto de cuidado pessoal, higiene ou beleza — não existe distinção entre higiene e cosméticos aqui.
 
 "correlato"
   Correlatos, dispositivos médicos e equipamentos de saúde — regulados pela ANVISA como produtos médicos.
@@ -266,12 +252,10 @@ Você é especialista em classificação de produtos de farmácia do mercado bra
 ━━━ ATENÇÃO — distinções críticas ━━━
   - classe_med do banco PODE estar errado — use como pista, não como verdade
   - "CORRELATOS" na classe_med → correlato
-  - "PERFUMARIA"/"PERFUMARIA/COSMETICO" → perfumaria (esmalte, acetona, perfume) ou dermocosmetico (SPF, tratamento pele)
+  - "PERFUMARIA"/"PERFUMARIA/COSMETICO"/"HIGIENE" na classe_med → perfumaria
   - "ALIMENTOS" → suplemento (cápsula/pó) | nutricao (alimento pronto) | varejo (bala/chiclete)
   - "CONTROLADO" → não muda o tipo — avalie pelo nome (generico/similar/referencia)
-  - Pomada/creme com princípio ativo identificável (diclofenaco, ibuprofeno, etc.) → similar ou referencia, NÃO dermocosmetico
-  - Acetona, esmalte, tintura capilar → perfumaria, NÃO dermocosmetico
-  - Desodorante roll-on/bastão → higiene; desodorante aerossol/spray → perfumaria
+  - Pomada/creme com princípio ativo identificável (diclofenaco, ibuprofeno, etc.) → similar ou referencia, NÃO perfumaria
 
 ━━━ OUTROS CAMPOS ━━━
 principio_ativo    Para generico/similar/referencia: princípio ativo em português. null para os demais.
@@ -326,16 +310,14 @@ def classify_batch(client, batch):
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 
 TIPO_COR = {
-    "generico":       "\033[36m",   # ciano
-    "similar":        "\033[33m",   # amarelo
-    "referencia":     "\033[35m",   # magenta
-    "suplemento":     "\033[32m",   # verde
-    "dermocosmetico": "\033[34m",   # azul
-    "perfumaria":     "\033[95m",   # magenta claro
-    "higiene":        "\033[96m",   # ciano claro
-    "correlato":      "\033[90m",   # cinza
-    "nutricao":       "\033[93m",   # amarelo claro
-    "varejo":         "\033[37m",   # branco
+    "generico":   "\033[36m",   # ciano
+    "similar":    "\033[33m",   # amarelo
+    "referencia": "\033[35m",   # magenta
+    "suplemento": "\033[32m",   # verde
+    "perfumaria": "\033[95m",   # magenta claro
+    "correlato":  "\033[90m",   # cinza
+    "nutricao":   "\033[93m",   # amarelo claro
+    "varejo":     "\033[37m",   # branco
 }
 RESET = "\033[0m"
 
