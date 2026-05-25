@@ -52,12 +52,118 @@ _STOP_WORDS = {
     "farmax","quimica","bellaphytus","rioquimica","medley","sandoz",
     "torrent","teuto","eurofarma","prati","donaduzzi","neo","geolab",
     "pharlab","pharma","laboratorio","laboratorios",
+    "natulab","multilab","airela","pharmascience","vitamedic","biosintetica",
+    # Sufixos de forma/composição que mascaram INN quando 2ª palavra
+    "hidroclor",   # OLMESARTANA HIDROCLOR → OLMESARTANA
+    "medoxomila",  # OLMESARTANA MEDOXOMILA → OLMESARTANA
+    "flacodin",    # SIMETICONA FLACODIN → SIMETICONA
+}
+
+# Mapeamento nome-comercial → INN para busca no bulário ANVISA.
+# Keyed pela PRIMEIRA palavra do nome no estoque (maiúscula, sem acento).
+# IMPORTANTE: manter sincronizado com _MARCA_TO_INN em app.py.
+_MARCA_TO_INN = {
+    # Analgésicos / AINEs
+    "ALIVIUM":      "IBUPROFENO",              # ibuprofeno (Aché)
+    "BUPROVIL":     "IBUPROFENO",              # ibuprofeno (Multilab)
+    "ARTRINID":     "INDOMETACINA",            # indometacina 50mg inj (União)
+    "NIMELIT":      "NIMESULIDA",              # nimesulida 100mg/gotas (Geolab)
+    "BENZIFLEX":    "CLONIXINATO LISINA",      # clonixinato de lisina (EMS)
+    "CODEX":        "CODEINA",                 # paracetamol+codeína — TARJA PRETA
+    "COXYM":        "COLCHICINA",              # colchicina 0,5mg (UQ)
+    # Espasmolíticos
+    "BUSCOPAN":     "BUTILBROMETO ESCOPOLAMINA",
+    "BUSCOPLEX":    "BUTILBROMETO ESCOPOLAMINA",
+    # Antibióticos / Antiparasitários
+    "AZITROPHAR":   "AZITROMICINA",
+    "BELFACTRIM":   "SULFAMETOXAZOL TRIMETOPRIMA",
+    "BELMIRAX":     "MEBENDAZOL",              # confirmado nas descricoes
+    "BACINA":       "NEOMICINA BACITRACINA",
+    "CIPRIXIN":     "CIPROFLOXACINO",          # colírio + dexametasona (Geolab)
+    # Anti-hipertensivos / Cardiovascular
+    "ARADOIS":      "LOSARTANA",               # losartana ±HCTZ (Biolab)
+    "BESILAPIN":    "ANLODIPINO",              # besilato anlodipino (Geolab)
+    "FEDIPINA":     "NIFEDIPINO",
+    "CARBIDOL":     "CARBIDOPA LEVODOPA",      # 25+250mg Parkinson (Teuto)
+    # Corticosteroides
+    "BETAPROSPAN":  "BETAMETASONA",            # depot injetável (EMS)
+    "BETRICORT":    "BETAMETASONA",            # creme/pomada (Geolab)
+    "BIOFLADEX":    "BETAMETASONA",            # aerossol dérmico
+    "CELERGIN":     "BETAMETASONA",            # + dexclorfeniramina (EMS)
+    "CELESTAMINE":  "BETAMETASONA",            # + dexclorfeniramina (Schering)
+    "CELESTONE":    "BETAMETASONA",            # (Schering/MSD)
+    "CELESTRAT":    "BETAMETASONA",            # + dexclorfeniramina (UQ)
+    "CORTICORTEN":  "PREDNISONA",              # 5/20mg (Neoquímica)
+    # Anti-histamínicos
+    "ALLEXOFEDRIN": "FEXOFENADINA",            # 120/180mg ±pseudoefedrina (EMS)
+    "ARLIVRY":      "LORATADINA",              # xarope (Natulab)
+    "ALERADINA":    "LORATADINA",              # (Multilab)
+    "BERITIN":      "CETIRIZINA",              # kids xarope (Vitamedic)
+    # Mucolíticos / Broncodilatadores
+    "AMBROL":       "AMBROXOL",                # 15/30mg xarope (Brasterapica)
+    "AMBROXMEL":    "AMBROXOL",                # (Cimed)
+    "BRONQTRAT":    "AMBROXOL",                # (Natulab)
+    "AERODINI":     "SALBUTAMOL",              # 100mcg/dose inalador (Teuto)
+    "CELETIL":      "SALBUTAMOL",              # +ambroxol xarope (Geolab)
+    # Vitaminas / outros medicamentos
+    "BENERVA":      "TIAMINA",                 # vitamina B1 300mg (Sanofi)
+    "ANTIAZIL":     "HIDROXIDO ALUMINIO",      # +Mg(OH)2 antiácido
+    "CISTEIL":      "ACETILCISTEINA",          # NAC 200/600mg (Geolab)
+    "CONTRACEP":    "MEDROXIPROGESTERONA",     # 150mg inj anticoncepcional
+    "BENZODERM":    "PEROXIDO BENZOILA",       # peróxido de benzoíla (Pharmascience)
+    # Inibidores de bomba de prótons (IBP)
+    "ELPRAZOL":     "ESOMEPRAZOL",              # esomeprazol 20mg (Pharlab)
+    "ESOP":         "ESOMEPRAZOL",              # esomeprazol 20/40mg (Multilab/Novaquímica)
+    # Mucolíticos/Expectorantes
+    "EMSEXPECT":    "AMBROXOL",                 # xarope expectorante (EMS)
+    "EMSEXPECTOR":  "AMBROXOL",                 # xarope expectorante (EMS)
+    "EXPECVEM":     "GUAIFENESINA",             # guaifenesina 200mg/15ml (Airela)
+    "FLUCETIL":     "ACETILCISTEINA",           # acetilcisteína 600mg (Maxinutri)
+    # Contraceptivos
+    "ETINIL":       "ETINILESTRADIOL GESTODENO",  # etinilestradiol+gestodeno (Biosintetica)
+    # Anti-histamínico / Ansiolítico
+    "DROXY":        "HIDROXIZINA",              # cloridrato de hidroxizina 25mg (EMS/Multilab)
+    # Colírio antiglaucoma
+    "DRUSOLOL":     "DORZOLAMIDA TIMOLOL",      # dorzolamida 2% + timolol 0,5% (Farmasa)
+    # AINEs
+    "FARMOXICAM":   "PIROXICAM",               # piroxicam 20mg (Pharlab)
+    # Antiflatulento
+    "FLACODIN":     "SIMETICONA",              # simeticona 125mg/75mg (Vidora)
+    # Antifúngico
+    "FUNOK":        "ITRACONAZOL",             # itraconazol 100mg (Multilab)
+    # Antiácido
+    "GASTROBEM":    "HIDROXIDO ALUMINIO",       # Al/Mg-hidroxido + dimeticona (Natulab)
+    # Antiflatulento
+    "LUFTAL":       "SIMETICONA",              # simeticona 125/40mg (Reckitt Benckiser)
+    # Laxativos
+    "LACTUGOLD":    "LACTULOSE",               # lactulose 667mg/ml xarope (Arte Nativa)
+    "NATULAXE":     "BISACODILA",              # bisacodila 34mg caps (Natulab) — ANVISA usa forma com 'A'
+    # Analgésico/Antipirético
+    "TILEMAXY":     "PARACETAMOL",             # paracetamol gotas/xarope (Natulab)
+    # Antifúngico oral
+    "NISTAMAX":     "NISTATINA",               # nistatina 100.000UI/ml susp (Natulab)
+    # Antibiótico amoxicilina+clavulanato
+    "POLICLAVUMOXIL": "AMOXICILINA CLAVULANATO",  # amox+clavulanato (EMS)
+    # Antibióticos tópicos
+    "NEMICINA":     "NEOMICINA",               # neomicina 3,5mg/g pomada dérmicaa (Delta)
+    # Anti-inflamatórios
+    "NEOTAREN":     "DICLOFENACO",             # diclofenaco sódico 50mg (NeoQuímica)
+    # Diurético
+    "NEOSEMID":     "FUROSEMIDA",              # furosemida 40mg (NeoQuímica)
+    # Antidiarreico
+    "KAOSEC":       "LOPERAMIDA",              # loperamida 2mg (Pharmascience)
+    # Variação de nome INN no estoque (sem 'A' final)
+    "LORATADIN":    "LORATADINA",              # loratadina (variação de grafia no estoque)
 }
 
 
 def _chave(nome):
+    tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
+    # Se a 1ª palavra for um nome comercial conhecido, retorna o INN diretamente.
+    if tks and tks[0] in _MARCA_TO_INN:
+        return _MARCA_TO_INN[tks[0]]
     words = []
-    for w in re.sub(r"[^\w\s]", " ", nome or "").upper().split():
+    for w in tks:
         if w.lower() in _STOP_WORDS or any(c.isdigit() for c in w) or len(w) < 4:
             continue
         words.append(w)
@@ -344,7 +450,7 @@ def main():
         cur.execute("""
             SELECT chave
             FROM anvisa_cache
-            WHERE criado_em > NOW() - INTERVAL '90 days'
+            WHERE criado_em >= DATE_TRUNC('year', NOW())
               AND (
                     encontrado = FALSE
                     OR (receita_retida IS NOT NULL AND exibir_imagem_publica IS NOT NULL)
@@ -437,7 +543,9 @@ def main():
                         rec   = json.loads(line)
                         dados = rec.get("dados") or {}
                         chave_rec = rec["chave"]
-                        pending_rows.append(_cache_row(chave_rec, dados))
+                        # Nao salvar 403 — tentar de novo na proxima execucao
+                        if not dados.get("bloqueado_403"):
+                            pending_rows.append(_cache_row(chave_rec, dados))
                         chaves_processadas.add(chave_rec)
                         if len(pending_rows) >= db_batch:
                             _salvar_many(pending_rows, page_size=db_batch)
@@ -448,6 +556,9 @@ def main():
                             ok += 1
                             print(f"[{feitos:4}/{total}] {pct:3}%  [OK]  {rec['chave']}"
                                   f"  ->  {dados.get('nome_anvisa', '')}")
+                        elif dados.get("bloqueado_403"):
+                            falha += 1
+                            print(f"[{feitos:4}/{total}] {pct:3}%  [403] {rec['chave']}  - bloqueado, sera reprocessado")
                         else:
                             falha += 1
                             print(f"[{feitos:4}/{total}] {pct:3}%  [--]  {rec['chave']}  - nao encontrado")

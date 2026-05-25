@@ -43,6 +43,7 @@ _FALLBACK_BLOCKLIST = frozenset([
 # Injetados como fallback quando a busca pelo INN sozinho retorna 0 resultados.
 _SALT_PREFIXES = [
     "CLORIDRATO DE",
+    "SULFATO DE",        # salbutamol, morfina, neomicina, gentamicina...
     "BESILATO DE",
     "MALEATO DE",
     "FUMARATO DE",
@@ -78,6 +79,10 @@ _CHAVES_BLOQUEADAS = frozenset([
     "VITAMINA", # genérico demais, encontra "Vitamina D3" vermelha (errado)
     "CURCUMA",
     "CURCUMA LONGA",
+    "AGUA",     # encontra "Agua Para Injecao" (uso hospitalar) em vez do produto do estoque
+    "ALCOOL",   # encontra "Alcool Etilico" (hospitalar) em vez de antisseptico OTC
+    "GLICERINA",# fitoterápico / excipiente — nunca e o produto do estoque
+    "ARNICA",   # fitoterápico OTC, qualquer match pode ser produto hospitalar errado
 ])
 
 _PREFIXOS_NAO_MEDICAMENTO = frozenset([
@@ -86,6 +91,9 @@ _PREFIXOS_NAO_MEDICAMENTO = frozenset([
     "REPELENTE", "PERFUME", "MAMADEIRA", "MORDEDOR", "LANCETA",
     "NEBULIZADOR", "MUNHEQUEIRA", "TOUCA", "LUVA", "LUVAS",
     "GOODVIT", "CARTVIT", "GRANADO", "CLETO",
+    "SORO",   # soro fisiologico/oral nao e medicamento por INN — evita falso match com "Fisioton"
+    "MACA",   # maca peruana = suplemento alimentar, nao medicamento ANVISA
+    "HYABAK", # acido hialuronico lacrimal = dispositivo medico, nao drug ANVISA
 ])
 
 _QUALIFICADORES_FORMA_MARCA = frozenset([
@@ -98,6 +106,15 @@ _QUALIFICADORES_FORMA_MARCA = frozenset([
 _TENTATIVAS_ACENTUADAS = {
     "ACIDO VALPROICO":    ["ÁCIDO VALPRÓICO",        "VALPRÓICO"],
     "ACIDO URSODESOXICO": ["ÁCIDO URSODESOXICÓLICO",  "URSODESOXICÓLICO"],
+    "ACIDO FOLICO":       ["ÁCIDO FÓLICO",             "FÓLICO"],
+    "ACIDO ASCORBICO":    ["ÁCIDO ASCÓRBICO"],
+    "ACIDO HIALURONICO":  ["ÁCIDO HIALURÔNICO"],
+    "ACIDO RETINOICO":    ["ÁCIDO RETINÓICO"],
+    # ANVISA registra com 'A' final — busca sem a letra final falha
+    "BISACODIL":          ["BISACODILA"],
+    "LORATADIN":          ["LORATADINA"],
+    # ANVISA exige o tipo (mono/di) — busca genérica não retorna resultado
+    "ISOSSORBIDA":        ["ISOSSORBIDA MONONITRATO", "ISOSSORBIDA DINITRATO"],
 }
 
 
@@ -112,6 +129,10 @@ def _match_valido(chave, nome_anvisa):
     palavras = _norm(chave).split()
     nome_norm = _norm(nome_anvisa)
     if len(palavras) >= 2 and palavras[1] in _QUALIFICADORES_FORMA_MARCA and "+" in nome_norm:
+        return False
+    # Chave de 1 palavra: exige que ela apareça como palavra inteira no nome ANVISA.
+    # Evita ex.: "AFTLIV" → "Solução De Ringer", "AGUA" → "Agua Para Injeção".
+    if len(palavras) == 1 and palavras[0] not in nome_norm.split():
         return False
     if len(palavras) < 2 or palavras[0] not in _GENERIC_FIRST_WORDS:
         return True
@@ -160,6 +181,36 @@ _NOME_RECEITA_RETIDA_NORM_RE = re.compile(
     r"|\bAMITRIPTILINA\b|\bNORTRIPTILINA\b|\bIMIPRAMINA\b"
     r"|\bCARBAMAZEPINA\b|\bFENITOINA\b|\bVALPROATO\b|\bTOPIRAMAT[EO]\b|\bLAMOTRIGINA\b"
     r"|\bCODEINA\b"
+)
+
+# Fallback para INNs que sao sempre tarja vermelha no Brasil mas que a API ANVISA
+# frequentemente retorna tipoReceituario vazio (ex: anlodipino, olmesartana).
+# Aplicado apenas quando tarja e None apos todos os checks anteriores.
+# Texto comparado via _norm() → ASCII maiusculo sem acentos.
+_NOME_TARJA_VERMELHA_NORM_RE = re.compile(
+    # Bloqueadores de canal de calcio (CCB)
+    r"\bANLODIPINO\b|\bAMLODIPINO\b|\bNIFEDIPINO\b|\bDILTIAZEM\b|\bVERAPAMIL\b"
+    r"|\bFELODIPINO\b|\bLERCANIDIPINO\b|\bNICARDIPINO\b"
+    # Sartans (ARB) nao cobertos por outros checks
+    r"|\bOLMESARTANA\b|\bAZILSARTANA\b|\bTELMISARTANA\b|\bCANDESARTANA\b|\bIRBESARTANA\b"
+    # Anticoagulantes orais diretos
+    r"|\bRIVAROXABANA\b|\bAPIXABANA\b|\bDABIGATRANA\b|\bEDOXABANA\b|\bACENOCUMAROL\b"
+    # Antiagreganates
+    r"|\bCLOPIDOGREL\b|\bTICLOPIDINA\b|\bPRASUGREL\b|\bTICAGRELOR\b"
+    # Antiaasmaticos / antialergicos de prescricao
+    r"|\bMONTELUCASTE\b|\bZAFIRLUCASTE\b"
+    # Broncodilatadores de longa duracao (LABA/LAMA)
+    r"|\bFORMOTEROL\b|\bSALMETEROL\b|\bTIOTROPIO\b|\bGLICOPIRRONIO\b|\bINDACATEROL\b"
+    # Antidiabeticos orais nao cobertos
+    r"|\bSITAGLIPTINA\b|\bSAXAGLIPTINA\b|\bALOGLIPTINA\b|\bLINAGLIPTINA\b"
+    r"|\bEMPAGLIFLOZINA\b|\bDALAGLIFLOZINA\b|\bERTUGLIFLOZINA\b"
+    r"|\bGLIBENCLAMIDA\b|\bGLIMEPIRIDA\b|\bGLICLAZIDA\b|\bGLIPIZIDA\b"
+    # Estatinas
+    r"|\bATORVASTATINA\b|\bROSUVASTATINA\b|\bSINVASTATINA\b|\bPRAVASTATINA\b|\bFLUVASTATINA\b"
+    # Tireoide
+    r"|\bLEVOTIROXINA\b|\bMETIMAZOL\b|\bPROPILTIOURACIL\b"
+    # Outros comuns de prescricao
+    r"|\bALOPURINOL\b|\bCOLCHICINA\b|\bISOSSORBIDA\b|\bNITROGLICERINA\b|\bTRIMETAZIDINA\b"
 )
 
 
@@ -453,11 +504,26 @@ def _make_session():
     return s
 
 
+# Sentinel retornado por _get_json quando a API responde 403 Forbidden.
+# Diferencia "nao encontrado" (None) de "bloqueado" (403) para que o loop
+# de tentativas em _api_bulario pare imediatamente sem tentar os prefixos de sal.
+_HTTP_403 = object()
+
+
 def _get_json(session, url, retries=3):
-    """GET JSON com retry e backoff. Loga status HTTP em stderr."""
+    """GET JSON com retry e backoff. Retorna _HTTP_403 em 403 (sem retry)."""
     for attempt in range(retries):
         try:
             r = session.get(url, timeout=25)
+            if r.status_code == 403:
+                print(f"  [WARN] HTTP 403: {url[:100]}",
+                      file=sys.stderr, flush=True)
+                time.sleep(30)  # aguarda sessao ANVISA recuperar (5s era insuficiente)
+                try:
+                    session.get(f"{ANVISA_BASE}/", timeout=15)  # renova cookies da sessao
+                except Exception:
+                    pass
+                return _HTTP_403  # nao tentar novamente; sinaliza ao chamador
             if r.status_code == 429:
                 wait = 30 * (attempt + 1)
                 print(f"  [RATE LIMIT] HTTP 429 — aguardando {wait}s...",
@@ -546,6 +612,7 @@ def _api_bulario(chave, session):
             seen.add(t)
             tentativas_unicas.append(t)
 
+    _got_403 = False
     for q in tentativas_unicas:
         q_enc = urllib.parse.quote(q)
         url = (
@@ -555,6 +622,9 @@ def _api_bulario(chave, session):
             f"&order=asc&page=1"
         )
         data = _get_json(session, url)
+        if data is _HTTP_403:
+            _got_403 = True
+            break  # API bloqueou esta query; parar tentativas restantes (incluindo sais)
         if data is None:
             continue
         items = data.get("content") or data.get("data") or []
@@ -563,7 +633,8 @@ def _api_bulario(chave, session):
         if items:
             return items
 
-    return []
+    # Sinaliza 403 para que o chamador nao salve o resultado no cache
+    return _HTTP_403 if _got_403 else []
 
 
 def _buscar(chave, session):
@@ -574,6 +645,8 @@ def _buscar(chave, session):
         return {"encontrado": False}
     try:
         items = _api_bulario(chave, session)
+        if items is _HTTP_403:
+            return {"encontrado": False, "bloqueado_403": True}
         if not items:
             return {"encontrado": False}
 
@@ -661,6 +734,8 @@ def _buscar(chave, session):
             tarja = "vermelha"
         if tarja is None and (_RETENCAO_NORM_RE.search(blob_restricao) or _NOME_RECEITA_RETIDA_NORM_RE.search(blob_restricao)):
             tarja = "vermelha"
+        if tarja is None and _NOME_TARJA_VERMELHA_NORM_RE.search(blob_restricao):
+            tarja = "vermelha"
         restricoes = _restricoes_sanitarias(
             tarja,
             nome=nome,
@@ -708,7 +783,7 @@ def main():
                 dados = _buscar(chave, session)
                 fout.write(json.dumps({"chave": chave, "dados": dados}, ensure_ascii=False) + "\n")
                 fout.flush()
-                time.sleep(0.8)  # respeita rate limit da ANVISA
+                time.sleep(1.5)  # respeita rate limit da ANVISA
     else:
         for line in sys.stdin:
             chave = line.strip()

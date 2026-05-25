@@ -1,97 +1,229 @@
 {% extends "base_public.html" %}
 {% block title %}Poupaqui - Produtos{% endblock %}
 
+{% block topbar_search %}
+<div class="idx-nb-wrap">
+  <div class="idx-nb-search">
+    <i class="fa fa-magnifying-glass idx-nb-icon"></i>
+    <input type="text" id="search-inp"
+           placeholder="Buscar produtos…"
+           oninput="filtrar(this.value)"
+           autocomplete="off"/>
+  </div>
+  <select class="idx-nb-exibir" id="page-size" onchange="setPageSize(this.value)" title="Itens por página">
+    <option value="25">25</option>
+    <option value="50">50</option>
+    <option value="100">100</option>
+  </select>
+  <button class="idx-nb-filtro-btn" id="idx-filtro-btn" onclick="abrirFiltroDrawer()" title="Filtros avançados">
+    <i class="fa fa-sliders"></i>
+    <span class="idx-nb-filtro-label">Filtros</span>
+    <span class="idx-nb-filtro-count" id="idx-filtro-count" style="display:none">0</span>
+  </button>
+</div>
+{% endblock %}
+
 {% block extra_style %}
 <style>
-/* ── SEARCH BAR ─────────────────────────────────── */
-.idx-search {
-  position: relative;
-  margin-bottom: 20px;
+/* ── NAVBAR SEARCH BLOCK ────────────────────────── */
+.idx-nb-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
 }
-.idx-search input {
+.idx-nb-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.idx-nb-search input {
   width: 100%;
-  padding: 12px 18px 12px 46px;
+  height: 40px;
+  padding: 0 14px 0 40px;
   border: 1.5px solid var(--pq-border);
   border-radius: 50px;
-  font-size: .92rem;
+  font-size: .88rem;
   font-family: inherit;
   outline: none;
-  background: #fff;
-  box-shadow: var(--pq-shadow);
-  transition: border-color .15s, box-shadow .15s;
+  background: #f7f7f7;
+  transition: border-color .15s, background .15s, box-shadow .15s;
 }
-.idx-search input:focus {
+.idx-nb-search input:focus {
   border-color: var(--pq-red);
+  background: #fff;
   box-shadow: 0 0 0 3px rgba(200,16,46,.09);
 }
-.idx-search .srch-icon {
+.idx-nb-icon {
   position: absolute;
-  left: 17px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--pq-muted);
   pointer-events: none;
+  font-size: .85rem;
 }
-.idx-filter-panel {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.25fr) minmax(150px, .9fr) minmax(165px, .9fr) minmax(120px, .6fr) auto;
-  gap: 10px;
-  align-items: end;
-  background: #fff;
-  border: 1px solid var(--pq-border);
-  border-radius: 12px;
-  box-shadow: 0 4px 18px rgba(16,24,40,.07);
-  padding: 12px;
-  margin: -8px 0 18px;
-}
-.idx-filter-field label {
-  display: block;
-  color: var(--pq-muted);
-  font-size: .68rem;
-  font-weight: 900;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  margin: 0 0 5px 2px;
-}
-.idx-filter-field select {
-  width: 100%;
+.idx-nb-exibir {
+  flex-shrink: 0;
   height: 40px;
   border: 1.5px solid var(--pq-border);
-  border-radius: 9px;
+  border-radius: 10px;
   background: #fff;
   color: var(--pq-text);
   font-family: inherit;
-  font-size: .84rem;
+  font-size: .82rem;
   font-weight: 700;
-  padding: 0 10px;
+  padding: 0 8px;
   outline: none;
+  cursor: pointer;
 }
-.idx-filter-field select:focus {
-  border-color: var(--pq-red);
-  box-shadow: 0 0 0 3px rgba(200,16,46,.08);
-}
-.idx-filter-clear {
+.idx-nb-exibir:focus { border-color: var(--pq-red); }
+.idx-nb-filtro-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 40px;
+  padding: 0 14px;
   border: 1.5px solid var(--pq-border);
-  border-radius: 9px;
+  border-radius: 10px;
   background: #fff;
-  color: var(--pq-red);
+  color: var(--pq-text);
   font-family: inherit;
-  font-size: .8rem;
-  font-weight: 900;
-  padding: 0 12px;
+  font-size: .82rem;
+  font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color .15s, background .15s, color .15s;
 }
-.idx-filter-clear:hover { background: #fff3f5; border-color: #ffd0d8; }
-@media(max-width:900px) {
-  .idx-filter-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .idx-filter-clear { grid-column: 1/-1; }
+.idx-nb-filtro-btn:hover { border-color: var(--pq-red); color: var(--pq-red); background: #fff5f7; }
+.idx-nb-filtro-btn.active { background: var(--pq-red); color: #fff; border-color: var(--pq-red); }
+.idx-nb-filtro-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pq-yellow);
+  color: #5a4a00;
+  border-radius: 999px;
+  font-size: .65rem;
+  font-weight: 900;
+  padding: 1px 6px;
+  min-width: 18px;
 }
-@media(max-width:520px) {
-  .idx-filter-panel { grid-template-columns: 1fr; padding: 10px; }
-  .idx-filter-clear { grid-column: auto; width: 100%; }
+/* On screens below 960px hide EXIBIR and Filtros text — both still available in drawer */
+@media(max-width:960px) {
+  .idx-nb-exibir { display: none; }
+  .idx-nb-filtro-label { display: none; }
 }
+@media(max-width:680px) {
+  .idx-nb-wrap {
+    order: 10;
+    flex: 0 0 100%;
+    padding: 4px 0 6px;
+  }
+}
+
+/* ── FILTER DRAWER ──────────────────────────────── */
+.idx-fd-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 600;
+}
+.idx-fd-overlay.open { display: block; }
+.idx-fd-drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 320px; max-width: 92vw;
+  background: #fff;
+  z-index: 601;
+  transform: translateX(100%);
+  transition: transform .26s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 40px rgba(0,0,0,.18);
+  overflow: hidden;
+}
+.idx-fd-drawer.open { transform: translateX(0); }
+.idx-fd-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--pq-border);
+  font-weight: 900; font-size: 1rem;
+  flex-shrink: 0;
+}
+.idx-fd-close {
+  width: 34px; height: 34px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 50%; background: #fff;
+  cursor: pointer; font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--pq-muted);
+  transition: border-color .15s, color .15s;
+}
+.idx-fd-close:hover { border-color: var(--pq-red); color: var(--pq-red); }
+.idx-fd-body {
+  flex: 1; overflow-y: auto; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+.idx-fd-field > label {
+  display: block;
+  font-size: .7rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .05em;
+  color: var(--pq-muted); margin-bottom: 8px;
+}
+.idx-fd-field select {
+  width: 100%; height: 44px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 10px; background: #fff;
+  color: var(--pq-text); font-family: inherit;
+  font-size: .88rem; font-weight: 700;
+  padding: 0 12px; outline: none;
+}
+.idx-fd-field select:focus { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
+.idx-fd-range-wrap input[type="range"] {
+  width: 100%; accent-color: var(--pq-red); margin-bottom: 6px;
+}
+.idx-fd-range-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .78rem; color: var(--pq-muted); font-weight: 700;
+}
+.idx-fd-range-row input[type="number"] {
+  flex: 1; height: 38px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 8px; padding: 0 10px;
+  font-family: inherit; font-size: .88rem; font-weight: 700;
+  outline: none; min-width: 0;
+}
+.idx-fd-range-row input[type="number"]:focus { border-color: var(--pq-red); }
+.idx-fd-sep {
+  height: 1px; background: var(--pq-border); margin: 4px 0;
+}
+.idx-fd-foot {
+  display: flex; gap: 10px; padding: 14px 20px;
+  border-top: 1px solid var(--pq-border);
+  flex-shrink: 0;
+}
+.idx-fd-clear {
+  flex: 1; height: 44px;
+  border: 1.5px solid var(--pq-border);
+  border-radius: 10px; background: #fff;
+  color: var(--pq-red); font-family: inherit;
+  font-size: .88rem; font-weight: 900;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.idx-fd-clear:hover { background: #fff3f5; border-color: #ffd0d8; }
+.idx-fd-apply {
+  flex: 1; height: 44px;
+  border: none; border-radius: 10px;
+  background: var(--pq-red); color: #fff;
+  font-family: inherit; font-size: .88rem; font-weight: 900;
+  cursor: pointer;
+  transition: background .15s;
+}
+.idx-fd-apply:hover { background: var(--pq-red-dk); }
 
 /* ── SECTION HEADER ─────────────────────────────── */
 .idx-header {
@@ -298,11 +430,16 @@
 /* ── EMPTY ──────────────────────────────────────── */
 .idx-empty {
   grid-column: 1/-1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 60px 20px;
+  min-height: 52vh;
   color: var(--pq-muted);
 }
-.idx-empty i { font-size: 3rem; opacity: .2; display: block; margin-bottom: 14px; }
+.idx-empty > i { font-size: 3rem; opacity: .2; display: block; margin-bottom: 14px; }
 
 /* Estado vazio regional (sem produtos na área) */
 .idx-empty-region {
@@ -415,49 +552,79 @@
 {% endblock %}
 
 {% block content %}
-<!-- Busca -->
-<div class="idx-search">
-  <i class="fa fa-magnifying-glass srch-icon"></i>
-  <input type="text" id="search-inp"
-         placeholder="Buscar produtos ..."
-         oninput="filtrar(this.value)"
-         autocomplete="off"/>
-</div>
+<!-- FILTER DRAWER -->
+<div class="idx-fd-overlay" id="idx-fd-overlay" onclick="fecharFiltroDrawer()"></div>
+<div class="idx-fd-drawer" id="idx-fd-drawer">
+  <div class="idx-fd-head">
+    <span><i class="fa fa-sliders me-2" style="color:var(--pq-red)"></i>Filtros</span>
+    <button class="idx-fd-close" onclick="fecharFiltroDrawer()"><i class="fa fa-xmark"></i></button>
+  </div>
+  <div class="idx-fd-body">
 
-<!-- Filtros -->
-<div class="idx-filter-panel" id="idx-filter-panel">
-  <div class="idx-filter-field">
-    <label for="filter-store">Loja</label>
-    <select id="filter-store" onchange="filterAndRender(true)">
-      <option value="">Todas as lojas</option>
-    </select>
+    <div class="idx-fd-field">
+      <label for="filter-store">Loja</label>
+      <select id="filter-store" onchange="filterAndRender(true)">
+        <option value="">Todas as lojas</option>
+      </select>
+    </div>
+
+    <div class="idx-fd-field">
+      <label for="filter-category">Categoria</label>
+      <select id="filter-category" onchange="filterAndRender(true)">
+        <option value="">Todas as categorias</option>
+      </select>
+    </div>
+
+    <div class="idx-fd-sep"></div>
+
+    <div class="idx-fd-field">
+      <label for="sort-select">Ordenar por</label>
+      <select id="sort-select" onchange="filterAndRender(true)">
+        <option value="distance_asc">Mais perto (padrão)</option>
+        <option value="price_asc">Menor preço (crescente)</option>
+        <option value="price_desc">Maior preço (decrescente)</option>
+        <option value="name_asc">Nome A–Z (crescente)</option>
+        <option value="name_desc">Nome Z–A (decrescente)</option>
+      </select>
+    </div>
+
+    <div class="idx-fd-sep"></div>
+
+    <div class="idx-fd-field">
+      <label for="page-size-drawer">Itens por página</label>
+      <select id="page-size-drawer" onchange="setPageSizeDrawer(this.value)">
+        <option value="25">25 por página</option>
+        <option value="50">50 por página</option>
+        <option value="100">100 por página</option>
+      </select>
+    </div>
+
+    <div class="idx-fd-sep"></div>
+
+    <div class="idx-fd-field">
+      <label for="filter-preco-max">Preço máximo</label>
+      <div class="idx-fd-range-wrap">
+        <input type="range" id="filter-preco-max-range" min="0" max="500" step="5" value="500"
+               oninput="syncPrecoMaxInp(this.value)">
+        <div class="idx-fd-range-row">
+          <span>R$ 0</span>
+          <input type="number" id="filter-preco-max" min="0" max="9999" step="1"
+                 placeholder="Qualquer valor"
+                 oninput="syncPrecoMaxRange(this.value);filterAndRender(true)">
+          <span>R$ 500+</span>
+        </div>
+      </div>
+    </div>
+
   </div>
-  <div class="idx-filter-field">
-    <label for="filter-category">Categoria</label>
-    <select id="filter-category" onchange="filterAndRender(true)">
-      <option value="">Todas as categorias</option>
-    </select>
+  <div class="idx-fd-foot">
+    <button class="idx-fd-clear" onclick="clearFilters()">
+      <i class="fa fa-rotate-left me-1"></i>Limpar tudo
+    </button>
+    <button class="idx-fd-apply" onclick="fecharFiltroDrawer()">
+      <i class="fa fa-check me-1"></i>Aplicar
+    </button>
   </div>
-  <div class="idx-filter-field">
-    <label for="sort-select">Ordenar</label>
-    <select id="sort-select" onchange="filterAndRender(true)">
-      <option value="distance_asc">Mais perto</option>
-      <option value="price_asc">Menor preço</option>
-      <option value="price_desc">Maior preço</option>
-      <option value="name_asc">Nome A-Z</option>
-    </select>
-  </div>
-  <div class="idx-filter-field">
-    <label for="page-size">Exibir</label>
-    <select id="page-size" onchange="setPageSize(this.value)">
-      <option value="25">25 por página</option>
-      <option value="50">50 por página</option>
-      <option value="100">100 por página</option>
-    </select>
-  </div>
-  <button type="button" class="idx-filter-clear" onclick="clearFilters()">
-    <i class="fa fa-rotate-left me-1"></i>Limpar
-  </button>
 </div>
 
 <!-- Cabeçalho da seção -->
@@ -508,6 +675,8 @@ let _currentLat = null;
 let _currentLng = null;
 let _serverSearchTimer = null;
 let _lastServerSearch = '';
+let _serverSearchLoading = false;
+let _produtosLoadSeq = 0;
 const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
 const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
 const INTERESSE_KEY = 'pq_anon_interesse';
@@ -680,11 +849,25 @@ function renderProdutos(lista) {
   skelGrid.style.display = 'none';
   prodGrid.style.display = '';
   if (!lista.length) {
+    if (_serverSearchLoading) {
+      const termo = (document.getElementById('search-inp')?.value || '').trim();
+      prodGrid.innerHTML = `<div class="idx-empty">
+        <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
+          <i class="fa fa-spinner fa-spin" style="font-size:1.5rem;color:var(--pq-red);opacity:.7"></i>
+        </div>
+        <div style="font-weight:800;font-size:1rem;color:var(--pq-text);margin-bottom:6px">Buscando no catálogo…</div>
+        <div style="font-size:.87rem">Procurando <strong>${esc(termo || 'produtos')}</strong> nas farmácias disponíveis.</div>
+      </div>`;
+      pagerEl.style.display = 'none';
+      return;
+    }
     prodGrid.innerHTML = `<div class="idx-empty">
-      <i class="fa fa-magnifying-glass"></i>
+      <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
+        <i class="fa fa-magnifying-glass" style="font-size:1.4rem;color:var(--pq-muted);opacity:.5"></i>
+      </div>
       <div style="font-weight:800;font-size:1rem;color:var(--pq-text);margin-bottom:6px">Nenhum produto encontrado</div>
       <div style="font-size:.87rem;margin-bottom:18px">Tente outro termo ou ajuste os filtros.</div>
-      <button onclick="limparFiltros()" style="background:var(--pq-red);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
+      <button onclick="clearFilters()" style="background:var(--pq-red);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
         <i class="fa fa-rotate-left"></i>Limpar filtros
       </button>
     </div>`;
@@ -694,17 +877,27 @@ function renderProdutos(lista) {
 }
 
 function filtrar(q) {
-  filterAndRender(true);
   const termo = (q || '').trim();
   clearTimeout(_serverSearchTimer);
-  if (_currentLat === null || _currentLng === null) return;
   const precisaServidor = termo.length >= 3 || /^\d{8,}$/.test(termo.replace(/\D/g, ''));
-  if (precisaServidor) {
+  if (_currentLat === null || _currentLng === null) {
+    _serverSearchLoading = false;
+    filterAndRender(true);
+    return;
+  }
+  if (precisaServidor && termo !== _lastServerSearch) {
+    _serverSearchLoading = true;
+    filterAndRender(true);
     _serverSearchTimer = setTimeout(() => {
-      if (termo !== _lastServerSearch) carregarProdutos(_currentLat, _currentLng, termo);
-    }, 450);
+      carregarProdutos(_currentLat, _currentLng, termo);
+    }, 280);
   } else if (!termo && _lastServerSearch) {
+    _serverSearchLoading = true;
+    filterAndRender(true);
     _serverSearchTimer = setTimeout(() => carregarProdutos(_currentLat, _currentLng, ''), 250);
+  } else {
+    _serverSearchLoading = false;
+    filterAndRender(true);
   }
 }
 
@@ -715,20 +908,25 @@ function filterAndRender(resetPage=false) {
   const cat = catSel.value;
   const sort = sortSel.value;
   const pageSize = parseInt(pageSizeSel.value, 10) || 25;
+  const precoMax = parseFloat(document.getElementById('filter-preco-max')?.value) || 0;
 
   filteredProdutos = allProdutos.filter(p => {
     const hay = normTxt([p.nome, p.razao, p.ean].filter(Boolean).join(' '));
     return (!q || hay.includes(q)) &&
            (!store || p.cnpjloja === store) &&
-           (!cat || productCategory(p) === cat);
+           (!cat || productCategory(p) === cat) &&
+           (!precoMax || priceOf(p) <= precoMax);
   });
 
   filteredProdutos.sort((a, b) => {
-    if (sort === 'price_asc') return priceOf(a) - priceOf(b) || distanceOf(a) - distanceOf(b);
+    if (sort === 'price_asc')  return priceOf(a) - priceOf(b) || distanceOf(a) - distanceOf(b);
     if (sort === 'price_desc') return priceOf(b) - priceOf(a) || distanceOf(a) - distanceOf(b);
-    if (sort === 'name_asc') return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    if (sort === 'name_asc')   return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    if (sort === 'name_desc')  return (b.nome || '').localeCompare(a.nome || '', 'pt-BR');
     return distanceOf(a) - distanceOf(b) || priceOf(a) - priceOf(b);
   });
+
+  updateFiltroCount();
 
   const totalPages = Math.max(1, Math.ceil(filteredProdutos.length / pageSize));
   currentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -738,7 +936,9 @@ function filterAndRender(resetPage=false) {
 
   if (allProdutos.length && badgeOk.style.display !== 'none') {
     const lojas = new Set(filteredProdutos.map(p => p.cnpjloja).filter(Boolean)).size;
-    badgeOk.textContent = `${filteredProdutos.length} de ${allProdutos.length} produto(s) · ${lojas || 0} farmácia(s)`;
+    badgeOk.textContent = _serverSearchLoading
+      ? 'Buscando no catálogo...'
+      : `${filteredProdutos.length} de ${allProdutos.length} produto(s) · ${lojas || 0} farmácia(s)`;
   }
 }
 
@@ -761,12 +961,18 @@ function renderPager(totalPages, pageSize) {
 function goPage(page) {
   currentPage = page;
   filterAndRender(false);
-  document.getElementById('idx-filter-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function setPageSize(value) {
   localStorage.setItem('pq_page_size', value);
+  const drawer = document.getElementById('page-size-drawer');
+  if (drawer) drawer.value = value;
   filterAndRender(true);
+}
+function setPageSizeDrawer(value) {
+  pageSizeSel.value = value;
+  setPageSize(value);
 }
 
 function clearFilters() {
@@ -774,7 +980,58 @@ function clearFilters() {
   storeSel.value = '';
   catSel.value = '';
   sortSel.value = 'distance_asc';
+  const pm = document.getElementById('filter-preco-max');
+  if (pm) pm.value = '';
+  const pmr = document.getElementById('filter-preco-max-range');
+  if (pmr) pmr.value = 500;
+  _serverSearchLoading = false;
   filterAndRender(true);
+  updateFiltroCount();
+}
+
+function abrirFiltroDrawer() {
+  const ds = document.getElementById('page-size-drawer');
+  if (ds) ds.value = pageSizeSel.value;
+  document.getElementById('idx-fd-drawer').classList.add('open');
+  document.getElementById('idx-fd-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function fecharFiltroDrawer() {
+  document.getElementById('idx-fd-drawer').classList.remove('open');
+  document.getElementById('idx-fd-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') fecharFiltroDrawer();
+});
+
+function updateFiltroCount() {
+  const pm = document.getElementById('filter-preco-max')?.value || '';
+  const count = [
+    storeSel.value,
+    catSel.value,
+    sortSel.value !== 'distance_asc' ? '1' : '',
+    pm
+  ].filter(Boolean).length;
+  const badge = document.getElementById('idx-filtro-count');
+  const btn   = document.getElementById('idx-filtro-btn');
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+  if (btn) btn.classList.toggle('active', count > 0);
+}
+
+function syncPrecoMaxInp(val) {
+  const inp = document.getElementById('filter-preco-max');
+  if (inp) {
+    inp.value = parseFloat(val) >= 500 ? '' : val;
+    filterAndRender(true);
+  }
+}
+function syncPrecoMaxRange(val) {
+  const r = document.getElementById('filter-preco-max-range');
+  if (r) r.value = val ? Math.min(parseFloat(val), 500) : 500;
 }
 
 function anonInteresseId() {
@@ -838,11 +1095,18 @@ function carregarProdutos(lat, lng, busca='') {
   _currentLat = lat;
   _currentLng = lng;
   _lastServerSearch = (busca || '').trim();
+  const loadSeq = ++_produtosLoadSeq;
+  const requestedSearch = _lastServerSearch;
   const params = new URLSearchParams({lat, lng});
   if (_lastServerSearch) params.set('q', _lastServerSearch);
   fetch(`/api/produtos-proximos?${params.toString()}`)
     .then(r => r.json())
     .then(data => {
+      const currentSearch = (document.getElementById('search-inp')?.value || '').trim();
+      if (loadSeq !== _produtosLoadSeq) return;
+      if (requestedSearch && currentSearch !== requestedSearch) return;
+      if (!requestedSearch && (currentSearch.length >= 3 || /^\d{8,}$/.test(currentSearch.replace(/\D/g, '')))) return;
+      _serverSearchLoading = false;
       allProdutos = data.produtos || [];
 
       if (allProdutos.length) {
@@ -869,6 +1133,24 @@ function carregarProdutos(lat, lng, busca='') {
           }
         }
       } else {
+        if (requestedSearch) {
+          titleEl.textContent   = 'Produtos perto de você';
+          badgeOk.style.display = badgeWrn.style.display = 'none';
+          prodGrid.style.display = '';
+          skelGrid.style.display = 'none';
+          pagerEl.style.display = 'none';
+          prodGrid.innerHTML = `<div class="idx-empty">
+            <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
+              <i class="fa fa-magnifying-glass" style="font-size:1.4rem;color:var(--pq-muted);opacity:.5"></i>
+            </div>
+            <div style="font-weight:800;font-size:1rem;color:var(--pq-text);margin-bottom:6px">Nenhum produto encontrado</div>
+            <div style="font-size:.87rem;margin-bottom:18px">Não encontramos <strong>${esc(requestedSearch)}</strong> nas farmácias disponíveis.</div>
+            <button onclick="clearFilters()" style="background:var(--pq-red);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
+              <i class="fa fa-rotate-left"></i>Limpar filtros
+            </button>
+          </div>`;
+          return;
+        }
         titleEl.textContent   = 'Nenhum produto disponível';
         badgeOk.style.display = badgeWrn.style.display = 'none';
         prodGrid.style.display = '';
@@ -914,6 +1196,8 @@ function carregarProdutos(lat, lng, busca='') {
       }
     })
     .catch(() => {
+      if (loadSeq !== _produtosLoadSeq) return;
+      _serverSearchLoading = false;
       skelGrid.style.display = 'none';
       prodGrid.style.display = '';
       titleEl.textContent = 'Produtos DNS/Vitnatu';
@@ -983,7 +1267,11 @@ function onLocationReady(lat, lng) {
 
 /* Usa localização salva ou aguarda 3s antes de carregar sem localização */
 const savedPageSize = localStorage.getItem('pq_page_size');
-if (['25','50','100'].includes(savedPageSize)) pageSizeSel.value = savedPageSize;
+if (['25','50','100'].includes(savedPageSize)) {
+  pageSizeSel.value = savedPageSize;
+  const ds = document.getElementById('page-size-drawer');
+  if (ds) ds.value = savedPageSize;
+}
 
 const _lat = localStorage.getItem('pq_lat');
 const _lng = localStorage.getItem('pq_lng');

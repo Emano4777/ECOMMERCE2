@@ -2003,6 +2003,7 @@ _OTHER_PHARMACY_BRANDS_RE = re.compile(
     r"|ultrafarma|drogaria\s+araujo|drogaria\s+minas|farm[aá]cia\s+brito"
     r"|drogaria\s+santa|drogariasantaterezinha|farmacias?\s+heroos|farmaciasheroos|farmais|nova\s*farmais"
     r"|meu\s+mundo\s+fit|formosa|farmasesi|drogaria\s+canabrava"
+    r"|farmalan|avante\s+farm[aá]cia"
     r"|drogarias?|farm[aá]cias?|(?<!consulta)remedios|(?<!farma)c[eê]utic"
     r"|(?<!farma)farma(?!c[eê]utic)",
     re.IGNORECASE,
@@ -3791,8 +3792,10 @@ def api_produto(ean):
                 tarja_img = _detectar_tarja(anvisa_img)
                 if tarja_img is None and _NOME_TARJA_VERMELHA_RE.search(nome_busca):
                     tarja_img = "vermelha"
-                if tarja_img in ("preta", "vermelha") and anvisa_img.get("exibir_imagem_publica") is False:
-                    result["imagem_med"] = _placeholder_for_tarja(tarja_img) or result.get("imagem_med")
+                if tarja_img == "preta":
+                    result["imagem_med"] = _placeholder_for_tarja("preta") or result.get("imagem_med")
+                elif tarja_img == "vermelha" and anvisa_img.get("exibir_imagem_publica") is False:
+                    result["imagem_med"] = _placeholder_for_tarja("vermelha") or result.get("imagem_med")
                 result["tarja"] = tarja_img
                 result["receita_retida"] = _exige_receita_digital_entrega(anvisa_img, nome_busca)
         except Exception:
@@ -4154,8 +4157,10 @@ def produto_detalhe(ean):
     # Fallback por nome quando anvisa_cache não tem o produto
     if tarja is None and _NOME_TARJA_VERMELHA_RE.search(nome):
         tarja = "vermelha"
-    if tarja in ("preta", "vermelha") and anvisa.get("exibir_imagem_publica") is False:
-        imagem = _placeholder_for_tarja(tarja) or imagem
+    if tarja == "preta":
+        imagem = _placeholder_for_tarja("preta") or imagem
+    elif tarja == "vermelha" and anvisa.get("exibir_imagem_publica") is False:
+        imagem = _placeholder_for_tarja("vermelha") or imagem
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
 
     return render_template(
@@ -4170,6 +4175,269 @@ def produto_detalhe(ean):
         tarja=tarja,
         requer_receita=requer_receita,
     )
+
+
+# ─── BUSCA POR RECEITA MÉDICA ─────────────────────────────────────────────────
+
+_MED_DOSAGE_RE = re.compile(
+    r"\b([A-ZÁÉÍÓÚÂÊÔÃÕÇÀÜ][A-Za-záéíóúâêôãõçàüÁÉÍÓÚÂÊÔÃÕÇÀÜ\s]{2,40}?)"
+    r"\s+((?:\d+(?:[,\.]\d+)?\s*"
+    r"(?:mg|mcg|µg|ui|g\b|ml\b|%|comprimido|cápsula|capsula|frasco|ampola|bisnaga|pct\b)"
+    r".{0,60}))",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    prompt = (
+        "Analise esta receita médica brasileira e extraia todos os medicamentos prescritos. "
+        "Retorne SOMENTE um JSON válido, sem markdown, no formato:\n"
+        '{"medicamentos":[{"nome":"Nome","concentracao":"ex:500mg",'
+        '"forma":"ex:comprimido","posologia":"ex:1cp 3x/dia por 7 dias"}]}\n'
+        "Se não for receita ou não tiver medicamentos, retorne: {\"medicamentos\":[]}"
+    )
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+            {"type": "text", "text": prompt},
+        ]}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        text = (data.get("content") or [{}])[0].get("text", "").strip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text.strip())
+        return json.loads(text)
+    except Exception:
+        return None
+
+
+def _ocr_receita_b64(image_b64: str, media_type: str = "image/jpeg"):
+    api_key = _ocr_space_api_key()
+    if not api_key:
+        return None
+    data_uri = f"data:{media_type};base64,{image_b64}"
+    try:
+        payload = urllib.parse.urlencode({
+            "apikey": api_key,
+            "base64Image": data_uri,
+            "language": "por",
+            "scale": "true",
+            "OCREngine": "2",
+            "isOverlayRequired": "false",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.ocr.space/parse/image",
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = json.loads(r.read().decode("utf-8", "ignore"))
+        return " ".join(
+            item.get("ParsedText", "") for item in (data.get("ParsedResults") or [])
+            if isinstance(item, dict)
+        )
+    except Exception:
+        return None
+
+
+def _parse_receita_text(text: str):
+    _SKIP_WORDS = re.compile(
+        r"\b(dr|dra|cid|data|nome|paciente|medic[oa]|receita|assinatura|carimbo|tel|cpf|crm|rg|rua|av|bairro|cidade|estado|cep|codigo)\b",
+        re.IGNORECASE,
+    )
+    meds, seen = [], set()
+    for m in _MED_DOSAGE_RE.finditer(text):
+        nome = m.group(1).strip().title()
+        conc = (m.group(2) or "").strip()[:80]
+        key  = _norm_text(nome)
+        if len(key) < 4 or key in seen or _SKIP_WORDS.search(nome):
+            continue
+        seen.add(key)
+        meds.append({"nome": nome, "concentracao": conc, "forma": "", "posologia": ""})
+    return meds
+
+
+def _buscar_med_catalogo(nome_med: str, cnpjs: list):
+    from concurrent.futures import ThreadPoolExecutor
+    q = _norm_text(nome_med)
+    if not q or len(q) < 3:
+        return []
+    resultados, seen = [], set()
+
+    def _search_cnpj(cnpj):
+        try:
+            return get_dns_products(cnpj, q[:35])
+        except Exception:
+            return []
+
+    with ThreadPoolExecutor(max_workers=min(len(cnpjs), 6)) as exc:
+        for prods in exc.map(_search_cnpj, cnpjs[:15], timeout=15):
+            for p in prods:
+                ean = (p.get("ean") or "").strip()
+                if not ean or ean in seen:
+                    continue
+                if q not in _norm_text(p.get("nome") or ""):
+                    continue
+                seen.add(ean)
+                resultados.append(p)
+    return resultados
+
+
+@app.get("/receita-medica")
+def receita_medica():
+    return render_template("receita.html")
+
+
+@app.post("/api/receita/analisar")
+@_rate_limited_api(max_calls=10, window_secs=60)
+def api_receita_analisar():
+    data = request.get_json(silent=True) or {}
+    image_b64  = (data.get("imagem") or "").strip()
+    media_type = (data.get("tipo") or "image/jpeg").strip()
+    if not image_b64:
+        return jsonify({"ok": False, "erro": "Imagem não recebida"}), 400
+    if media_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+        media_type = "image/jpeg"
+
+    resultado = _claude_vision_receita(image_b64, media_type)
+    if resultado is not None:
+        meds = resultado.get("medicamentos") or []
+        return jsonify({"ok": True, "medicamentos": meds, "metodo": "vision"})
+
+    texto = _ocr_receita_b64(image_b64, media_type)
+    if texto:
+        meds = _parse_receita_text(texto)
+        return jsonify({"ok": True, "medicamentos": meds, "metodo": "ocr"})
+
+    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    has_ocr       = bool(_ocr_space_api_key())
+    if not has_anthropic and not has_ocr:
+        return jsonify({
+            "ok": False,
+            "erro": "Configure ANTHROPIC_API_KEY ou OCR_SPACE_API_KEY para habilitar leitura de receitas.",
+        }), 503
+    return jsonify({"ok": False, "erro": "Não foi possível ler a receita. Tente uma imagem com melhor iluminação."}), 422
+
+
+@app.post("/api/receita/buscar")
+@_rate_limited_api(max_calls=20, window_secs=60)
+def api_receita_buscar():
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    data        = request.get_json(silent=True) or {}
+    medicamentos = data.get("medicamentos") or []
+    lat_raw     = data.get("lat")
+    lng_raw     = data.get("lng")
+    if not medicamentos:
+        return jsonify({"ok": False, "erro": "Lista de medicamentos vazia"}), 400
+
+    conn = db()
+    cur  = conn.cursor()
+    try:
+        if lat_raw is not None and lng_raw is not None:
+            try:
+                lat_f, lng_f = float(lat_raw), float(lng_raw)
+            except (TypeError, ValueError):
+                lat_f = lng_f = None
+        else:
+            lat_f = lng_f = None
+
+        if lat_f and lng_f:
+            cur.execute("""
+                SELECT u.cnpjloja, u.razao, u.endereco, u.uf,
+                       g.lat AS glat, g.lng AS glng,
+                       COALESCE(c.aceita_entrega, FALSE)  AS aceita_entrega,
+                       COALESCE(c.raio_entrega_km, 0)     AS raio_entrega_km,
+                       COALESCE(c.cobra_frete, FALSE)     AS cobra_frete,
+                       COALESCE(c.valor_frete, 0)         AS valor_frete
+                FROM users u
+                JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+                LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+                WHERE u.is_admin = FALSE
+                  AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+                  AND g.lat IS NOT NULL
+            """)
+            lojas_raw = cur.fetchall()
+            lojas_dist = sorted(
+                [{**dict(l), "distancia_km": round(haversine(lat_f, lng_f, float(l["glat"]), float(l["glng"])), 2)}
+                 for l in lojas_raw],
+                key=lambda x: x["distancia_km"],
+            )
+            cnpjs     = [l["cnpjloja"] for l in lojas_dist[:12]]
+            loja_info = {l["cnpjloja"]: l for l in lojas_dist[:12]}
+        else:
+            cur.execute("""
+                SELECT u.cnpjloja, u.razao, u.endereco, u.uf
+                FROM users u
+                LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+                WHERE u.is_admin = FALSE
+                  AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+                ORDER BY u.razao
+            """)
+            lojas_raw = cur.fetchall()
+            cnpjs     = [l["cnpjloja"] for l in lojas_raw]
+            loja_info = {l["cnpjloja"]: {"razao": _public_store_name(l), "distancia_km": None}
+                         for l in lojas_raw}
+    finally:
+        cur.close()
+
+    def _buscar_um(med):
+        nome = (med.get("nome") or "").strip()
+        if not nome:
+            return nome, []
+        prods = _buscar_med_catalogo(nome, cnpjs)
+        enriched = []
+        for p in prods:
+            info  = loja_info.get(p.get("cnpjloja"), {})
+            dist  = info.get("distancia_km")
+            razao = _public_store_name(info) if info else ""
+            categoria = _classificar_produto(p.get("nome") or "")
+            placeholder = _generic_placeholder_for(p.get("nome") or "", med={})
+            imagem = p.get("imagem") or placeholder
+            if imagem and _looks_like_other_pharmacy_brand(imagem):
+                imagem = placeholder
+            enriched.append({
+                "ean":        p.get("ean") or "",
+                "nome":       p.get("nome") or "",
+                "laboratorio": p.get("laboratorio") or "",
+                "preco":      p.get("preco"),
+                "qty":        p.get("qty"),
+                "imagem":     imagem,
+                "cnpjloja":   p.get("cnpjloja") or "",
+                "razao":      razao,
+                "distancia_km": dist,
+                "categoria":  categoria,
+            })
+        enriched.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 0))
+        return nome, enriched[:20]
+
+    resultados = {}
+    with ThreadPoolExecutor(max_workers=min(len(medicamentos), 5)) as exc:
+        futures = {exc.submit(_buscar_um, med): med for med in medicamentos[:10]}
+        for future in as_completed(futures, timeout=25):
+            try:
+                nome, prods = future.result()
+                if nome:
+                    resultados[nome] = prods
+            except Exception:
+                med = futures[future]
+                resultados[med.get("nome", "") or ""] = []
+
+    return jsonify({"ok": True, "resultados": resultados})
 
 
 @app.get("/carrinho")
@@ -8024,10 +8292,108 @@ _ANVISA_STOP_WORDS = {
     "torrent","teuto","eurofarma","prati","donaduzzi","neo","geolab",
 }
 
+# Mapeamento nome-comercial → INN para lookup no anvisa_cache.
+# IMPORTANTE: manter sincronizado com _MARCA_TO_INN em anvisa_sync.py.
+_MARCA_TO_INN = {
+    # Analgésicos / AINEs
+    "ALIVIUM":      "IBUPROFENO",
+    "BUPROVIL":     "IBUPROFENO",
+    "ARTRINID":     "INDOMETACINA",
+    "NIMELIT":      "NIMESULIDA",
+    "BENZIFLEX":    "CLONIXINATO LISINA",
+    "CODEX":        "CODEINA",
+    "COXYM":        "COLCHICINA",
+    # Espasmolíticos
+    "BUSCOPAN":     "BUTILBROMETO ESCOPOLAMINA",
+    "BUSCOPLEX":    "BUTILBROMETO ESCOPOLAMINA",
+    # Antibióticos / Antiparasitários
+    "AZITROPHAR":   "AZITROMICINA",
+    "BELFACTRIM":   "SULFAMETOXAZOL TRIMETOPRIMA",
+    "BELMIRAX":     "MEBENDAZOL",
+    "BACINA":       "NEOMICINA BACITRACINA",
+    "CIPRIXIN":     "CIPROFLOXACINO",
+    # Anti-hipertensivos / Cardiovascular
+    "ARADOIS":      "LOSARTANA",
+    "BESILAPIN":    "ANLODIPINO",
+    "FEDIPINA":     "NIFEDIPINO",
+    "CARBIDOL":     "CARBIDOPA LEVODOPA",
+    # Corticosteroides
+    "BETAPROSPAN":  "BETAMETASONA",
+    "BETRICORT":    "BETAMETASONA",
+    "BIOFLADEX":    "BETAMETASONA",
+    "CELERGIN":     "BETAMETASONA",
+    "CELESTAMINE":  "BETAMETASONA",
+    "CELESTONE":    "BETAMETASONA",
+    "CELESTRAT":    "BETAMETASONA",
+    "CORTICORTEN":  "PREDNISONA",
+    # Anti-histamínicos
+    "ALLEXOFEDRIN": "FEXOFENADINA",
+    "ARLIVRY":      "LORATADINA",
+    "ALERADINA":    "LORATADINA",
+    "BERITIN":      "CETIRIZINA",
+    # Mucolíticos / Broncodilatadores
+    "AMBROL":       "AMBROXOL",
+    "AMBROXMEL":    "AMBROXOL",
+    "BRONQTRAT":    "AMBROXOL",
+    "AERODINI":     "SALBUTAMOL",
+    "CELETIL":      "SALBUTAMOL",
+    # Vitaminas / outros medicamentos
+    "BENERVA":      "TIAMINA",
+    "ANTIAZIL":     "HIDROXIDO ALUMINIO",
+    "CISTEIL":      "ACETILCISTEINA",
+    "CONTRACEP":    "MEDROXIPROGESTERONA",
+    "BENZODERM":    "PEROXIDO BENZOILA",
+    # Inibidores de bomba de prótons (IBP)
+    "ELPRAZOL":     "ESOMEPRAZOL",
+    "ESOP":         "ESOMEPRAZOL",
+    # Mucolíticos/Expectorantes
+    "EMSEXPECT":    "AMBROXOL",
+    "EMSEXPECTOR":  "AMBROXOL",
+    "EXPECVEM":     "GUAIFENESINA",
+    "FLUCETIL":     "ACETILCISTEINA",
+    # Contraceptivos
+    "ETINIL":       "ETINILESTRADIOL GESTODENO",
+    # Anti-histamínico / Ansiolítico
+    "DROXY":        "HIDROXIZINA",
+    # Colírio antiglaucoma
+    "DRUSOLOL":     "DORZOLAMIDA TIMOLOL",
+    # AINEs
+    "FARMOXICAM":   "PIROXICAM",
+    # Antiflatulento
+    "FLACODIN":     "SIMETICONA",
+    # Antifúngico
+    "FUNOK":        "ITRACONAZOL",
+    # Antiácido
+    "GASTROBEM":    "HIDROXIDO ALUMINIO",
+    # Antiflatulento
+    "LUFTAL":       "SIMETICONA",
+    # Laxativos
+    "LACTUGOLD":    "LACTULOSE",
+    "NATULAXE":     "BISACODILA",
+    # Analgésico/Antipirético
+    "TILEMAXY":     "PARACETAMOL",
+    # Antifúngico oral
+    "NISTAMAX":     "NISTATINA",
+    # Antibióticos
+    "POLICLAVUMOXIL": "AMOXICILINA CLAVULANATO",
+    "NEMICINA":     "NEOMICINA",
+    # Anti-inflamatório
+    "NEOTAREN":     "DICLOFENACO",
+    # Diurético
+    "NEOSEMID":     "FUROSEMIDA",
+    # Antidiarreico
+    "KAOSEC":       "LOPERAMIDA",
+    # Variação de grafia INN
+    "LORATADIN":    "LORATADINA",
+}
+
 def _anvisa_chave(nome):
-    """First 3 significant words of product name, uppercase (cache key)."""
+    """Retorna chave de lookup no anvisa_cache: INN se nome comercial mapeado, senão 2 primeiras palavras significativas."""
+    tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
+    if tks and tks[0] in _MARCA_TO_INN:
+        return _MARCA_TO_INN[tks[0]]
     words = []
-    for w in re.sub(r"[^\w\s]", " ", nome or "").upper().split():
+    for w in tks:
         if (w.lower() in _ANVISA_STOP_WORDS
                 or any(c.isdigit() for c in w)
                 or len(w) < 4):
@@ -8122,7 +8488,7 @@ _NOME_TARJA_VERMELHA_RE = re.compile(
     r"|\batenolol\b|\bmetoprolol\b|\bpropranolol\b|\bcarvedilol\b|\bbisoprolol\b"
     r"|\blosartana\b|\bvalsartana\b|\birbesartana\b|\bolmesartana\b|\bcandesartana\b"
     r"|\benalapril\b|\bcaptopril\b|\bramipril\b|\blisinopril\b|\bperindopril\b"
-    r"|\bamlodipino\b|\bnifedipino\b|\bdiltiazem\b|\bverapamil\b"
+    r"|\b(?:anl|aml)odipino\b|\bnifedipino\b|\bdiltiazem\b|\bverapamil\b|\bfelodipino\b|\blercarnidipino\b"
     r"|\bhidroclorotiazida\b|\bfurosemida\b|\bespironolactona\b|\bindapamida\b"
     r"|\batorvastatina\b|\bsinvastatina\b|\brosuvastatina\b|\bpravastatina\b|\bfluvastatina\b"
     r"|\bdigoxina\b|\bamiodarona\b|\bwarfarina\b|\bclopidogrel\b"
@@ -8148,6 +8514,8 @@ _NOME_TARJA_VERMELHA_RE = re.compile(
     r"|\bcarbamazepina\b|\bfenitoina\b|\bvalproato\b|\btopiramate?\b|\blamotrigina\b"
     # Broncodilatadores sistêmicos
     r"|\bsalbutamol\b|\bformoterol\b|\bsalmeterol\b|\btiotropio\b|\bbudesonida\b"
+    # Antiasmáticos / antialérgicos de prescrição
+    r"|\bmontelucaste\b|\bzafirlucaste\b"
     # Outros comuns
     r"|\bisossorbida\b|\bnitroglicerina\b|\btrimetazidina\b"
     r"|\balopurinol\b|\bcolchicina\b",
@@ -8625,7 +8993,7 @@ def _anvisa_sync_worker(nomes: list):
     # Filtra chaves já no cache (90 dias)
     try:
         conn = db(); cur = conn.cursor()
-        cur.execute("SELECT chave FROM anvisa_cache WHERE criado_em > NOW() - INTERVAL '90 days'")
+        cur.execute("SELECT chave FROM anvisa_cache WHERE criado_em >= DATE_TRUNC('year', NOW())")
         cached = {r["chave"] for r in cur.fetchall()}
         cur.close()
     except Exception:

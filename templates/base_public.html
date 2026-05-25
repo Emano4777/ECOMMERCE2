@@ -38,11 +38,12 @@
     .pq-topbar {
       background: #fff;
       border-bottom: 1px solid var(--pq-border);
-      height: 64px;
+      min-height: 64px;
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 0 20px;
+      flex-wrap: wrap;
+      gap: 0 12px;
+      padding: 8px 20px;
       position: sticky;
       top: 0;
       z-index: 200;
@@ -82,8 +83,8 @@
       cursor: pointer;
       background: #fff;
       transition: border-color .15s, box-shadow .15s;
-      min-width: 0;
-      flex: 1;
+      min-width: 38px;
+      flex: 0 1 360px;
       max-width: 360px;
     }
     .pq-loc-btn:hover { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
@@ -207,7 +208,7 @@
       border-bottom: 1px solid var(--pq-border);
       background: var(--pq-red);
     }
-    .pq-drawer-logo { display:flex; align-items:center; gap:8px; color:#fff; font-weight:900; font-size:1.1rem; text-decoration:none; }
+    .pq-drawer-logo { display:flex; align-items:center; gap:8px; color:#fff; font-weight:900; font-size:1.1rem; text-decoration:none; white-space:nowrap; }
     .pq-drawer-logo img { width:30px; height:30px; border-radius:8px; background:#fff; object-fit:contain; }
     .pq-drawer-close {
       width: 32px; height: 32px; border: none; border-radius: 50%;
@@ -252,13 +253,39 @@
     }
 
     /* ── RESPONSIVE ─────────────────────────────────────── */
+    @media(max-width:960px) and (min-width:681px) {
+      .pq-store-label, .pq-lojas-label { display: none; }
+      /* hide "SUA LOCALIZAÇÃO" label — show only the address */
+      .pq-loc-label { display: none; }
+      .pq-loc-btn { max-width: 200px; padding: 6px 10px; }
+      /* tighten icon-only links */
+      .pq-topbar-right { gap: 4px; }
+      .pq-topbar-link { padding: 6px 8px; }
+    }
+    @media(max-width:820px) and (min-width:681px) {
+      /* icon-only mode — hide remaining text labels */
+      .pq-receita-label, .pq-user-name { display: none; }
+      /* hide "Painel da loja" link entirely */
+      a.pq-topbar-link[href*="painel"] { display: none !important; }
+      .pq-loc-btn { max-width: 130px; }
+    }
+    @media(max-width:740px) and (min-width:681px) {
+      .pq-lojas-link { display: none !important; }
+      .pq-loc-btn { max-width: 100px; }
+    }
     @media(max-width:680px){
       .pq-user-name, .pq-store-label, .pq-lojas-label { display:none; }
-      .pq-topbar { padding:0 12px; gap:8px; }
+      .pq-topbar { padding:6px 12px; gap:0 8px; }
       .pq-loc-label { display:none; }
-      .pq-loc-btn { max-width: 100%; padding: 7px 10px; }
+      /* on mobile, loc-btn fills row 1 between logo and cart+hamburger */
+      .pq-loc-btn { flex: 1; max-width: none; min-width: 0; padding: 7px 10px; }
       .pq-desktop-only { display: none !important; }
       .pq-hamburger { display: flex; }
+      /* hide brand text on very small screens — keep logo icon */
+      .pq-brand-text { display: none; }
+    }
+    @media(max-width:380px){
+      .pq-loc-btn { padding: 6px 8px; }
     }
 
     /* ── LOCATION MODAL ─────────────────────────────────── */
@@ -582,7 +609,12 @@
     <i class="fa fa-chevron-down pq-loc-arrow"></i>
   </div>
 
+  {% block topbar_search %}{% endblock %}
+
   <div class="pq-topbar-right">
+    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('receita_medica') }}" title="Buscar por receita médica">
+      <i class="fa fa-file-medical me-1"></i><span class="pq-receita-label">Receita</span>
+    </a>
     <a class="pq-topbar-link pq-lojas-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
       <i class="fa fa-store me-1"></i><span class="pq-lojas-label">Lojas</span>
     </a>
@@ -636,7 +668,7 @@
   <div class="pq-drawer-head">
     <a class="pq-drawer-logo" href="{{ url_for('index') }}" onclick="fecharDrawer()">
       <img src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="">
-      Poupaqu<span style="color:var(--pq-yellow)">i</span>
+      <span>Poupaqu<span style="color:var(--pq-yellow)">i</span></span>
     </a>
     <button class="pq-drawer-close" onclick="fecharDrawer()"><i class="fa fa-xmark"></i></button>
   </div>
@@ -670,6 +702,9 @@
   {% endif %}
 
   <div class="pq-drawer-section">Navegação</div>
+  <a class="pq-drawer-item" href="{{ url_for('receita_medica') }}" onclick="fecharDrawer()">
+    <i class="fa fa-file-medical"></i>Busca por Receita
+  </a>
   <a class="pq-drawer-item" href="{{ url_for('lojas_vitrine') }}" onclick="fecharDrawer()">
     <i class="fa fa-store"></i>Nossas lojas
   </a>

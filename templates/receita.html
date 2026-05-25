@@ -1,0 +1,793 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui – Busca por Receita{% endblock %}
+
+{% block extra_style %}
+<style>
+/* ── LAYOUT ──────────────────────────────────────────────────── */
+.rx-wrap {
+  max-width: 860px; margin: 0 auto; padding: 32px 16px 80px;
+}
+
+/* ── HERO ─────────────────────────────────────────────────────── */
+.rx-hero {
+  text-align: center; margin-bottom: 36px;
+}
+.rx-hero-icon {
+  width: 68px; height: 68px; border-radius: 20px;
+  background: linear-gradient(135deg, #fff0f2 0%, #fce4e8 100%);
+  border: 2px solid rgba(200,16,46,.15);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.8rem; color: var(--pq-red); margin-bottom: 18px;
+  box-shadow: 0 4px 18px rgba(200,16,46,.12);
+}
+.rx-hero h1 {
+  font-size: 1.8rem; font-weight: 900; color: #1a1a1a; margin: 0 0 10px;
+  line-height: 1.2;
+}
+.rx-hero p {
+  font-size: .95rem; color: var(--pq-muted); max-width: 480px;
+  margin: 0 auto; line-height: 1.65;
+}
+
+/* ── STEP TRACKER ─────────────────────────────────────────────── */
+.rx-steps {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; margin-bottom: 32px;
+}
+.rx-step {
+  display: flex; flex-direction: column; align-items: center;
+  position: relative; flex: 1; max-width: 140px;
+}
+.rx-step-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2.5px solid var(--pq-border);
+  background: #fff; color: #bbb;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .82rem; font-weight: 800; z-index: 1;
+  transition: all .3s;
+}
+.rx-step.active .rx-step-dot  { border-color: var(--pq-red); color: var(--pq-red); background: #fff0f2; }
+.rx-step.done   .rx-step-dot  { border-color: #22c55e; background: #22c55e; color: #fff; }
+.rx-step.loading .rx-step-dot { border-color: var(--pq-red); border-top-color: transparent;
+                                  animation: rx-spin .7s linear infinite; color: transparent; }
+.rx-step-label {
+  font-size: .7rem; font-weight: 700; margin-top: 6px;
+  color: #bbb; text-align: center; white-space: nowrap;
+  transition: color .3s;
+}
+.rx-step.active .rx-step-label, .rx-step.loading .rx-step-label { color: var(--pq-red); }
+.rx-step.done   .rx-step-label { color: #22c55e; }
+.rx-step-line {
+  position: absolute; top: 17px; left: calc(50% + 17px);
+  right: calc(-50% + 17px); height: 2.5px;
+  background: var(--pq-border); z-index: 0;
+  transition: background .4s;
+}
+.rx-step.done + .rx-step .rx-step-line,
+.rx-step.done .rx-step-line { background: #22c55e; }
+.rx-step:last-child .rx-step-line { display: none; }
+
+@keyframes rx-spin { to { transform: rotate(360deg); } }
+
+/* ── UPLOAD ZONE ──────────────────────────────────────────────── */
+.rx-upload-card {
+  background: #fff; border-radius: 20px;
+  box-shadow: 0 2px 24px rgba(0,0,0,.07);
+  padding: 48px 32px; text-align: center;
+}
+.rx-drop-zone {
+  border: 2.5px dashed var(--pq-border);
+  border-radius: 16px; padding: 44px 24px;
+  cursor: pointer; transition: all .2s;
+  position: relative;
+}
+.rx-drop-zone:hover, .rx-drop-zone.drag-over {
+  border-color: var(--pq-red);
+  background: #fff8f9;
+}
+.rx-drop-zone.drag-over { transform: scale(1.01); }
+.rx-drop-icon {
+  width: 64px; height: 64px; margin: 0 auto 16px;
+  background: linear-gradient(135deg, #fff0f2, #fce4e8);
+  border-radius: 16px; display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem; color: var(--pq-red);
+}
+.rx-drop-title {
+  font-size: 1.05rem; font-weight: 800; color: #1a1a1a; margin-bottom: 6px;
+}
+.rx-drop-sub {
+  font-size: .84rem; color: var(--pq-muted); margin-bottom: 18px;
+}
+.rx-file-types {
+  display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+}
+.rx-file-type {
+  background: #f0f0f0; color: #666; border-radius: 6px;
+  padding: 3px 10px; font-size: .7rem; font-weight: 700; text-transform: uppercase;
+}
+#rx-file-input { display: none; }
+
+/* ── PREVIEW ─────────────────────────────────────────────────── */
+.rx-preview-area {
+  display: none; margin-top: 24px;
+}
+.rx-preview-wrap {
+  position: relative; display: inline-block;
+  max-width: 100%; border-radius: 12px; overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,.12);
+}
+.rx-preview-img {
+  max-height: 280px; max-width: 100%; display: block;
+  border-radius: 12px;
+}
+.rx-preview-remove {
+  position: absolute; top: 8px; right: 8px;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(0,0,0,.55); color: #fff;
+  border: none; cursor: pointer; font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.rx-preview-remove:hover { background: var(--pq-red); }
+
+.rx-btn-analyze {
+  margin-top: 24px; width: 100%; max-width: 340px;
+  background: var(--pq-red); color: #fff; border: none;
+  border-radius: 14px; padding: 16px 24px;
+  font-size: 1rem; font-weight: 800; font-family: inherit;
+  cursor: pointer; display: flex; align-items: center;
+  justify-content: center; gap: 10px; margin-left: auto; margin-right: auto;
+  transition: background .15s, transform .1s;
+}
+.rx-btn-analyze:hover   { background: var(--pq-red-dk); }
+.rx-btn-analyze:active  { transform: scale(.98); }
+.rx-btn-analyze:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ── PROCESSING ──────────────────────────────────────────────── */
+.rx-processing {
+  display: none; padding: 20px 0;
+}
+.rx-proc-step {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 0; border-bottom: 1px solid var(--pq-border);
+  font-size: .9rem; color: var(--pq-muted);
+}
+.rx-proc-step:last-child { border-bottom: none; }
+.rx-proc-icon {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .95rem; background: #f0f0f0; color: #bbb;
+  transition: all .3s;
+}
+.rx-proc-step.active .rx-proc-icon {
+  background: #fff0f2; color: var(--pq-red);
+  border: 2px solid rgba(200,16,46,.2);
+  animation: rx-pulse 1.5s ease-in-out infinite;
+}
+.rx-proc-step.done .rx-proc-icon {
+  background: #f0fdf4; color: #22c55e;
+  border: 2px solid rgba(34,197,94,.2);
+}
+.rx-proc-step.active .rx-proc-label { color: #1a1a1a; font-weight: 700; }
+.rx-proc-step.done .rx-proc-label { color: #22c55e; font-weight: 700; }
+@keyframes rx-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(200,16,46,.2); }
+  50%       { box-shadow: 0 0 0 8px rgba(200,16,46,0); }
+}
+
+/* ── MEDS FOUND LIST ─────────────────────────────────────────── */
+.rx-meds-section { display: none; }
+.rx-meds-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+}
+.rx-meds-title {
+  font-size: 1rem; font-weight: 900; color: #1a1a1a;
+  display: flex; align-items: center; gap: 8px;
+}
+.rx-meds-title i { color: var(--pq-red); }
+.rx-meds-grid {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;
+}
+.rx-med-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: #fff; border: 2px solid var(--pq-border);
+  border-radius: 10px; padding: 10px 14px;
+  font-size: .85rem; font-weight: 700; color: #333;
+  transition: border-color .15s;
+}
+.rx-med-chip:hover { border-color: var(--pq-red); }
+.rx-med-chip-name { line-height: 1.3; }
+.rx-med-chip-conc { font-size: .72rem; color: var(--pq-muted); font-weight: 600; }
+.rx-med-chip-rm {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #f0f0f0; color: #888; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .65rem; flex-shrink: 0; transition: all .15s;
+}
+.rx-med-chip-rm:hover { background: var(--pq-red); color: #fff; }
+
+.rx-manual-add {
+  display: flex; gap: 8px; margin-bottom: 20px;
+}
+.rx-manual-input {
+  flex: 1; border: 1.5px solid var(--pq-border); border-radius: 10px;
+  padding: 10px 14px; font-size: .88rem; font-family: inherit; outline: none;
+}
+.rx-manual-input:focus { border-color: var(--pq-red); }
+.rx-manual-btn {
+  background: #f5f5f5; border: 1.5px solid var(--pq-border);
+  border-radius: 10px; padding: 10px 16px; font-size: .85rem;
+  font-weight: 800; cursor: pointer; color: #333; font-family: inherit;
+  transition: all .15s; white-space: nowrap;
+}
+.rx-manual-btn:hover { border-color: var(--pq-red); color: var(--pq-red); }
+
+.rx-btn-search {
+  width: 100%; background: var(--pq-red); color: #fff; border: none;
+  border-radius: 14px; padding: 16px 24px;
+  font-size: 1rem; font-weight: 800; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  transition: background .15s, transform .1s;
+}
+.rx-btn-search:hover  { background: var(--pq-red-dk); }
+.rx-btn-search:active { transform: scale(.98); }
+.rx-btn-search:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ── RESULTS ─────────────────────────────────────────────────── */
+.rx-results-section { display: none; }
+.rx-result-group {
+  background: #fff; border-radius: 16px;
+  box-shadow: 0 2px 16px rgba(0,0,0,.06);
+  margin-bottom: 20px; overflow: hidden;
+  animation: rx-fadein .4s ease both;
+}
+@keyframes rx-fadein {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rx-result-group-hd {
+  padding: 16px 20px; background: linear-gradient(135deg, #fff0f2 0%, #fff5f6 100%);
+  border-bottom: 1px solid rgba(200,16,46,.1);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.rx-result-group-nome {
+  font-size: 1rem; font-weight: 900; color: #1a1a1a; flex: 1;
+}
+.rx-result-group-conc {
+  font-size: .78rem; font-weight: 700; color: var(--pq-muted);
+}
+.rx-result-group-count {
+  font-size: .75rem; font-weight: 800; color: var(--pq-red);
+  background: #fff0f2; border: 1px solid rgba(200,16,46,.2);
+  border-radius: 20px; padding: 3px 10px;
+}
+.rx-result-group-posol {
+  width: 100%; font-size: .78rem; color: #666; font-style: italic;
+  margin-top: 2px;
+}
+.rx-result-empty {
+  padding: 24px 20px; text-align: center; color: var(--pq-muted);
+  font-size: .9rem;
+}
+.rx-result-empty i { display: block; font-size: 1.8rem; margin-bottom: 8px; opacity: .4; }
+
+.rx-products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1px; background: var(--pq-border);
+}
+.rx-prod-card {
+  background: #fff; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  transition: background .15s; text-decoration: none; color: inherit;
+}
+.rx-prod-card:hover { background: #fffbfb; }
+.rx-prod-img-wrap {
+  width: 72px; height: 72px; border-radius: 10px;
+  background: #f6f6f6; display: flex; align-items: center;
+  justify-content: center; overflow: hidden; flex-shrink: 0;
+  align-self: center; margin-bottom: 4px;
+}
+.rx-prod-img-wrap img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+}
+.rx-prod-img-ph { color: #d0d0d0; font-size: 1.6rem; }
+.rx-prod-nome { font-size: .8rem; font-weight: 800; color: #1a1a1a; line-height: 1.3; }
+.rx-prod-lab  { font-size: .7rem; color: var(--pq-muted); }
+.rx-prod-price {
+  font-size: 1.05rem; font-weight: 900; color: var(--pq-red); margin-top: auto;
+}
+.rx-prod-loja  { font-size: .7rem; color: var(--pq-muted); margin-top: 2px; }
+.rx-prod-stock {
+  font-size: .68rem; font-weight: 700;
+}
+.rx-prod-stock.ok  { color: #22c55e; }
+.rx-prod-stock.low { color: #e8760a; }
+.rx-prod-btn {
+  margin-top: 8px; width: 100%; background: var(--pq-red); color: #fff;
+  border: none; border-radius: 8px; padding: 8px 10px;
+  font-size: .76rem; font-weight: 800; font-family: inherit;
+  cursor: pointer; display: flex; align-items: center;
+  justify-content: center; gap: 6px; transition: background .15s;
+}
+.rx-prod-btn:hover { background: var(--pq-red-dk); }
+.rx-prod-btn.added { background: #22c55e; }
+
+/* ── ERROR / INFO ────────────────────────────────────────────── */
+.rx-alert {
+  border-radius: 12px; padding: 14px 18px;
+  font-size: .88rem; display: flex; align-items: flex-start; gap: 10px;
+  margin-top: 16px; line-height: 1.55;
+}
+.rx-alert-err  { background: #fff0f0; border: 1px solid #fca5a5; color: #7a0019; }
+.rx-alert-info { background: var(--pq-yellow-lt); border: 1px solid #fde047; color: #713f12; }
+.rx-alert i    { font-size: 1rem; flex-shrink: 0; margin-top: 2px; }
+
+/* ── RESTART ─────────────────────────────────────────────────── */
+.rx-restart-bar {
+  display: none; margin-top: 24px; text-align: center;
+}
+.rx-restart-btn {
+  background: #f5f5f5; border: 1.5px solid var(--pq-border);
+  border-radius: 10px; padding: 10px 24px; font-size: .85rem;
+  font-weight: 800; cursor: pointer; color: #555; font-family: inherit;
+  transition: all .15s;
+}
+.rx-restart-btn:hover { border-color: var(--pq-red); color: var(--pq-red); }
+
+@media (max-width: 600px) {
+  .rx-upload-card { padding: 28px 16px; }
+  .rx-drop-zone   { padding: 30px 16px; }
+  .rx-hero h1     { font-size: 1.4rem; }
+  .rx-steps       { gap: 0; }
+  .rx-step-label  { font-size: .6rem; }
+  .rx-products-grid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rx-wrap">
+
+  <!-- HERO -->
+  <div class="rx-hero">
+    <div class="rx-hero-icon"><i class="fa fa-file-medical"></i></div>
+    <h1>Busca por Receita Médica</h1>
+    <p>Fotografe ou escaneie sua receita e encontramos todos os medicamentos disponíveis nas farmácias Poupaqui perto de você.</p>
+  </div>
+
+  <!-- STEP TRACKER -->
+  <div class="rx-steps" id="rx-steps">
+    <div class="rx-step active" id="step-0">
+      <div class="rx-step-line"></div>
+      <div class="rx-step-dot"><i class="fa fa-upload"></i></div>
+      <div class="rx-step-label">Carregar</div>
+    </div>
+    <div class="rx-step" id="step-1">
+      <div class="rx-step-line"></div>
+      <div class="rx-step-dot"><i class="fa fa-magnifying-glass"></i></div>
+      <div class="rx-step-label">Analisar</div>
+    </div>
+    <div class="rx-step" id="step-2">
+      <div class="rx-step-line"></div>
+      <div class="rx-step-dot"><i class="fa fa-list-check"></i></div>
+      <div class="rx-step-label">Confirmar</div>
+    </div>
+    <div class="rx-step" id="step-3">
+      <div class="rx-step-dot"><i class="fa fa-store"></i></div>
+      <div class="rx-step-label">Resultados</div>
+    </div>
+  </div>
+
+  <!-- MAIN CARD -->
+  <div class="rx-upload-card">
+
+    <!-- UPLOAD ZONE -->
+    <div id="rx-upload-section">
+      <label class="rx-drop-zone" id="rx-drop-zone" for="rx-file-input">
+        <div class="rx-drop-icon"><i class="fa fa-file-medical-alt"></i></div>
+        <div class="rx-drop-title">Arraste sua receita aqui</div>
+        <div class="rx-drop-sub">ou clique para selecionar do dispositivo</div>
+        <div class="rx-file-types">
+          <span class="rx-file-type">JPG</span>
+          <span class="rx-file-type">PNG</span>
+          <span class="rx-file-type">WEBP</span>
+          <span class="rx-file-type">PDF*</span>
+          <span class="rx-file-type">HEIC*</span>
+        </div>
+      </label>
+      <input type="file" id="rx-file-input" accept="image/*,application/pdf"
+             style="display:none" onchange="rxOnFileSelect(this)"/>
+
+      <div class="rx-preview-area" id="rx-preview-area">
+        <div class="rx-preview-wrap">
+          <img id="rx-preview-img" class="rx-preview-img" src="" alt="Prévia da receita"/>
+          <button class="rx-preview-remove" onclick="rxRemoveFile()" title="Remover">
+            <i class="fa fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <div id="rx-alert-upload"></div>
+
+      <button class="rx-btn-analyze" id="rx-btn-analyze" style="display:none" onclick="rxAnalisar()">
+        <i class="fa fa-wand-magic-sparkles"></i>
+        Analisar receita
+      </button>
+    </div>
+
+    <!-- PROCESSING STATE -->
+    <div class="rx-processing" id="rx-processing">
+      <div class="rx-proc-step" id="proc-0">
+        <div class="rx-proc-icon"><i class="fa fa-upload"></i></div>
+        <div class="rx-proc-label">Receita carregada</div>
+      </div>
+      <div class="rx-proc-step" id="proc-1">
+        <div class="rx-proc-icon"><i class="fa fa-brain"></i></div>
+        <div class="rx-proc-label">Lendo medicamentos da receita...</div>
+      </div>
+      <div class="rx-proc-step" id="proc-2">
+        <div class="rx-proc-icon"><i class="fa fa-store"></i></div>
+        <div class="rx-proc-label">Buscando disponibilidade nas farmácias...</div>
+      </div>
+    </div>
+
+    <!-- MEDICATIONS FOUND -->
+    <div class="rx-meds-section" id="rx-meds-section">
+      <div class="rx-meds-header">
+        <div class="rx-meds-title">
+          <i class="fa fa-pills"></i>
+          Medicamentos encontrados
+        </div>
+        <span id="rx-meds-count" style="font-size:.8rem;color:var(--pq-muted)"></span>
+      </div>
+      <div class="rx-meds-grid" id="rx-meds-grid"></div>
+
+      <div class="rx-manual-add">
+        <input type="text" class="rx-manual-input" id="rx-manual-inp"
+               placeholder="Adicionar medicamento manualmente..."
+               onkeydown="if(event.key==='Enter')rxAddManual()"/>
+        <button class="rx-manual-btn" onclick="rxAddManual()">
+          <i class="fa fa-plus"></i> Adicionar
+        </button>
+      </div>
+
+      <div id="rx-alert-meds"></div>
+
+      <button class="rx-btn-search" id="rx-btn-search" onclick="rxBuscar()">
+        <i class="fa fa-magnifying-glass-location"></i>
+        Buscar disponibilidade nas farmácias
+      </button>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="rx-results-section" id="rx-results-section">
+      <div id="rx-results-list"></div>
+    </div>
+
+    <!-- RESTART -->
+    <div class="rx-restart-bar" id="rx-restart-bar">
+      <button class="rx-restart-btn" onclick="rxReset()">
+        <i class="fa fa-rotate-left me-2"></i>Nova busca
+      </button>
+    </div>
+
+  </div><!-- /rx-upload-card -->
+</div><!-- /rx-wrap -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/* ─── state ─── */
+let _rxFile = null;
+let _rxMeds = [];
+let _rxB64  = null;
+let _rxMime = 'image/jpeg';
+
+/* ─── drag & drop ─── */
+const dropZone = document.getElementById('rx-drop-zone');
+['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('drag-over'); }));
+['dragleave','drop'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('drag-over'); }));
+dropZone.addEventListener('drop', ev => {
+  const f = ev.dataTransfer.files[0];
+  if (f) rxLoadFile(f);
+});
+
+/* ─── file select ─── */
+function rxOnFileSelect(inp) {
+  if (inp.files[0]) rxLoadFile(inp.files[0]);
+}
+
+function rxLoadFile(file) {
+  if (!file) return;
+  _rxFile = file;
+  _rxMime = (file.type && file.type.startsWith('image/')) ? file.type : 'image/jpeg';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    _rxB64 = e.target.result.split(',')[1];
+    if (file.type !== 'application/pdf') {
+      document.getElementById('rx-preview-img').src = e.target.result;
+      document.getElementById('rx-preview-area').style.display = 'block';
+    } else {
+      document.getElementById('rx-preview-area').style.display = 'none';
+    }
+    document.getElementById('rx-btn-analyze').style.display = '';
+    rxClearAlert('rx-alert-upload');
+  };
+  reader.readAsDataURL(file);
+}
+
+function rxRemoveFile() {
+  _rxFile = null; _rxB64 = null;
+  document.getElementById('rx-preview-area').style.display = 'none';
+  document.getElementById('rx-btn-analyze').style.display = 'none';
+  document.getElementById('rx-file-input').value = '';
+}
+
+/* ─── step 1 → 2: analyze ─── */
+async function rxAnalisar() {
+  if (!_rxB64) return rxShowAlert('rx-alert-upload', 'err', 'Selecione uma imagem da receita.');
+  rxSetPhase('processing');
+  rxStepTrack(0, 'done');
+  rxProcStep(0, 'done');
+  rxProcStep(1, 'active');
+  rxStepTrack(1, 'loading');
+
+  try {
+    const lat = parseFloat(localStorage.getItem('pq_lat') || '0');
+    const lng = parseFloat(localStorage.getItem('pq_lng') || '0');
+
+    const res = await fetch('/api/receita/analisar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ imagem: _rxB64, tipo: _rxMime }),
+    });
+    const data = await res.json();
+
+    rxProcStep(1, 'done');
+    rxStepTrack(1, 'done');
+    rxStepTrack(2, 'active');
+
+    if (!data.ok) {
+      rxSetPhase('upload');
+      return rxShowAlert('rx-alert-upload', 'err', data.erro || 'Não foi possível ler a receita.');
+    }
+
+    _rxMeds = (data.medicamentos || []).map((m, i) => ({...m, _id: i}));
+
+    if (_rxMeds.length === 0) {
+      rxSetPhase('upload');
+      return rxShowAlert('rx-alert-upload', 'info',
+        'Não encontramos medicamentos na imagem. Verifique se é uma receita válida ou adicione manualmente.');
+    }
+
+    rxRenderMeds();
+    rxSetPhase('meds');
+    rxProcStep(2, 'active');
+    rxStepTrack(2, 'done');
+
+  } catch (err) {
+    rxSetPhase('upload');
+    rxShowAlert('rx-alert-upload', 'err', 'Erro ao analisar receita. Tente novamente.');
+  }
+}
+
+/* ─── step 3: search ─── */
+async function rxBuscar() {
+  if (_rxMeds.length === 0) return rxShowAlert('rx-alert-meds', 'err', 'Adicione pelo menos um medicamento.');
+  const btn = document.getElementById('rx-btn-search');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Buscando...';
+  rxProcStep(2, 'active');
+  rxStepTrack(3, 'loading');
+  rxClearAlert('rx-alert-meds');
+
+  try {
+    const lat = parseFloat(localStorage.getItem('pq_lat') || '0');
+    const lng = parseFloat(localStorage.getItem('pq_lng') || '0');
+
+    const res = await fetch('/api/receita/buscar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        medicamentos: _rxMeds,
+        lat: lat || null,
+        lng: lng || null,
+      }),
+    });
+    const data = await res.json();
+
+    rxProcStep(2, 'done');
+    rxStepTrack(3, 'done');
+
+    if (!data.ok) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-magnifying-glass-location"></i> Buscar disponibilidade nas farmácias';
+      return rxShowAlert('rx-alert-meds', 'err', data.erro || 'Erro ao buscar.');
+    }
+
+    rxRenderResults(data.resultados || {});
+    rxSetPhase('results');
+    document.getElementById('rx-restart-bar').style.display = 'block';
+
+  } catch (err) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-magnifying-glass-location"></i> Buscar disponibilidade nas farmácias';
+    rxShowAlert('rx-alert-meds', 'err', 'Erro de conexão. Tente novamente.');
+  }
+}
+
+/* ─── render meds chips ─── */
+function rxRenderMeds() {
+  const grid = document.getElementById('rx-meds-grid');
+  grid.innerHTML = _rxMeds.map((m, idx) => `
+    <div class="rx-med-chip" id="chip-${m._id}">
+      <div>
+        <div class="rx-med-chip-name">${escHtml(m.nome)}</div>
+        ${m.concentracao ? `<div class="rx-med-chip-conc">${escHtml(m.concentracao)}${m.forma ? ' · ' + escHtml(m.forma) : ''}</div>` : ''}
+      </div>
+      <button class="rx-med-chip-rm" onclick="rxRemoveMed(${m._id})" title="Remover"><i class="fa fa-xmark"></i></button>
+    </div>
+  `).join('');
+  document.getElementById('rx-meds-count').textContent = `${_rxMeds.length} medicamento${_rxMeds.length !== 1 ? 's' : ''} identificado${_rxMeds.length !== 1 ? 's' : ''}`;
+}
+
+function rxRemoveMed(id) {
+  _rxMeds = _rxMeds.filter(m => m._id !== id);
+  rxRenderMeds();
+}
+
+function rxAddManual() {
+  const inp = document.getElementById('rx-manual-inp');
+  const nome = (inp.value || '').trim();
+  if (!nome) return;
+  const newId = Date.now();
+  _rxMeds.push({_id: newId, nome, concentracao: '', forma: '', posologia: ''});
+  rxRenderMeds();
+  inp.value = '';
+  inp.focus();
+}
+
+/* ─── render results ─── */
+function rxRenderResults(resultados) {
+  const list = document.getElementById('rx-results-list');
+  list.innerHTML = '';
+  const meds = _rxMeds;
+
+  let anyFound = false;
+  meds.forEach((med, gi) => {
+    const prods = resultados[med.nome] || [];
+    if (prods.length > 0) anyFound = true;
+    const group = document.createElement('div');
+    group.className = 'rx-result-group';
+    group.style.animationDelay = (gi * 0.08) + 's';
+
+    group.innerHTML = `
+      <div class="rx-result-group-hd">
+        <div style="flex:1;min-width:0">
+          <div class="rx-result-group-nome"><i class="fa fa-pills me-2" style="color:var(--pq-red)"></i>${escHtml(med.nome)}</div>
+          ${med.concentracao ? `<div class="rx-result-group-conc">${escHtml(med.concentracao)}${med.forma ? ' · ' + escHtml(med.forma) : ''}</div>` : ''}
+          ${med.posologia ? `<div class="rx-result-group-posol"><i class="fa fa-clock me-1"></i>${escHtml(med.posologia)}</div>` : ''}
+        </div>
+        <span class="rx-result-group-count">${prods.length} opç${prods.length !== 1 ? 'ões' : 'ão'}</span>
+      </div>
+      ${prods.length === 0
+        ? `<div class="rx-result-empty"><i class="fa fa-box-open"></i>Nenhum produto encontrado nas farmácias próximas para este medicamento.</div>`
+        : `<div class="rx-products-grid">${prods.map((p, pi) => rxProdCard(p, pi)).join('')}</div>`
+      }
+    `;
+    list.appendChild(group);
+  });
+
+  if (!anyFound && meds.length > 0) {
+    list.insertAdjacentHTML('afterbegin', `
+      <div class="rx-alert rx-alert-info">
+        <i class="fa fa-circle-info"></i>
+        <div>Não encontramos os medicamentos desta receita nas farmácias cadastradas no momento.
+        Tente atualizar sua localização ou contacte a farmácia mais próxima.</div>
+      </div>
+    `);
+  }
+}
+
+function rxProdCard(p, idx) {
+  const preco = p.preco ? 'R$ ' + parseFloat(p.preco).toFixed(2).replace('.', ',') : '';
+  const imgHtml = p.imagem
+    ? `<img src="${escHtml(p.imagem)}" alt="${escHtml(p.nome||'')}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+       <div class="rx-prod-img-ph" style="display:none"><i class="fa fa-pills"></i></div>`
+    : `<div class="rx-prod-img-ph"><i class="fa fa-pills"></i></div>`;
+
+  const qty = parseInt(p.qty) || 0;
+  const stockHtml = qty > 5
+    ? `<div class="rx-prod-stock ok"><i class="fa fa-circle-check me-1"></i>Em estoque</div>`
+    : qty > 0
+    ? `<div class="rx-prod-stock low"><i class="fa fa-triangle-exclamation me-1"></i>Últimas ${qty} un</div>`
+    : '';
+
+  const detailUrl = p.cnpjloja && p.ean
+    ? `/produto/${p.ean}?loja=${encodeURIComponent(p.cnpjloja)}`
+    : '#';
+
+  return `
+    <div class="rx-prod-card">
+      <a href="${detailUrl}" style="text-decoration:none;color:inherit">
+        <div class="rx-prod-img-wrap">${imgHtml}</div>
+        <div class="rx-prod-nome">${escHtml(p.nome || '')}</div>
+        ${p.laboratorio ? `<div class="rx-prod-lab"><i class="fa fa-flask me-1"></i>${escHtml(p.laboratorio)}</div>` : ''}
+        ${preco ? `<div class="rx-prod-price">${preco}</div>` : ''}
+        ${stockHtml}
+        ${p.razao ? `<div class="rx-prod-loja"><i class="fa fa-store me-1"></i>${escHtml(p.razao)}</div>` : ''}
+      </a>
+      ${p.cnpjloja && p.ean && p.preco ? `
+        <button class="rx-prod-btn" id="rxbtn-${idx}-${p.ean}"
+          onclick="rxAddCart(this, ${JSON.stringify(p).replace(/"/g,'&quot;')})">
+          <i class="fa fa-cart-plus"></i> Adicionar
+        </button>` : ''}
+    </div>
+  `;
+}
+
+function rxAddCart(btn, p) {
+  addToCart({
+    ean: p.ean || '', nome: p.nome || '', preco: parseFloat(p.preco) || 0,
+    imagem: p.imagem || '', cnpjloja: p.cnpjloja || '', razao: p.razao || '',
+    qty: 1, requer_receita: false, receita_retida: false, tarja: p.tarja || null,
+  });
+  btn.classList.add('added');
+  btn.innerHTML = '<i class="fa fa-check"></i> Adicionado';
+  setTimeout(() => {
+    btn.classList.remove('added');
+    btn.innerHTML = '<i class="fa fa-cart-plus"></i> Adicionar';
+  }, 2000);
+}
+
+/* ─── phases ─── */
+function rxSetPhase(phase) {
+  document.getElementById('rx-upload-section').style.display  = phase === 'upload'      ? 'block' : 'none';
+  document.getElementById('rx-processing').style.display      = phase === 'processing'  ? 'block' : 'none';
+  document.getElementById('rx-meds-section').style.display    = phase === 'meds'        ? 'block' : 'none';
+  document.getElementById('rx-results-section').style.display = phase === 'results'     ? 'block' : 'none';
+}
+
+function rxProcStep(idx, state) {
+  const el = document.getElementById('proc-' + idx);
+  if (!el) return;
+  el.className = 'rx-proc-step ' + state;
+}
+
+function rxStepTrack(idx, state) {
+  const el = document.getElementById('step-' + idx);
+  if (!el) return;
+  el.className = 'rx-step ' + state;
+}
+
+/* ─── reset ─── */
+function rxReset() {
+  _rxFile = null; _rxB64 = null; _rxMeds = [];
+  document.getElementById('rx-file-input').value = '';
+  document.getElementById('rx-preview-area').style.display = 'none';
+  document.getElementById('rx-btn-analyze').style.display = 'none';
+  document.getElementById('rx-restart-bar').style.display = 'none';
+  rxClearAlert('rx-alert-upload');
+  rxClearAlert('rx-alert-meds');
+  [0,1,2,3].forEach(i => rxStepTrack(i, i === 0 ? 'active' : ''));
+  [0,1,2].forEach(i => rxProcStep(i, ''));
+  rxSetPhase('upload');
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+/* ─── helpers ─── */
+function rxShowAlert(containerId, type, msg) {
+  const cls = type === 'err' ? 'rx-alert-err' : 'rx-alert-info';
+  const icon = type === 'err' ? 'fa-circle-exclamation' : 'fa-circle-info';
+  document.getElementById(containerId).innerHTML =
+    `<div class="rx-alert ${cls}"><i class="fa ${icon}"></i><div>${msg}</div></div>`;
+}
+function rxClearAlert(id) { document.getElementById(id).innerHTML = ''; }
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

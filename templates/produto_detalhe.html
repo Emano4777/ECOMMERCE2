@@ -215,6 +215,86 @@
 }
 .btn-retirada:hover { background:#ea6a08; }
 .pd-recs-wrap { margin-top:24px; }
+
+/* ZOOM BUTTON */
+.pd-img-side:not(.pd-img-nozoom) { cursor:zoom-in; }
+.pd-img-nozoom { cursor:default; }
+.pd-img-side img { transition:transform .25s cubic-bezier(.25,.8,.25,1); }
+.pd-img-side:not(.pd-img-nozoom):hover img { transform:scale(1.04); }
+.pd-zoom-btn {
+  position:absolute; bottom:14px; right:14px;
+  width:38px; height:38px; border-radius:50%;
+  background:rgba(255,255,255,.92); border:1.5px solid rgba(0,0,0,.08);
+  color:#444; font-size:.95rem;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.14);
+  opacity:0; transform:translateY(6px) scale(.85);
+  transition:opacity .2s, transform .2s;
+  z-index:2;
+}
+.pd-img-side:hover .pd-zoom-btn { opacity:1; transform:translateY(0) scale(1); }
+
+/* LIGHTBOX */
+.pd-lightbox {
+  position:fixed; inset:0; z-index:9999;
+  background:rgba(10,10,10,.88);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  opacity:0; pointer-events:none;
+  transition:opacity .28s cubic-bezier(.25,.8,.25,1);
+}
+.pd-lightbox.lb-open { opacity:1; pointer-events:all; }
+
+.pd-lb-close {
+  position:absolute; top:18px; right:18px;
+  width:44px; height:44px; border-radius:50%;
+  background:rgba(255,255,255,.1); border:1.5px solid rgba(255,255,255,.18);
+  color:#fff; font-size:1.2rem; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:background .15s, transform .2s;
+  z-index:3;
+}
+.pd-lb-close:hover { background:rgba(255,255,255,.22); transform:rotate(90deg) scale(1.1); }
+
+.pd-lb-stage {
+  width:92vw; height:84vh;
+  display:flex; align-items:center; justify-content:center;
+  cursor:grab; overflow:hidden; position:relative;
+}
+.pd-lb-stage.lb-grabbing { cursor:grabbing; }
+
+.pd-lb-img {
+  max-width:92%; max-height:82vh;
+  object-fit:contain; border-radius:10px;
+  box-shadow:0 12px 60px rgba(0,0,0,.6);
+  user-select:none; -webkit-user-drag:none; pointer-events:none;
+  transform-origin:center center;
+  will-change:transform;
+}
+.pd-lb-img.lb-animate { transition:transform .18s ease-out; }
+
+.pd-lb-hint {
+  position:absolute; bottom:22px; left:50%; transform:translateX(-50%);
+  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1);
+  border-radius:20px; padding:6px 18px;
+  font-size:.72rem; color:rgba(255,255,255,.5);
+  white-space:nowrap; pointer-events:none; letter-spacing:.02em;
+  transition:opacity .4s;
+}
+.pd-lb-hint kbd {
+  background:rgba(255,255,255,.13); border-radius:4px;
+  padding:1px 5px; font-family:inherit; font-size:.68rem;
+}
+.pd-lb-zoom-indicator {
+  position:absolute; top:18px; left:50%; transform:translateX(-50%);
+  background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.12);
+  border-radius:20px; padding:5px 14px;
+  font-size:.78rem; font-weight:700; color:rgba(255,255,255,.8);
+  pointer-events:none; opacity:0;
+  transition:opacity .3s;
+}
+.pd-lb-zoom-indicator.visible { opacity:1; }
 </style>
 {% endblock %}
 
@@ -248,10 +328,13 @@
   <!-- MAIN CARD -->
   <div class="pd-card">
     <!-- Imagem -->
-    <div class="pd-img-side">
+    <div class="pd-img-side{% if not imagem %} pd-img-nozoom{% endif %}" id="pd-img-wrap"{% if imagem %} onclick="pdOpenLightbox()"{% endif %}>
       {% if imagem %}
-        <img src="{{ imagem }}" alt="{{ nome }}"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+        <img id="pd-main-img" src="{{ imagem }}" alt="{{ nome }}"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';this.closest('.pd-img-side').classList.add('pd-img-nozoom')"/>
+        <button class="pd-zoom-btn" aria-label="Ampliar imagem" onclick="event.stopPropagation();pdOpenLightbox()">
+          <i class="fa fa-magnifying-glass-plus"></i>
+        </button>
         <div class="pd-img-ph" style="display:none"><i class="fa fa-pills"></i></div>
       {% else %}
         <div class="pd-img-ph"><i class="fa fa-pills"></i></div>
@@ -536,6 +619,21 @@
   {% endif %}
 
 </div>
+
+<!-- LIGHTBOX -->
+<div id="pd-lightbox" class="pd-lightbox" role="dialog" aria-modal="true" aria-label="Ampliar imagem">
+  <button class="pd-lb-close" id="pd-lb-close" aria-label="Fechar"><i class="fa fa-xmark"></i></button>
+  <div class="pd-lb-zoom-indicator" id="pd-lb-zoom-ind"></div>
+  <div class="pd-lb-stage" id="pd-lb-stage">
+    <img id="pd-lb-img" class="pd-lb-img" src="" alt="{{ nome }}" draggable="false"/>
+  </div>
+  <div class="pd-lb-hint" id="pd-lb-hint">
+    <i class="fa fa-magnifying-glass-plus"></i>&nbsp;Scroll para ampliar &nbsp;·&nbsp;
+    <i class="fa fa-hand"></i>&nbsp;Arraste para mover &nbsp;·&nbsp;
+    Duplo clique para zoom &nbsp;·&nbsp; <kbd>ESC</kbd> fechar
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -647,5 +745,153 @@ carregarRecomendacoesProduto();
   } catch {}
 })();
 {% endif %}
+
+/* ── LIGHTBOX ─────────────────────────────────────────── */
+(function () {
+  const lb      = document.getElementById('pd-lightbox');
+  const lbImg   = document.getElementById('pd-lb-img');
+  const stage   = document.getElementById('pd-lb-stage');
+  const closeBtn= document.getElementById('pd-lb-close');
+  const zoomInd = document.getElementById('pd-lb-zoom-ind');
+  const hint    = document.getElementById('pd-lb-hint');
+  if (!lb) return;
+
+  let scale = 1, tx = 0, ty = 0;
+  let dragging = false, startX = 0, startY = 0, startTx = 0, startTy = 0;
+  let lastPinchDist = null;
+  let zoomTimer = null, hintTimer = null;
+
+  function clamp() {
+    const maxX = Math.max(0, (scale - 1) * lbImg.offsetWidth  / 2);
+    const maxY = Math.max(0, (scale - 1) * lbImg.offsetHeight / 2);
+    tx = Math.max(-maxX, Math.min(maxX, tx));
+    ty = Math.max(-maxY, Math.min(maxY, ty));
+  }
+
+  function applyTransform(animate) {
+    lbImg.classList.toggle('lb-animate', !!animate);
+    lbImg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+  }
+
+  function showZoomIndicator() {
+    zoomInd.textContent = Math.round(scale * 100) + '%';
+    zoomInd.classList.add('visible');
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(() => zoomInd.classList.remove('visible'), 1000);
+  }
+
+  function fadeHint() {
+    hint.style.opacity = '1';
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { hint.style.opacity = '0'; }, 3000);
+  }
+
+  window.pdOpenLightbox = function () {
+    const src = document.getElementById('pd-main-img');
+    if (!src || !src.src || src.style.display === 'none') return;
+    scale = 1; tx = 0; ty = 0;
+    lbImg.src = src.src;
+    lbImg.style.transform = '';
+    lb.classList.add('lb-open');
+    document.body.style.overflow = 'hidden';
+    fadeHint();
+  };
+
+  function closeLb() {
+    lb.classList.remove('lb-open');
+    document.body.style.overflow = '';
+  }
+
+  closeBtn.addEventListener('click', closeLb);
+  lb.addEventListener('click', (e) => { if (e.target === lb || e.target === stage) closeLb(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLb(); });
+
+  /* ── scroll to zoom ── */
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    scale = Math.max(1, Math.min(6, scale * factor));
+    if (scale === 1) { tx = 0; ty = 0; }
+    else clamp();
+    applyTransform(true);
+    showZoomIndicator();
+  }, { passive: false });
+
+  /* ── mouse drag ── */
+  stage.addEventListener('mousedown', (e) => {
+    if (scale <= 1) return;
+    dragging = true; startX = e.clientX; startY = e.clientY;
+    startTx = tx; startTy = ty;
+    stage.classList.add('lb-grabbing');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    tx = startTx + (e.clientX - startX);
+    ty = startTy + (e.clientY - startY);
+    clamp();
+    applyTransform(false);
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    stage.classList.remove('lb-grabbing');
+  });
+
+  /* ── double-click zoom ── */
+  lbImg.style.pointerEvents = 'auto';
+  lbImg.addEventListener('dblclick', (e) => {
+    if (scale > 1) {
+      scale = 1; tx = 0; ty = 0;
+    } else {
+      scale = 2.8;
+      const rect = stage.getBoundingClientRect();
+      tx = -(e.clientX - rect.left - rect.width  / 2) * (scale - 1) / scale;
+      ty = -(e.clientY - rect.top  - rect.height / 2) * (scale - 1) / scale;
+      clamp();
+    }
+    applyTransform(true);
+    showZoomIndicator();
+  });
+
+  /* ── touch pinch & pan ── */
+  stage.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      lastPinchDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    } else if (e.touches.length === 1 && scale > 1) {
+      dragging = true;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      startTx = tx; startTy = ty;
+    }
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && lastPinchDist !== null) {
+      e.preventDefault();
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      scale = Math.max(1, Math.min(6, scale * (dist / lastPinchDist)));
+      lastPinchDist = dist;
+      if (scale === 1) { tx = 0; ty = 0; } else clamp();
+      applyTransform(false);
+      showZoomIndicator();
+    } else if (e.touches.length === 1 && dragging) {
+      tx = startTx + (e.touches[0].clientX - startX);
+      ty = startTy + (e.touches[0].clientY - startY);
+      clamp();
+      applyTransform(false);
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) lastPinchDist = null;
+    if (e.touches.length === 0) dragging = false;
+  });
+})();
 </script>
 {% endblock %}
