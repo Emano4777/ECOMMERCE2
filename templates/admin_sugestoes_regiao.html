@@ -1,0 +1,93 @@
+{% extends "painel_base.html" %}
+{% block title %}Sugestões de Região — Admin{% endblock %}
+
+{% block extra_style %}
+<style>
+.sr-stats { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:20px; }
+.sr-stat {
+  background:#0d1016; border:1px solid var(--pk-line);
+  border-radius:8px; padding:8px 16px; font-size:.82rem; color:var(--pk-muted);
+}
+.sr-stat strong { color:var(--pk-yellow); font-size:1.1rem; }
+
+.sr-table { width:100%; border-collapse:collapse; font-size:.83rem; }
+.sr-table thead tr { background:#0d1016; }
+.sr-table th {
+  padding:9px 12px; text-align:left;
+  color:var(--pk-muted); font-weight:700; font-size:.75rem;
+  text-transform:uppercase; border-bottom:1px solid var(--pk-line);
+}
+.sr-table td { padding:9px 12px; border-bottom:1px solid var(--pk-line); vertical-align:top; }
+.sr-table tr:hover td { background:rgba(255,255,255,.02); }
+.sr-badge {
+  display:inline-block; padding:2px 8px; border-radius:999px;
+  font-size:.72rem; font-weight:800; background:#1e2330; color:var(--pk-yellow);
+}
+.sr-cidade { font-weight:700; color:var(--pk-txt); }
+.sr-label  { font-size:.75rem; color:var(--pk-muted); margin-top:2px; }
+.sr-produto { color:#a0cfff; font-size:.8rem; }
+.sr-total  { font-weight:800; color:var(--pk-yellow); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page-header">
+  <h1 class="pk-page-title"><i class="fa fa-bell me-2" style="color:var(--pk-yellow)"></i>Sugestões de Região</h1>
+  <p class="pk-page-sub">Cidades e produtos sugeridos por usuários que não encontraram cobertura na área deles.</p>
+</div>
+
+<div class="sr-stats">
+  <div class="sr-stat"><strong>{{ stats.total or 0 }}</strong><br>sugestões totais</div>
+  <div class="sr-stat"><strong>{{ stats.usuarios or 0 }}</strong><br>usuários distintos</div>
+</div>
+
+{% if rows %}
+<div style="overflow-x:auto">
+<table class="sr-table">
+  <thead>
+    <tr>
+      <th>Cidade sugerida</th>
+      <th>Produto desejado</th>
+      <th>Localização do usuário</th>
+      <th>Enviamentos</th>
+      <th>Usuários</th>
+      <th>Última vez</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>
+        <div class="sr-cidade">{{ r.cidade_sugerida }}</div>
+      </td>
+      <td>
+        {% if r.produto_desejado %}
+          <span class="sr-produto">{{ r.produto_desejado }}</span>
+        {% else %}
+          <span style="color:var(--pk-muted);font-size:.75rem">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.localizacao_label %}
+          <span class="sr-label">{{ r.localizacao_label }}</span>
+        {% else %}
+          <span style="color:var(--pk-muted);font-size:.75rem">—</span>
+        {% endif %}
+      </td>
+      <td class="sr-total">{{ r.total }}</td>
+      <td><span class="sr-badge">{{ r.usuarios }}</span></td>
+      <td style="color:var(--pk-muted);font-size:.78rem;white-space:nowrap">
+        {{ r.ultima_vez.strftime('%d/%m/%Y %H:%M') if r.ultima_vez else '—' }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div style="color:var(--pk-muted);padding:40px;text-align:center;font-size:.88rem">
+  <i class="fa fa-inbox fa-2x mb-3 d-block" style="opacity:.3"></i>
+  Nenhuma sugestão recebida ainda.
+</div>
+{% endif %}
+{% endblock %}

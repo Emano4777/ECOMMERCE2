@@ -1,0 +1,96 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Favoritos{% endblock %}
+
+{% block extra_style %}
+<style>
+.fav-wrap { max-width:960px; margin:0 auto; padding:28px 16px 70px; }
+.fav-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+.fav-head h1 { margin:0; font-size:1.45rem; font-weight:900; display:flex; align-items:center; gap:10px; }
+.fav-sub { color:var(--pq-muted); font-size:.88rem; margin-top:4px; }
+.fav-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+.fav-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; }
+.fav-img { height:150px; background:#f7f7f7; display:flex; align-items:center; justify-content:center; }
+.fav-img img { max-width:88%; max-height:132px; object-fit:contain; }
+.fav-body { padding:13px; display:flex; flex-direction:column; gap:7px; flex:1; }
+.fav-name { font-weight:900; line-height:1.3; font-size:.9rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.35em; }
+.fav-store { color:var(--pq-muted); font-size:.76rem; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fav-price { color:var(--pq-red); font-weight:900; font-size:1.15rem; }
+.fav-alerts { display:flex; flex-direction:column; gap:7px; background:#fafafa; border-radius:10px; padding:9px; margin-top:auto; }
+.fav-toggle { display:flex; align-items:center; gap:8px; font-size:.78rem; font-weight:800; color:#444; }
+.fav-actions { display:flex; gap:8px; margin-top:10px; }
+.fav-actions a,.fav-actions button { flex:1; border-radius:9px; padding:9px 10px; font-family:inherit; font-size:.8rem; font-weight:900; cursor:pointer; text-align:center; text-decoration:none; }
+.fav-view { background:var(--pq-red); color:#fff; border:0; }
+.fav-remove { background:#fff; color:var(--pq-red); border:1.5px solid #ffd0d8; }
+.fav-empty { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); text-align:center; padding:56px 20px; color:var(--pq-muted); }
+.fav-empty i { font-size:3rem; opacity:.24; margin-bottom:14px; display:block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fav-wrap">
+  <div class="fav-head">
+    <div>
+      <h1><i class="fa fa-heart" style="color:var(--pq-red)"></i>Favoritos</h1>
+      <div class="fav-sub">Produtos salvos já ficam com alertas de preço e estoque ativados.</div>
+    </div>
+    <a href="{{ url_for('catalogo_publico') }}" style="color:var(--pq-red);font-weight:900;text-decoration:none">Continuar comprando</a>
+  </div>
+
+  {% if favoritos %}
+  <div class="fav-grid">
+    {% for f in favoritos %}
+    <div class="fav-card" id="fav-{{ loop.index }}">
+      <div class="fav-img">
+        {% if f.imagem %}
+        <img src="{{ f.imagem }}" alt="{{ f.nome }}" onerror="this.outerHTML='<i class=\'fa fa-pills\' style=\'font-size:2.6rem;color:#ccc\'></i>'">
+        {% else %}
+        <i class="fa fa-pills" style="font-size:2.6rem;color:#ccc"></i>
+        {% endif %}
+      </div>
+      <div class="fav-body">
+        <div class="fav-name">{{ f.nome }}</div>
+        <div class="fav-store"><i class="fa fa-store me-1"></i>{{ f.razao or 'Farmácia Poupaqui' }}</div>
+        {% if f.preco %}<div class="fav-price">{{ money(f.preco) }}</div>{% endif %}
+        <div class="fav-alerts">
+          <label class="fav-toggle"><input type="checkbox" {% if f.alerta_preco %}checked{% endif %} onchange="salvarAlerta('{{ f.ean }}','{{ f.cnpjloja }}','alerta_preco',this.checked)"> Avisar quando baixar o preço</label>
+          <label class="fav-toggle"><input type="checkbox" {% if f.alerta_estoque %}checked{% endif %} onchange="salvarAlerta('{{ f.ean }}','{{ f.cnpjloja }}','alerta_estoque',this.checked)"> Avisar quando voltar ao estoque</label>
+        </div>
+        <div class="fav-actions">
+          <a class="fav-view" href="{{ url_for('produto_detalhe', ean=f.ean, cnpj=f.cnpjloja, nome=f.nome) }}"><i class="fa fa-eye me-1"></i>Ver</a>
+          <button class="fav-remove" onclick="removerFavorito('{{ f.ean }}','{{ f.cnpjloja }}','fav-{{ loop.index }}')"><i class="fa fa-trash me-1"></i>Remover</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="fav-empty">
+    <i class="fa fa-heart"></i>
+    <h5>Nenhum favorito ainda</h5>
+    <p>Toque no coração dos produtos para salvar e acompanhar preço ou estoque.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function salvarAlerta(ean, cnpjloja, campo, valor) {
+  fetch('/api/favoritos/alertas', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ean, cnpjloja, campo, valor})
+  }).then(()=>showCartToast('Preferência de alerta salva.'));
+}
+function removerFavorito(ean, cnpjloja, id) {
+  fetch('/api/favoritos', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ean, cnpjloja})
+  }).then(()=> {
+    document.getElementById(id)?.remove();
+    showCartToast('Favorito removido.');
+  });
+}
+</script>
+{% endblock %}

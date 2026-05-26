@@ -136,33 +136,135 @@
       position: absolute;
       right: 0;
       top: calc(100% + 10px);
-      width: min(280px, calc(100vw - 24px));
+      width: min(380px, calc(100vw - 24px));
       background: #fff;
       border: 1px solid var(--pq-border);
-      border-radius: 14px;
-      box-shadow: 0 18px 50px rgba(0,0,0,.18);
+      border-radius: 22px;
+      box-shadow: 0 26px 80px rgba(20,20,20,.20);
       overflow: hidden;
       display: none;
       z-index: 700;
     }
     .pq-user-dropdown.show { display: block; }
-    .pq-user-head { padding: 12px 14px; border-bottom: 1px solid var(--pq-border); background: #fafafa; }
-    .pq-user-head strong { display:block; color:var(--pq-text); font-size:.92rem; }
-    .pq-user-head span { display:block; color:var(--pq-muted); font-size:.76rem; margin-top:2px; overflow:hidden; text-overflow:ellipsis; }
+    .pq-user-head {
+      display:flex;
+      gap:12px;
+      align-items:center;
+      padding: 20px;
+      border-bottom: 1px solid #f0f0f0;
+      background:
+        radial-gradient(circle at top right, rgba(245,200,66,.45), transparent 42%),
+        linear-gradient(135deg, #fff 0%, #fff7d6 100%);
+      position:relative;
+    }
+    .pq-user-head::before {
+      content:'';
+      position:absolute;
+      left:0; right:0; top:0;
+      height:5px;
+      background:linear-gradient(90deg, var(--pq-red), var(--pq-yellow));
+    }
+    .pq-user-head-avatar {
+      width:54px;
+      height:54px;
+      border-radius:18px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:var(--pq-red);
+      color:#fff;
+      font-size:1.22rem;
+      flex:0 0 auto;
+      box-shadow:0 10px 22px rgba(200,16,46,.22);
+    }
+    .pq-user-head-copy { min-width:0; }
+    .pq-user-head strong { display:block; color:var(--pq-text); font-size:.98rem; line-height:1.2; }
+    .pq-user-head span { display:block; color:var(--pq-muted); font-size:.78rem; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pq-user-chip {
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      margin-top:8px;
+      padding:4px 9px;
+      border-radius:999px;
+      background:#fff;
+      color:var(--pq-red);
+      font-size:.68rem;
+      font-weight:900;
+      box-shadow:0 1px 5px rgba(0,0,0,.08);
+    }
+    .pq-user-quick {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      padding:10px 10px 2px;
+    }
+    .pq-user-quick a {
+      min-height:74px;
+      padding:11px;
+      border-radius:16px;
+      background:#fbfbfb;
+      border:1px solid #f0f0f0;
+      color:var(--pq-text);
+      text-decoration:none;
+      font-weight:900;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      transition:transform .15s, border-color .15s, background .15s;
+    }
+    .pq-user-quick a:hover { transform:translateY(-2px); border-color:#f1d7dc; background:#fff8f9; }
+    .pq-user-quick i {
+      width:30px;
+      height:30px;
+      border-radius:11px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#fff3f5;
+      color:var(--pq-red);
+    }
+    .pq-user-quick small { color:var(--pq-muted); font-size:.67rem; font-weight:800; margin-top:2px; }
+    .pq-user-list { padding:8px 10px 10px; }
+    .pq-user-section-title {
+      color:var(--pq-muted);
+      font-size:.66rem;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      padding:8px 2px 6px;
+    }
     .pq-user-item {
       display:flex;
       align-items:center;
-      gap:10px;
-      padding:12px 14px;
+      gap:12px;
+      padding:11px 10px;
       color:var(--pq-text);
       text-decoration:none;
       font-weight:800;
       font-size:.88rem;
-      border-bottom:1px solid #f2f2f2;
+      border-radius:12px;
+      min-height:46px;
+      transition:background .15s, transform .15s;
     }
-    .pq-user-item:last-child { border-bottom:0; }
-    .pq-user-item:hover { background:#fff7d6; color:var(--pq-text); }
-    .pq-user-item i { width:18px; color:var(--pq-red); text-align:center; }
+    .pq-user-item:hover { background:#fff7d6; color:var(--pq-text); transform:translateX(2px); }
+    .pq-user-item i {
+      width:34px;
+      height:34px;
+      border-radius:11px;
+      background:#fff3f5;
+      color:var(--pq-red);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      flex:0 0 auto;
+    }
+    .pq-user-item span:first-of-type { flex:1; min-width:0; }
+    .pq-user-item small { display:block; color:var(--pq-muted); font-size:.68rem; font-weight:800; margin-top:1px; }
+    .pq-user-item-arrow { margin-left:auto; color:#b7b7b7; font-size:.72rem; }
+    .pq-user-item.danger { color:#b00020; border-top:1px solid #f4f4f4; margin-top:6px; }
+    .pq-user-item.danger i { background:#fff0f0; color:#b00020; }
     .pq-user-item.danger { color:#b00020; }
     /* ── HAMBURGER + DRAWER ─────────────────────────────── */
     .pq-hamburger {
@@ -219,12 +321,27 @@
     .pq-drawer-close:hover { background: rgba(255,255,255,.35); }
 
     .pq-drawer-user {
-      padding: 14px 18px;
-      background: #fafafa;
+      display:flex;
+      gap:12px;
+      align-items:center;
+      padding: 16px 18px;
+      background: linear-gradient(135deg, #fff 0%, #fff8db 100%);
       border-bottom: 1px solid var(--pq-border);
     }
-    .pq-drawer-user strong { display:block; font-weight:900; font-size:.92rem; color:var(--pq-text); }
-    .pq-drawer-user span   { display:block; color:var(--pq-muted); font-size:.75rem; margin-top:2px; }
+    .pq-drawer-user-icon {
+      width:40px;
+      height:40px;
+      border-radius:14px;
+      background:var(--pq-red);
+      color:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 auto;
+    }
+    .pq-drawer-user-copy { min-width:0; }
+    .pq-drawer-user strong { display:block; font-weight:900; font-size:.92rem; color:var(--pq-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pq-drawer-user span   { display:block; color:var(--pq-muted); font-size:.75rem; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .pq-drawer-section {
       padding: 12px 18px 4px;
@@ -236,13 +353,22 @@
       display: flex; align-items: center; gap: 12px;
       padding: 13px 18px;
       color: var(--pq-text); text-decoration: none;
-      font-weight: 700; font-size: .9rem;
-      border-bottom: 1px solid #f5f5f5;
-      transition: background .12s;
+      font-weight: 800; font-size: .9rem;
+      transition: background .12s, transform .12s;
     }
-    .pq-drawer-item:last-child { border-bottom: 0; }
-    .pq-drawer-item:hover { background: #fff7d6; }
-    .pq-drawer-item i { width: 18px; text-align: center; color: var(--pq-red); flex-shrink:0; }
+    .pq-drawer-item:hover { background: #fff7d6; transform:translateX(2px); }
+    .pq-drawer-item i {
+      width: 34px;
+      height:34px;
+      border-radius:11px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align: center;
+      color: var(--pq-red);
+      background:#fff3f5;
+      flex-shrink:0;
+    }
     .pq-drawer-item.danger { color: #b00020; }
     .pq-drawer-item.danger i { color: #b00020; }
     .pq-drawer-badge {
@@ -615,6 +741,9 @@
     <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('receita_medica') }}" title="Buscar por receita médica">
       <i class="fa fa-file-medical me-1"></i><span class="pq-receita-label">Receita</span>
     </a>
+    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('catalogo_publico') }}">
+      <i class="fa fa-table-cells-large me-1"></i><span class="pq-lojas-label">Catálogo</span>
+    </a>
     <a class="pq-topbar-link pq-lojas-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
       <i class="fa fa-store me-1"></i><span class="pq-lojas-label">Lojas</span>
     </a>
@@ -631,20 +760,32 @@
       </button>
       <div class="pq-user-dropdown" id="pq-user-dropdown">
         <div class="pq-user-head">
-          <strong>{{ consumidor.nome }}</strong>
-          <span>{{ consumidor.email }}</span>
+          <div class="pq-user-head-avatar"><i class="fa fa-user"></i></div>
+          <div class="pq-user-head-copy">
+            <strong>{{ consumidor.nome }}</strong>
+            <span>{{ consumidor.email }}</span>
+            <span class="pq-user-chip"><i class="fa fa-shield-heart"></i> Conta do consumidor</span>
+          </div>
         </div>
-        <a class="pq-user-item" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i>Meus pedidos</a>
+        <div class="pq-user-quick">
+          <a href="{{ url_for('meus_pedidos') }}"><i class="fa fa-box-open"></i><span>Pedidos<small>Status e entregas</small></span></a>
+          <a href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span></a>
+        </div>
+        <div class="pq-user-list">
+        <div class="pq-user-section-title">Atalhos da conta</div>
+        <a class="pq-user-item" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i><span>Meus pedidos<small>Acompanhe suas compras</small></span><b class="pq-user-item-arrow">›</b></a>
         {% if consumidor_rec_abertas > 0 %}
         <a class="pq-user-item" href="{{ url_for('minhas_reclamacoes') }}">
           <i class="fa fa-triangle-exclamation" style="color:#d97706"></i>
-          Minhas reclamações
+          <span>Minhas reclamações<small>Atendimentos em aberto</small></span>
           <span style="background:#c8102e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:900;padding:1px 7px;margin-left:auto">{{ consumidor_rec_abertas }}</span>
         </a>
         {% endif %}
-        <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i>Meus cupons</a>
-        <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i>Editar perfil</a>
-        <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i>Sair</a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i><span>Meus cupons<small>Descontos disponíveis</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i><span>Sair</span></a>
+        </div>
       </div>
     </div>
     {% else %}
@@ -675,8 +816,11 @@
 
   {% if consumidor %}
   <div class="pq-drawer-user">
-    <strong>{{ consumidor.nome }}</strong>
-    <span>{{ consumidor.email }}</span>
+    <div class="pq-drawer-user-icon"><i class="fa fa-user"></i></div>
+    <div class="pq-drawer-user-copy">
+      <strong>{{ consumidor.nome }}</strong>
+      <span>{{ consumidor.email }}</span>
+    </div>
   </div>
   <div style="padding:4px 0">
     <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
@@ -691,6 +835,9 @@
     <a class="pq-drawer-item" href="{{ url_for('consumidor_cupons') }}" onclick="fecharDrawer()">
       <i class="fa fa-ticket"></i>Meus cupons
     </a>
+    <a class="pq-drawer-item" href="{{ url_for('consumidor_favoritos') }}" onclick="fecharDrawer()">
+      <i class="fa fa-heart"></i>Favoritos
+    </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_perfil') }}" onclick="fecharDrawer()">
       <i class="fa fa-user-pen"></i>Editar perfil
     </a>
@@ -702,6 +849,9 @@
   {% endif %}
 
   <div class="pq-drawer-section">Navegação</div>
+  <a class="pq-drawer-item" href="{{ url_for('catalogo_publico') }}" onclick="fecharDrawer()">
+    <i class="fa fa-table-cells-large"></i>Catálogo
+  </a>
   <a class="pq-drawer-item" href="{{ url_for('receita_medica') }}" onclick="fecharDrawer()">
     <i class="fa fa-file-medical"></i>Busca por Receita
   </a>
@@ -734,6 +884,18 @@
       <i class="fa fa-crosshairs"></i>
       Usar minha localização atual
     </button>
+
+    <div id="gps-preview" style="display:none;margin-top:10px;padding:10px 14px;background:#f0faf4;border:1px solid #b7dfca;border-radius:8px;">
+      <div style="font-size:.74rem;color:#555;margin-bottom:4px;">📍 Localização detectada — <span style="color:#888">edite se necessário:</span></div>
+      <input class="gps-preview-nome" type="text"
+             placeholder="Ex: Av. Adolfo Lutz, 627 - São José do Rio Preto, SP"
+             style="width:100%;padding:6px 8px;border:1px solid #c8e6c9;border-radius:6px;font-size:.87rem;font-weight:600;color:#1a1a1a;margin-bottom:4px;box-sizing:border-box;"
+             oninput="_gpsNome=this.value" />
+      <div style="font-size:.72rem;color:#888;margin-bottom:8px;">Ex: Av. Adolfo Lutz, 627 - São José do Rio Preto, SP</div>
+      <button onclick="confirmarGPS()" style="width:100%;padding:8px;background:#28a745;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:.86rem;">
+        ✓ Confirmar esta localização
+      </button>
+    </div>
 
     <div class="sep">ou busque por cidade ou endereço</div>
 
@@ -806,7 +968,7 @@ function setLocNome(nome) {
 }
 
 function reverseGeocode(lat, lng) {
-  fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+  fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1`, {
     headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'poupaqui/1.0' }
   })
   .then(r => r.json())
@@ -832,20 +994,81 @@ function aplicarLocalizacao(lat, lng) {
   if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
 }
 
+let _gpsLat = null, _gpsLng = null, _gpsNome = null;
+
 function usarGPS() {
   document.getElementById('modal-status').textContent = 'Obtendo posição…';
+  document.getElementById('gps-preview').style.display = 'none';
   if (!navigator.geolocation) {
     document.getElementById('modal-status').textContent = 'GPS não disponível neste navegador.';
     return;
   }
   navigator.geolocation.getCurrentPosition(
-    pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
+    pos => {
+      _gpsLat = pos.coords.latitude;
+      _gpsLng = pos.coords.longitude;
+      document.getElementById('modal-status').textContent = 'Localizando endereço…';
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${_gpsLat}&lon=${_gpsLng}&format=json&zoom=18&addressdetails=1`, {
+        headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'poupaqui/1.0' }
+      })
+      .then(r => r.json())
+      .then(d => {
+        const a = d.address || {};
+        const cidade = a.city || a.town || a.village || a.suburb || a.county || '';
+        const uf     = (a.state_code || a.ISO3166_2_lvl4 || '').replace('BR-','');
+        const rua    = a.road || '';
+        const numero = a.house_number || '';
+        const bairro = a.suburb || a.neighbourhood || '';
+        const endParts = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade, uf].filter(Boolean);
+        _gpsNome = endParts.join(', ') || 'Localização detectada';
+        document.getElementById('modal-status').textContent = '';
+        const preview = document.getElementById('gps-preview');
+        preview.querySelector('.gps-preview-nome').value = _gpsNome;
+        preview.style.display = 'block';
+      })
+      .catch(() => {
+        _gpsNome = 'Localização detectada';
+        document.getElementById('modal-status').textContent = '';
+        const preview = document.getElementById('gps-preview');
+        preview.querySelector('.gps-preview-nome').value = _gpsNome;
+        preview.style.display = 'block';
+      });
+    },
     err => {
       const msgs = {1:'Permissão negada.', 2:'Posição indisponível.', 3:'Tempo esgotado.'};
       document.getElementById('modal-status').textContent = msgs[err.code] || 'Erro ao obter posição.';
     },
-    { timeout: 10000 }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
+}
+
+async function confirmarGPS() {
+  if (_gpsLat == null) return;
+  const inp  = document.querySelector('.gps-preview-nome');
+  const nome = (inp ? inp.value.trim() : '') || _gpsNome;
+  let lat = _gpsLat, lng = _gpsLng;
+
+  // Se o usuário editou o nome, re-geocodifica para obter coordenadas corretas
+  if (nome !== _gpsNome && nome.length > 4) {
+    try {
+      const btn = document.querySelector('#gps-preview button');
+      if (btn) { btn.disabled = true; btn.textContent = 'Localizando…'; }
+      const r = await fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+        q: nome + ', Brasil', format: 'json', limit: '1', countrycodes: 'br'
+      }), { headers: { 'Accept-Language': 'pt-BR' } });
+      const data = await r.json();
+      if (data && data[0]) {
+        lat = parseFloat(data[0].lat);
+        lng = parseFloat(data[0].lon);
+      }
+    } catch(e) {}
+  }
+
+  localStorage.setItem(LOC_KEY_LAT, lat);
+  localStorage.setItem(LOC_KEY_LNG, lng);
+  setLocNome(nome);
+  fecharModalLoc();
+  if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
 }
 
 function buscarCidadeLegacy() {
@@ -1105,7 +1328,8 @@ function buscarCidadeDebounced() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
-        () => { document.getElementById('loc-addr-text').textContent = 'Clique para definir'; }
+        () => { document.getElementById('loc-addr-text').textContent = 'Clique para definir'; },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     }
   }

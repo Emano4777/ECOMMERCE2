@@ -1846,6 +1846,170 @@ def _norm_text(value):
     return re.sub(r"\s+", " ", value).strip()
 
 
+_SYMPTOM_SEARCH_TERMS = {
+    "febre": [
+        "febre", "antitermico", "antitermica", "dipirona", "paracetamol",
+        "ibuprofeno", "termometro",
+    ],
+    "dor": [
+        "dor", "analgesico", "paracetamol", "dipirona", "ibuprofeno",
+        "naproxeno", "dorflex", "neosaldina",
+    ],
+    "dor cabeca": ["dor de cabeca", "cefaleia", "analgesico", "dipirona", "paracetamol", "neosaldina"],
+    "cabeca": ["dor de cabeca", "cefaleia", "analgesico", "dipirona", "paracetamol", "neosaldina"],
+    "gripe": [
+        "gripe", "resfriado", "antigripal", "benegrip", "cimegripe",
+        "multigrip", "paracetamol", "dipirona", "vitamina c", "soro nasal",
+    ],
+    "resfriado": ["resfriado", "gripe", "antigripal", "soro nasal", "pastilha", "vitamina c"],
+    "tosse": ["tosse", "xarope", "expectorante", "antitussigeno", "acetilcisteina", "ambroxol", "guaco"],
+    "catarro": ["catarro", "expectorante", "acetilcisteina", "ambroxol", "xarope"],
+    "garganta": ["dor de garganta", "garganta", "pastilha", "spray", "mel", "propolis"],
+    "nariz": ["nariz", "congestao nasal", "soro nasal", "descongestionante", "rinossoro", "maresis"],
+    "rinite": ["rinite", "antialergico", "loratadina", "cetirizina", "fexofenadina", "soro nasal"],
+    "alergia": ["alergia", "antialergico", "loratadina", "cetirizina", "fexofenadina", "desloratadina"],
+    "azia": ["azia", "queimacao", "antiacido", "omeprazol", "pantoprazol", "esomeprazol", "hidroxido"],
+    "queimacao": ["queimacao", "azia", "antiacido", "omeprazol", "pantoprazol"],
+    "enjoo": ["enjoo", "nausea", "antiemetico", "dimenidrinato", "dramin", "meclizina"],
+    "nausea": ["nausea", "enjoo", "dimenidrinato", "dramin"],
+    "diarreia": ["diarreia", "soro reidratacao", "probiótico", "probiotico", "loperamida", "floratil"],
+    "prisao ventre": ["prisao de ventre", "constipacao", "laxante", "lactulose", "supositorio", "fibra"],
+    "constipacao": ["constipacao", "prisao de ventre", "laxante", "lactulose", "fibra"],
+    "colica": ["colica", "escopolamina", "buscopan", "simeticona", "analgesico"],
+    "gases": ["gases", "simeticona", "dimeticona", "luftal"],
+    "assadura": ["assadura", "pomada", "dexpantenol", "bepantol", "hipoglos", "nistatina"],
+    "machucado": ["machucado", "ferimento", "curativo", "gaze", "antisseptico", "clorexidina", "agua oxigenada"],
+    "ferimento": ["ferimento", "machucado", "curativo", "gaze", "antisseptico", "clorexidina"],
+    "acne": ["acne", "antiacne", "gel limpeza", "sabonete facial", "peroxido benzoila"],
+    "pele seca": ["pele seca", "hidratante", "creme hidratante", "loção hidratante", "dexpantenol"],
+    "queimadura": ["queimadura", "pos sol", "dexpantenol", "aloe vera", "hidratante"],
+    "insônia": ["insonia", "melatonina", "sono"],
+    "insonia": ["insonia", "melatonina", "sono"],
+}
+
+
+def _search_terms_for_query(query):
+    base = _norm_text(query)
+    if not base:
+        return []
+    terms = [base]
+    for symptom, mapped in _SYMPTOM_SEARCH_TERMS.items():
+        if symptom in base or base in symptom:
+            terms.extend(mapped)
+    seen = set()
+    result = []
+    for term in terms:
+        norm = _norm_text(term)
+        if norm and norm not in seen:
+            seen.add(norm)
+            result.append(norm)
+    return result
+
+
+def _product_excluded_for_symptom_query(query, haystack):
+    q = _norm_text(query)
+    hay = _norm_text(haystack)
+    if ("febre" in q or "gripe" in q or "resfriado" in q) and re.search(r"\b(buscopan|hioscina|escopolamina|tramadol|codeina|morfina|oxicodona)\b", hay):
+        return True
+    if ("diarreia" in q or "intestino" in q) and re.search(r"\b(shampoo|condicionador|creme para pentear|sabonete)\b", hay):
+        return True
+    return False
+
+
+def _ensure_produto_sintomas_schema():
+    _load_db_migrations()
+    if "produto_sintomas" in _schema_ready:
+        return
+    with _schema_lock:
+        if "produto_sintomas" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_produto_sintomas (
+                ean TEXT PRIMARY KEY,
+                nome_ref TEXT,
+                sintomas TEXT,
+                termos_busca TEXT,
+                principio_ativo TEXT,
+                classe_terapeutica TEXT,
+                fonte TEXT DEFAULT 'regras',
+                confianca TEXT DEFAULT 'media',
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_produto_sintomas_termos ON ecommerce_produto_sintomas USING gin (to_tsvector('portuguese', COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'')))")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("produto_sintomas")
+
+
+def _attach_product_symptoms(produtos):
+    if not produtos:
+        return produtos
+    try:
+        _ensure_produto_sintomas_schema()
+        eans = sorted({_digits(p.get("ean")).lstrip("0") for p in produtos if _digits(p.get("ean"))})
+        if not eans:
+            return produtos
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT LTRIM(COALESCE(ean,''), '0') AS ean_key,
+                   COALESCE(sintomas,'') AS sintomas,
+                   COALESCE(termos_busca,'') AS termos_busca,
+                   COALESCE(principio_ativo,'') AS principio_ativo,
+                   COALESCE(classe_terapeutica,'') AS classe_terapeutica
+            FROM ecommerce_produto_sintomas
+            WHERE LTRIM(COALESCE(ean,''), '0') = ANY(%s)
+            """,
+            (eans,),
+        )
+        by_ean = {r["ean_key"]: dict(r) for r in cur.fetchall()}
+        cur.close()
+        for produto in produtos:
+            row = by_ean.get(_digits(produto.get("ean")).lstrip("0"))
+            if not row:
+                continue
+            produto["sintomas"] = row.get("sintomas") or ""
+            produto["termos_busca"] = row.get("termos_busca") or ""
+            produto["principio_ativo"] = row.get("principio_ativo") or produto.get("principio_ativo") or ""
+            produto["classe_terapeutica"] = row.get("classe_terapeutica") or produto.get("classe_terapeutica") or ""
+    except Exception:
+        pass
+    return produtos
+
+
+def _symptom_index_eans_for_query(query, limit=250):
+    terms = _search_terms_for_query(query)
+    if not terms:
+        return []
+    try:
+        _ensure_produto_sintomas_schema()
+        conn = db()
+        cur = conn.cursor()
+        like_terms = [f"%{t}%" for t in terms[:8]]
+        cur.execute(
+            """
+            SELECT ean
+            FROM ecommerce_produto_sintomas
+            WHERE EXISTS (
+                SELECT 1
+                FROM unnest(%s::text[]) q(term)
+                WHERE LOWER(COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'') || ' ' || COALESCE(principio_ativo,'') || ' ' || COALESCE(classe_terapeutica,'')) LIKE q.term
+            )
+            LIMIT %s
+            """,
+            (like_terms, limit),
+        )
+        rows = [r["ean"] for r in cur.fetchall()]
+        cur.close()
+        return rows
+    except Exception:
+        return []
+
+
 def _catalog_product_key(nome):
     text = _norm_text(nome)
     text = re.sub(r"\b(capsulas|capsula|caps|cps|comprimidos|comprimido|comp|cp)\b", "cp", text)
@@ -2292,7 +2456,22 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             (ean_digits,),
         )
         cached = cur.fetchone()
-        image_url = image_url or _first_valid_url(cached["imagem_url"] if cached else None)
+        cached_url = _first_valid_url(cached["imagem_url"] if cached else None)
+        # Ignorar placeholder de medicamento salvo para produto não-medicamento
+        if cached_url in (GENERIC_TARJA_VERMELHA_IMG, GENERIC_TARJA_PRETA_IMG):
+            _tipo_fill = _TIPO_ALIAS.get(_classificar_produto(nome or ""), _classificar_produto(nome or ""))
+            if _tipo_fill in _TIPOS_NAO_MEDICAMENTO:
+                cached_url = None
+        image_url = image_url or cached_url
+        # Tenta imagem do cosmos já indexada pelo script de sincronização
+        if not image_url:
+            cur.execute(
+                "SELECT imagem_cosmos FROM produto_canon WHERE ean = %s AND imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> '' LIMIT 1",
+                (ean_digits,),
+            )
+            cosmos_row = cur.fetchone()
+            if cosmos_row:
+                image_url = _first_valid_url(cosmos_row["imagem_cosmos"])
         if not image_url:
             source_urls = [_fetch_exact_barcode_image_url(ean_digits)]
             if nome:
@@ -2324,8 +2503,10 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             conn.commit()
             cur.close()
             return image_url
-        # Nenhuma fonte encontrou imagem — salva fallback genérico para não repetir
-        # chamadas de API em acessos futuros deste mesmo produto.
+        # Salva fallback genérico apenas se o produto merece a caixinha (tem tarja ou "genérico" no nome)
+        if not placeholder:
+            cur.close()
+            return None  # produto sem tarja/genérico não recebe a caixinha de medicamento
         fallback = GENERIC_TARJA_VERMELHA_IMG
         _upsert_catalog_image(cur, cnpjloja, ean_key, fallback)
         conn.commit()
@@ -2373,8 +2554,20 @@ def _schedule_fill_images(produtos, cnpjloja=None, limit=10):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+_MEDICINE_PLACEHOLDER_URLS = frozenset({GENERIC_TARJA_VERMELHA_IMG, GENERIC_TARJA_PRETA_IMG})
+
 def _has_catalog_image(produto):
-    return bool((produto.get("imagem") or "").strip())
+    img = (produto.get("imagem") or "").strip()
+    if not img:
+        return False
+    if img in _MEDICINE_PLACEHOLDER_URLS:
+        tarja = (produto.get("tarja") or "").strip().lower()
+        if tarja in ("vermelha", "preta"):
+            return True
+        if _is_generic_product(produto.get("nome") or ""):
+            return True
+        return False
+    return True
 
 
 def _split_catalog_image_status(produtos):
@@ -2424,6 +2617,23 @@ def _apply_safe_catalog_images(produtos, cur=None):
                 cur.close()
 
     to_persist: list = []
+    to_cleanup: list = []
+    _MED_PLACEHOLDERS = {GENERIC_TARJA_VERMELHA_IMG, GENERIC_TARJA_PRETA_IMG}
+
+    # Cosmos batch lookup for products that currently have no image
+    _sem_img_eans = [_digits(p.get("ean")) for p in produtos if not (p.get("imagem") or "").strip() or (p.get("imagem") or "") in _MED_PLACEHOLDERS]
+    _cosmos_by_ean: dict = {}
+    if _sem_img_eans:
+        try:
+            _cc = db().cursor()
+            _cc.execute(
+                "SELECT ean, imagem_cosmos FROM produto_canon WHERE ean = ANY(%s) AND imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''",
+                (_sem_img_eans,),
+            )
+            _cosmos_by_ean = {r["ean"]: r["imagem_cosmos"] for r in _cc.fetchall()}
+            _cc.close()
+        except Exception:
+            pass
 
     for produto in produtos:
         ean_key = _digits(produto.get("ean")).lstrip("0")
@@ -2437,6 +2647,20 @@ def _apply_safe_catalog_images(produtos, cur=None):
         imagem_atual = produto.get("imagem") or ""
         _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _classificar_produto(produto.get("nome") or "")
         _tipo_p = _TIPO_ALIAS.get(_tipo_p_raw, _tipo_p_raw)
+        # Produto sem tarja/genérico OU classificado como não-medicamento não merece a caixinha
+        if imagem_atual in _MED_PLACEHOLDERS and (not placeholder or _tipo_p in _TIPOS_NAO_MEDICAMENTO):
+            produto["imagem"] = ""
+            imagem_atual = ""
+            cnpj_c = produto.get("cnpjloja")
+            ean_c  = (produto.get("ean") or "").strip()
+            if cnpj_c and ean_c:
+                to_cleanup.append((cnpj_c, ean_c))
+        # Aplica imagem do cosmos quando produto não tem imagem
+        if not imagem_atual:
+            _cosmos_img = _cosmos_by_ean.get(_digits(produto.get("ean")))
+            if _cosmos_img:
+                produto["imagem"] = _cosmos_img
+                imagem_atual = _cosmos_img
         if _tipo_p not in _TIPOS_NAO_MEDICAMENTO and placeholder and anvisa.get("tarja") in ("preta", "vermelha") and produto.get("exibir_imagem_publica") is False:
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
@@ -2469,6 +2693,27 @@ def _apply_safe_catalog_images(produtos, cur=None):
             conn2.commit()
             wc.close()
             conn2.close()
+        except Exception:
+            pass
+
+    # Remove placeholders de medicamento indevidamente salvos para produtos não-medicamento
+    if to_cleanup:
+        try:
+            conn3 = _new_conn()
+            wc3 = conn3.cursor()
+            for cnpj_cl, ean_cl in to_cleanup:
+                wc3.execute(
+                    """
+                    UPDATE ecommerce_produto_imagens
+                       SET imagem_url = NULL
+                     WHERE cnpjloja = %s AND ean = %s
+                       AND imagem_url IN (%s, %s)
+                    """,
+                    (cnpj_cl, ean_cl, GENERIC_TARJA_VERMELHA_IMG, GENERIC_TARJA_PRETA_IMG),
+                )
+            conn3.commit()
+            wc3.close()
+            conn3.close()
         except Exception:
             pass
 
@@ -2542,15 +2787,15 @@ _SQL_ALPHA = """
     )
     SELECT
         el.barras                                                            AS ean,
-        el.descricao                                                         AS nome,
-        COALESCE(m.laboratorio, pc.laboratorio)                              AS laboratorio,
+        COALESCE(m.descricao, pc.descricao_canon, el.descricao)             AS nome,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         el.qty,
         COALESCE(vg.preco_venda, el.preco_referencial)                       AS preco_ref,
         ep.preco_customizado                                                  AS preco_custom,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial) AS preco,
         el.custo_medio                                                        AS custo,
-        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
         SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -2560,9 +2805,10 @@ _SQL_ALPHA = """
         ORDER BY id DESC
         LIMIT 1
     ) vg ON TRUE
-    LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
+    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
 """
@@ -2607,15 +2853,15 @@ _SQL_AUTO = """
     )
     SELECT
         el.ean,
-        el.descricao_produto                                                      AS nome,
-        COALESCE(m.laboratorio, pc.laboratorio)                                   AS laboratorio,
+        COALESCE(m.descricao, pc.descricao_canon, el.descricao_produto)           AS nome,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)                 AS laboratorio,
         m.marca                                                                   AS marca,
         el.qty,
         COALESCE(av.preco_venda, el.valor_final_produto)                          AS preco_ref,
         ep.preco_customizado                                                       AS preco_custom,
         COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
         el.custo,
-        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), ''))  AS imagem
+        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url)  AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
         SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -2625,9 +2871,10 @@ _SQL_AUTO = """
         ORDER BY id DESC
         LIMIT 1
     ) av ON TRUE
-    LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
+    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
 """
@@ -2681,9 +2928,9 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
                    ep.preco_customizado AS preco_custom,
                    COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
                    e.custo_medio AS custo,
-                   COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                   COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                    m.marca AS marca,
-                   COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+                   COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
             FROM estoque e
             LEFT JOIN LATERAL (
                 SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -2717,9 +2964,9 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
                        ep.preco_customizado AS preco_custom,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                        ae.custo AS custo,
-                       COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
-                       COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+                       COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
                 FROM automatiza_estoque ae
                 LEFT JOIN LATERAL (
                     SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -2796,12 +3043,12 @@ _SQL_ALPHA_BATCH = """
         el.cnpjloja,
         el.barras                                                             AS ean,
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)              AS nome,
-        COALESCE(m.laboratorio, pc.laboratorio)                              AS laboratorio,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)  AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial)  AS preco,
-        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
         SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -2814,6 +3061,7 @@ _SQL_ALPHA_BATCH = """
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean_join,''),'0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
 """
@@ -2859,12 +3107,12 @@ _SQL_AUTO_BATCH = """
         el.cnpjloja,
         el.ean,
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)                   AS nome,
-        COALESCE(m.laboratorio, pc.laboratorio)                                   AS laboratorio,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)               AS laboratorio,
         m.marca                                                                   AS marca,
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)        AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
-        COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), ''))  AS imagem
+        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url)  AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
         SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -2877,6 +3125,7 @@ _SQL_AUTO_BATCH = """
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean,''),'0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
 """
@@ -2946,12 +3195,12 @@ def get_dns_products_batch(cnpjs):
             cur.execute("""
                 SELECT e.cnpj AS cnpjloja, e.barras AS ean,
                        COALESCE(m.descricao, pc.descricao_canon, e.descricao) AS nome,
-                       COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
-                       COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+                       COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
                 FROM estoque e
                 LEFT JOIN LATERAL (
                     SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -2978,12 +3227,12 @@ def get_dns_products_batch(cnpjs):
             cur.execute("""
                 SELECT ae.cnpj_loja AS cnpjloja, ae.ean,
                        COALESCE(m.descricao, pc.descricao_canon, ae.descricao_produto) AS nome,
-                       COALESCE(m.laboratorio, pc.laboratorio) AS laboratorio,
+                       COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
-                       COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+                       COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
                 FROM automatiza_estoque ae
                 LEFT JOIN LATERAL (
                     SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -3019,6 +3268,98 @@ def get_dns_products_batch(cnpjs):
     return combined
 
 
+def get_dns_products_batch_by_eans(cnpjs, eans):
+    if not cnpjs or not eans:
+        return []
+    _ensure_catalog_admin_schema()
+    _ensure_precificador_schema()
+    _ensure_produto_canon_schema()
+    ean_keys = sorted({_digits(e).lstrip("0") for e in eans if _digits(e)})
+    if not ean_keys:
+        return []
+    conn = _new_conn_batch()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        WITH alvo AS (SELECT unnest(%s::text[]) AS ean_key),
+        alpha AS (
+            SELECT e.cnpj AS cnpjloja,
+                   e.barras AS ean,
+                   COALESCE(e.barras_norm, e.barras) AS ean_join,
+                   e.descricao AS nome_raw,
+                   CAST(e.estoque AS INTEGER) AS qty,
+                   e.preco_referencial AS preco_base
+            FROM estoque e
+            JOIN alvo a ON LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') = a.ean_key
+            WHERE e.cnpj = ANY(%s) AND e.estoque > 0
+        ),
+        auto AS (
+            SELECT ae.cnpj_loja AS cnpjloja,
+                   ae.ean AS ean,
+                   ae.ean AS ean_join,
+                   ae.descricao_produto AS nome_raw,
+                   CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+                   ae.valor_final_produto AS preco_base
+            FROM automatiza_estoque ae
+            JOIN alvo a ON LTRIM(COALESCE(ae.ean, ''), '0') = a.ean_key
+            WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
+        ),
+        base AS (
+            SELECT * FROM alpha
+            UNION ALL
+            SELECT * FROM auto
+        )
+        SELECT
+            b.cnpjloja,
+            b.ean,
+            COALESCE(m.descricao, pc.descricao_canon, b.nome_raw) AS nome,
+            COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
+            m.marca AS marca,
+            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            b.qty,
+            COALESCE(ep.preco_customizado, b.preco_base) AS preco,
+            COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+        FROM base b
+        LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+        LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
+        """,
+        (ean_keys, cnpjs, cnpjs),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+
+    # Filtra itens ocultos pela loja (não devem aparecer no catálogo público)
+    try:
+        cur.execute(
+            "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
+            (cnpjs,),
+        )
+        ocultos_by = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
+        if ocultos_by:
+            rows = [r for r in rows if (r.get("cnpjloja"), r.get("ean")) not in ocultos_by]
+    except Exception:
+        pass
+
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _apply_safe_catalog_images(rows)
+    # Remove produtos sem imagem: não devem aparecer no catálogo público
+    rows = [r for r in rows if _has_catalog_image(r)]
+    try:
+        conn2 = _new_conn()
+        _marcar_tarja_batch(rows, conn2)
+        conn2.close()
+    except Exception:
+        pass
+    _schedule_fill_images(rows)
+    return _dedupe_products_for_display(rows)
+
+
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 
 def painel_required(fn):
@@ -3043,6 +3384,11 @@ def admin_required(fn):
 
 @app.get("/")
 def index():
+    return render_template("home.html")
+
+
+@app.get("/catalogo")
+def catalogo_publico():
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -3058,6 +3404,11 @@ def index():
     lojas = cur.fetchall()
     cur.close()
     return render_template("index.html", lojas=lojas)
+
+
+@app.get("/ofertas")
+def ofertas_publicas():
+    return redirect(url_for("catalogo_publico", ofertas="1"))
 
 
 @app.get("/lojas")
@@ -3221,6 +3572,73 @@ def _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp):
     urllib.request.urlopen(req, timeout=30)
 
 
+def _ensure_avaliacoes_schema():
+    key = "avaliacoes_loja"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_avaliacoes_loja (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                cnpjloja     TEXT NOT NULL,
+                pedido_id    TEXT NOT NULL,
+                consumidor_id UUID,
+                estrelas     SMALLINT NOT NULL CHECK (estrelas BETWEEN 1 AND 5),
+                comentario   TEXT,
+                criado_em    TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_avaliacao_pedido UNIQUE (pedido_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_aval_cnpj ON ecommerce_avaliacoes_loja(cnpjloja);
+        """)
+        conn.commit(); cur.close()
+        _schema_ready.add(key)
+
+
+def _calcular_reputacao_loja(avaliacoes):
+    """
+    Regra: 5 avaliações positivas (4-5★) cancelam 1 negativa (1-3★).
+    Mínimo 5 avaliações para exibir publicamente.
+    Retorna dict com média, totais e comentários, ou None se insuficiente.
+    """
+    if len(avaliacoes) < 5:
+        return None
+    positivas = [a for a in avaliacoes if a["estrelas"] >= 4]
+    negativas  = sorted([a for a in avaliacoes if a["estrelas"] < 4], key=lambda x: x["estrelas"])
+    n_cancel   = min(len(negativas), len(positivas) // 5)
+    negativas_efetivas = negativas[n_cancel:]
+    efetivas   = list(positivas) + negativas_efetivas
+    media      = sum(a["estrelas"] for a in efetivas) / len(efetivas)
+    comentarios = [a for a in sorted(avaliacoes, key=lambda x: x.get("criado_em") or "", reverse=True)
+                   if (a.get("comentario") or "").strip()][:6]
+    return {
+        "media":              round(media, 1),
+        "total":              len(avaliacoes),
+        "positivas":          len(positivas),
+        "negativas_total":    len(negativas),
+        "negativas_canceladas": n_cancel,
+        "comentarios":        [dict(c) for c in comentarios],
+    }
+
+
+def _reputacao_loja(cnpjloja):
+    """Carrega avaliações do banco e calcula reputação."""
+    _ensure_avaliacoes_schema()
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT estrelas, comentario, criado_em FROM ecommerce_avaliacoes_loja WHERE cnpjloja=%s ORDER BY criado_em DESC",
+            (cnpjloja,),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        return _calcular_reputacao_loja(rows)
+    except Exception:
+        return None
+
+
 def _ensure_lojas_vitrine_schema():
     conn = db()
     cur = conn.cursor()
@@ -3336,6 +3754,87 @@ def api_lojas_clique():
     conn.commit()
     cur.close()
     return jsonify({"ok": True})
+
+
+@app.post("/api/sugestao-regiao")
+@_rate_limited_api(max_calls=10, window_secs=60)
+def api_sugestao_regiao():
+    """Salva sugestão de cidade/produto enviada pelo usuário na tela de área sem cobertura."""
+    data = request.get_json(silent=True) or {}
+    cidade  = (data.get("cidade_sugerida") or "").strip()[:200]
+    produto = (data.get("produto_desejado") or "").strip()[:300]
+    anon_id = (data.get("anon_id") or "").strip()[:80]
+    label   = (data.get("localizacao_label") or "").strip()[:300]
+    try:
+        lat = float(data.get("lat") or 0) or None
+        lng = float(data.get("lng") or 0) or None
+    except (TypeError, ValueError):
+        lat = lng = None
+
+    if not cidade:
+        return jsonify({"ok": False, "erro": "cidade obrigatória"}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_sugestoes_regiao (
+            id               SERIAL PRIMARY KEY,
+            anon_id          TEXT,
+            cidade_sugerida  TEXT NOT NULL,
+            produto_desejado TEXT,
+            localizacao_label TEXT,
+            lat              DOUBLE PRECISION,
+            lng              DOUBLE PRECISION,
+            criado_em        TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        INSERT INTO ecommerce_sugestoes_regiao
+            (anon_id, cidade_sugerida, produto_desejado, localizacao_label, lat, lng)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (anon_id, cidade, produto or None, label or None, lat, lng))
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
+
+
+@app.get("/painel/admin/sugestoes-regiao")
+@admin_required
+def admin_sugestoes_regiao():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecommerce_sugestoes_regiao (
+            id               SERIAL PRIMARY KEY,
+            anon_id          TEXT,
+            cidade_sugerida  TEXT NOT NULL,
+            produto_desejado TEXT,
+            localizacao_label TEXT,
+            lat              DOUBLE PRECISION,
+            lng              DOUBLE PRECISION,
+            criado_em        TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        SELECT cidade_sugerida,
+               produto_desejado,
+               localizacao_label,
+               COUNT(*)                              AS total,
+               COUNT(DISTINCT anon_id)               AS usuarios,
+               MAX(criado_em)                        AS ultima_vez,
+               array_agg(DISTINCT produto_desejado
+                         ORDER BY produto_desejado)
+                 FILTER (WHERE produto_desejado IS NOT NULL) AS produtos_lista
+        FROM ecommerce_sugestoes_regiao
+        GROUP BY cidade_sugerida, produto_desejado, localizacao_label
+        ORDER BY total DESC, ultima_vez DESC
+        LIMIT 500
+    """)
+    rows = cur.fetchall()
+    cur.execute("SELECT COUNT(*) AS total, COUNT(DISTINCT anon_id) AS usuarios FROM ecommerce_sugestoes_regiao")
+    stats = cur.fetchone()
+    cur.close()
+    return render_template("admin_sugestoes_regiao.html", rows=rows, stats=stats)
 
 
 @app.post("/api/interesse-regiao")
@@ -3665,20 +4164,47 @@ def api_produtos_proximos():
         return jsonify({"produtos": [], "fora_raio": False, "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0})
 
     cnpjs        = [l["cnpjloja"] for l in proximas]
-    produtos_raw = get_dns_products_batch(cnpjs)
+    search_terms = _search_terms_for_query(busca_q) if busca_q else []
+    index_eans = _symptom_index_eans_for_query(busca_q, limit=120) if busca_q else []
+    produtos_raw = []
+    if busca_q and index_eans:
+        produtos_raw = get_dns_products_batch_by_eans(cnpjs, index_eans[:120])
+    else:
+        produtos_raw = get_dns_products_batch(cnpjs)
     if busca_q:
+        low_value_terms = {
+            "febre", "dor", "antitermico", "antitermica", "analgesico",
+            "gripe", "resfriado", "tosse", "nariz", "garganta",
+        }
+        extra_lookup_terms = search_terms[:1]
+        if len(search_terms) > 1:
+            extra_lookup_terms = [t for t in search_terms[1:] if t not in low_value_terms][:1]
+            if not extra_lookup_terms:
+                extra_lookup_terms = search_terms[1:2]
         seen_search = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
-        for cnpj in cnpjs[:30]:
+        if index_eans and not produtos_raw:
             try:
-                for p in get_dns_products(cnpj, busca_q):
-                    key = (p.get("cnpjloja") or cnpj, p.get("ean"))
+                for p in get_dns_products_batch_by_eans(cnpjs, index_eans[:80]):
+                    key = (p.get("cnpjloja"), p.get("ean"))
                     if key in seen_search:
                         continue
-                    p = {**p, "cnpjloja": cnpj}
                     produtos_raw.append(p)
                     seen_search.add(key)
             except Exception:
-                continue
+                pass
+        if not index_eans:
+            for cnpj in cnpjs[:4]:
+                for term in extra_lookup_terms:
+                    try:
+                        for p in get_dns_products(cnpj, term):
+                            key = (p.get("cnpjloja") or cnpj, p.get("ean"))
+                            if key in seen_search:
+                                continue
+                            p = {**p, "cnpjloja": cnpj}
+                            produtos_raw.append(p)
+                            seen_search.add(key)
+                    except Exception:
+                        continue
 
     # Deduplica por EAN: mantém da farmácia mais próxima
     produtos_view = []
@@ -3709,18 +4235,30 @@ def api_produtos_proximos():
         produtos_view.append(produto_view)
 
     produtos_view = _dedupe_products_for_display(produtos_view)
+    _attach_product_symptoms(produtos_view)
 
     if busca_q:
-        q_norm = _norm_text(busca_q)
-        produtos_view = [
-            p for p in produtos_view
-            if q_norm in _norm_text(" ".join([
+        q_terms = _search_terms_for_query(busca_q)
+        filtrados = []
+        for p in produtos_view:
+            hay_raw = " ".join([
                 p.get("ean") or "",
                 p.get("nome") or "",
                 p.get("razao") or "",
                 p.get("laboratorio") or "",
-            ]))
-        ]
+                p.get("marca") or "",
+                p.get("categoria") or "",
+                p.get("sintomas") or "",
+                p.get("termos_busca") or "",
+                p.get("principio_ativo") or "",
+                p.get("classe_terapeutica") or "",
+            ])
+            hay = _norm_text(hay_raw)
+            if _product_excluded_for_symptom_query(busca_q, hay_raw):
+                continue
+            if any(term in hay for term in q_terms):
+                filtrados.append(p)
+        produtos_view = filtrados
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
     return jsonify({
@@ -3731,6 +4269,109 @@ def api_produtos_proximos():
         "raio_fallback_km": raio_fallback,
         "n_lojas":   len(proximas),
     })
+
+
+@app.get("/api/mais-comprados")
+@_rate_limited_api(max_calls=30, window_secs=60)
+def api_mais_comprados():
+    """Produtos mais comprados nas lojas próximas (sem login necessário)."""
+    try:
+        lat_usr = float(request.args.get("lat", 0))
+        lng_usr = float(request.args.get("lng", 0))
+    except ValueError:
+        lat_usr = lng_usr = 0.0
+
+    conn = db(); cur = conn.cursor()
+    if lat_usr != 0.0 or lng_usr != 0.0:
+        cur.execute("""
+            SELECT u.cnpjloja
+            FROM users u
+            JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE AND g.lat IS NOT NULL
+              AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+        """)
+        rows_lojas = cur.fetchall()
+        cnpjs = [r["cnpjloja"] for r in rows_lojas
+                 if haversine(lat_usr, lng_usr, float(r.get("lat") or 0), float(r.get("lng") or 0)) <= 60
+                ] if rows_lojas else []
+    else:
+        cur.execute("""
+            SELECT u.cnpjloja FROM users u
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+        """)
+        cnpjs = [r["cnpjloja"] for r in cur.fetchall()]
+
+    if not cnpjs:
+        cur.close()
+        return jsonify({"produtos": []})
+
+    cur.execute("""
+        SELECT pi.ean,
+               MAX(pi.nome)  AS nome,
+               MAX(pi.imagem) AS imagem,
+               p.cnpjloja,
+               MAX(u.razao) AS razao,
+               AVG(pi.preco_unitario) AS preco,
+               COUNT(*) AS total_vendas
+        FROM ecommerce_pedido_itens pi
+        JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        WHERE p.cnpjloja = ANY(%s)
+          AND p.status NOT IN ('cancelado', 'pendente')
+          AND pi.imagem IS NOT NULL AND TRIM(pi.imagem) <> ''
+          AND COALESCE(pi.ean, '') <> ''
+        GROUP BY pi.ean, p.cnpjloja
+        ORDER BY total_vendas DESC, MAX(pi.nome)
+        LIMIT 20
+    """, (cnpjs,))
+    produtos = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return jsonify({"produtos": produtos})
+
+
+@app.get("/api/comprar-novamente")
+def api_comprar_novamente():
+    """Produtos de pedidos anteriores do consumidor logado."""
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"produtos": [], "logado": False})
+
+    try:
+        lat_usr = float(request.args.get("lat", 0))
+        lng_usr = float(request.args.get("lng", 0))
+    except ValueError:
+        lat_usr = lng_usr = 0.0
+
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT ON (pi.ean)
+               pi.ean, pi.nome, pi.imagem, pi.preco_unitario AS preco,
+               p.cnpjloja, u.razao, p.criado_em
+        FROM ecommerce_pedido_itens pi
+        JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        WHERE p.consumidor_id = %s
+          AND p.status NOT IN ('cancelado')
+          AND pi.imagem IS NOT NULL AND TRIM(pi.imagem) <> ''
+          AND COALESCE(pi.ean, '') <> ''
+        ORDER BY pi.ean, p.criado_em DESC
+        LIMIT 20
+    """, (consumidor_id,))
+    produtos = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return jsonify({"produtos": produtos, "logado": True})
+
+
+@app.get("/api/loja/<cnpj>/reputacao")
+@_rate_limited_api(max_calls=60, window_secs=60)
+def api_reputacao_loja(cnpj):
+    """Reputação pública de uma loja."""
+    rep = _reputacao_loja(cnpj)
+    if rep is None:
+        return jsonify({"suficiente": False})
+    return jsonify({"suficiente": True, **rep})
 
 
 @app.get("/api/produto/<ean>")
@@ -4167,6 +4808,7 @@ def produto_detalhe(ean):
     elif tarja == "vermelha" and anvisa.get("exibir_imagem_publica") is False and _is_med:
         imagem = _placeholder_for_tarja("vermelha") or imagem
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
+    reputacao = _reputacao_loja(loja.get("cnpjloja")) if loja else None
 
     return render_template(
         "produto_detalhe.html",
@@ -4179,6 +4821,7 @@ def produto_detalhe(ean):
         tipo_produto=tipo_produto,
         tarja=tarja,
         requer_receita=requer_receita,
+        reputacao=reputacao,
     )
 
 
@@ -4697,6 +5340,116 @@ def meus_pedidos():
     return render_template("meus_pedidos.html", pedidos=pedidos, rec_map=rec_map, motivos=_MOTIVOS_RECLAMACAO)
 
 
+@app.get("/favoritos")
+@_consumer_required
+def consumidor_favoritos():
+    _ensure_favoritos_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT f.*
+        FROM ecommerce_favoritos f
+        WHERE f.consumidor_id=%s
+        ORDER BY f.atualizado_em DESC
+        LIMIT 200
+        """,
+        (consumidor_id,),
+    )
+    favoritos = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return render_template("consumidor_favoritos.html", favoritos=favoritos)
+
+
+@app.get("/api/favoritos")
+def api_favoritos_listar():
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"favoritos": []})
+    _ensure_favoritos_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT ean, cnpjloja FROM ecommerce_favoritos WHERE consumidor_id=%s",
+        (consumidor_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return jsonify({"favoritos": [{"ean": r["ean"], "cnpjloja": r["cnpjloja"]} for r in rows]})
+
+
+@app.post("/api/favoritos")
+@_consumer_required
+def api_favoritos_toggle():
+    _ensure_favoritos_schema()
+    data = request.get_json(silent=True) or {}
+    consumidor_id = session["consumidor_id"]
+    ean = (data.get("ean") or "").strip()
+    cnpjloja = (data.get("cnpjloja") or "").strip()
+    if not ean or not cnpjloja:
+        return jsonify({"ok": False, "erro": "Produto inválido."}), 400
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id FROM ecommerce_favoritos WHERE consumidor_id=%s AND ean=%s AND cnpjloja=%s LIMIT 1",
+        (consumidor_id, ean, cnpjloja),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.execute("DELETE FROM ecommerce_favoritos WHERE id=%s", (row["id"],))
+        conn.commit()
+        cur.close()
+        return jsonify({"ok": True, "favorito": False})
+    nome = (data.get("nome") or "Produto Poupaqui").strip()[:300]
+    preco = _to_float_or_none(data.get("preco"))
+    imagem = (data.get("imagem") or "").strip()[:800] or None
+    razao = (data.get("razao") or "").strip()[:250] or None
+    categoria = (data.get("categoria") or _classificar_produto(nome) or "").strip()[:80] or None
+    cur.execute(
+        """
+        INSERT INTO ecommerce_favoritos
+          (consumidor_id, ean, cnpjloja, nome, preco, imagem, razao, categoria,
+           alerta_preco, alerta_estoque, preco_referencia)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,TRUE,%s)
+        ON CONFLICT (consumidor_id, ean, cnpjloja) DO UPDATE
+          SET nome=EXCLUDED.nome,
+              preco=EXCLUDED.preco,
+              imagem=EXCLUDED.imagem,
+              razao=EXCLUDED.razao,
+              categoria=EXCLUDED.categoria,
+              atualizado_em=NOW()
+        """,
+        (consumidor_id, ean, cnpjloja, nome, preco, imagem, razao, categoria, preco),
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True, "favorito": True})
+
+
+@app.post("/api/favoritos/alertas")
+@_consumer_required
+def api_favoritos_alertas():
+    _ensure_favoritos_schema()
+    data = request.get_json(silent=True) or {}
+    consumidor_id = session["consumidor_id"]
+    ean = (data.get("ean") or "").strip()
+    cnpjloja = (data.get("cnpjloja") or "").strip()
+    campo = data.get("campo")
+    valor = bool(data.get("valor"))
+    if campo not in ("alerta_preco", "alerta_estoque") or not ean or not cnpjloja:
+        return jsonify({"ok": False}), 400
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE ecommerce_favoritos SET {campo}=%s, atualizado_em=NOW() WHERE consumidor_id=%s AND ean=%s AND cnpjloja=%s",
+        (valor, consumidor_id, ean, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
+
+
 @app.get("/meus-pedidos/<pedido_id>")
 @_consumer_required
 def meu_pedido_detalhe(pedido_id):
@@ -4729,6 +5482,12 @@ def meu_pedido_detalhe(pedido_id):
         (pedido_id, session["consumidor_id"]),
     )
     reclamacao = cur.fetchone()
+    # Verifica se já avaliou este pedido
+    _ensure_avaliacoes_schema()
+    cur2 = conn.cursor()
+    cur2.execute("SELECT estrelas, comentario FROM ecommerce_avaliacoes_loja WHERE pedido_id=%s LIMIT 1", (pedido_id,))
+    avaliacao_feita = cur2.fetchone()
+    cur2.close()
     cur.close()
     return render_template(
         "meu_pedido_detalhe.html",
@@ -4736,7 +5495,59 @@ def meu_pedido_detalhe(pedido_id):
         itens=itens,
         reclamacao=dict(reclamacao) if reclamacao else None,
         motivos=_MOTIVOS_RECLAMACAO,
+        avaliacao_feita=dict(avaliacao_feita) if avaliacao_feita else None,
     )
+
+
+@app.post("/meus-pedidos/<pedido_id>/avaliar")
+@_consumer_required
+def avaliar_pedido(pedido_id):
+    """Submete avaliação da loja após pedido entregue."""
+    _ensure_avaliacoes_schema()
+    conn = db(); cur = conn.cursor()
+    # Verifica pedido é do consumidor e status entregue
+    cur.execute(
+        "SELECT cnpjloja, status, consumidor_id FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
+        (pedido_id,),
+    )
+    pedido = cur.fetchone()
+    if not pedido or str(pedido["consumidor_id"]) != str(session.get("consumidor_id")):
+        cur.close()
+        flash("Pedido não encontrado.", "error")
+        return redirect(url_for("meus_pedidos"))
+    if pedido["status"] not in ("entregue", "pronto_retirada", "pago"):
+        cur.close()
+        flash("Avaliação disponível apenas após a conclusão do pedido.", "warning")
+        return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+
+    try:
+        estrelas = int(request.form.get("estrelas", 0))
+    except ValueError:
+        estrelas = 0
+    if estrelas < 1 or estrelas > 5:
+        cur.close()
+        flash("Selecione entre 1 e 5 estrelas.", "warning")
+        return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+
+    comentario = (request.form.get("comentario") or "").strip()
+    if estrelas < 5 and len(comentario) < 10:
+        cur.close()
+        flash("Por favor, descreva o que poderia ter sido melhor (mínimo 10 caracteres).", "warning")
+        return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+
+    try:
+        cur.execute("""
+            INSERT INTO ecommerce_avaliacoes_loja (cnpjloja, pedido_id, consumidor_id, estrelas, comentario)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (pedido_id) DO NOTHING
+        """, (pedido["cnpjloja"], pedido_id, session["consumidor_id"], estrelas, comentario or None))
+        conn.commit()
+        flash("Avaliação enviada! Obrigado pelo feedback.", "success")
+    except Exception:
+        conn.rollback()
+        flash("Não foi possível registrar a avaliação. Tente novamente.", "error")
+    cur.close()
+    return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
 
 
 # ─── RECLAMAÇÕES: CONSUMIDOR ─────────────────────────────────────────────────
@@ -6668,6 +7479,20 @@ def painel_relatorios():
     """, rec_args)
     reclamacoes = dict(cur.fetchone() or {})
 
+    # Avaliações da loja
+    _ensure_avaliacoes_schema()
+    cur.execute("""
+        SELECT a.estrelas, a.comentario, a.criado_em,
+               p.cliente_nome
+        FROM ecommerce_avaliacoes_loja a
+        LEFT JOIN ecommerce_pedidos p ON p.id = a.pedido_id
+        WHERE a.cnpjloja = %s
+        ORDER BY a.criado_em DESC
+        LIMIT 50
+    """, (cnpjloja,))
+    avaliacoes_rows = [dict(r) for r in cur.fetchall()]
+    reputacao_rel = _calcular_reputacao_loja(avaliacoes_rows) or {}
+
     cur.close()
 
     def _num(v):
@@ -6784,7 +7609,9 @@ def painel_relatorios():
     relatorio["interesses_regiao"] = interesses_regiao
 
     return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros,
-                           vitrine_stats=vitrine_stats)
+                           vitrine_stats=vitrine_stats,
+                           avaliacoes=avaliacoes_rows,
+                           reputacao=reputacao_rel)
 
 
 @app.get("/painel/config")
@@ -7599,7 +8426,7 @@ _ADMIN_CATEGORIAS_PUBLICACAO = {
     "nao_medicamento": "Não medicamentos",
     "suplemento": "Suplementos",
     "perfumaria": "Perfumaria e Higiene",
-    "correlato": "Correlatos e Equipamentos",
+    "dermocosmetico": "Dermocosméticos",
     "nutricao": "Nutrição",
     "varejo": "Varejo/Conveniência",
     "desconhecido": "Outros/sem categoria",
@@ -7631,10 +8458,11 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         SELECT e.barras AS ean,
                COALESCE(m.descricao, e.descricao) AS nome,
                CAST(e.estoque AS INTEGER) AS qty,
-               COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
         FROM estoque e
         LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
         WHERE e.cnpj=%s AND e.estoque > %s
           AND COALESCE(e.barras, e.barras_norm, '') <> ''
@@ -7644,10 +8472,11 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         SELECT ae.ean,
                COALESCE(m.descricao, ae.descricao_produto) AS nome,
                CAST(ae.quantidade_estoque AS INTEGER) AS qty,
-               COALESCE(epi.imagem_url, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
         FROM automatiza_estoque ae
         LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
         WHERE ae.cnpj_loja=%s AND ae.quantidade_estoque > %s
           AND COALESCE(ae.ean, '') <> ''
@@ -8205,33 +9034,46 @@ def health():
 #   5. /bula/<chave> faz proxy do PDF com Authorization: Guest
 
 _TIPO_PERFUMARIA = re.compile(
-    r"\b(sabonete|shampoo|condicionador|pasta.dental|creme.dental|escova.dental|"
-    r"fio.dental|enxaguante|desodorante|absorvente|fralda|lenco.umedecido|"
-    r"algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|protetor.diario|"
-    r"talco|antisseptico.bucal|fps|spf|protetor.solar|bb.?cream|cc.?cream|"
-    r"hidratante.facial|clareador|sérum|serum|tônico.facial|esfoliante|"
-    r"mascara.facial|creme.facial|antiacne|antiidade|oleo.capilar|mascara.capilar|"
-    r"perfume|colonia|eau.de|esmalte|acetona|removedor.esmalte|tintura.capilar|"
-    r"batom|blush|primer|bronzeador|autobronzeador|delineador|sombra|glitter|"
+    r"\b(sabonete|shampoo|condicionador|creme.capilar|mascara.capilar|oleo.capilar|anticaspa|"
+    r"tintura.capilar|tinta.cabelo|coloracao.capilar|depilatorio|depilatório|cera.depilatoria|"
+    r"pasta.dental|creme.dental|escova.dental|fio.dental|enxaguante|colutorio|antisseptico.bucal|"
+    r"desodorante|antitranspirante|fralda|absorvente|lenco.umedecido|protetor.diario|"
+    r"algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|lubrificante.intimo|"
+    r"talco|creme.assadura|oleo.corporal|creme.pes|lixa.pes|cuidado.pes|"
+    r"espuma.barba|creme.barba|gel.barba|barbear|pos.barba|"
+    r"protetor.labial|lipgel|carmed|labello|"
+    r"perfume|colonia|eau.de|"
+    r"esmalte|acetona|removedor.esmalte|"
+    r"batom|blush|primer|bronzeador|autobronzeador|delineador|sombra|glitter|base.facial|rimel|mascara.cilios|"
     r"anasol|unispray)\b",
     re.IGNORECASE,
 )
-_TIPO_CORRELATO = re.compile(
-    r"\b(agulha|seringa|luva|gaze|atadura|esparadrapo|curativo|band.?aid|"
-    r"lanceta|tira.reagente|glicemia|glicosimetro|termometro|nebulizador|"
-    r"inalador|cateter|sonda|ostomia|esfigmo|agua.oxigenada|povidine|pvpi|"
-    r"clorexidina|soro.fisiologico|agua.destilada|alcool.isopropanol)\b",
+_TIPO_DERMOCOSMETICO = re.compile(
+    r"\b(protetor.solar|bloqueador.solar|fps\b|spf\b|"
+    r"serum\b|sérum\b|"
+    r"hidratante.facial|creme.facial|creme.anti.?age|creme.anti.?idade|antiidade|antirrugas|anti.?age|"
+    r"clareador|despigmentante|"
+    r"esfoliante.facial|"
+    r"mascara.facial|argila.facial|"
+    r"tonico.facial|tônico.facial|agua.micelar|"
+    r"antiacne|anti.?acne|tratamento.manchas|firmador.facial|"
+    r"bb.?cream|cc.?cream)\b",
     re.IGNORECASE,
 )
 _TIPO_NUTRICAO = re.compile(
     r"\b(dieta.enteral|formula.infantil|aptamil|enfamil|nan\b|leite.sem.lactose|"
-    r"alimento.diabet|isoton[io]|energetico|papinha|adocante|"
+    r"alimento.diabet|isoton[io]|papinha|adocante|"
     r"sucralose|stevi[ao]|frutose|maltit|fresubin|ensure\b|nutren)\b",
     re.IGNORECASE,
 )
 _TIPO_VAREJO = re.compile(
-    r"\b(bala\b|balas\b|chiclete|biscoito|agua.mineral|suco\b|pilha\b|pilhas\b|"
-    r"bateria.alcalina|produto.limpeza|detergente|papel.sulfite)\b",
+    r"\b(bala\b|balas\b|chiclete|pacoca|paçoca|barrinha.cereal|chocolate\b|biscoito|agua.mineral|suco\b|"
+    r"pilha\b|pilhas\b|bateria.alcalina|carregador|cabo.usb|fone.ouvido|brinquedo|"
+    r"produto.limpeza|detergente|papel.sulfite|pastilha\b|"
+    r"agulha|seringa|luva.descartavel|luva.procedimento|gaze|atadura|esparadrapo|curativo|band.?aid|"
+    r"lanceta|tira.reagente|glicemia|glicosimetro|termometro|nebulizador|"
+    r"inalador|cateter|sonda|ostomia|esfigmo|agua.oxigenada|povidine|pvpi|"
+    r"clorexidina|soro.fisiologico|agua.destilada|alcool.isopropanol|compressa)\b",
     re.IGNORECASE,
 )
 _TIPO_SUPLEMENTO = re.compile(
@@ -8250,16 +9092,17 @@ _TIPO_MEDICAMENTO = re.compile(
 )
 
 _TIPOS_NAO_MEDICAMENTO = frozenset({
-    "suplemento", "perfumaria", "correlato", "nutricao", "varejo",
+    "suplemento", "perfumaria", "dermocosmetico", "nutricao", "varejo",
 })
 
 # aliases para valores antigos ainda presentes no banco
 _TIPO_ALIAS = {
-    "cosmetico":     "perfumaria",
-    "higiene":       "perfumaria",
-    "dermocosmetico":"perfumaria",
-    "alimento":      "nutricao",
-    "outro":         "varejo",
+    "cosmetico":  "perfumaria",
+    "higiene":    "perfumaria",
+    "correlato":  "varejo",
+    "alimento":   "nutricao",
+    "outro":      "varejo",
+    # dermocosmetico agora é válido — sem alias
 }
 
 
@@ -8267,14 +9110,14 @@ def _classificar_produto(nome: str) -> str:
     """Retorna categoria do produto pelo nome (fallback regex; prefira tipo_ia do banco)."""
     if not nome:
         return ""
-    if _TIPO_CORRELATO.search(nome):
-        return "correlato"
-    if _TIPO_NUTRICAO.search(nome):
-        return "nutricao"
     if _TIPO_VAREJO.search(nome):
         return "varejo"
+    if _TIPO_NUTRICAO.search(nome):
+        return "nutricao"
     if _TIPO_SUPLEMENTO.search(nome):
         return "suplemento"
+    if _TIPO_DERMOCOSMETICO.search(nome):
+        return "dermocosmetico"
     if _TIPO_PERFUMARIA.search(nome):
         return "perfumaria"
     if _TIPO_MEDICAMENTO.search(nome):
@@ -9441,6 +10284,43 @@ def _ensure_cupons_schema():
         _schema_ready.add("cupons")
 
 
+def _ensure_favoritos_schema():
+    _load_db_migrations()
+    if "favoritos" in _schema_ready:
+        return
+    with _schema_lock:
+        if "favoritos" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_favoritos (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                ean TEXT NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                nome TEXT NOT NULL,
+                preco NUMERIC(10,2),
+                imagem TEXT,
+                razao TEXT,
+                categoria TEXT,
+                alerta_preco BOOLEAN DEFAULT TRUE,
+                alerta_estoque BOOLEAN DEFAULT TRUE,
+                preco_referencia NUMERIC(10,2),
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, ean, cnpjloja)
+            )
+        """)
+        cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS categoria TEXT")
+        cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_preco BOOLEAN DEFAULT TRUE")
+        cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_estoque BOOLEAN DEFAULT TRUE")
+        cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS preco_referencia NUMERIC(10,2)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("favoritos")
+
+
 @app.get("/painel/cupons")
 @painel_required
 def painel_cupons():
@@ -9734,16 +10614,25 @@ def api_cupons_disponiveis():
     if not cnpjloja:
         return jsonify({"cupons": []})
     consumidor_id = session.get("consumidor_id")
-    if not consumidor_id:
-        return jsonify({"cupons": []})
     conn = db(); cur = conn.cursor()
     # Count consumer's orders from this store
-    cur.execute(
-        "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND consumidor_id=%s AND status NOT IN ('cancelado')",
-        (cnpjloja, consumidor_id)
-    )
-    n_pedidos = (cur.fetchone() or {}).get("n") or 0
-    cur.execute("""
+    n_pedidos = 0
+    if consumidor_id:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND consumidor_id=%s AND status NOT IN ('cancelado')",
+            (cnpjloja, consumidor_id)
+        )
+        n_pedidos = (cur.fetchone() or {}).get("n") or 0
+    publico_extra = """
+            OR (c.publico = 'especifico' AND EXISTS (
+                SELECT 1 FROM ecommerce_cupons_clientes cc
+                WHERE cc.cupom_id = c.id AND cc.consumidor_id = %s
+            ))
+            OR (c.publico = 'primeira_compra' AND %s = 0)
+            OR (c.publico = 'frequente' AND %s >= c.min_compras AND c.min_compras > 0)
+    """ if consumidor_id else ""
+    params_cupom = (cnpjloja, consumidor_id, n_pedidos, n_pedidos) if consumidor_id else (cnpjloja,)
+    cur.execute(f"""
         SELECT c.id, c.codigo, c.desconto_tipo, c.desconto_valor, c.valido_ate, c.publico, c.min_compras,
                COALESCE(c.escopo,'todos') AS escopo,
                COALESCE(c.escopo_categorias,'') AS escopo_categorias,
@@ -9756,15 +10645,10 @@ def api_cupons_disponiveis():
           AND (c.uso_maximo = 0 OR c.usos_count < c.uso_maximo)
           AND (
             c.publico = 'todos'
-            OR (c.publico = 'especifico' AND EXISTS (
-                SELECT 1 FROM ecommerce_cupons_clientes cc
-                WHERE cc.cupom_id = c.id AND cc.consumidor_id = %s
-            ))
-            OR (c.publico = 'primeira_compra' AND %s = 0)
-            OR (c.publico = 'frequente' AND %s >= c.min_compras AND c.min_compras > 0)
+            {publico_extra}
           )
         ORDER BY c.desconto_valor DESC
-    """, (cnpjloja, consumidor_id, n_pedidos, n_pedidos))
+    """, params_cupom)
     rows = cur.fetchall(); cur.close()
     result = []
     for r in rows:
@@ -11914,3 +12798,4 @@ def api_dbg_email():
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
+

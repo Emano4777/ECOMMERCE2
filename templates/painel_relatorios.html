@@ -173,6 +173,7 @@
 @media (max-width: 980px) {
   .rel-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rel-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rel-opp-grid { grid-template-columns:1fr !important; }
   .rel-grid-2 { grid-template-columns:1fr; }
   .rel-summary-row { grid-template-columns:1fr 1fr; }
   .rel-summary-head { display:none; }
@@ -305,8 +306,35 @@
   {% endif %}
 </div>
 
+<div class="rel-panel" style="margin-bottom:18px">
+  <div class="rel-panel-title">
+    <span><i class="fa fa-lightbulb me-2"></i>Painel de oportunidades</span>
+    <span class="rel-pill warn">Ações rápidas</span>
+  </div>
+  <div class="rel-opp-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+    <div class="rel-kpi clickable" onclick="document.getElementById('tbl-reposicao')?.scrollIntoView({behavior:'smooth',block:'center'})">
+      <div class="ico"><i class="fa fa-boxes-stacked"></i></div>
+      <div class="val">{{ relatorio.reposicao|length }}</div>
+      <div class="lbl">itens para repor antes de perder venda</div>
+      <div class="hint">Ver reposição</div>
+    </div>
+    <div class="rel-kpi clickable" onclick="document.getElementById('tbl-baixo-giro')?.scrollIntoView({behavior:'smooth',block:'center'})">
+      <div class="ico"><i class="fa fa-bolt"></i></div>
+      <div class="val">{{ relatorio.produtos_menos_vendidos|length }}</div>
+      <div class="lbl">produtos com estoque que podem virar oferta</div>
+      <div class="hint">Criar campanha ou cupom</div>
+    </div>
+    <div class="rel-kpi clickable" onclick="document.getElementById('regioes-interesse')?.scrollIntoView({behavior:'smooth',block:'center'})">
+      <div class="ico"><i class="fa fa-map-location-dot"></i></div>
+      <div class="val">{{ relatorio.interesses_regiao|length }}</div>
+      <div class="lbl">regiões com busca sem cobertura ou produto</div>
+      <div class="hint">Avaliar expansão/entrega</div>
+    </div>
+  </div>
+</div>
+
 <div class="rel-grid-2">
-  <div class="rel-panel">
+  <div class="rel-panel" id="tbl-baixo-giro">
     <div class="rel-panel-title">
       <span><i class="fa fa-chart-area me-2"></i>Vendas por dia</span>
       <span class="rel-pill">{{ relatorio.resumo.itens|int }} itens vendidos</span>
@@ -354,7 +382,7 @@
     {% endif %}
   </div>
 
-  <div class="rel-panel">
+  <div class="rel-panel" id="tbl-reposicao">
     <div class="rel-panel-title"><span><i class="fa fa-boxes-stacked me-2"></i>Repor estoque</span></div>
     {% if relatorio.reposicao %}
     <table class="rel-table">
@@ -435,7 +463,7 @@
 </div>
 
 {% if session.get('is_admin') %}
-<div class="rel-panel" style="margin-bottom:18px">
+<div class="rel-panel" id="regioes-interesse" style="margin-bottom:18px">
   <div class="rel-panel-title">
     <span><i class="fa fa-map-location-dot me-2"></i>Regiões com procura sem cobertura</span>
     <span class="rel-pill">{{ relatorio.interesses_regiao|length }} regiões</span>
@@ -627,4 +655,60 @@
   {% endif %}
 </div>
 {% endif %}
+
+{# ── AVALIAÇÕES DA LOJA ──────────────────────────────────────────────────────── #}
+<div style="background:var(--pk-card);border:1px solid var(--pk-line);border-radius:16px;padding:20px 22px;margin-top:22px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;justify-content:space-between;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <i class="fa fa-star" style="color:#f59e0b;font-size:1.2rem"></i>
+      <div>
+        <div style="font-weight:900;font-size:1rem">Avaliações dos clientes</div>
+        <div style="font-size:.78rem;color:var(--pk-muted)">Baseado em pedidos concluídos. Mínimo 5 avaliações para exibir publicamente.</div>
+      </div>
+    </div>
+    {% if reputacao and reputacao.total %}
+    <div style="display:flex;align-items:center;gap:8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 16px">
+      <div style="font-size:1.8rem;font-weight:900;color:#ea580c">{{ reputacao.media }}</div>
+      <div>
+        <div style="display:flex;gap:2px">
+          {% for i in range(1,6) %}<i class="fa fa-star" style="color:{% if i <= reputacao.media|round %}#f59e0b{% else %}#e5e7eb{% endif %};font-size:.9rem"></i>{% endfor %}
+        </div>
+        <div style="font-size:.72rem;color:#9a3412;margin-top:2px">{{ reputacao.total }} avaliação{{ 'ões' if reputacao.total != 1 else '' }} · {{ reputacao.positivas }} positiva{{ 's' if reputacao.positivas != 1 }} · {{ reputacao.negativas_canceladas }} negativa{{ 's' if reputacao.negativas_canceladas != 1 }} cancelada{{ 's' if reputacao.negativas_canceladas != 1 }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not avaliacoes %}
+  <div style="text-align:center;padding:28px;color:var(--pk-muted);font-size:.88rem"><i class="fa fa-star-half-stroke me-2"></i>Ainda sem avaliações. Aparecem aqui após clientes concluírem pedidos.</div>
+  {% elif not reputacao or reputacao.total < 5 %}
+  <div style="background:#fffbe6;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:.84rem;color:#78350f">
+    <i class="fa fa-circle-info me-2"></i>Você tem {{ avaliacoes|length }} avaliação{{ 'ões' if avaliacoes|length != 1 }}. São necessárias pelo menos 5 para exibir a reputação publicamente.
+  </div>
+  {% else %}
+  <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 16px;margin-bottom:14px;font-size:.82rem;color:#166534">
+    <i class="fa fa-circle-check me-2"></i>Reputação pública ativa · média {{ reputacao.media }}★ visível para clientes antes de comprar.
+  </div>
+  {% endif %}
+
+  {% if avaliacoes %}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    {% for a in avaliacoes %}
+    <div style="background:{% if a.estrelas >= 4 %}#f9fafb{% else %}#fff5f5{% endif %};border:1px solid {% if a.estrelas >= 4 %}var(--pk-line){% else %}#fca5a5{% endif %};border-radius:12px;padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:flex-start">
+      <div style="width:36px;height:36px;border-radius:50%;background:{% if a.estrelas >= 4 %}#d1fae5{% else %}#fee2e2{% endif %};display:flex;align-items:center;justify-content:center;color:{% if a.estrelas >= 4 %}#065f46{% else %}#991b1b{% endif %};font-weight:900;font-size:.88rem">
+        {{ a.estrelas }}★
+      </div>
+      <div>
+        <div style="display:flex;gap:2px;margin-bottom:4px">
+          {% for i in range(1,6) %}<i class="fa fa-star" style="color:{% if i <= a.estrelas %}#f59e0b{% else %}#e5e7eb{% endif %};font-size:.8rem"></i>{% endfor %}
+        </div>
+        {% if a.comentario %}<div style="font-size:.84rem;color:var(--pk-txt);font-style:italic">"{{ a.comentario }}"</div>{% endif %}
+        {% if a.cliente_nome %}<div style="font-size:.72rem;color:var(--pk-muted);margin-top:4px">{{ a.cliente_nome }}</div>{% endif %}
+      </div>
+      <div style="font-size:.72rem;color:var(--pk-muted);white-space:nowrap">{{ a.criado_em.strftime('%d/%m/%y') if a.criado_em else '' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
 {% endblock %}

@@ -11,6 +11,19 @@
 .store { font-weight:900; }
 .meta { color:var(--pq-muted); font-size:.82rem; margin-top:3px; display:flex; gap:10px; flex-wrap:wrap; }
 .status-box { padding:16px 18px; display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:flex-start; }
+.order-timeline { padding:18px 18px 4px; display:grid; grid-template-columns:repeat(4,1fr); gap:0; border-bottom:1px solid var(--pq-border); }
+.tl-step { position:relative; text-align:center; padding:0 8px 18px; color:#b5b5b5; }
+.tl-step:before { content:''; position:absolute; top:17px; left:-50%; right:50%; height:3px; background:#e5e7eb; z-index:0; }
+.tl-step:first-child:before { display:none; }
+.tl-dot { width:34px; height:34px; border-radius:50%; margin:0 auto 8px; background:#f3f4f6; color:#9ca3af; display:flex; align-items:center; justify-content:center; position:relative; z-index:1; font-size:.86rem; }
+.tl-step.done:before, .tl-step.active:before { background:#22c55e; }
+.tl-step.done .tl-dot { background:#22c55e; color:#fff; }
+.tl-step.active .tl-dot { background:#fff7dd; color:#b45309; border:2px solid #fbbf24; }
+.tl-step.cancel .tl-dot { background:#fee2e2; color:#991b1b; }
+.tl-label { font-size:.74rem; font-weight:900; line-height:1.2; color:inherit; }
+.tl-step.done .tl-label { color:#15803d; }
+.tl-step.active .tl-label { color:#92400e; }
+.tl-step.cancel .tl-label { color:#991b1b; }
 .status-icon { width:38px; height:38px; border-radius:50%; background:#fff7dd; color:#8a6200; display:flex; align-items:center; justify-content:center; }
 .status-title { font-weight:900; margin-bottom:3px; }
 .status-text { color:var(--pq-muted); font-size:.9rem; line-height:1.45; }
@@ -25,7 +38,7 @@
 .total-row { padding:14px 18px; border-top:1px solid var(--pq-border); display:flex; justify-content:space-between; font-weight:900; }
 .total-row strong { color:var(--pq-red); font-size:1.15rem; }
 .back-link { color:var(--pq-red); font-weight:900; text-decoration:none; }
-@media(max-width:620px){ .item { align-items:flex-start; } .item-total { font-size:.9rem; } }
+@media(max-width:620px){ .item { align-items:flex-start; } .item-total { font-size:.9rem; } .order-timeline { grid-template-columns:repeat(2,1fr); row-gap:8px; } .tl-step:nth-child(3):before { display:none; } }
 </style>
 {% endblock %}
 
@@ -64,6 +77,20 @@
         </div>
       </div>
       <div style="color:var(--pq-red);font-weight:900">{{ money(pedido.total) }}</div>
+    </div>
+
+    {% set fluxo = ['pendente','pago','pronto_retirada','entregue'] if pedido.tipo_entrega == 'retirada' else ['pendente','pago','enviado','entregue'] %}
+    {% set fluxo_label = {'pendente':'Pedido recebido','pago':'Pagamento confirmado','pronto_retirada':'Pronto para retirada','enviado':'Saiu para entrega','entregue':'Concluído'} %}
+    {% set fluxo_icon = {'pendente':'receipt','pago':'credit-card','pronto_retirada':'store','enviado':'motorcycle','entregue':'circle-check'} %}
+    {% set atual_idx = fluxo.index(pedido.status) if pedido.status in fluxo else 0 %}
+    <div class="order-timeline">
+      {% for st in fluxo %}
+      {% set idx = loop.index0 %}
+      <div class="tl-step {% if pedido.status == 'cancelado' and idx == atual_idx %}cancel{% elif idx < atual_idx or pedido.status == 'entregue' %}done{% elif idx == atual_idx %}active{% endif %}">
+        <div class="tl-dot"><i class="fa fa-{{ 'xmark' if pedido.status == 'cancelado' and idx == atual_idx else fluxo_icon[st] }}"></i></div>
+        <div class="tl-label">{{ 'Pedido cancelado' if pedido.status == 'cancelado' and idx == atual_idx else fluxo_label[st] }}</div>
+      </div>
+      {% endfor %}
     </div>
 
     <div class="status-box">
@@ -233,6 +260,58 @@
     </div>
   </div>
 
+  {# ── AVALIAÇÃO DA LOJA ───────────────────────────────────────────── #}
+  {% if pedido.status in ['entregue', 'pronto_retirada'] %}
+  <div class="detail-card" style="overflow:visible">
+    {% if avaliacao_feita %}
+    <div style="padding:18px 20px;display:flex;align-items:flex-start;gap:14px">
+      <div style="width:40px;height:40px;border-radius:50%;background:#d1fae5;color:#065f46;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fa fa-star"></i></div>
+      <div>
+        <div style="font-weight:900;margin-bottom:4px">Sua avaliação foi enviada!</div>
+        <div style="display:flex;gap:3px;margin-bottom:6px">
+          {% for i in range(1,6) %}<i class="fa fa-star" style="color:{% if i <= avaliacao_feita.estrelas %}#f59e0b{% else %}#e5e7eb{% endif %};font-size:1.1rem"></i>{% endfor %}
+        </div>
+        {% if avaliacao_feita.comentario %}<div style="font-size:.84rem;color:#6b7280;font-style:italic">"{{ avaliacao_feita.comentario }}"</div>{% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div style="padding:18px 20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <div style="width:38px;height:38px;border-radius:50%;background:#fff7dd;color:#b45309;display:flex;align-items:center;justify-content:center"><i class="fa fa-star"></i></div>
+        <div>
+          <div style="font-weight:900;font-size:.95rem">Avalie sua experiência</div>
+          <div style="font-size:.78rem;color:#6b7280">Sua opinião ajuda outros clientes a escolher a farmácia certa.</div>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('avaliar_pedido', pedido_id=pedido.id) }}" id="form-avaliacao">
+        <div style="display:flex;gap:6px;margin-bottom:14px;justify-content:center" id="stars-container">
+          {% for i in range(1,6) %}
+          <label style="cursor:pointer;font-size:2.2rem;color:#e5e7eb;transition:color .12s" data-star="{{ i }}">
+            <i class="fa fa-star"></i>
+            <input type="radio" name="estrelas" value="{{ i }}" required style="display:none">
+          </label>
+          {% endfor %}
+        </div>
+        <div id="comentario-wrap" style="display:none;margin-bottom:12px">
+          <label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:5px;color:#374151">O que poderia ter sido melhor? <span style="color:var(--pq-red)">*</span></label>
+          <textarea name="comentario" id="aval-comentario" rows="3" placeholder="Descreva o que faltou ou poderia melhorar… (mín. 10 caracteres)"
+            style="width:100%;padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:.88rem;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
+        <div id="comentario-opt-wrap" style="display:none;margin-bottom:12px">
+          <label style="font-size:.82rem;font-weight:700;display:block;margin-bottom:5px;color:#374151">Quer deixar um elogio? (opcional)</label>
+          <textarea name="comentario" id="aval-comentario-opt" rows="2" placeholder="Compartilhe o que foi ótimo…"
+            style="width:100%;padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:.88rem;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
+        <button type="submit" id="btn-avaliar" disabled
+          style="width:100%;background:var(--pq-red);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:900;font-size:.92rem;cursor:pointer;font-family:inherit;opacity:.5;transition:opacity .15s">
+          <i class="fa fa-paper-plane me-1"></i>Enviar avaliação
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {# ── RECLAMAÇÃO ───────────────────────────────────────────────────── #}
   {% if reclamacao %}
     {% set rs = reclamacao.status %}
@@ -301,4 +380,47 @@
 </div>
 <style>.hidden{display:none!important}</style>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  const labels = document.querySelectorAll('#stars-container label');
+  const btn    = document.getElementById('btn-avaliar');
+  const negWrap= document.getElementById('comentario-wrap');
+  const posWrap= document.getElementById('comentario-opt-wrap');
+  let selected = 0;
+
+  function paint(n){
+    labels.forEach((l,i)=>{ l.style.color = i < n ? '#f59e0b' : '#e5e7eb'; });
+  }
+
+  labels.forEach((label, idx) => {
+    label.addEventListener('mouseenter', () => paint(idx+1));
+    label.addEventListener('mouseleave', () => paint(selected));
+    label.addEventListener('click', () => {
+      selected = idx + 1;
+      label.querySelector('input').checked = true;
+      paint(selected);
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      // Mostra campo de texto conforme a nota
+      if(selected < 5){
+        negWrap.style.display = 'block';
+        posWrap.style.display = 'none';
+        // Remove textarea opcional para não conflitar com name
+        const optTA = document.getElementById('aval-comentario-opt');
+        if(optTA) optTA.name = '';
+        document.getElementById('aval-comentario').name = 'comentario';
+      } else {
+        negWrap.style.display = 'none';
+        posWrap.style.display = 'block';
+        document.getElementById('aval-comentario').name = '';
+        const optTA = document.getElementById('aval-comentario-opt');
+        if(optTA) optTA.name = 'comentario';
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}

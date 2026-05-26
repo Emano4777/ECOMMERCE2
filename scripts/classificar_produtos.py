@@ -156,26 +156,26 @@ ON CONFLICT (ean) DO UPDATE SET
 
 TIPOS_VALIDOS = {
     "generico", "similar", "referencia",
-    "suplemento", "perfumaria", "correlato", "nutricao", "varejo",
+    "suplemento", "perfumaria", "dermocosmetico", "nutricao", "varejo",
 }
 CAT_DE_TIPO = {
-    "generico":   "medicamento",
-    "similar":    "medicamento",
-    "referencia": "medicamento",
-    "suplemento": "suplemento",
-    "perfumaria": "perfumaria",
-    "correlato":  "correlato",
-    "nutricao":   "nutricao",
-    "varejo":     "varejo",
+    "generico":       "medicamento",
+    "similar":        "medicamento",
+    "referencia":     "medicamento",
+    "suplemento":     "suplemento",
+    "perfumaria":     "perfumaria",
+    "dermocosmetico": "dermocosmetico",
+    "nutricao":       "nutricao",
+    "varejo":         "varejo",
 }
 
 
 def save_classifications(conn, results):
     rows = []
     for r in results:
-        tipo = (r.get("tipo") or "outro").lower().strip()
+        tipo = (r.get("tipo") or "varejo").lower().strip()
         if tipo not in TIPOS_VALIDOS:
-            tipo = "outro"
+            tipo = "varejo"
         categoria = r.get("categoria") or CAT_DE_TIPO[tipo]
         rows.append((
             r["ean"],
@@ -197,7 +197,7 @@ def save_classifications(conn, results):
 SYSTEM_PROMPT = """\
 Você é especialista em classificação de produtos de farmácia do mercado brasileiro, seguindo o padrão das grandes redes (Drogasil, Droga Raia, Ultrafarma).
 
-━━━ CAMPO tipo — escolha EXATAMENTE UMA das 10 opções abaixo ━━━
+━━━ CAMPO tipo — escolha EXATAMENTE UMA das 8 opções abaixo ━━━
 
 "generico"
   Medicamento com nome genérico ANVISA, bioequivalência comprovada, símbolo [G].
@@ -206,7 +206,7 @@ Você é especialista em classificação de produtos de farmácia do mercado bra
 
 "similar"
   Medicamento com nome comercial fantasia, mesmo princípio ativo que o referência, mas NÃO é o pioneiro.
-  Exemplos: MAXALGINA (dipirona), IBUPRIL (ibuprofeno), POLARADEX (dexametasona), FISIOFORT (diclofenaco tópico), REPOFLOR
+  Exemplos: MAXALGINA (dipirona), IBUPRIL (ibuprofeno), POLARADEX (dexametasona), FISIOFORT (diclofenaco tópico)
   Pista: nome fantasia + princípio ativo identificável. Inclui pomadas/cremes analgésicos com nome comercial.
 
 "referencia"
@@ -221,41 +221,67 @@ Você é especialista em classificação de produtos de farmácia do mercado bra
   Produtos Vitnatu são SEMPRE suplemento.
 
 "perfumaria"
-  Perfumaria, higiene pessoal e beleza — tudo que não é medicamento nem suplemento voltado a cuidado pessoal.
-  Exemplos: perfume, colônia, desodorante, esmalte para unhas, acetona, removedor de esmalte,
-           tintura capilar, batom, blush, maquiagem, bronzeador, protetor solar (FPS/SPF), hidratante facial,
-           sérum, creme anti-age, shampoo, condicionador, sabonete, pasta dental, escova dental, fio dental,
-           enxaguante bucal, absorvente, fralda, lenço umedecido, algodão, hastes flexíveis (cotonete),
-           papel higiênico, preservativo, talco, creme para assadura, álcool gel 70%, antisséptico bucal.
-  Use para qualquer produto de cuidado pessoal, higiene ou beleza — não existe distinção entre higiene e cosméticos aqui.
+  Perfumaria e higiene pessoal — produtos de cuidado pessoal, higiene, beleza e maquiagem SEM ativos dermatológicos funcionais.
+  Inclui: shampoo, condicionador, creme/máscara capilar, óleo capilar, anticaspa, tintura capilar
+          sabonete (corporal, íntimo, bebê), desodorante, antitranspirante, depilatório, cera depilatória
+          espuma/gel/creme de barbear, aparelho de barbear, loção pós-barba
+          pasta dental, escova dental, fio dental, enxaguante bucal, colutório, antisséptico bucal
+          absorvente feminino, protetor diário, fralda (infantil e geriátrica), absorvente geriátrico, lenço umedecido
+          perfume, colônia, eau de parfum/toilette
+          maquiagem: batom, blush, primer, base, sombra, delineador, rímel, glitter
+          esmalte para unhas, acetona, removedor de esmalte
+          óleo corporal, talco, creme para assadura, creme para os pés, lixa de pés
+          protetor labial sem ativo medicamentoso (Lipgel, Carmed, Labello/Nivea Labello)
+          preservativo, lubrificante íntimo
+          algodão, cotonete, hastes flexíveis, papel higiênico
+          álcool gel 70% (higiene pessoal)
+  NÃO inclui: protetor solar (FPS/SPF), sérum, hidratante/creme facial com ativo, creme anti-age → use dermocosmetico
 
-"correlato"
-  Correlatos, dispositivos médicos e equipamentos de saúde — regulados pela ANVISA como produtos médicos.
-  Exemplos: agulha, seringa, luva, gaze, atadura, esparadrapo, curativo adesivo, band-aid, lanceta,
-           tira reagente de glicemia, glicosímetro, termômetro, esfigmomanômetro, nebulizador, inalador,
-           cateter, sonda, bolsa de colostomia, muleta, cadeira de rodas,
-           soro fisiológico (ampola), água oxigenada, PVPI/Povidine, clorexidina, álcool isopropanol.
+"dermocosmetico"
+  Dermocosmético — produto cosmético com ativo funcional dermatológico; sem prescrição, sem tarja.
+  Inclui: protetor solar (qualquer FPS/SPF), bloqueador solar
+          sérum facial ou corporal
+          hidratante facial (com ou sem FPS), creme facial, loção facial
+          creme/tratamento anti-idade, anti-age, antirrugas
+          clareador facial, despigmentante
+          esfoliante facial
+          máscara facial (argila, colágeno etc.)
+          tônico facial, água micelar
+          tratamento para acne (tópico cosmético, NÃO medicamento com prescrição)
+          BB Cream, CC Cream
+          firmador, tratamento para manchas
+  NÃO inclui: protetor labial simples (→ perfumaria); cremes capilares (→ perfumaria)
+  NÃO inclui: medicamentos dermatológicos com prescrição (→ similar/referencia)
 
 "nutricao"
   Nutrição especial — alimentos de uso médico, dietético ou para fases especiais da vida.
   Exemplos: dieta enteral (Fresubin, Ensure, Nutren), fórmula infantil (NAN, Aptamil, Enfamil),
            leite sem lactose, alimento para diabético, papinha/purê para bebê, bolacha de arroz bebê,
-           adoçante (Sucralose, Stévia, Frutose), isotônico, energético líquido, barra de cereal.
+           adoçante (Sucralose, Stévia, Frutose), isotônico, energético líquido.
   Distinção: cápsula/pó nutricional = suplemento; alimento pronto para consumo = nutricao.
 
 "varejo"
-  Varejo/conveniência — itens não farmacêuticos vendidos na farmácia por conveniência.
-  Exemplos: balas, chicletes, biscoitos, água mineral, suco em embalagem individual, pilhas/baterias,
-           acessórios de escritório, produtos de limpeza doméstica, itens de papelaria.
-  Use apenas quando o produto claramente não se enquadra em nenhuma das outras categorias.
+  Varejo, conveniência e insumos hospitalares — tudo que não se encaixa nas categorias acima.
+  Inclui INSUMOS HOSPITALARES/CORRELATOS: seringa, agulha, luva, gaze, atadura, esparadrapo,
+         curativo adesivo, band-aid, lanceta, tira reagente de glicemia, glicosímetro,
+         termômetro, esfigmomanômetro, nebulizador, inalador, cateter, sonda,
+         bolsa de colostomia, muleta, cadeira de rodas,
+         soro fisiológico (ampola), água oxigenada, PVPI/Povidine, clorexidina, álcool isopropanol, compressa.
+  Inclui CONVENIÊNCIA/ALIMENTOS: bala, chiclete, paçoca, barrinha de cereal, chocolate, biscoito,
+         água mineral, suco, energético em lata.
+  Inclui ELETRÔNICOS/ACESSÓRIOS: pilha, bateria, carregador, cabo USB, fone de ouvido, brinquedo.
+  Inclui OUTROS: produto de limpeza doméstica, papelaria, pastilha não medicamentosa.
 
 ━━━ ATENÇÃO — distinções críticas ━━━
   - classe_med do banco PODE estar errado — use como pista, não como verdade
-  - "CORRELATOS" na classe_med → correlato
-  - "PERFUMARIA"/"PERFUMARIA/COSMETICO"/"HIGIENE" na classe_med → perfumaria
-  - "ALIMENTOS" → suplemento (cápsula/pó) | nutricao (alimento pronto) | varejo (bala/chiclete)
+  - "CORRELATOS" na classe_med → varejo (insumos hospitalares vão para varejo; correlato não existe mais)
+  - "PERFUMARIA"/"PERFUMARIA/COSMETICO"/"HIGIENE" → perfumaria (higiene) ou dermocosmetico (ativo derm.)
+  - "ALIMENTOS" → suplemento (cápsula/pó) | nutricao (alimento especial) | varejo (bala/chiclete)
   - "CONTROLADO" → não muda o tipo — avalie pelo nome (generico/similar/referencia)
-  - Pomada/creme com princípio ativo identificável (diclofenaco, ibuprofeno, etc.) → similar ou referencia, NÃO perfumaria
+  - Pomada/creme com princípio ativo identificável (diclofenaco, ibuprofeno) → similar ou referencia, NÃO perfumaria
+  - Protetor solar (FPS/SPF) → SEMPRE dermocosmetico
+  - Protetor labial simples (Lipgel, Carmed, Labello) → perfumaria
+  - Seringa, agulha, gaze, curativo → varejo
 
 ━━━ OUTROS CAMPOS ━━━
 principio_ativo    Para generico/similar/referencia: princípio ativo em português. null para os demais.
@@ -310,14 +336,14 @@ def classify_batch(client, batch):
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 
 TIPO_COR = {
-    "generico":   "\033[36m",   # ciano
-    "similar":    "\033[33m",   # amarelo
-    "referencia": "\033[35m",   # magenta
-    "suplemento": "\033[32m",   # verde
-    "perfumaria": "\033[95m",   # magenta claro
-    "correlato":  "\033[90m",   # cinza
-    "nutricao":   "\033[93m",   # amarelo claro
-    "varejo":     "\033[37m",   # branco
+    "generico":       "\033[36m",   # ciano
+    "similar":        "\033[33m",   # amarelo
+    "referencia":     "\033[35m",   # magenta
+    "suplemento":     "\033[32m",   # verde
+    "perfumaria":     "\033[95m",   # magenta claro
+    "dermocosmetico": "\033[96m",   # ciano claro
+    "nutricao":       "\033[93m",   # amarelo claro
+    "varejo":         "\033[37m",   # branco
 }
 RESET = "\033[0m"
 
@@ -330,6 +356,7 @@ def main():
     parser = argparse.ArgumentParser(description="Classifica produtos do Poupaqui com Claude")
     parser.add_argument("--force",      action="store_true", help="Reclassifica mesmo os já classificados")
     parser.add_argument("--limit",      type=int, default=None,  help="Máximo de produtos a processar")
+    parser.add_argument("--skip",       type=int, default=0,     help="Pula os primeiros N itens da lista (para retomar)")
     parser.add_argument("--dry-run",    action="store_true", help="Não grava no banco de dados")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help=f"Produtos por chamada API (padrão: {BATCH_SIZE})")
     parser.add_argument("--ean",        type=str, default=None, help="Classifica um EAN específico")
@@ -348,6 +375,11 @@ def main():
         limit=args.limit,
         ean_filter=args.ean,
     )
+
+    if args.skip:
+        print(f"  Pulando primeiros {args.skip} itens (--skip).")
+        products = products[args.skip:]
+
     total = len(products)
     print(f"  {total} produto(s) para classificar\n")
 

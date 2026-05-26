@@ -1,131 +1,451 @@
 {% extends "base_public.html" %}
-{% block title %}Poupaqui - Produtos{% endblock %}
+{% block title %}Poupaqui - Meus pedidos{% endblock %}
 
 {% block extra_style %}
 <style>
-.orders-wrap { max-width:860px; margin:0 auto; padding:28px 16px 70px; }
-.orders-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; }
-.orders-head h1 { font-size:1.45rem; font-weight:900; margin:0; display:flex; align-items:center; gap:10px; }
-
-/* Card container */
-.order-card {
+.orders-page { max-width:1040px; margin:0 auto; padding:30px 16px 76px; }
+.orders-hero {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+  margin-bottom:18px;
+}
+.orders-title-kicker {
+  color:var(--pq-red);
+  font-size:.74rem;
+  font-weight:900;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  margin-bottom:5px;
+}
+.orders-hero h1 {
+  margin:0;
+  font-size:1.75rem;
+  line-height:1.1;
+  font-weight:900;
+  color:#111827;
+}
+.orders-hero p { margin:7px 0 0; color:var(--pq-muted); font-weight:700; }
+.orders-shop-btn {
+  min-height:42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:0 16px;
+  border-radius:12px;
+  background:var(--pq-red);
+  color:#fff;
+  text-decoration:none;
+  font-weight:900;
+  box-shadow:0 12px 24px rgba(200,16,46,.18);
+  white-space:nowrap;
+}
+.orders-shop-btn:hover { color:#fff; background:var(--pq-red-dk); }
+.orders-summary {
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:10px;
+  margin-bottom:16px;
+}
+.orders-summary-card {
   background:#fff;
   border:1px solid var(--pq-border);
   border-radius:14px;
-  box-shadow:var(--pq-shadow);
-  margin-bottom:12px;
+  padding:14px 16px;
+  box-shadow:0 1px 6px rgba(0,0,0,.05);
+  position:relative;
   overflow:hidden;
-  transition:transform .15s, box-shadow .15s;
 }
-.order-card:hover { transform:translateY(-1px); box-shadow:0 8px 28px rgba(0,0,0,.12); }
-
-/* Inner link row */
-.order-card-link {
+.orders-summary-card::after {
+  content:'';
+  position:absolute;
+  right:-18px;
+  top:-22px;
+  width:72px;
+  height:72px;
+  border-radius:50%;
+  background:#fff3f5;
+}
+.orders-summary-card span {
+  display:block;
+  color:var(--pq-muted);
+  font-size:.72rem;
+  font-weight:900;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.orders-summary-card strong { display:block; margin-top:3px; font-size:1.2rem; font-weight:900; color:#111827; }
+.orders-summary-card > * { position:relative; z-index:1; }
+.orders-tools {
   display:grid;
-  grid-template-columns:1fr auto;
+  grid-template-columns:minmax(260px, 1fr) auto;
   gap:12px;
   align-items:center;
-  padding:16px 18px;
-  text-decoration:none;
-  color:inherit;
+  margin:0 0 16px;
 }
-.order-main { min-width:0; }
-.order-store { font-weight:900; margin-bottom:3px; }
-.order-meta { color:var(--pq-muted); font-size:.82rem; display:flex; gap:12px; flex-wrap:wrap; }
-.order-side { text-align:right; flex-shrink:0; }
-.order-total { color:var(--pq-red); font-weight:900; font-size:1.05rem; }
-.order-hint { color:var(--pq-red); font-size:.78rem; font-weight:900; margin-top:3px; }
-
-.status { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.78rem; font-weight:900; background:#fff7dd; color:#8a6200; margin-bottom:6px; }
-.status.pago            { background:#e9fff0; color:#15803d; }
-.status.pronto_retirada { background:#e9fff0; color:#15803d; }
-.status.enviado         { background:#eaf6ff; color:#0369a1; }
-.status.entregue        { background:#e9fff0; color:#15803d; }
-.status.cancelado       { background:#fff0f0; color:#b00020; }
-
-/* Strip de reclamação */
+.orders-search {
+  min-height:46px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:14px;
+  padding:0 14px;
+  box-shadow:0 1px 6px rgba(0,0,0,.04);
+}
+.orders-search i { color:var(--pq-red); }
+.orders-search input {
+  width:100%;
+  border:0;
+  outline:0;
+  background:transparent;
+  font-family:inherit;
+  font-size:.92rem;
+  font-weight:800;
+  color:#111827;
+}
+.orders-filter {
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  padding-bottom:2px;
+}
+.orders-filter button {
+  min-height:42px;
+  border:1px solid var(--pq-border);
+  border-radius:999px;
+  padding:0 13px;
+  background:#fff;
+  color:#4b5563;
+  font-family:inherit;
+  font-size:.82rem;
+  font-weight:900;
+  white-space:nowrap;
+  cursor:pointer;
+  transition:background .15s, color .15s, border-color .15s, box-shadow .15s;
+}
+.orders-filter button:hover { border-color:#f1c6cf; color:var(--pq-red); }
+.orders-filter button.active {
+  background:var(--pq-red);
+  color:#fff;
+  border-color:var(--pq-red);
+  box-shadow:0 10px 22px rgba(200,16,46,.16);
+}
+.orders-list { display:grid; gap:14px; }
+.order-card {
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:16px;
+  box-shadow:var(--pq-shadow);
+  overflow:hidden;
+  transition:transform .16s, box-shadow .16s, border-color .16s;
+}
+.order-card.is-hidden { display:none; }
+.order-card:hover { transform:translateY(-2px); box-shadow:0 14px 36px rgba(0,0,0,.12); border-color:#d9d9d9; }
+.order-link {
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) auto;
+  gap:18px;
+  color:inherit;
+  text-decoration:none;
+  padding:18px;
+}
+.order-topline {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  margin-bottom:12px;
+}
+.order-store-icon {
+  width:40px;
+  height:40px;
+  border-radius:13px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+  background:#fff3f5;
+  color:var(--pq-red);
+}
+.order-store-copy { min-width:0; }
+.order-store {
+  font-weight:900;
+  color:#111827;
+  line-height:1.2;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.order-id { color:var(--pq-muted); font-size:.78rem; font-weight:800; margin-top:2px; }
+.order-meta-grid {
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:8px;
+}
+.order-meta-item {
+  min-width:0;
+  border:1px solid #f0f0f0;
+  border-radius:12px;
+  padding:9px 10px;
+  background:#fbfbfb;
+}
+.order-meta-item span {
+  display:block;
+  color:var(--pq-muted);
+  font-size:.66rem;
+  font-weight:900;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.order-meta-item strong {
+  display:block;
+  margin-top:2px;
+  color:#111827;
+  font-size:.84rem;
+  font-weight:900;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.order-side {
+  min-width:170px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:14px;
+  text-align:right;
+}
+.status {
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:7px 11px;
+  border-radius:999px;
+  font-size:.78rem;
+  font-weight:900;
+  background:#fff7dd;
+  color:#8a6200;
+  white-space:nowrap;
+}
+.status i { font-size:.58rem; }
+.status.pago, .status.pronto_retirada, .status.entregue { background:#e9fff0; color:#15803d; }
+.status.enviado { background:#eaf6ff; color:#0369a1; }
+.status.cancelado { background:#fff0f0; color:#b00020; }
+.order-total-label { color:var(--pq-muted); font-size:.7rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
+.order-total { color:var(--pq-red); font-size:1.35rem; line-height:1.1; font-weight:900; }
+.order-detail {
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  color:var(--pq-red);
+  font-size:.82rem;
+  font-weight:900;
+}
 .rec-strip {
   border-top:1px solid var(--pq-border);
-  padding:9px 18px;
+  padding:11px 18px;
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:10px;
   flex-wrap:wrap;
 }
-.rec-strip-aberta            { background:#fffbeb; border-top-color:#fde68a; }
-.rec-strip-em_andamento      { background:#eaf6ff; border-top-color:#bae6fd; }
-.rec-strip-aguardando_cliente{ background:#f0fff4; border-top-color:#86efac; }
-.rec-strip-finalizada        { background:#f9fafb; border-top-color:#e5e7eb; }
-
-.rec-strip-label { font-size:.78rem; font-weight:800; display:flex; align-items:center; gap:6px; flex:1; min-width:0; }
-.rec-strip-aberta .rec-strip-label            { color:#92400e; }
-.rec-strip-em_andamento .rec-strip-label      { color:#0369a1; }
-.rec-strip-aguardando_cliente .rec-strip-label{ color:#15803d; }
-.rec-strip-finalizada .rec-strip-label        { color:#9ca3af; }
-.rec-strip-link { font-size:.75rem; font-weight:900; color:var(--pq-red); text-decoration:none; white-space:nowrap; flex-shrink:0; }
-
-/* Área do botão "Tive um problema" */
-.quick-area { padding:4px 18px 14px; }
-.btn-quick-rec { background:transparent; border:1.5px solid #e5e7eb; border-radius:8px; padding:5px 12px; font-size:.74rem; font-weight:700; color:#9ca3af; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:5px; }
-.btn-quick-rec:hover { border-color:#c8102e; color:#c8102e; }
-.quick-form { display:none; margin-top:10px; background:#fffbeb; border:1.5px solid #fde68a; border-radius:10px; padding:12px 14px; }
-.quick-form select, .quick-form textarea { width:100%; padding:7px 10px; border:1px solid #fde68a; border-radius:7px; font-family:inherit; font-size:.84rem; margin-bottom:8px; background:#fff; color:#111; box-sizing:border-box; }
+.rec-strip-aberta { background:#fffbeb; border-top-color:#fde68a; }
+.rec-strip-em_andamento { background:#eaf6ff; border-top-color:#bae6fd; }
+.rec-strip-aguardando_cliente { background:#f0fff4; border-top-color:#86efac; }
+.rec-strip-finalizada { background:#f9fafb; border-top-color:#e5e7eb; }
+.rec-strip-label { font-size:.82rem; font-weight:900; display:flex; align-items:center; gap:7px; flex:1; min-width:0; }
+.rec-strip-aberta .rec-strip-label { color:#92400e; }
+.rec-strip-em_andamento .rec-strip-label { color:#0369a1; }
+.rec-strip-aguardando_cliente .rec-strip-label { color:#15803d; }
+.rec-strip-finalizada .rec-strip-label { color:#9ca3af; }
+.rec-strip-link { font-size:.78rem; font-weight:900; color:var(--pq-red); text-decoration:none; white-space:nowrap; flex-shrink:0; }
+.quick-area { padding:0 18px 16px; }
+.btn-quick-rec {
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:8px 12px;
+  font-size:.78rem;
+  font-weight:900;
+  color:#6b7280;
+  cursor:pointer;
+  font-family:inherit;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+}
+.btn-quick-rec:hover { border-color:#c8102e; color:#c8102e; background:#fff3f5; }
+.quick-form { display:none; margin-top:10px; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:12px; }
+.quick-form select, .quick-form textarea {
+  width:100%;
+  padding:9px 10px;
+  border:1px solid #fde68a;
+  border-radius:9px;
+  font-family:inherit;
+  font-size:.86rem;
+  margin-bottom:8px;
+  background:#fff;
+  color:#111;
+}
 .quick-form-actions { display:flex; gap:8px; flex-wrap:wrap; }
-.btn-quick-submit { background:var(--pq-red); color:#fff; border:none; border-radius:7px; padding:7px 14px; font-weight:800; font-size:.82rem; cursor:pointer; font-family:inherit; }
-.btn-quick-cancel { background:transparent; border:1px solid #d1d5db; border-radius:7px; padding:6px 12px; font-size:.8rem; color:#6b7280; cursor:pointer; font-family:inherit; }
+.btn-quick-submit, .btn-quick-cancel {
+  border-radius:9px;
+  padding:8px 13px;
+  font-weight:900;
+  font-size:.82rem;
+  cursor:pointer;
+  font-family:inherit;
+}
+.btn-quick-submit { background:var(--pq-red); color:#fff; border:none; }
+.btn-quick-cancel { background:#fff; border:1px solid #d1d5db; color:#6b7280; }
+.orders-empty {
+  text-align:center;
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:18px;
+  padding:58px 22px;
+  color:var(--pq-muted);
+  box-shadow:var(--pq-shadow);
+}
+.orders-empty i {
+  width:66px;
+  height:66px;
+  border-radius:22px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:#fff3f5;
+  color:var(--pq-red);
+  font-size:1.8rem;
+  margin-bottom:14px;
+}
+.orders-empty h5 { margin:0 0 6px; color:#111827; font-weight:900; }
+.orders-empty p { margin:0 0 18px; font-weight:700; }
+.orders-no-results {
+  display:none;
+  background:#fff;
+  border:1px dashed #d9d9d9;
+  border-radius:16px;
+  padding:28px 18px;
+  text-align:center;
+  color:var(--pq-muted);
+  font-weight:800;
+}
+.orders-no-results i { color:var(--pq-red); margin-right:7px; }
 
-.orders-empty { text-align:center; background:#fff; border:1px solid var(--pq-border); border-radius:16px; padding:54px 20px; color:var(--pq-muted); }
-.orders-empty i { font-size:3rem; opacity:.25; margin-bottom:12px; display:block; }
-
-@media(max-width:540px){
-  .order-card-link { grid-template-columns:1fr; }
-  .order-side { text-align:left; }
-  .rec-strip { flex-direction:column; align-items:flex-start; gap:6px; }
+@media(max-width:760px){
+  .orders-page { padding-top:22px; }
+  .orders-hero { align-items:flex-start; flex-direction:column; }
+  .orders-shop-btn { width:100%; }
+  .orders-summary { grid-template-columns:1fr; }
+  .orders-tools { grid-template-columns:1fr; }
+  .orders-filter { padding-bottom:6px; }
+  .order-link { grid-template-columns:1fr; }
+  .order-side { min-width:0; align-items:flex-start; text-align:left; }
+  .order-meta-grid { grid-template-columns:1fr; }
+  .order-total { font-size:1.2rem; }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="orders-wrap">
-  <div class="orders-head">
-    <h1><i class="fa fa-receipt" style="color:var(--pq-red)"></i>Meus pedidos</h1>
-    <a href="{{ url_for('index') }}" style="color:var(--pq-red);font-weight:800;text-decoration:none">Comprar produtos</a>
+<div class="orders-page">
+  <div class="orders-hero">
+    <div>
+      <div class="orders-title-kicker">Minha conta</div>
+      <h1>Meus pedidos</h1>
+      <p>Acompanhe status, valores e atendimento das suas compras.</p>
+    </div>
+    <a class="orders-shop-btn" href="{{ url_for('index') }}"><i class="fa fa-bag-shopping"></i>Comprar produtos</a>
   </div>
 
   {% if pedidos %}
+  {% set ns = namespace(ativos=0, concluidos=0) %}
+  {% for p in pedidos %}
+    {% if p.status in ['pendente', 'pago', 'pronto_retirada', 'enviado'] %}
+      {% set ns.ativos = ns.ativos + 1 %}
+    {% elif p.status == 'entregue' %}
+      {% set ns.concluidos = ns.concluidos + 1 %}
+    {% endif %}
+  {% endfor %}
+  <div class="orders-summary">
+    <div class="orders-summary-card"><span>Total de pedidos</span><strong>{{ pedidos|length }}</strong></div>
+    <div class="orders-summary-card"><span>Em andamento</span><strong>{{ ns.ativos }}</strong></div>
+    <div class="orders-summary-card"><span>Concluídos</span><strong>{{ ns.concluidos }}</strong></div>
+  </div>
+
+  <div class="orders-tools" aria-label="Filtros de pedidos">
+    <label class="orders-search">
+      <i class="fa fa-magnifying-glass"></i>
+      <input id="order-search" type="search" placeholder="Buscar por loja, número do pedido ou pagamento" autocomplete="off">
+    </label>
+    <div class="orders-filter">
+      <button type="button" class="active" data-filter="todos">Todos</button>
+      <button type="button" data-filter="andamento">Em andamento</button>
+      <button type="button" data-filter="pronto_retirada">Retirada</button>
+      <button type="button" data-filter="enviado">Enviados</button>
+      <button type="button" data-filter="entregue">Concluídos</button>
+      <button type="button" data-filter="cancelado">Cancelados</button>
+    </div>
+  </div>
+
+  <div class="orders-list">
     {% for p in pedidos %}
     {% set rec = rec_map.get(p.id|string) %}
-    <div class="order-card">
-      <a class="order-card-link" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
-        <div class="order-main">
-          <div class="order-store">{{ p.razao }}</div>
-          <div class="order-meta">
-            <span>Pedido #{{ p.id[:8].upper() }}</span>
-            <span>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '' }}</span>
-            <span>{{ 'Cartão' if p.forma_pagamento == 'mercadopago' else p.forma_pagamento|capitalize }}</span>
+    {% set _sl = {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue','cancelado':'Cancelado'} %}
+    {% set grupo = 'andamento' if p.status in ['pendente', 'pago', 'pronto_retirada', 'enviado'] else p.status %}
+    <article class="order-card" data-status="{{ p.status }}" data-group="{{ grupo }}" data-search="{{ (p.razao ~ ' ' ~ p.id ~ ' ' ~ p.forma_pagamento ~ ' ' ~ _sl.get(p.status, p.status))|lower }}">
+      <a class="order-link" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
+        <div>
+          <div class="order-topline">
+            <div class="order-store-icon"><i class="fa fa-store"></i></div>
+            <div class="order-store-copy">
+              <div class="order-store">{{ p.razao }}</div>
+              <div class="order-id">Pedido #{{ p.id[:8].upper() }}</div>
+            </div>
+          </div>
+          <div class="order-meta-grid">
+            <div class="order-meta-item">
+              <span>Data</span>
+              <strong>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '-' }}</strong>
+            </div>
+            <div class="order-meta-item">
+              <span>Pagamento</span>
+              <strong>{{ 'Cartão' if p.forma_pagamento == 'mercadopago' else p.forma_pagamento|capitalize }}</strong>
+            </div>
+            <div class="order-meta-item">
+              <span>Atendimento</span>
+              <strong>{{ 'Em análise' if p.status == 'pendente' else 'Atualizado' }}</strong>
+            </div>
           </div>
         </div>
         <div class="order-side">
-          {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
           <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ _sl.get(p.status, p.status) }}</div>
-          <div class="order-total">{{ money(p.total) }}</div>
-          <div class="order-hint">Ver detalhes</div>
+          <div>
+            <div class="order-total-label">Total</div>
+            <div class="order-total">{{ money(p.total) }}</div>
+          </div>
+          <div class="order-detail">Ver detalhes <i class="fa fa-chevron-right"></i></div>
         </div>
       </a>
 
-      {# ── Strip de reclamação ── #}
       {% if rec %}
       <div class="rec-strip rec-strip-{{ rec.status }}">
         <div class="rec-strip-label">
-          {% if rec.status == 'aberta' %}<i class="fa fa-hourglass-half"></i>Reclamação aberta — aguardando resposta da farmácia
+          {% if rec.status == 'aberta' %}<i class="fa fa-hourglass-half"></i>Reclamação aberta aguardando resposta da farmácia
           {% elif rec.status == 'em_andamento' %}<i class="fa fa-comments"></i>Reclamação em andamento
-          {% elif rec.status == 'aguardando_cliente' %}<i class="fa fa-circle-check"></i>Farmácia marcou como resolvida — confirme
+          {% elif rec.status == 'aguardando_cliente' %}<i class="fa fa-circle-check"></i>Farmácia marcou como resolvida. Confirme quando puder
           {% else %}<i class="fa fa-lock"></i>Reclamação finalizada
           {% endif %}
         </div>
         <a class="rec-strip-link" href="{{ url_for('minha_reclamacao', reclamacao_id=rec.id) }}">
-          {% if rec.status == 'aguardando_cliente' %}Confirmar resolução →{% else %}Acompanhar →{% endif %}
+          {% if rec.status == 'aguardando_cliente' %}Confirmar resolução{% else %}Acompanhar{% endif %}
         </a>
       </div>
       {% elif p.status in ['pago', 'enviado', 'entregue'] %}
@@ -136,13 +456,13 @@
         <div class="quick-form" id="qf-{{ p.id }}">
           <form method="post" action="{{ url_for('abrir_reclamacao', pedido_id=p.id) }}">
             <select name="motivo" required>
-              <option value="">Selecione o problema…</option>
+              <option value="">Selecione o problema...</option>
               {% for key, label in motivos.items() %}
               <option value="{{ key }}">{{ label }}</option>
               {% endfor %}
             </select>
             <textarea name="descricao" rows="2" required minlength="20"
-              placeholder="Descreva o problema com pelo menos 20 caracteres…"></textarea>
+              placeholder="Descreva o problema com pelo menos 20 caracteres..."></textarea>
             <div class="quick-form-actions">
               <button class="btn-quick-submit" type="submit"><i class="fa fa-paper-plane me-1"></i>Abrir reclamação</button>
               <button class="btn-quick-cancel" type="button" onclick="toggleQuick('{{ p.id }}')">Cancelar</button>
@@ -151,13 +471,16 @@
         </div>
       </div>
       {% endif %}
-    </div>
+    </article>
     {% endfor %}
+  </div>
+  <div class="orders-no-results" id="orders-no-results"><i class="fa fa-filter-circle-xmark"></i>Nenhum pedido encontrado com esses filtros.</div>
   {% else %}
     <div class="orders-empty">
       <i class="fa fa-bag-shopping"></i>
       <h5>Nenhum pedido ainda</h5>
       <p>Quando você finalizar uma compra, ela aparece aqui.</p>
+      <a class="orders-shop-btn" href="{{ url_for('index') }}"><i class="fa fa-cart-shopping"></i>Começar compra</a>
     </div>
   {% endif %}
 </div>
@@ -166,5 +489,39 @@ function toggleQuick(id) {
   const el = document.getElementById('qf-' + id);
   el.style.display = el.style.display === 'block' ? 'none' : 'block';
 }
+
+const orderSearch = document.getElementById('order-search');
+const orderCards = Array.from(document.querySelectorAll('.order-card'));
+const orderEmpty = document.getElementById('orders-no-results');
+const filterButtons = Array.from(document.querySelectorAll('.orders-filter button'));
+let activeFilter = 'todos';
+
+function applyOrderFilters() {
+  const term = (orderSearch?.value || '').trim().toLowerCase();
+  let visible = 0;
+
+  orderCards.forEach(card => {
+    const matchesText = !term || (card.dataset.search || '').includes(term);
+    const matchesFilter =
+      activeFilter === 'todos' ||
+      card.dataset.status === activeFilter ||
+      card.dataset.group === activeFilter;
+    const show = matchesText && matchesFilter;
+    card.classList.toggle('is-hidden', !show);
+    if (show) visible += 1;
+  });
+
+  if (orderEmpty) orderEmpty.style.display = visible ? 'none' : 'block';
+}
+
+filterButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeFilter = btn.dataset.filter || 'todos';
+    filterButtons.forEach(item => item.classList.toggle('active', item === btn));
+    applyOrderFilters();
+  });
+});
+
+orderSearch?.addEventListener('input', applyOrderFilters);
 </script>
 {% endblock %}

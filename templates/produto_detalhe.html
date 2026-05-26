@@ -419,6 +419,20 @@
         <div class="pd-loja-info">
           <div class="pd-loja-razao">{{ loja.razao }}</div>
           {% if loja.endereco %}<div class="pd-loja-end"><i class="fa fa-map-pin me-1"></i>{{ loja.endereco }}{% if loja.uf %} — {{ loja.uf }}{% endif %}</div>{% endif %}
+          {% if reputacao %}
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
+            <div style="display:flex;gap:2px">
+              {% for i in range(1,6) %}<i class="fa fa-star" style="color:{% if i <= reputacao.media|round %}#f59e0b{% else %}#d1d5db{% endif %};font-size:.82rem"></i>{% endfor %}
+            </div>
+            <span style="font-weight:800;font-size:.82rem;color:#1a1a1a">{{ reputacao.media }}</span>
+            <span style="font-size:.76rem;color:#6b7280">({{ reputacao.total }} avaliação{{ 'ões' if reputacao.total != 1 }})</span>
+          </div>
+          {% if reputacao.comentarios %}
+          <div style="margin-top:8px;font-size:.76rem;color:#4b5563;font-style:italic;border-left:3px solid #f59e0b;padding-left:8px;line-height:1.4">
+            "{{ reputacao.comentarios[0].comentario|truncate(120) }}"
+          </div>
+          {% endif %}
+          {% endif %}
         </div>
       </div>
       {% endif %}

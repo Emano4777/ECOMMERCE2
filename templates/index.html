@@ -291,6 +291,15 @@
 }
 @media(max-width:500px) {
   .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .prod-img { height: 120px; }
+  .prod-img img { max-height: 100px; }
+  .prod-body { padding: 8px 10px 10px; }
+  .prod-nome { font-size: .76rem; }
+  .prod-preco { font-size: .98rem; }
+}
+@media(max-width:360px) {
+  .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .prod-buy-row { grid-template-columns: 1fr; gap: 6px; }
 }
 
 /* ── PRODUCT CARD ───────────────────────────────── */
@@ -305,6 +314,7 @@
   text-decoration: none;
   color: inherit;
   transition: box-shadow .2s, transform .18s;
+  position: relative;
 }
 .prod-card:hover {
   box-shadow: 0 6px 24px rgba(200,16,46,.13);
@@ -319,6 +329,25 @@
   justify-content: center;
   overflow: hidden;
 }
+.prod-fav-btn {
+  position:absolute;
+  top:8px;
+  right:8px;
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  border:1px solid rgba(0,0,0,.08);
+  background:rgba(255,255,255,.94);
+  color:#9ca3af;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  z-index:2;
+  box-shadow:0 2px 10px rgba(0,0,0,.12);
+}
+.prod-fav-btn.active { color:var(--pq-red); background:#fff0f2; }
+.prod-fav-btn:hover { color:var(--pq-red); }
 .prod-img img { max-height: 128px; max-width: 88%; object-fit: contain; }
 .prod-placeholder { color: #ddd; font-size: 2.8rem; }
 
@@ -338,7 +367,7 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 2.25em;
+  min-height: 2.7em;
 }
 .prod-lab {
   display: inline-flex;
@@ -543,6 +572,33 @@
   transition: background .15s;
 }
 .er-btn-loc:hover { background: #fff5f7; }
+.er-sugestao {
+  margin-top: 28px; padding: 18px 20px;
+  background: #f9f9fb; border: 1.5px dashed #d4d4e0;
+  border-radius: 12px; text-align: left; width: 100%;
+}
+.er-sugestao-title {
+  font-size: .88rem; font-weight: 800; color: var(--pq-text); margin-bottom: 4px;
+}
+.er-sugestao-sub {
+  font-size: .78rem; color: var(--pq-muted); margin-bottom: 12px;
+}
+#er-sug-form { display: flex; flex-direction: column; gap: 8px; }
+#er-sug-form input {
+  padding: 8px 12px; border: 1.5px solid #ddd; border-radius: 8px;
+  font-size: .85rem; font-family: inherit; outline: none;
+  transition: border-color .15s;
+}
+#er-sug-form input:focus { border-color: var(--pq-red); }
+#er-sug-form button {
+  align-self: flex-start; padding: 8px 18px;
+  background: var(--pq-red); color: #fff;
+  border: none; border-radius: 8px;
+  font-size: .84rem; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: opacity .15s;
+}
+#er-sug-form button:hover { opacity: .88; }
 .idx-pager {
   display: flex;
   align-items: center;
@@ -736,6 +792,9 @@ let _serverSearchLoading = false;
 let _produtosLoadSeq = 0;
 const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
 const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
+const FAVORITOS = new Set();
+const INITIAL_PARAMS = new URLSearchParams(location.search);
+const ONLY_OFFERS = INITIAL_PARAMS.get('ofertas') === '1';
 const INTERESSE_KEY = 'pq_anon_interesse';
 const _interessesRegistrados = new Set();
 
@@ -746,14 +805,14 @@ const CAT_LABELS = {
   referencia:     'Medicamentos de Referência',
   suplemento:     'Suplementos',
   perfumaria:     'Perfumaria e Higiene',
-  correlato:      'Correlatos e Equipamentos',
+  dermocosmetico: 'Dermocosméticos',
   nutricao:       'Nutrição',
   varejo:         'Varejo/Conveniência',
   // aliases para valores antigos ainda no banco
   cosmetico:      'Perfumaria e Higiene',
   higiene:        'Perfumaria e Higiene',
-  dermocosmetico: 'Perfumaria e Higiene',
   alimento:       'Nutrição',
+  correlato:      'Varejo/Conveniência',
 };
 
 function brl(v) {
@@ -765,16 +824,64 @@ function normTxt(s) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
-const _CAT_ALIAS = {cosmetico:'perfumaria', higiene:'perfumaria', dermocosmetico:'perfumaria', alimento:'nutricao', outros:'varejo'};
+const SYMPTOM_TERMS = {
+  febre: ['febre','antitermico','antitermica','dipirona','paracetamol','ibuprofeno','termometro'],
+  dor: ['dor','analgesico','paracetamol','dipirona','ibuprofeno','naproxeno','dorflex','neosaldina'],
+  cabeca: ['dor de cabeca','cefaleia','analgesico','dipirona','paracetamol','neosaldina'],
+  gripe: ['gripe','resfriado','antigripal','benegrip','cimegripe','multigrip','paracetamol','dipirona','vitamina c','soro nasal'],
+  resfriado: ['resfriado','gripe','antigripal','soro nasal','pastilha','vitamina c'],
+  tosse: ['tosse','xarope','expectorante','antitussigeno','acetilcisteina','ambroxol','guaco'],
+  catarro: ['catarro','expectorante','acetilcisteina','ambroxol','xarope'],
+  garganta: ['dor de garganta','garganta','pastilha','spray','mel','propolis'],
+  nariz: ['nariz','congestao nasal','soro nasal','descongestionante','rinossoro','maresis'],
+  rinite: ['rinite','antialergico','loratadina','cetirizina','fexofenadina','soro nasal'],
+  alergia: ['alergia','antialergico','loratadina','cetirizina','fexofenadina','desloratadina'],
+  azia: ['azia','queimacao','antiacido','omeprazol','pantoprazol','esomeprazol','hidroxido'],
+  queimacao: ['queimacao','azia','antiacido','omeprazol','pantoprazol'],
+  enjoo: ['enjoo','nausea','antiemetico','dimenidrinato','dramin','meclizina'],
+  nausea: ['nausea','enjoo','dimenidrinato','dramin'],
+  diarreia: ['diarreia','soro reidratacao','probiotico','loperamida','floratil'],
+  'prisao ventre': ['prisao de ventre','constipacao','laxante','lactulose','supositorio','fibra'],
+  constipacao: ['constipacao','prisao de ventre','laxante','lactulose','fibra'],
+  colica: ['colica','escopolamina','buscopan','simeticona','analgesico'],
+  gases: ['gases','simeticona','dimeticona','luftal'],
+  assadura: ['assadura','pomada','dexpantenol','bepantol','hipoglos','nistatina'],
+  machucado: ['machucado','ferimento','curativo','gaze','antisseptico','clorexidina','agua oxigenada'],
+  ferimento: ['ferimento','machucado','curativo','gaze','antisseptico','clorexidina'],
+  acne: ['acne','antiacne','gel limpeza','sabonete facial','peroxido benzoila'],
+  'pele seca': ['pele seca','hidratante','creme hidratante','locao hidratante','dexpantenol'],
+  queimadura: ['queimadura','pos sol','dexpantenol','aloe vera','hidratante'],
+  insonia: ['insonia','melatonina','sono']
+};
+
+function searchTermsForQuery(q) {
+  const base = normTxt(q).trim();
+  if (!base) return [];
+  const terms = [base];
+  Object.entries(SYMPTOM_TERMS).forEach(([symptom, mapped]) => {
+    if (base.includes(symptom) || symptom.includes(base)) terms.push(...mapped);
+  });
+  return [...new Set(terms.map(normTxt).filter(Boolean))];
+}
+
+function productExcludedForSymptomQuery(q, hay) {
+  const query = normTxt(q);
+  const text = normTxt(hay);
+  if ((query.includes('febre') || query.includes('gripe') || query.includes('resfriado')) && /\b(buscopan|hioscina|escopolamina|tramadol|codeina|morfina|oxicodona)\b/.test(text)) return true;
+  if ((query.includes('diarreia') || query.includes('intestino')) && /\b(shampoo|condicionador|creme para pentear|sabonete)\b/.test(text)) return true;
+  return false;
+}
+
+const _CAT_ALIAS = {cosmetico:'perfumaria', higiene:'perfumaria', correlato:'varejo', alimento:'nutricao', outros:'varejo'};
 function productCategory(p) {
   const raw = (p.categoria || '').trim();
   if (raw) return _CAT_ALIAS[raw] || raw;
   const nome = normTxt(p.nome);
-  if (/\b(agulha|seringa|gaze|atadura|curativo|band.?aid|lanceta|glicemia|termometro|nebulizador|agua.?oxigenada|clorexidina)\b/.test(nome)) return 'correlato';
-  if (/\b(formula.?infantil|dieta.?enteral|isoton|energetico|papinha|adocante|sucralose|fresubin|nutren)\b/.test(nome)) return 'nutricao';
-  if (/\b(bala|chiclete|biscoito|pilha|bateria.?alcalina)\b/.test(nome)) return 'varejo';
+  if (/\b(formula.?infantil|dieta.?enteral|papinha|adocante|sucralose|fresubin|nutren)\b/.test(nome)) return 'nutricao';
+  if (/\b(bala|chiclete|pacoca|barrinha.cereal|biscoito|pilha|bateria.?alcalina|agulha|seringa|gaze|curativo|band.?aid|lanceta|termometro|nebulizador|agua.?oxigenada|clorexidina|carregador|brinquedo)\b/.test(nome)) return 'varejo';
   if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|probiotico|melatonina|vitnatu)\b/.test(nome)) return 'suplemento';
-  if (/\b(sabonete|shampoo|condicionador|pasta.?dental|escova.?dental|desodorante|absorvente|fralda|algodao|cotonete|preservativo|fps|spf|protetor.?solar|facial|serum|perfume|colonia|esmalte|acetona|removedor.?esmalte|tintura|batom|blush|primer|bronzeador|delineador)\b/.test(nome)) return 'perfumaria';
+  if (/\b(protetor.?solar|fps\b|spf\b|serum|sérum|hidratante.?facial|creme.?facial|anti.?age|antiidade|clareador|antiacne|bb.?cream|agua.?micelar|esfoliante.?facial)\b/.test(nome)) return 'dermocosmetico';
+  if (/\b(sabonete|shampoo|condicionador|pasta.?dental|escova.?dental|desodorante|absorvente|fralda|algodao|cotonete|preservativo|perfume|colonia|esmalte|acetona|tintura|batom|blush|maquiagem|depilat|protetor.?labial|lipgel|carmed)\b/.test(nome)) return 'perfumaria';
   if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
   return 'varejo';
 }
@@ -836,11 +943,15 @@ function hydrateFilters() {
       .join('');
   if ([...stores.keys()].includes(currentStore)) storeSel.value = currentStore;
   if (cats.has(currentCat)) catSel.value = currentCat;
+  const urlCat = INITIAL_PARAMS.get('cat') || '';
+  if (urlCat && cats.has(urlCat) && !catSel.value) catSel.value = urlCat;
   renderSortList();
 }
 
 function cardHtml(p, idx) {
   _cards[idx] = p;
+  const favKey = `${p.cnpjloja || ''}|${p.ean || ''}`;
+  const favActive = FAVORITOS.has(favKey);
   const prodUrl = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
   const lab = (p.laboratorio || p.fabricante || p.marca || '').trim();
   const imgTag = p.imagem
@@ -856,13 +967,16 @@ function cardHtml(p, idx) {
     : '';
   return `
     <div class="prod-card" onclick="location.href='${prodUrl}'" style="cursor:pointer">
+      <button class="prod-fav-btn ${favActive ? 'active' : ''}" type="button" title="${favActive ? 'Remover dos favoritos' : 'Favoritar e ativar alertas'}" onclick="toggleFavorito(${idx}, this, event)">
+        <i class="fa-${favActive ? 'solid' : 'regular'} fa-heart"></i>
+      </button>
       <div class="prod-img">
         ${imgTag}
         <div class="prod-placeholder" style="${phStyle}"><i class="fa fa-pills"></i></div>
       </div>
       <div class="prod-body">
         <div class="prod-nome">${esc(p.nome)}</div>
-        ${lab ? `<div class="prod-lab" title="${esc(lab)}"><i class="fa fa-flask"></i><span>${esc(lab)}</span></div>` : ''}
+        <div class="prod-lab"${lab ? ` title="${esc(lab)}"` : ' aria-hidden="true"'}>${lab ? `<i class="fa fa-flask"></i><span>${esc(lab)}</span>` : ''}</div>
         ${(() => {
           const cp = melhorCupomParaProduto(p);
           if (cp) {
@@ -914,6 +1028,32 @@ function addFromCard(idx) {
   if (!p) return;
   const qty = parseInt(document.getElementById('qty-' + idx)?.value) || 1;
   addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', distancia_km:p.distancia_km, aceita_entrega:p.aceita_entrega, raio_entrega_km:p.raio_entrega_km, entrega_disponivel:p.entrega_disponivel, valor_frete:p.valor_frete||0, qty, requer_receita: p.requer_receita||false, receita_retida:!!(p.receita_retida || p.requer_receita), tarja: p.tarja||null});
+}
+
+function toggleFavorito(idx, btn, ev) {
+  if (ev) ev.stopPropagation();
+  if (!IS_CONSUMIDOR) {
+    location.href = `/entrar?next=${encodeURIComponent(location.pathname + location.search)}`;
+    return;
+  }
+  const p = _cards[idx];
+  if (!p || !btn) return;
+  btn.disabled = true;
+  fetch('/api/favoritos', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      ean:p.ean, cnpjloja:p.cnpjloja, nome:p.nome, preco:p.preco,
+      imagem:p.imagem, razao:p.razao, categoria:productCategory(p)
+    })
+  }).then(r => r.json()).then(d => {
+    const key = `${p.cnpjloja || ''}|${p.ean || ''}`;
+    if (d.favorito) FAVORITOS.add(key); else FAVORITOS.delete(key);
+    btn.classList.toggle('active', !!d.favorito);
+    btn.innerHTML = `<i class="fa-${d.favorito ? 'solid' : 'regular'} fa-heart"></i>`;
+    btn.title = d.favorito ? 'Remover dos favoritos' : 'Favoritar e ativar alertas';
+    showCartToast(d.favorito ? 'Favorito salvo com alertas ativos.' : 'Removido dos favoritos.');
+  }).finally(() => { btn.disabled = false; });
 }
 
 function renderProdutos(lista) {
@@ -985,6 +1125,7 @@ function _applySortKey(sort, a, b) {
 function filterAndRender(resetPage=false) {
   if (resetPage) currentPage = 1;
   const q = normTxt(document.getElementById('search-inp')?.value || '').trim();
+  const qTerms = searchTermsForQuery(q);
   const store = storeSel.value;
   const cat = catSel.value;
   const sort = selectedSorts[0] || 'distance_asc';
@@ -993,10 +1134,12 @@ function filterAndRender(resetPage=false) {
   const precoMax = parseFloat(document.getElementById('filter-preco-max')?.value) || 0;
 
   filteredProdutos = allProdutos.filter(p => {
-    const hay = normTxt([p.nome, p.razao, p.ean].filter(Boolean).join(' '));
-    return (!q || hay.includes(q)) &&
+    const hay = normTxt([p.nome, p.razao, p.ean, p.laboratorio, p.marca, productCategory(p), p.sintomas, p.termos_busca, p.principio_ativo, p.classe_terapeutica].filter(Boolean).join(' '));
+    const temOferta = !ONLY_OFFERS || !!melhorCupomParaProduto(p) || priceOf(p) <= 20;
+    return (!q || (!productExcludedForSymptomQuery(q, hay) && qTerms.some(term => hay.includes(term)))) &&
            (!store || p.cnpjloja === store) &&
            (!cat || productCategory(p) === cat) &&
+           temOferta &&
            (!precoMax || priceOf(p) <= precoMax);
   });
 
@@ -1206,6 +1349,35 @@ function registrarInteresseRegional(data, lat, lng, motivo, cidadesDisponiveis=[
   }).catch(() => {});
 }
 
+async function enviarSugestaoRegiao() {
+  const cidade  = (document.getElementById('er-sug-cidade')?.value || '').trim();
+  const produto = (document.getElementById('er-sug-produto')?.value || '').trim();
+  if (!cidade) {
+    document.getElementById('er-sug-cidade').focus();
+    return;
+  }
+  const btn = document.querySelector('#er-sug-form button');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+  try {
+    await fetch('/api/sugestao-regiao', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        anon_id:          anonInteresseId(),
+        cidade_sugerida:  cidade,
+        produto_desejado: produto,
+        localizacao_label: localStorage.getItem('pq_loc_nome') || '',
+        lat: localStorage.getItem('pq_lat'),
+        lng: localStorage.getItem('pq_lng'),
+      })
+    });
+    document.getElementById('er-sug-form').style.display = 'none';
+    document.getElementById('er-sug-ok').style.display   = 'block';
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar sugestão'; }
+  }
+}
+
 function carregarProdutos(lat, lng, busca='') {
   _currentLat = lat;
   _currentLng = lng;
@@ -1275,7 +1447,19 @@ function carregarProdutos(lat, lng, busca='') {
           <div class="er-title">Nenhum produto disponível nessa área</div>
           <div class="er-sub">
             Sua localização pode não estar precisa, ou esta região ainda não conta
-            com produtos cadastrados no Poupaqui. Veja as cidades já disponíveis:
+            com produtos cadastrados no Poupaqui.
+          </div>
+          <div class="er-sugestao">
+            <div class="er-sugestao-title"><i class="fa fa-bell me-1"></i>Quer ser avisado quando chegarmos aí?</div>
+            <div class="er-sugestao-sub">Deixe uma sugestão — usamos para priorizar novas cidades.</div>
+            <div id="er-sug-form">
+              <input id="er-sug-cidade" type="text" placeholder="Sua cidade (Ex: São José do Rio Preto - SP)" maxlength="150" />
+              <input id="er-sug-produto" type="text" placeholder="Produto que você busca (opcional)" maxlength="200" />
+              <button onclick="enviarSugestaoRegiao()"><i class="fa fa-paper-plane me-1"></i>Enviar sugestão</button>
+            </div>
+            <div id="er-sug-ok" style="display:none;color:#22c55e;font-weight:700;font-size:.88rem;margin-top:8px;">
+              <i class="fa fa-check-circle me-1"></i>Sugestão enviada! Obrigado.
+            </div>
           </div>
           <div class="er-cidades-label">Cidades disponíveis</div>
           <div class="er-cidades" id="er-cidades-list">
@@ -1300,14 +1484,29 @@ function carregarProdutos(lat, lng, busca='') {
       // Busca cupons disponíveis (só se logado)
       if (IS_CONSUMIDOR) {
         const cnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))];
+        Promise.all([
+          ...cnpjs.map(cnpj =>
+            fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
+              .then(r => r.json())
+              .then(d => { _cuponsIndex[cnpj] = d.cupons || []; })
+              .catch(() => {})
+          ),
+          fetch('/api/favoritos')
+            .then(r => r.json())
+            .then(d => {
+              FAVORITOS.clear();
+              (d.favoritos || []).forEach(f => FAVORITOS.add(`${f.cnpjloja || ''}|${f.ean || ''}`));
+            })
+            .catch(() => {})
+        ]).then(() => filterAndRender(true));
+      } else {
+        const cnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))].slice(0, 16);
         Promise.all(cnpjs.map(cnpj =>
           fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
             .then(r => r.json())
             .then(d => { _cuponsIndex[cnpj] = d.cupons || []; })
             .catch(() => {})
         )).then(() => filterAndRender(true));
-      } else {
-        filterAndRender(true);
       }
     })
     .catch(() => {
@@ -1387,15 +1586,19 @@ if (['25','50','100'].includes(savedPageSize)) {
   const ds = document.getElementById('page-size-drawer');
   if (ds) ds.value = savedPageSize;
 }
+const initialQ = INITIAL_PARAMS.get('q') || '';
+if (initialQ && document.getElementById('search-inp')) {
+  document.getElementById('search-inp').value = initialQ;
+}
 
 const _lat = localStorage.getItem('pq_lat');
 const _lng = localStorage.getItem('pq_lng');
 if (_lat && _lng) {
-  carregarProdutos(parseFloat(_lat), parseFloat(_lng));
+  carregarProdutos(parseFloat(_lat), parseFloat(_lng), initialQ);
 } else {
   setTimeout(() => {
     if (skelGrid.style.display !== 'none') {
-      carregarProdutos(0, 0);
+      carregarProdutos(0, 0, initialQ);
     }
   }, 3000);
 }

@@ -37,7 +37,19 @@
       "Bash(python -c \"from app import _candidate_images, _external_image, _detectar_tarja; print\\('OK'\\)\")",
       "Bash(python -c \"from app import _detectar_tarja, _external_image; print\\('OK'\\)\")",
       "Bash(python -c \"from preencher_medicamentos_imagens_seguras import _candidate_images, _anvisa_for_name, _is_bad_image, _is_clean_image, _external_image; print\\('OK'\\)\")",
-      "PowerShell($key = \\(python -c \"import os; from dotenv import load_dotenv; load_dotenv\\('.env'\\); print\\(os.getenv\\('ANTHROPIC_API_KEY',''\\), end=''\\)\" 2>$null\\); Write-Host \"Key found: $\\($key.Length\\) chars\"; $key | vercel env add ANTHROPIC_API_KEY production 2>&1)"
+      "PowerShell($key = \\(python -c \"import os; from dotenv import load_dotenv; load_dotenv\\('.env'\\); print\\(os.getenv\\('ANTHROPIC_API_KEY',''\\), end=''\\)\" 2>$null\\); Write-Host \"Key found: $\\($key.Length\\) chars\"; $key | vercel env add ANTHROPIC_API_KEY production 2>&1)",
+      "Bash(python scripts/classificar_produtos.py --dry-run --limit 5)",
+      "Bash(python scripts/classificar_produtos.py --limit 60)",
+      "Bash(python scripts/classificar_medicamentos.py --dry-run --limit 10)",
+      "Bash(python scripts/classificar_medicamentos.py --limit 100)",
+      "Bash(python scripts/classificar_medicamentos.py --dry-run --limit 30 --force)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('app.py', doraise=True\\)\")",
+      "Bash(sort -t: -k3)",
+      "Bash(uniq -d -f2)",
+      "Bash(awk '{print $2}')",
+      "Bash(grep -v \"^[0-9]*:\\\\s*/\\\\*\\\\|^[0-9]*:\\\\s*\\\\.\\\\|^[0-9]*:\\\\s*//\")",
+      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\app.py\" -Raw\\) -replace 'COALESCE\\\\\\(m\\\\.laboratorio, pc\\\\.laboratorio\\\\\\)', 'COALESCE\\(pc.laboratorio, m.laboratorio\\)' | Set-Content \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\app.py\" -Encoding utf8)",
+      "Bash(python scripts/limpar_imagens_erradas.py --stats)"
     ],
     "additionalDirectories": [
       "c:\\Users\\emano\\dns-ecommerce"
