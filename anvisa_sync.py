@@ -32,6 +32,7 @@ _STOP_WORDS = {
     "mg","mcg","ml","ui","gr","cp","caps","comp","tab","un","und",
     "sol","solucao","injetavel","oral","topico","cutaneo","subl",
     "cpr","drg","amp","fco","bsa","gel","crem","pom","sup","xpe",
+    "susp","solu","gota","gotas","soln","inj",
     "rev","retard","ret","iny","inf","efervescente","spray",
     "comprimido","comprimidos","capsula","capsulas","softgel","gelcap",
     "dragea","drageias","xarope","pomada","creme","supositorio",
@@ -39,8 +40,9 @@ _STOP_WORDS = {
     "pastilha","pastilhas","sublingual","transdermico","inalacao",
     "revestido","revestidos","liberacao","prolongada","retardada",
     "efervescente","mastigavel","dispersivel","orodisp","orodispersivel",
-    # Embalagem (recipiente/unidade) — nunca faz parte do nome ANVISA
-    "frasco","frascos","litro","litros",
+    # Embalagem / acessório dosador — nunca fazem parte do INN
+    "frasco","frascos","litro","litros","copo","copinho","dosador","medidor",
+    "conta","seringa","caneta","nebulizador","inalador","vaporizador",
     # Rótulos comerciais — nunca aparecem em nomes ANVISA registrados
     "generico","generica","similar","bioequivalente",
     # Prefixos de sal farmacológico (nunca são o nome ANVISA)
@@ -156,6 +158,17 @@ _MARCA_TO_INN = {
     "LORATADIN":    "LORATADINA",              # loratadina (variação de grafia no estoque)
 }
 
+# Chaves OTC que NÃO devem ser sobrescritas pelo bulário.
+# São produtos comuns cujo _chave() colide com versões farmacêuticas específicas na ANVISA
+# (ex: "ÁGUA PARA INJEÇÃO", "ÁLCOOL 70% HEMAFARMA"), causando falsos positivos de tarja vermelha.
+_CHAVES_OTC_ISENTO = frozenset({
+    "AGUA OXIGENADA", "AGUA BORICADA", "AGUA DESTILADA", "AGUA MELISSA",
+    "AGUA", "ALCOOL ETILICO", "ALCOOL GEL", "ALCOOL ANTISSEPTICO", "ALCOOL IODADO",
+    "SORO FISIOLOGICO", "ANTISSEPTICO", "CANFORA", "AMONIA",
+    "ACIDO ASCORBICO", "ACIDO FOLICO", "VITAMINA", "VITAM",
+    "NOVA", "FONT", "CARVAO VEGETAL",
+})
+
 
 def _chave(nome):
     tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
@@ -200,6 +213,7 @@ def _cache_row(chave, dados):
 
 
 def _salvar_many(rows, page_size=50):
+    rows = [r for r in rows if r[0] not in _CHAVES_OTC_ISENTO]
     if not rows:
         return 0
     conn = _db()
@@ -253,6 +267,117 @@ _INDICADORES_MEDICAMENTO = re.compile(
 def _parece_medicamento(nome: str) -> bool:
     """Retorna True se o nome tem indício de ser medicamento registrado na ANVISA."""
     return bool(_INDICADORES_MEDICAMENTO.search(nome))
+
+
+_NAO_ANVISA_RE = re.compile(
+    r"\b(taxa\s+de\s+entrega|frete|entrega|servi[cç]o|credito|cr[eé]dito|"
+    r"recarga|brinde|sacola|embalagem|cashback|desconto|cupom|"
+    r"whey|protein|prote[ií]na|creatina|barra\s+de\s+cereal|chocolate|"
+    r"bala|chicle|goma|sorvete|refrigerante|energ[eé]tico|suco|nectar|"
+    r"caf[eé]|panetone|bombom|mel\s+pote|mentos|tic\s*tac|"
+    r"desodorante|desod\b|shampoo|condicionador|sabonete|hidratante|perfume|col[oô]nia|"
+    r"escova|pente|esmalte|maquiagem|batom|l[aá]pis|pin[cç]a|"
+    r"fralda|absorvente|toalha\s+umedecida|len[cç]o|"
+    r"jojoba|abacate|cateter|equipo|seringa|agulha|gaze|curativo|atadura|algod[aã]o|m[aá]scara)\b",
+    re.IGNORECASE,
+)
+
+_TIPOS_ANVISA_MED = {"generico", "similar", "referencia"}
+_TIPOS_NAO_ANVISA = {"suplemento", "perfumaria", "dermocosmetico", "nutricao", "outro", "cosmetico", "higiene"}
+
+
+def _ignorar_catalogo_anvisa(nome: str) -> bool:
+    """Itens operacionais do PDV/ecommerce que nunca devem ir para consulta ANVISA."""
+    return bool(_NAO_ANVISA_RE.search(nome or ""))
+
+
+def _catalogo_sql(recorte_antigo=False):
+    filtro_recorte_dns = ""
+    filtro_recorte_auto = ""
+    if recorte_antigo:
+        filtro_recorte_dns = """
+          AND (dns.ean_norm IS NOT NULL
+               OR mi.cloudinary_url IS NOT NULL
+               OR NULLIF(TRIM(m.imagem), '') IS NOT NULL
+               OR e.descricao ILIKE ANY(ARRAY[
+                    '%%anasol%%','%%vit natu%%','%%vitnatu%%',
+                    '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
+                  ])
+               OR EXISTS (
+                    SELECT 1 FROM ecommerce_catalogo_extra ex
+                    WHERE ex.cnpjloja = e.cnpj AND ex.ean = e.barras
+               ))
+        """
+        filtro_recorte_auto = """
+          AND (dns.ean_norm IS NOT NULL
+               OR mi.cloudinary_url IS NOT NULL
+               OR NULLIF(TRIM(m.imagem), '') IS NOT NULL
+               OR ae.descricao_produto ILIKE ANY(ARRAY[
+                    '%%anasol%%','%%vit natu%%','%%vitnatu%%',
+                    '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
+                  ])
+               OR EXISTS (
+                    SELECT 1 FROM ecommerce_catalogo_extra ex
+                    WHERE ex.cnpjloja = ae.cnpj_loja AND ex.ean = ae.ean
+               ))
+        """
+
+    return f"""
+        WITH catalogo AS (
+            SELECT
+                LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AS ean,
+                COALESCE(m.descricao, e.descricao) AS nome,
+                COALESCE(cls.tipo, m.tipo_ia) AS tipo_ia,
+                CASE WHEN m.id IS NOT NULL THEN 1 ELSE 0 END AS tem_medicamento,
+                e.estoque AS qtd
+            FROM estoque e
+            LEFT JOIN omie_estoque_dns dns ON dns.ean_norm = COALESCE(e.barras_norm, e.barras)
+            LEFT JOIN medicamentos m       ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
+            LEFT JOIN ecommerce_classificacao_ean cls ON cls.ean = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            WHERE e.estoque > 0
+              AND COALESCE(e.barras, e.barras_norm, '') <> ''
+              AND COALESCE(m.descricao, e.descricao) IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM ecommerce_catalogo_oculto co
+                  WHERE co.cnpjloja = e.cnpj AND co.ean = e.barras
+              )
+              {filtro_recorte_dns}
+
+            UNION ALL
+
+            SELECT
+                LTRIM(COALESCE(ae.ean, ''), '0') AS ean,
+                COALESCE(m.descricao, ae.descricao_produto) AS nome,
+                COALESCE(cls.tipo, m.tipo_ia) AS tipo_ia,
+                CASE WHEN m.id IS NOT NULL THEN 1 ELSE 0 END AS tem_medicamento,
+                ae.quantidade_estoque AS qtd
+            FROM automatiza_estoque ae
+            LEFT JOIN omie_estoque_dns dns ON dns.ean_norm = ae.ean
+            LEFT JOIN medicamentos m       ON m.barra_norm = ae.ean
+            LEFT JOIN ecommerce_classificacao_ean cls ON cls.ean = LTRIM(COALESCE(ae.ean, ''), '0')
+            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            WHERE ae.quantidade_estoque > 0
+              AND COALESCE(ae.ean, '') <> ''
+              AND COALESCE(m.descricao, ae.descricao_produto) IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM ecommerce_catalogo_oculto co
+                  WHERE co.cnpjloja = ae.cnpj_loja AND co.ean = ae.ean
+              )
+              {filtro_recorte_auto}
+        )
+        SELECT DISTINCT ON (ean)
+               ean,
+               nome,
+               tipo_ia,
+               SUM(COALESCE(qtd, 0)) OVER (PARTITION BY ean) AS estoque_total
+        FROM catalogo
+        WHERE ean <> '' AND nome IS NOT NULL AND TRIM(nome) <> ''
+        ORDER BY ean,
+                 tem_medicamento DESC,
+                 CASE WHEN nome ~* '(\\d+\\s*(mg|mcg|ml|g|ui)|comprim|caps|cpr|drg|amp|xarope|pomada|creme|gel|gotas|colirio|spray)' THEN 0 ELSE 1 END,
+                 LENGTH(nome) DESC
+    """
 
 
 def _placeholder_tarja(tarja):
@@ -335,14 +460,51 @@ def _aplicar_restricoes_imagem(chaves=None, page_size=200):
     return len(upserts)
 
 
+def _validar_anvisa_cache_claude(chaves=None):
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "auditar_anvisa_cache_claude.py")
+    if not os.path.exists(script):
+        print("Auditoria Claude nao encontrada; pulando validacao ANVISA.")
+        return 1
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        print("ANTHROPIC_API_KEY ausente; pulando validacao Claude.")
+        return 1
+    cmd = [sys.executable, script, "--apply"]
+    temp_path = None
+    chaves = sorted({c for c in (chaves or []) if c})
+    try:
+        if chaves:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix="_anvisa_chaves.txt", delete=False) as f:
+                for chave in chaves:
+                    f.write(chave + "\n")
+                temp_path = f.name
+            cmd += ["--chaves-file", temp_path]
+        else:
+            cmd += ["--recent-days", "1"]
+        return subprocess.call(cmd)
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
 def main():
     ap = argparse.ArgumentParser(description="Sincronização ANVISA standalone")
     ap.add_argument("--forcar", action="store_true",
                     help="Apaga registros 'não encontrado' e rebusca todos")
     ap.add_argument("--limite", type=int, default=0,
                     help="Processar no máximo N chaves (0 = sem limite, útil para testes)")
+    ap.add_argument("--lote", type=int, default=0,
+                    help="Numero do lote a processar, comeca em 1; exige --lote-size")
+    ap.add_argument("--lote-size", type=int, default=0,
+                    help="Tamanho do lote de chaves pendentes para processar nesta execucao")
     ap.add_argument("--todos", action="store_true",
-                    help="Inclui produtos sem indicativo de medicamento (muito mais lento)")
+                    help="Inclui tambem produtos sem indicativo de medicamento (muito mais lento)")
+    ap.add_argument("--recorte-antigo", action="store_true",
+                    help="Usa o recorte antigo DNS/Vitnatu/imagens/extras em vez de todo catalogo visivel")
+    ap.add_argument("--validar-claude", action="store_true",
+                    help="Depois do sync, revisa com Claude todos os campos sanitarios capturados no anvisa_cache")
     ap.add_argument("--db-batch", type=int, default=40,
                     help="Quantidade de resultados ANVISA para salvar por commit (padrao: 40)")
     ap.add_argument("--sem-imagens", action="store_true",
@@ -392,56 +554,8 @@ def main():
     conn.commit()
 
     # Produtos DNS/Vitnatu visíveis + extras adicionados manualmente pelas lojas
-    cur.execute("""
-        SELECT DISTINCT COALESCE(m.descricao, e.descricao) AS nome
-        FROM estoque e
-        LEFT JOIN omie_estoque_dns dns ON dns.ean_norm = COALESCE(e.barras_norm, e.barras)
-        LEFT JOIN medicamentos m       ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
-        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-        WHERE e.estoque > 0
-          AND COALESCE(m.descricao, e.descricao) IS NOT NULL
-          AND NOT EXISTS (
-              SELECT 1 FROM ecommerce_catalogo_oculto co
-              WHERE co.cnpjloja = e.cnpj AND co.ean = e.barras
-          )
-          AND (dns.ean_norm IS NOT NULL
-               OR mi.cloudinary_url IS NOT NULL
-               OR NULLIF(TRIM(m.imagem), '') IS NOT NULL
-               OR e.descricao ILIKE ANY(ARRAY[
-                    '%%anasol%%','%%vit natu%%','%%vitnatu%%',
-                    '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
-                  ])
-               OR EXISTS (
-                    SELECT 1 FROM ecommerce_catalogo_extra ex
-                    WHERE ex.cnpjloja = e.cnpj AND ex.ean = e.barras
-               ))
-
-        UNION
-
-        SELECT DISTINCT COALESCE(m.descricao, ae.descricao_produto) AS nome
-        FROM automatiza_estoque ae
-        LEFT JOIN omie_estoque_dns dns ON dns.ean_norm = ae.ean
-        LEFT JOIN medicamentos m       ON m.barra_norm = ae.ean
-        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-        WHERE ae.quantidade_estoque > 0
-          AND COALESCE(m.descricao, ae.descricao_produto) IS NOT NULL
-          AND NOT EXISTS (
-              SELECT 1 FROM ecommerce_catalogo_oculto co
-              WHERE co.cnpjloja = ae.cnpj_loja AND co.ean = ae.ean
-          )
-          AND (dns.ean_norm IS NOT NULL
-               OR mi.cloudinary_url IS NOT NULL
-               OR NULLIF(TRIM(m.imagem), '') IS NOT NULL
-               OR ae.descricao_produto ILIKE ANY(ARRAY[
-                    '%%anasol%%','%%vit natu%%','%%vitnatu%%',
-                    '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
-                  ])
-               OR EXISTS (
-                    SELECT 1 FROM ecommerce_catalogo_extra ex
-                    WHERE ex.cnpjloja = ae.cnpj_loja AND ex.ean = ae.ean
-               ))
-    """)
-    nomes_raw = [r["nome"] for r in cur.fetchall() if r["nome"]]
+    cur.execute(_catalogo_sql(recorte_antigo=args.recorte_antigo))
+    catalogo_rows = [dict(r) for r in cur.fetchall() if r.get("ean") and r.get("nome")]
 
     # Chaves já em cache (90 dias)
     if args.forcar:
@@ -460,17 +574,50 @@ def main():
     cur.close()
     conn.close()  # libera antes do worker; cada batch abre/fecha sua própria conexão
 
-    # Deduplica e filtra pendentes
+    # Deduplica por chave ANVISA, mantendo um unico processamento por EAN/chave.
     vistas: set = set()
     chaves_pendentes: list = []
-    for nome in nomes_raw:
+    eans_por_chave: dict = {}
+    ignorados_operacionais = 0
+    ignorados_sem_indicio = 0
+    ignorados_tipo = 0
+    for row in catalogo_rows:
+        nome = row.get("nome") or ""
+        tipo_ia = (row.get("tipo_ia") or "").strip().lower()
+        if _ignorar_catalogo_anvisa(nome):
+            ignorados_operacionais += 1
+            continue
+        if not args.todos:
+            if tipo_ia in _TIPOS_NAO_ANVISA:
+                ignorados_tipo += 1
+                continue
+            if tipo_ia not in _TIPOS_ANVISA_MED and not _parece_medicamento(nome):
+                ignorados_sem_indicio += 1
+                continue
         ch = _chave(nome)
-        if ch and ch not in vistas and ch not in cached:
+        if not ch:
+            continue
+        eans_por_chave.setdefault(ch, set()).add(row.get("ean"))
+        if ch not in vistas and ch not in cached:
             vistas.add(ch)
             chaves_pendentes.append(ch)
 
+    chaves_pendentes.sort()
+    total_sem_lote = len(chaves_pendentes)
+    if args.lote_size:
+        lote = max(1, int(args.lote or 1))
+        size = max(1, int(args.lote_size))
+        start = (lote - 1) * size
+        end = start + size
+        chaves_pendentes = chaves_pendentes[start:end]
+        print(f"Lote selecionado              : {lote} ({start + 1}-{min(end, total_sem_lote)} de {total_sem_lote})")
     total = len(chaves_pendentes)
-    print(f"Produtos DNS/Vitnatu unicos: {len(nomes_raw)}")
+    print(f"EANs unicos no catalogo visivel : {len(catalogo_rows)}")
+    print(f"EANs por chaves ANVISA          : {sum(len(v) for v in eans_por_chave.values())}")
+    print(f"Chaves ANVISA unicas candidatas : {len(eans_por_chave)}")
+    print(f"Ignorados operacionais          : {ignorados_operacionais}")
+    print(f"Ignorados por tipo nao ANVISA   : {ignorados_tipo}")
+    print(f"Ignorados sem indicio ANVISA    : {ignorados_sem_indicio}")
     print(f"Já em cache (<=90 dias)    : {len(cached)}")
     print(f"A processar agora          : {total}")
 
@@ -487,6 +634,8 @@ def main():
         else:
             atualizadas = _aplicar_restricoes_imagem(page_size=max(100, db_batch * 5))
             print(f"Imagens sanitarias atualizadas no catalogo: {atualizadas}")
+        if args.validar_claude:
+            _validar_anvisa_cache_claude()
         return
 
     print(f"\nIniciando worker ANVISA...\n")
@@ -592,6 +741,8 @@ def main():
         print("Atualizacao de imagens sanitarias pulada por --sem-imagens.")
     else:
         atualizadas = _aplicar_restricoes_imagem(chaves=chaves_processadas, page_size=max(100, db_batch * 5))
+    if args.validar_claude:
+        _validar_anvisa_cache_claude(chaves_processadas)
 
     print(f"\n{'='*55}")
     print(f"Concluido!  OK={ok} encontrados   NAO={falha} nao encontrados")

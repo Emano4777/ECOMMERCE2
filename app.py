@@ -24,7 +24,7 @@ import re
 import ssl
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import (
     Flask, render_template, request, redirect,
@@ -329,6 +329,7 @@ def fmt_brl(val):
 def inject_globals():
     consumidor = None
     consumidor_rec_abertas = 0
+    consumidor_notif_nao_lidas = 0
     if session.get("consumidor_id"):
         consumidor = {
             "id": session.get("consumidor_id"),
@@ -346,15 +347,41 @@ def inject_globals():
                 (session["consumidor_id"],),
             )
             consumidor_rec_abertas = (cur.fetchone() or {}).get("n", 0) or 0
+            try:
+                _ensure_notificacoes_schema()
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM ecommerce_notificacoes_consumidor WHERE consumidor_id=%s AND lida_em IS NULL",
+                    (session["consumidor_id"],),
+                )
+                consumidor_notif_nao_lidas = (cur.fetchone() or {}).get("n", 0) or 0
+            except Exception:
+                consumidor_notif_nao_lidas = 0
             cur.close()
         except Exception:
             consumidor_rec_abertas = 0
+            consumidor_notif_nao_lidas = 0
     return {
         "money": fmt_brl,
         "now": datetime.now(timezone.utc),
         "consumidor": consumidor,
         "consumidor_rec_abertas": consumidor_rec_abertas,
+        "consumidor_notif_nao_lidas": consumidor_notif_nao_lidas,
     }
+
+def _consumidor_from_session():
+    cid = session.get("consumidor_id")
+    if not cid:
+        return None
+    return {
+        "id": cid,
+        "nome": session.get("consumidor_nome"),
+        "email": session.get("consumidor_email"),
+        "telefone": session.get("consumidor_telefone"),
+        "endereco": session.get("consumidor_endereco"),
+        "lat": session.get("consumidor_lat"),
+        "lng": session.get("consumidor_lng"),
+    }
+
 
 def _ensure_precificador_schema():
     _load_db_migrations()
@@ -452,6 +479,123 @@ def _ensure_consumidor_schema():
     _ensure_consumidor_auth_columns()
 
 
+def _ensure_notificacoes_schema():
+    key = "consumidor_notificacoes_v2"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_notificacoes_consumidor (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                tipo TEXT NOT NULL DEFAULT 'sistema',
+                titulo TEXT NOT NULL,
+                mensagem TEXT,
+                imagem_url TEXT,
+                url TEXT,
+                pedido_id UUID,
+                lida_em TIMESTAMPTZ,
+                criada_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("ALTER TABLE ecommerce_notificacoes_consumidor ADD COLUMN IF NOT EXISTS imagem_url TEXT")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notif_cons_criada ON ecommerce_notificacoes_consumidor(consumidor_id, criada_em DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notif_cons_lida ON ecommerce_notificacoes_consumidor(consumidor_id, lida_em)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _notificar_consumidor(consumidor_id, tipo, titulo, mensagem="", url=None, pedido_id=None, conn=None, imagem_url=None):
+    if not consumidor_id or not titulo:
+        return
+    try:
+        _ensure_notificacoes_schema()
+        own = conn is None
+        conn = conn or db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ecommerce_notificacoes_consumidor
+              (consumidor_id, tipo, titulo, mensagem, imagem_url, url, pedido_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (consumidor_id, tipo or "sistema", titulo[:160], (mensagem or "")[:600], imagem_url, url, pedido_id),
+        )
+        if own:
+            conn.commit()
+        cur.close()
+    except Exception as exc:
+        try:
+            app.logger.warning("_notificar_consumidor error: %s", exc)
+        except Exception:
+            pass
+
+
+def _notificar_pedido_evento(pedido_id, tipo, titulo, mensagem=""):
+    try:
+        _ensure_notificacoes_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT consumidor_id FROM ecommerce_pedidos WHERE id=%s LIMIT 1", (pedido_id,))
+        row = cur.fetchone()
+        if row and row.get("consumidor_id"):
+            try:
+                url = url_for("meu_pedido_detalhe", pedido_id=pedido_id)
+            except RuntimeError:
+                url = f"/meus-pedidos/{pedido_id}"
+            _notificar_consumidor(
+                row["consumidor_id"], tipo, titulo, mensagem,
+                url=url,
+                pedido_id=pedido_id, conn=conn,
+            )
+            conn.commit()
+        cur.close()
+    except Exception:
+        pass
+
+
+def _notificar_todos_consumidores(titulo, mensagem="", url=None, tipo="sistema", limite=5000, imagem_url=None):
+    if not titulo:
+        return 0
+    try:
+        _ensure_notificacoes_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM ecommerce_consumidores ORDER BY criado_em DESC LIMIT %s", (int(limite),))
+        consumidores = [r["id"] for r in cur.fetchall()]
+        if not consumidores:
+            cur.close()
+            return 0
+        rows = [(cid, tipo or "sistema", titulo[:160], (mensagem or "")[:600], imagem_url, url) for cid in consumidores]
+        execute_values(
+            cur,
+            """
+            INSERT INTO ecommerce_notificacoes_consumidor
+              (consumidor_id, tipo, titulo, mensagem, imagem_url, url)
+            VALUES %s
+            """,
+            rows,
+        )
+        conn.commit()
+        cur.close()
+        return len(rows)
+    except Exception as exc:
+        try:
+            app.logger.warning("_notificar_todos_consumidores error: %s", exc)
+        except Exception:
+            pass
+    return 0
+
+
 def _ensure_consumidor_auth_columns():
     """Migração separada para colunas de verificação de e-mail e reset de senha."""
     key = "consumidor_auth_v1"
@@ -489,6 +633,7 @@ def _ensure_delivery_schema():
                 cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS valor_frete NUMERIC DEFAULT 0")
                 cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pedido_minimo_entrega NUMERIC DEFAULT 0")
                 cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS todos_prontos_retirada BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_public_key TEXT")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS tipo_entrega TEXT DEFAULT 'retirada'")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS endereco_entrega TEXT")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entrega_lat DOUBLE PRECISION")
@@ -545,6 +690,245 @@ def _ensure_loja_email_column():
         cur.close()
         _schema_ready.add(key)
         _mark_migration_done(key)
+
+
+def _ensure_mp_public_key_column():
+    key = "loja_mp_public_key_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_public_key TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_gateway_alt_columns():
+    key = "gateway_alt_v2"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS gateway_alternativo TEXT DEFAULT 'mercadopago'")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS asaas_api_key TEXT")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pagbank_token TEXT")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pagbank_public_key TEXT")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS asaas_taxa_pct NUMERIC DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS asaas_taxa_fixa NUMERIC DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pagbank_taxa_pct NUMERIC DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS pagbank_taxa_fixa NUMERIC DEFAULT 0")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_asaas_clientes (
+                id SERIAL PRIMARY KEY,
+                consumidor_id TEXT NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                asaas_customer_id TEXT NOT NULL,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, cnpjloja)
+            )
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_cartoes_schema():
+    key = "cartoes_salvos_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_mp_clientes (
+                id SERIAL PRIMARY KEY,
+                consumidor_id TEXT NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                mp_customer_id TEXT NOT NULL,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, cnpjloja)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_cartoes_salvos (
+                id SERIAL PRIMARY KEY,
+                consumidor_id TEXT NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                mp_card_id TEXT NOT NULL,
+                ultimos_quatro TEXT,
+                mes_vencimento INT,
+                ano_vencimento INT,
+                payment_method_id TEXT,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, cnpjloja, mp_card_id)
+            )
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_banner_schema():
+    if "banners" in _schema_ready:
+        return
+    with _schema_lock:
+        if "banners" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_banners (
+                id         SERIAL PRIMARY KEY,
+                cnpjloja   TEXT NOT NULL,
+                imagem_url TEXT NOT NULL,
+                link_url   TEXT,
+                titulo     TEXT,
+                ativo      BOOLEAN DEFAULT TRUE,
+                ordem      INTEGER DEFAULT 0,
+                criado_em  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_banners_cnpj ON ecommerce_banners(cnpjloja)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("banners")
+        _mark_migration_done("banners")
+
+
+# Cache simples para a API de banners (evita query a cada requisição)
+_banner_cache: dict = {}
+_banner_cache_lock = threading.Lock()
+_BANNER_CACHE_TTL = 300  # 5 minutos
+
+
+def _banner_cache_get(key: str):
+    with _banner_cache_lock:
+        e = _banner_cache.get(key)
+        if e and time.time() - e["ts"] < _BANNER_CACHE_TTL:
+            return e["data"]
+    return None
+
+
+def _banner_cache_set(key: str, data):
+    with _banner_cache_lock:
+        _banner_cache[key] = {"ts": time.time(), "data": data}
+
+
+def _ensure_promo_schema():
+    if "promocoes" in _schema_ready:
+        return
+    with _schema_lock:
+        if "promocoes" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_promocoes (
+                id            SERIAL PRIMARY KEY,
+                cnpjloja      TEXT NOT NULL,
+                ean           TEXT NOT NULL,
+                nome          TEXT,
+                preco_promo   NUMERIC(10,2) NOT NULL,
+                data_inicio   TIMESTAMPTZ DEFAULT NOW(),
+                data_fim      TIMESTAMPTZ,
+                so_assinantes BOOLEAN DEFAULT FALSE,
+                ativo         BOOLEAN DEFAULT TRUE,
+                criado_em     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_promocoes_cnpj ON ecommerce_promocoes(cnpjloja)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_promocoes_ean  ON ecommerce_promocoes(ean)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("promocoes")
+        _mark_migration_done("promocoes")
+
+
+def _ensure_assinatura_schema():
+    if "assinaturas" in _schema_ready:
+        return
+    with _schema_lock:
+        if "assinaturas" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_planos_assinatura (
+                id            SERIAL PRIMARY KEY,
+                cnpjloja      TEXT NOT NULL UNIQUE,
+                nome          TEXT NOT NULL DEFAULT 'Clube Fidelidade',
+                descricao     TEXT,
+                preco_mensal  NUMERIC(10,2) NOT NULL DEFAULT 19.90,
+                beneficios    TEXT,
+                ativo         BOOLEAN DEFAULT FALSE,
+                criado_em     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_assinantes (
+                id                  SERIAL PRIMARY KEY,
+                consumidor_id       TEXT NOT NULL,
+                cnpjloja            TEXT NOT NULL,
+                plano_id            INTEGER REFERENCES ecommerce_planos_assinatura(id),
+                status              TEXT DEFAULT 'aguardando_pagamento',
+                mp_payment_id       TEXT,
+                mp_preference_id    TEXT,
+                pagamento_status    TEXT DEFAULT 'pendente',
+                data_inicio         TIMESTAMPTZ,
+                data_fim            TIMESTAMPTZ,
+                criado_em           TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, cnpjloja)
+            )
+        """)
+        # Fix: se tabela já existia com INTEGER, migra para TEXT
+        try:
+            cur.execute(
+                "ALTER TABLE ecommerce_assinantes ALTER COLUMN consumidor_id TYPE TEXT USING consumidor_id::TEXT"
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        # Adiciona colunas de pagamento se não existirem
+        for col_sql in [
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS mp_payment_id TEXT",
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS mp_preference_id TEXT",
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS mp_init_point TEXT",
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS mp_preapproval_id TEXT",
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS mp_preapproval_init_point TEXT",
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS assinatura_recorrente BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS pagamento_status TEXT DEFAULT 'pendente'",
+        ]:
+            try:
+                cur.execute(col_sql)
+            except Exception:
+                conn.rollback()
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_assinantes_cons ON ecommerce_assinantes(consumidor_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_assinantes_cnpj ON ecommerce_assinantes(cnpjloja)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("assinaturas")
+        _mark_migration_done("assinaturas")
 
 
 def _ensure_receita_schema():
@@ -1235,8 +1619,8 @@ def _digits(s):
 _CONTROLADO_TARJA_PRETA_RE = re.compile(
     r"\b(?:B1|B2|A1|A2|A3)\b"
     r"|nitrazepam|clonazepam|alprazolam|diazepam|lorazepam|bromazepam"
-    r"|zolpidem|zopiclona|midazolam|fenobarbital|fenitoina|carbamazepina"
-    r"|metilfenidato|lisdexanfetamina|morfina|metadona|tramadol|oxicodona",
+    r"|zolpidem|zopiclona|midazolam"
+    r"|metilfenidato|lisdexanfetamina|morfina|metadona|oxicodona",
     re.IGNORECASE,
 )
 
@@ -1266,10 +1650,10 @@ def _is_black_stripe_product(nome="", anvisa=None, med=None):
         nome or "",
         med.get("descricao") or "",
         med.get("classe") or "",
-        anvisa.get("alertas") or "",
-        anvisa.get("como_usar") or "",
         anvisa.get("nome_anvisa") or "",
         anvisa.get("principio_ativo") or "",
+        anvisa.get("dizeres_receita") or "",
+        anvisa.get("dizeres_imagem") or "",
     ])
     return bool(_CONTROLADO_TARJA_PRETA_RE.search(blob))
 
@@ -1893,16 +2277,43 @@ def _search_terms_for_query(query):
     if not base:
         return []
     terms = [base]
-    for symptom, mapped in _SYMPTOM_SEARCH_TERMS.items():
-        if symptom in base or base in symptom:
-            terms.extend(mapped)
+    try:
+        _ensure_produto_sintomas_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT termos_busca, principio_ativo
+            FROM ecommerce_produto_sintomas
+            WHERE to_tsvector('portuguese',
+                COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'') || ' ' ||
+                COALESCE(principio_ativo,'') || ' ' || COALESCE(classe_terapeutica,'')
+            ) @@ plainto_tsquery('portuguese', %s)
+               OR LOWER(COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'')) LIKE %s
+            LIMIT 20
+            """,
+            (base, f"%{base}%"),
+        )
+        for row in cur.fetchall():
+            for field in (row.get("termos_busca") or "", row.get("principio_ativo") or ""):
+                for t in re.split(r"[,;\s]+", field):
+                    t = _norm_text(t)
+                    if t and len(t) > 2 and t not in terms:
+                        terms.append(t)
+        cur.close()
+    except Exception:
+        pass
+    # fallback ao dicionário hardcoded se a tabela não retornou expansão
+    if len(terms) <= 1:
+        for symptom, mapped in _SYMPTOM_SEARCH_TERMS.items():
+            if symptom in base or base in symptom:
+                terms.extend(_norm_text(m) for m in mapped)
     seen = set()
     result = []
-    for term in terms:
-        norm = _norm_text(term)
-        if norm and norm not in seen:
-            seen.add(norm)
-            result.append(norm)
+    for t in terms:
+        if t and t not in seen:
+            seen.add(t)
+            result.append(t)
     return result
 
 
@@ -1981,27 +2392,225 @@ def _attach_product_symptoms(produtos):
     return produtos
 
 
+def _attach_product_promos(produtos):
+    """Adiciona campo 'promo' a cada produto com promoção vigente em batch."""
+    if not produtos:
+        return
+    try:
+        _ensure_promo_schema()
+        eans = sorted({_digits(p.get("ean")).lstrip("0") for p in produtos if _digits(p.get("ean"))})
+        cnpjs = sorted({_digits(p.get("cnpjloja")) for p in produtos if _digits(p.get("cnpjloja"))})
+        if not eans or not cnpjs:
+            return
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            """SELECT LTRIM(COALESCE(ean,''), '0') AS ean_key,
+                      regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') AS cnpj_key,
+                      cnpjloja, preco_promo, so_assinantes
+                FROM ecommerce_promocoes
+                WHERE ativo=TRUE AND (data_fim IS NULL OR data_fim > NOW())
+                  AND LTRIM(COALESCE(ean,''), '0') = ANY(%s)
+                  AND regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') = ANY(%s)""",
+            (eans, cnpjs),
+        )
+        promo_map = {(r["ean_key"], r["cnpj_key"]): r for r in cur.fetchall()}
+        if not promo_map:
+            cur.close()
+            return
+        # Verifica assinaturas ativas do consumidor logado
+        assinados = set()
+        cid = str(session.get("consumidor_id") or "")
+        if cid:
+            cnpjs_promo = list({r["cnpj_key"] for r in promo_map.values()})
+            ph2 = ",".join(["%s"] * len(cnpjs_promo))
+            cur.execute(
+                f"""SELECT regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') AS cnpj_key
+                    FROM ecommerce_assinantes
+                    WHERE consumidor_id=%s
+                      AND regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') IN ({ph2})
+                      AND status='ativo' AND pagamento_status='aprovado'
+                      AND (data_fim IS NULL OR data_fim > NOW())""",
+                [cid] + cnpjs_promo,
+            )
+            assinados = {r["cnpj_key"] for r in cur.fetchall()}
+        cur.close()
+        for p in produtos:
+            cnpj_key = _digits(p.get("cnpjloja"))
+            row = promo_map.get((_digits(p.get("ean")).lstrip("0"), cnpj_key))
+            if not row:
+                continue
+            is_sub = cnpj_key in assinados
+            preco_original = float(p.get("preco_original") or p.get("preco") or 0)
+            preco_promo = float(row["preco_promo"])
+            p["promo"] = {
+                "so_assinantes": bool(row["so_assinantes"]),
+                "preco_promo": preco_promo,
+                "assinante_ativo": bool(is_sub),
+                "aplicada": bool((not row["so_assinantes"]) or is_sub),
+                "preco_original": preco_original,
+            }
+            if p["promo"]["aplicada"] and preco_promo > 0 and (not preco_original or preco_promo < preco_original):
+                p["preco_original"] = preco_original
+                p["preco"] = preco_promo
+    except Exception:
+        pass
+
+
+def _assinante_ativo(cnpjloja: str, consumidor_id: str | None = None) -> bool:
+    consumidor_id = str(consumidor_id or session.get("consumidor_id") or "")
+    if not consumidor_id or not cnpjloja:
+        return False
+    try:
+        _ensure_assinatura_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT 1 FROM ecommerce_assinantes
+               WHERE consumidor_id=%s
+                 AND regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') = regexp_replace(%s, '\\D', '', 'g')
+                 AND status='ativo' AND pagamento_status='aprovado'
+                 AND (data_fim IS NULL OR data_fim > NOW())
+               LIMIT 1""",
+            (consumidor_id, cnpjloja),
+        )
+        ok = cur.fetchone() is not None
+        cur.close()
+        return ok
+    except Exception:
+        return False
+
+
+def _assinatura_vigente_row(row) -> bool:
+    if not row:
+        return False
+    if row.get("status") != "ativo" or row.get("pagamento_status") != "aprovado":
+        return False
+    fim = row.get("data_fim")
+    if fim is None:
+        return True
+    now = datetime.now(fim.tzinfo) if getattr(fim, "tzinfo", None) else datetime.now()
+    return fim > now
+
+
+def _preco_produto_com_promocao(cnpjloja: str, ean: str, preco_base, consumidor_id: str | None = None) -> tuple[float, dict | None]:
+    preco = float(preco_base or 0)
+    if not cnpjloja or not ean:
+        return preco, None
+    try:
+        _ensure_promo_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT preco_promo, so_assinantes
+            FROM ecommerce_promocoes
+            WHERE regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') = regexp_replace(%s, '\\D', '', 'g')
+              AND LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')
+              AND ativo=TRUE
+              AND (data_fim IS NULL OR data_fim > NOW())
+            ORDER BY data_inicio DESC, id DESC
+            LIMIT 1
+            """,
+            (cnpjloja, ean),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            return preco, None
+        assinante = _assinante_ativo(cnpjloja, consumidor_id)
+        promo = {
+            "so_assinantes": bool(row["so_assinantes"]),
+            "preco_promo": float(row["preco_promo"]),
+            "assinante_ativo": assinante,
+            "aplicada": bool((not row["so_assinantes"]) or assinante),
+            "preco_original": preco,
+        }
+        if promo["aplicada"] and promo["preco_promo"] > 0 and (not preco or promo["preco_promo"] < preco):
+            return promo["preco_promo"], promo
+        return preco, promo
+    except Exception:
+        return preco, None
+
+
+def _preco_catalogo_atual(cnpjloja: str, ean: str, fallback=0) -> float:
+    preco_fallback = float(fallback or 0)
+    if not cnpjloja or not ean:
+        return preco_fallback
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco
+            FROM estoque e
+            LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+            LEFT JOIN LATERAL (
+                SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                FROM vendageral
+                WHERE cnpj = e.cnpj AND ean = e.barras
+                  AND total_vendasgeral > 0 AND itens > 0
+                ORDER BY id DESC LIMIT 1
+            ) vg ON TRUE
+            WHERE e.cnpj=%s
+              AND (e.barras=%s OR LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') = LTRIM(%s, '0'))
+              AND e.estoque > 0
+            LIMIT 1
+            """,
+            (cnpjloja, ean, ean),
+        )
+        row = cur.fetchone()
+        if row and row.get("preco") is not None:
+            cur.close()
+            return float(row["preco"] or 0)
+        cur.execute(
+            """
+            SELECT COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco
+            FROM automatiza_estoque ae
+            LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
+            LEFT JOIN LATERAL (
+                SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
+                FROM automatiza_vendas
+                WHERE cnpj_loja = ae.cnpj_loja AND ean = ae.ean
+                  AND valor_final_vendido > 0 AND quantidade_vendida > 0
+                ORDER BY id DESC LIMIT 1
+            ) av ON TRUE
+            WHERE ae.cnpj_loja=%s
+              AND LTRIM(COALESCE(ae.ean, ''), '0') = LTRIM(%s, '0')
+              AND ae.quantidade_estoque > 0
+            LIMIT 1
+            """,
+            (cnpjloja, ean),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row and row.get("preco") is not None:
+            return float(row["preco"] or 0)
+    except Exception:
+        pass
+    return preco_fallback
+
+
 def _symptom_index_eans_for_query(query, limit=250):
-    terms = _search_terms_for_query(query)
-    if not terms:
+    base = _norm_text(query)
+    if not base:
         return []
     try:
         _ensure_produto_sintomas_schema()
         conn = db()
         cur = conn.cursor()
-        like_terms = [f"%{t}%" for t in terms[:8]]
         cur.execute(
             """
             SELECT ean
             FROM ecommerce_produto_sintomas
-            WHERE EXISTS (
-                SELECT 1
-                FROM unnest(%s::text[]) q(term)
-                WHERE LOWER(COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'') || ' ' || COALESCE(principio_ativo,'') || ' ' || COALESCE(classe_terapeutica,'')) LIKE q.term
-            )
+            WHERE to_tsvector('portuguese',
+                COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'') || ' ' ||
+                COALESCE(principio_ativo,'') || ' ' || COALESCE(classe_terapeutica,'')
+            ) @@ plainto_tsquery('portuguese', %s)
+               OR LOWER(COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'') || ' ' ||
+                        COALESCE(principio_ativo,'') || ' ' || COALESCE(classe_terapeutica,'')) LIKE %s
             LIMIT %s
             """,
-            (like_terms, limit),
+            (base, f"%{base}%", limit),
         )
         rows = [r["ean"] for r in cur.fetchall()]
         cur.close()
@@ -2022,9 +2631,11 @@ def _catalog_product_key(nome):
 def _dedupe_products_for_display(produtos):
     best = {}
     for produto in produtos:
-        key = _catalog_product_key(produto.get("nome") or "") or (produto.get("ean") or "").strip()
-        if not key:
+        product_key = _catalog_product_key(produto.get("nome") or "") or (produto.get("ean") or "").strip()
+        if not product_key:
             continue
+        store_key = _digits(produto.get("cnpjloja")) or (produto.get("cnpjloja") or "").strip()
+        key = (store_key, product_key)
         current = best.get(key)
         if current is None:
             best[key] = produto
@@ -3317,7 +3928,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             m.marca AS marca,
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
-            COALESCE(ep.preco_customizado, b.preco_base) AS preco,
+            COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) AS preco,
             COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
         FROM base b
         LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
@@ -3325,6 +3936,20 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
         LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
+        LEFT JOIN LATERAL (
+            SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+            FROM vendageral
+            WHERE cnpj = b.cnpjloja AND ean = b.ean
+              AND total_vendasgeral > 0 AND itens > 0
+            ORDER BY total_vendasgeral DESC LIMIT 1
+        ) vg ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
+            FROM automatiza_vendas
+            WHERE cnpj_loja = b.cnpjloja AND ean = b.ean
+              AND valor_final_vendido > 0 AND quantidade_vendida > 0
+            ORDER BY valor_final_vendido DESC LIMIT 1
+        ) av ON TRUE
         """,
         (ean_keys, cnpjs, cnpjs),
     )
@@ -3356,6 +3981,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         conn2.close()
     except Exception:
         pass
+    _attach_product_promos(rows)
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
 
@@ -3378,6 +4004,187 @@ def admin_required(fn):
             return redirect(url_for("painel_login"))
         return fn(*args, **kwargs)
     return wrapper
+
+
+# ─── BANNERS ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/banners")
+def api_banners():
+    """
+    Retorna banners de lojas próximas. Só exibido para consumidores logados.
+    Query params: lat, lng, raio (km, default 80)
+    Cacheado por grade de ~5km (evita query a cada abertura da home).
+    """
+    if not session.get("consumidor_id"):
+        return jsonify({"banners": []})
+    _ensure_banner_schema()
+    try:
+        lat  = float(request.args.get("lat", 0))
+        lng  = float(request.args.get("lng", 0))
+        raio = min(float(request.args.get("raio", 80)), 200)
+    except (TypeError, ValueError):
+        lat = lng = 0.0
+        raio = 80.0
+
+    # Chave de cache por grade de 0.05° (~5 km)
+    if lat and lng:
+        cache_key = f"banners:{round(lat/0.05)*50}:{round(lng/0.05)*50}"
+    else:
+        cache_key = "banners:global"
+
+    cached = _banner_cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    conn = db()
+    cur  = conn.cursor()
+
+    if not (lat and lng):
+        cur.close()
+        return jsonify({"banners": []})
+
+    cur.execute("""
+        SELECT b.id, b.cnpjloja, b.imagem_url, b.link_url, b.titulo,
+               b.ordem, u.razao,
+               (6371 * acos(
+                   cos(radians(%s)) * cos(radians(g.lat)) *
+                   cos(radians(g.lng) - radians(%s)) +
+                   sin(radians(%s)) * sin(radians(g.lat))
+               )) AS distancia_km
+        FROM ecommerce_banners b
+        JOIN users u ON u.cnpjloja = b.cnpjloja
+        JOIN ecommerce_lojas_geo g ON g.cnpjloja = b.cnpjloja
+        WHERE b.ativo = TRUE
+          AND (6371 * acos(
+                   cos(radians(%s)) * cos(radians(g.lat)) *
+                   cos(radians(g.lng) - radians(%s)) +
+                   sin(radians(%s)) * sin(radians(g.lat))
+               )) <= %s
+        ORDER BY distancia_km, b.ordem, b.criado_em DESC
+        LIMIT 20
+    """, (lat, lng, lat, lat, lng, lat, raio))
+
+    rows = cur.fetchall()
+    cur.close()
+
+    banners = [
+        {
+            "id":           r["id"],
+            "cnpjloja":     r["cnpjloja"],
+            "imagem_url":   r["imagem_url"],
+            "link_url":     r["link_url"] or "",
+            "titulo":       r["titulo"]   or "",
+            "razao":        r["razao"]    or "",
+            "distancia_km": round(float(r["distancia_km"] or 0), 1),
+        }
+        for r in rows
+    ]
+    result = {"banners": banners}
+    # Só faz cache se há resultado — lista vazia não vale guardar
+    if banners:
+        _banner_cache_set(cache_key, result)
+    return jsonify(result)
+
+
+@app.get("/painel/banners")
+@painel_required
+def painel_banners():
+    _ensure_banner_schema()
+    cnpjloja = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "SELECT id, imagem_url, link_url, titulo, ativo, ordem, criado_em "
+        "FROM ecommerce_banners WHERE cnpjloja=%s ORDER BY ordem, criado_em DESC",
+        (cnpjloja,),
+    )
+    banners = cur.fetchall()
+    cur.close()
+    return render_template("painel_banners.html", banners=banners)
+
+
+@app.post("/painel/banners/upload")
+@painel_required
+def painel_banners_upload():
+    _ensure_banner_schema()
+    cnpjloja = session["cnpjloja"]
+    f = request.files.get("imagem")
+    if not f or not f.filename:
+        flash("Selecione uma imagem.", "danger")
+        return redirect(url_for("painel_banners"))
+
+    ext = (f.filename.rsplit(".", 1)[-1] or "jpg").lower()
+    if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+        flash("Formato inválido. Use JPG, PNG ou WEBP.", "danger")
+        return redirect(url_for("painel_banners"))
+
+    raw = f.read(4 * 1024 * 1024)
+    ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+              "webp": "image/webp", "gif": "image/gif"}
+    content_type = ct_map.get(ext, "image/jpeg")
+
+    path = f"banners/{cnpjloja}/{secrets.token_hex(8)}.{ext}"
+    url  = upload_to_supabase_storage(raw, path, content_type)
+    if not url:
+        flash("Erro ao enviar imagem. Tente novamente.", "danger")
+        return redirect(url_for("painel_banners"))
+
+    titulo   = (request.form.get("titulo")   or "").strip()[:120]
+    link_url = (request.form.get("link_url") or "").strip()[:300]
+
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO ecommerce_banners (cnpjloja, imagem_url, link_url, titulo) VALUES (%s,%s,%s,%s)",
+        (cnpjloja, url, link_url or None, titulo or None),
+    )
+    conn.commit()
+    cur.close()
+
+    # Invalida cache de banners
+    with _banner_cache_lock:
+        _banner_cache.clear()
+
+    flash("Banner enviado com sucesso.", "success")
+    return redirect(url_for("painel_banners"))
+
+
+@app.post("/painel/banners/<int:banner_id>/toggle")
+@painel_required
+def painel_banners_toggle(banner_id):
+    _ensure_banner_schema()
+    cnpjloja = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_banners SET ativo = NOT ativo "
+        "WHERE id=%s AND cnpjloja=%s",
+        (banner_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    with _banner_cache_lock:
+        _banner_cache.clear()
+    return redirect(url_for("painel_banners"))
+
+
+@app.post("/painel/banners/<int:banner_id>/delete")
+@painel_required
+def painel_banners_delete(banner_id):
+    _ensure_banner_schema()
+    cnpjloja = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "DELETE FROM ecommerce_banners WHERE id=%s AND cnpjloja=%s",
+        (banner_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    with _banner_cache_lock:
+        _banner_cache.clear()
+    flash("Banner excluído.", "success")
+    return redirect(url_for("painel_banners"))
 
 
 # ─── ROTAS PÚBLICAS ───────────────────────────────────────────────────────────
@@ -3421,9 +4228,14 @@ def lojas_vitrine():
     # Busca do Supabase (lojas novas adicionadas pelo painel dns-ecommerce)
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT cidade, endereco, telefone, whatsapp, imagem_url FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
+    cur.execute("SELECT cidade, endereco, telefone, whatsapp, imagem_url, cnpjloja FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade")
     rows = cur.fetchall()
+
+    # Mapa cidade → cnpjloja para lojas legadas (ImageKit) que não têm cnpj na vitrine
+    cur.execute("SELECT cidade, cnpjloja FROM ecommerce_vitrine_cnpj_map")
+    cidade_cnpj_map = {r["cidade"]: r["cnpjloja"] for r in cur.fetchall()}
     cur.close()
+
     lojas_sb = [
         {
             "cidade": r["cidade"],
@@ -3431,6 +4243,7 @@ def lojas_vitrine():
             "telefone": r["telefone"],
             "whatsapp": r["whatsapp"],
             "imagem_url": r["imagem_url"],
+            "cnpjloja": r["cnpjloja"] or cidade_cnpj_map.get(r["cidade"]),
         }
         for r in rows
     ]
@@ -3443,6 +4256,7 @@ def lojas_vitrine():
             "telefone": l.get("telefone", ""),
             "whatsapp": l.get("whatsapp", ""),
             "imagem_url": l.get("url", ""),
+            "cnpjloja": cidade_cnpj_map.get(l.get("cidade", "")),
         }
         for l in lojas_ik
     ]
@@ -3454,7 +4268,47 @@ def lojas_vitrine():
         key=lambda x: (x.get("cidade") or "").lower()
     )
 
-    return render_template("lojas_vitrine.html", lojas=todas)
+    # Lojas com plano de assinatura ativo (vem dos users reais do sistema)
+    lojas_com_plano = []
+    try:
+        _ensure_assinatura_schema()
+        cur2 = conn.cursor()
+        cur2.execute("""
+            SELECT u.cnpjloja, u.razao, u.endereco, u.uf,
+                   p.nome AS plano_nome, p.descricao, p.preco_mensal, p.beneficios
+            FROM ecommerce_planos_assinatura p
+            JOIN users u ON u.cnpjloja = p.cnpjloja
+            WHERE p.ativo = TRUE AND u.is_admin = FALSE
+            ORDER BY u.razao
+        """)
+        lojas_com_plano = cur2.fetchall()
+        cur2.close()
+    except Exception:
+        pass
+
+    # Verifica assinaturas do consumidor logado
+    assinados_cnpj = set()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if consumidor_id and lojas_com_plano:
+        try:
+            cur3 = conn.cursor()
+            cnpjs_plano = [r["cnpjloja"] for r in lojas_com_plano]
+            ph = ",".join(["%s"] * len(cnpjs_plano))
+            cur3.execute(
+                f"""SELECT cnpjloja FROM ecommerce_assinantes
+                    WHERE consumidor_id=%s AND cnpjloja IN ({ph})
+                      AND status='ativo' AND pagamento_status='aprovado'
+                      AND (data_fim IS NULL OR data_fim > NOW())""",
+                [consumidor_id] + cnpjs_plano,
+            )
+            assinados_cnpj = {r["cnpjloja"] for r in cur3.fetchall()}
+            cur3.close()
+        except Exception:
+            pass
+
+    return render_template("lojas_vitrine.html", lojas=todas,
+                           lojas_com_plano=lojas_com_plano,
+                           assinados_cnpj=assinados_cnpj)
 
 
 def _ik_auth_header():
@@ -3935,18 +4789,25 @@ def api_lojas_mapa():
     cur  = conn.cursor()
     cur.execute("SELECT cidade, lat, lng FROM ecommerce_vitrine_coords")
     coords = {r["cidade"]: (r["lat"], r["lng"]) for r in cur.fetchall()}
+    cur.execute("SELECT cidade, cnpjloja FROM ecommerce_vitrine_cnpj_map")
+    cidade_cnpj_map = {r["cidade"]: r["cnpjloja"] for r in cur.fetchall()}
     cur.execute(
-        "SELECT cidade, endereco, telefone, whatsapp, imagem_url "
+        "SELECT cidade, endereco, telefone, whatsapp, imagem_url, cnpjloja "
         "FROM ecommerce_lojas_vitrine ORDER BY ordem, cidade"
     )
-    lojas_sb = [dict(r) for r in cur.fetchall()]
+    lojas_sb = []
+    for r in cur.fetchall():
+        d = dict(r)
+        d["cnpjloja"] = d.get("cnpjloja") or cidade_cnpj_map.get(d["cidade"])
+        lojas_sb.append(d)
     cur.close()
 
     lojas_ik = _load_imagekit_lojas()
     lojas_ik_norm = [
         {"cidade": l.get("cidade",""), "endereco": l.get("endereco",""),
          "telefone": l.get("telefone",""), "whatsapp": l.get("whatsapp",""),
-         "imagem_url": l.get("url","")}
+         "imagem_url": l.get("url",""),
+         "cnpjloja": cidade_cnpj_map.get(l.get("cidade",""))}
         for l in lojas_ik
     ]
 
@@ -4167,8 +5028,9 @@ def api_produtos_proximos():
     search_terms = _search_terms_for_query(busca_q) if busca_q else []
     index_eans = _symptom_index_eans_for_query(busca_q, limit=120) if busca_q else []
     produtos_raw = []
-    if busca_q and index_eans:
-        produtos_raw = get_dns_products_batch_by_eans(cnpjs, index_eans[:120])
+    if busca_q:
+        if index_eans:
+            produtos_raw = get_dns_products_batch_by_eans(cnpjs, index_eans[:120])
     else:
         produtos_raw = get_dns_products_batch(cnpjs)
     if busca_q:
@@ -4193,10 +5055,10 @@ def api_produtos_proximos():
             except Exception:
                 pass
         if not index_eans:
-            for cnpj in cnpjs[:4]:
+            for cnpj in cnpjs[:8]:
                 for term in extra_lookup_terms:
                     try:
-                        for p in get_dns_products(cnpj, term):
+                        for p in get_dns_products(cnpj, term)[:80]:
                             key = (p.get("cnpjloja") or cnpj, p.get("ean"))
                             if key in seen_search:
                                 continue
@@ -4234,8 +5096,10 @@ def api_produtos_proximos():
 
         produtos_view.append(produto_view)
 
+    _attach_product_promos(produtos_view)
     produtos_view = _dedupe_products_for_display(produtos_view)
     _attach_product_symptoms(produtos_view)
+    _attach_product_promos(produtos_view)
 
     if busca_q:
         q_terms = _search_terms_for_query(busca_q)
@@ -4262,12 +5126,14 @@ def api_produtos_proximos():
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
     return jsonify({
-        "produtos":    result[:500],
-        "fora_raio":   fora_raio,
-        "sem_geocode": sem_geocode,
-        "raio_km":     raio,
+        "produtos":       result[:500],
+        "cnpjs_proximos": [l["cnpjloja"] for l in proximas],
+        "lojas_proximas": [{"cnpjloja": l["cnpjloja"], "razao": _public_store_name(l)} for l in proximas],
+        "fora_raio":      fora_raio,
+        "sem_geocode":    sem_geocode,
+        "raio_km":        raio,
         "raio_fallback_km": raio_fallback,
-        "n_lojas":   len(proximas),
+        "n_lojas":        len(proximas),
     })
 
 
@@ -4435,8 +5301,6 @@ def api_produto(ean):
                 tarja_img = _detectar_tarja(anvisa_img)
                 _tipo_busca = _classificar_produto(nome_busca)
                 _is_med_busca = _tipo_busca not in _TIPOS_NAO_MEDICAMENTO
-                if tarja_img is None and _is_med_busca and _NOME_TARJA_VERMELHA_RE.search(nome_busca):
-                    tarja_img = "vermelha"
                 if tarja_img == "preta" and _is_med_busca:
                     result["imagem_med"] = _placeholder_for_tarja("preta") or result.get("imagem_med")
                 elif tarja_img == "vermelha" and anvisa_img.get("exibir_imagem_publica") is False and _is_med_busca:
@@ -4487,6 +5351,7 @@ def api_produto(ean):
 @_rate_limited_api(max_calls=30, window_secs=60)
 def api_config_lojas():
     _ensure_delivery_schema()
+    _ensure_gateway_alt_columns()
     cnpjs = [c.strip() for c in request.args.get("cnpjs", "").split(",") if c.strip()]
     if not cnpjs:
         return jsonify({})
@@ -4496,9 +5361,14 @@ def api_config_lojas():
         """
         SELECT u.cnpjloja, u.razao, u.endereco, u.telefone,
                COALESCE(c.whatsapp_pedidos, u.telefone) AS whatsapp_pedidos,
-               COALESCE(c.aceita_whatsapp, TRUE)        AS aceita_whatsapp,
+               COALESCE(c.aceita_whatsapp, FALSE)       AS aceita_whatsapp,
                COALESCE(c.aceita_pix, TRUE)             AS aceita_pix,
                COALESCE(c.aceita_mp, FALSE)             AS aceita_mp,
+               COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo,
+               (COALESCE(c.gateway_alternativo, 'mercadopago')='mercadopago' AND COALESCE(c.mp_access_token,'')<>'')
+                OR (COALESCE(c.gateway_alternativo, 'mercadopago')='asaas' AND COALESCE(c.asaas_api_key,'')<>'')
+                OR (COALESCE(c.gateway_alternativo, 'mercadopago')='pagbank' AND COALESCE(c.pagbank_token,'')<>'' AND COALESCE(c.pagbank_public_key,'')<>'')
+                AS gateway_configurado,
                COALESCE(c.aceita_entrega, FALSE)        AS aceita_entrega,
                COALESCE(c.raio_entrega_km, 0)           AS raio_entrega_km,
                COALESCE(c.cobra_frete, FALSE)           AS cobra_frete,
@@ -4664,9 +5534,19 @@ def produto_detalhe(ean):
     cur.execute(
         """
         SELECT m.descricao, m.marca, m.laboratorio, m.classe,
-               COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
         FROM medicamentos m
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0')
+                                  AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+        LEFT JOIN LATERAL (
+            SELECT imagem_url
+            FROM ecommerce_produto_imagens
+            WHERE LTRIM(COALESCE(ean, ''), '0') = LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0')
+              AND imagem_url IS NOT NULL AND TRIM(imagem_url) <> ''
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+        ) epi ON TRUE
         WHERE LTRIM(COALESCE(m.barra_norm,''),'0') = LTRIM(%s,'0')
            OR LTRIM(COALESCE(m.barra,''),'0')      = LTRIM(%s,'0')
         LIMIT 1
@@ -4705,7 +5585,15 @@ def produto_detalhe(ean):
             loja["razao"] = _public_store_name(loja)
 
         cur.execute(
-            "SELECT imagem_url FROM ecommerce_produto_imagens WHERE cnpjloja=%s AND ean=%s LIMIT 1",
+            """
+            SELECT imagem_url
+            FROM ecommerce_produto_imagens
+            WHERE cnpjloja=%s
+              AND LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')
+              AND imagem_url IS NOT NULL AND TRIM(imagem_url) <> ''
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+            """,
             (cnpjloja, ean),
         )
         row_img = cur.fetchone()
@@ -4716,10 +5604,12 @@ def produto_detalhe(ean):
             SELECT e.barras AS ean, e.descricao AS nome,
                    CAST(e.estoque AS INTEGER) AS qty,
                    COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
-                   COALESCE(%s, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+                   COALESCE(%s, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
             FROM estoque e
-            LEFT JOIN medicamentos m          ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
+            LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
             LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
+            LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+            LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
             LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             LEFT JOIN LATERAL (
                 SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -4741,10 +5631,12 @@ def produto_detalhe(ean):
                 SELECT ae.ean, ae.descricao_produto AS nome,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
-                       COALESCE(%s, mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem
+                       COALESCE(%s, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
                 FROM automatiza_estoque ae
-                LEFT JOIN medicamentos m          ON m.barra_norm = ae.ean
+                LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
                 LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
+                LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+                LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
                 LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN LATERAL (
                     SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -4785,6 +5677,19 @@ def produto_detalhe(ean):
         flash("Produto não encontrado.", "error")
         return redirect(url_for("index"))
 
+    if produto:
+        produto = dict(produto)
+        preco_corrigido, promo_produto = _preco_produto_com_promocao(
+            cnpjloja,
+            ean,
+            produto.get("preco"),
+            session.get("consumidor_id"),
+        )
+        if promo_produto:
+            produto["preco_original"] = promo_produto.get("preco_original")
+            produto["promo"] = promo_produto
+            produto["preco"] = preco_corrigido
+
     imagem = imagem_custom or (produto["imagem"] if produto else None) or (med["imagem"] if med else None)
     if not imagem and cnpjloja:
         imagem = _fill_one_catalog_image(cnpjloja, ean, nome_busca)
@@ -4799,10 +5704,7 @@ def produto_detalhe(ean):
     tipo_produto = _classificar_produto(nome)
 
     tarja = _detectar_tarja(anvisa)
-    # Fallback por nome quando anvisa_cache não tem o produto
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
-    if tarja is None and _is_med and _NOME_TARJA_VERMELHA_RE.search(nome):
-        tarja = "vermelha"
     if tarja == "preta" and _is_med:
         imagem = _placeholder_for_tarja("preta") or imagem
     elif tarja == "vermelha" and anvisa.get("exibir_imagem_publica") is False and _is_med:
@@ -4810,18 +5712,50 @@ def produto_detalhe(ean):
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
     reputacao = _reputacao_loja(loja.get("cnpjloja")) if loja else None
 
+    # Plano de assinatura da loja exibida
+    plano_assinatura = None
+    ja_assina = False
+    assinatura_pendente = False
+    if cnpjloja:
+        try:
+            _ensure_assinatura_schema()
+            cur2 = conn.cursor()
+            cur2.execute(
+                "SELECT id, nome, descricao, preco_mensal, beneficios FROM ecommerce_planos_assinatura WHERE cnpjloja=%s AND ativo=TRUE LIMIT 1",
+                (cnpjloja,),
+            )
+            plano_assinatura = cur2.fetchone()
+            if plano_assinatura:
+                consumidor_id = str(session.get("consumidor_id") or "")
+                if consumidor_id:
+                    cur2.execute(
+                        """SELECT status, pagamento_status, data_fim FROM ecommerce_assinantes
+                           WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1""",
+                        (consumidor_id, cnpjloja),
+                    )
+                    row_assin = cur2.fetchone()
+                    if row_assin:
+                        ja_assina = _assinatura_vigente_row(row_assin)
+                        assinatura_pendente = row_assin["status"] == "aguardando_pagamento"
+            cur2.close()
+        except Exception:
+            pass
+
     return render_template(
         "produto_detalhe.html",
         ean=ean, nome=nome, imagem=imagem,
         med=dict(med) if med else {},
         vitnatu=dict(vitnatu) if vitnatu else {},
-        produto=dict(produto) if produto else {},
+        produto=produto if produto else {},
         loja=dict(loja) if loja else {},
         anvisa=anvisa,
         tipo_produto=tipo_produto,
         tarja=tarja,
         requer_receita=requer_receita,
         reputacao=reputacao,
+        plano_assinatura=plano_assinatura,
+        ja_assina=ja_assina,
+        assinatura_pendente=assinatura_pendente,
     )
 
 
@@ -5131,6 +6065,10 @@ def api_carrinho_get():
     items = []
     for r in cur.fetchall():
         nome = r["nome"] or ""
+        preco_base_atual = _preco_catalogo_atual(r["cnpjloja"], r["ean"], r["preco"])
+        preco_item, promo_item = _preco_produto_com_promocao(
+            r["cnpjloja"], r["ean"], preco_base_atual, cid
+        )
         anvisa = {}
         tarja = None
         chave = _anvisa_chave(nome)
@@ -5143,19 +6081,42 @@ def api_carrinho_get():
             )
             anvisa = dict(cur.fetchone() or {})
             tarja = _detectar_tarja(anvisa)
-        if tarja is None and _NOME_TARJA_VERMELHA_RE.search(nome):
-            tarja = "vermelha"
         requer_receita = bool(r["requer_receita"])
         if tarja is not None or anvisa:
             requer_receita = _exige_receita_digital_entrega(anvisa, nome)
         items.append({
             "ean": r["ean"], "cnpjloja": r["cnpjloja"], "nome": nome,
-            "preco": float(r["preco"] or 0), "qty": r["qty"] or 1,
+            "preco": preco_item, "preco_original": preco_base_atual,
+            "promo": promo_item, "qty": r["qty"] or 1,
             "imagem": r["imagem"] or "", "razao": r["razao"] or "",
             "tarja": tarja, "requer_receita": requer_receita,
             "receita_retida": requer_receita,
         })
     cur.close()
+    return jsonify({"items": items})
+
+
+@app.post("/api/carrinho/recalcular")
+def api_carrinho_recalcular():
+    cid = session.get("consumidor_id")
+    data = request.get_json(force=True) or {}
+    items_in = data.get("items") or []
+    items = []
+    for item in items_in:
+        ean = (item.get("ean") or "").strip()
+        cnpjloja = (item.get("cnpjloja") or "").strip()
+        if not ean or not cnpjloja:
+            continue
+        preco_base = _preco_catalogo_atual(cnpjloja, ean, item.get("preco", 0))
+        preco, promo = _preco_produto_com_promocao(cnpjloja, ean, preco_base, cid)
+        novo = dict(item)
+        novo["preco"] = preco
+        novo["preco_original"] = preco_base
+        if promo:
+            novo["promo"] = promo
+        else:
+            novo.pop("promo", None)
+        items.append(novo)
     return jsonify({"items": items})
 
 
@@ -5340,6 +6301,63 @@ def meus_pedidos():
     return render_template("meus_pedidos.html", pedidos=pedidos, rec_map=rec_map, motivos=_MOTIVOS_RECLAMACAO)
 
 
+@app.get("/notificacoes")
+@_consumer_required
+def consumidor_notificacoes():
+    _ensure_notificacoes_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id, tipo, titulo, mensagem, imagem_url, url, pedido_id, lida_em, criada_em
+        FROM ecommerce_notificacoes_consumidor
+        WHERE consumidor_id=%s
+        ORDER BY criada_em DESC
+        LIMIT 100
+    """, (consumidor_id,))
+    notificacoes = cur.fetchall()
+    cur.close()
+    return render_template("consumidor_notificacoes.html", notificacoes=notificacoes)
+
+
+@app.post("/api/notificacoes/<notif_id>/ler")
+@_consumer_required
+def api_notificacao_ler(notif_id):
+    _ensure_notificacoes_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_notificacoes_consumidor SET lida_em=COALESCE(lida_em, NOW()) WHERE id=%s AND consumidor_id=%s",
+        (notif_id, session["consumidor_id"]),
+    )
+    conn.commit(); cur.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/notificacoes/ler-todas")
+@_consumer_required
+def api_notificacoes_ler_todas():
+    _ensure_notificacoes_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_notificacoes_consumidor SET lida_em=COALESCE(lida_em, NOW()) WHERE consumidor_id=%s AND lida_em IS NULL",
+        (session["consumidor_id"],),
+    )
+    conn.commit(); cur.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/admin/notificacoes/sistema")
+@admin_required
+def admin_notificacoes_sistema():
+    data = request.get_json(silent=True) or {}
+    titulo = (data.get("titulo") or request.form.get("titulo") or "").strip()
+    mensagem = (data.get("mensagem") or request.form.get("mensagem") or "").strip()
+    url = (data.get("url") or request.form.get("url") or "").strip() or None
+    if not titulo:
+        return jsonify({"ok": False, "msg": "Titulo obrigatorio."}), 400
+    enviados = _notificar_todos_consumidores(titulo, mensagem, url=url, tipo="sistema")
+    return jsonify({"ok": True, "enviados": enviados})
+
+
 @app.get("/favoritos")
 @_consumer_required
 def consumidor_favoritos():
@@ -5474,6 +6492,26 @@ def meu_pedido_detalhe(pedido_id):
     if not pedido:
         flash("Pedido não encontrado.", "error")
         return redirect(url_for("meus_pedidos"))
+    if (
+        pedido.get("status") == "pago"
+        and (pedido.get("tipo_entrega") or "retirada") != "entrega"
+        and not pedido.get("codigo_retirada")
+    ):
+        _auto_pronto_retirada(pedido_id)
+        cur.execute(
+            """
+            SELECT p.*, u.razao, u.telefone,
+                   u.endereco2 AS loja_endereco,
+                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome
+            FROM ecommerce_pedidos p
+            JOIN users u ON u.cnpjloja = p.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+            WHERE p.id = %s AND p.consumidor_id = %s
+            LIMIT 1
+            """,
+            (pedido_id, session["consumidor_id"]),
+        )
+        pedido = cur.fetchone() or pedido
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
     # Reclamação ativa (se houver)
@@ -5884,6 +6922,8 @@ def api_checkout():
     _ensure_consumidor_schema()
     _ensure_payment_schema()
     _ensure_receita_schema()
+    _ensure_mp_public_key_column()
+    _ensure_gateway_alt_columns()
     data     = request.get_json(force=True) or {}
     fp_list  = data.get("farmaciasPedidos", [])
 
@@ -5933,7 +6973,10 @@ def api_checkout():
         cur.execute(
             """
             SELECT u.razao, u.telefone,
-                   c.whatsapp_pedidos, c.whatsapp_receita, c.pix_chave, c.pix_nome, c.mp_access_token,
+                   c.whatsapp_pedidos, c.whatsapp_receita, c.pix_chave, c.pix_nome,
+                   c.mp_access_token, c.mp_public_key,
+                   COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo,
+                   c.asaas_api_key, c.pagbank_token, c.pagbank_public_key,
                    COALESCE(c.aceita_entrega, FALSE) AS aceita_entrega,
                    COALESCE(c.raio_entrega_km, 0) AS raio_entrega_km,
                    COALESCE(c.cobra_frete, FALSE) AS cobra_frete,
@@ -5951,6 +6994,24 @@ def api_checkout():
         if not loja:
             continue
 
+        for item in itens:
+            preco_base_atual = _preco_catalogo_atual(
+                cnpjloja,
+                item.get("ean") or "",
+                item.get("preco", 0),
+            )
+            preco_corrigido, promo_info = _preco_produto_com_promocao(
+                cnpjloja,
+                item.get("ean") or "",
+                preco_base_atual,
+                session.get("consumidor_id"),
+            )
+            item["preco"] = preco_corrigido
+            item["preco_original"] = preco_base_atual
+            if promo_info:
+                item["promo"] = promo_info
+            else:
+                item.pop("promo", None)
         produtos_total = sum(float(i.get("preco", 0)) * int(i.get("qty", 1)) for i in itens)
         tipo_entrega = (fp.get("tipo_entrega") or "retirada").strip()
         entrega_lat = _to_float_or_none(fp.get("entrega_lat")) or _to_float_or_none(cliente.get("lat"))
@@ -6116,8 +7177,6 @@ def api_checkout():
                 except Exception:
                     anvisa_item = {}
             tarja_item = _detectar_tarja(anvisa_item)
-            if tarja_item is None and _NOME_TARJA_VERMELHA_RE.search(nome_item):
-                anvisa_item["tarja"] = "vermelha"
             item["requer_receita"] = _exige_receita_digital_entrega(anvisa_item, nome_item)
 
         # Receita digital no checkout apenas para retencao/controle; tarja vermelha simples nao bloqueia.
@@ -6206,30 +7265,104 @@ def api_checkout():
             )
 
         conn.commit()
+        _notificar_consumidor(
+            session.get("consumidor_id"),
+            "pedido",
+            "Pedido recebido",
+            f"Seu pedido #{pedido_id[:8].upper()} foi registrado e ja esta com a farmacia.",
+            url=url_for("meu_pedido_detalhe", pedido_id=pedido_id),
+            pedido_id=pedido_id,
+            conn=conn,
+        )
+        conn.commit()
 
         mp_init = None
         mp_payment = {}
         payment_status = "pending"
         pix_erro = None
         mp_erro = None
+        gateway_pagamento = (loja.get("gateway_alternativo") or "mercadopago").strip()
+        gateway_habilitado = (
+            gateway_pagamento == "mercadopago"
+            or (gateway_pagamento == "asaas" and bool(loja.get("asaas_api_key")))
+            or (gateway_pagamento == "pagbank" and bool(loja.get("pagbank_token")) and bool(loja.get("pagbank_public_key")))
+        )
         if receita_status == "pendente":
             pass  # pagamento criado apenas após aprovação da receita
-        elif pagamento == "mercadopago" and loja.get("mp_access_token"):
-            mp_pref = _criar_preferencia_mp(
-                loja["mp_access_token"], pedido_id, itens, total, cliente
+        elif pagamento == "mercadopago" and gateway_pagamento == "asaas" and loja.get("asaas_api_key"):
+            cur.execute(
+                """
+                UPDATE ecommerce_pedidos
+                SET pagamento_status=%s, atualizado_em=NOW()
+                WHERE id=%s
+                """,
+                ("PENDING", pedido_id),
             )
-            mp_erro = (mp_pref or {}).get("_erro")
-            if mp_pref and not mp_erro:
-                mp_init = mp_pref.get("init_point")
+            conn.commit()
+        elif pagamento == "pix" and gateway_pagamento == "asaas" and loja.get("asaas_api_key"):
+            try:
+                mp_payment = _criar_pagamento_pix_asaas(
+                    loja["asaas_api_key"], pedido_id, total, cliente, session.get("consumidor_id"), cnpjloja
+                ) or {}
+                payment_status = mp_payment.get("status") or "PENDING"
+                pedido_status = _asaas_status_para_pedido(payment_status)
                 cur.execute(
                     """
                     UPDATE ecommerce_pedidos
-                    SET mp_preference_id=%s, mp_init_point=%s, pagamento_status=%s
+                    SET mp_payment_id=%s,
+                        pix_qr_code=%s,
+                        pix_qr_base64=%s,
+                        pagamento_status=%s,
+                        pagamento_status_detail=%s,
+                        status=%s,
+                        pagamento_confirmado_em=CASE WHEN %s='pago' THEN NOW() ELSE pagamento_confirmado_em END
                     WHERE id=%s
                     """,
-                    (mp_pref.get("id"), mp_init, payment_status, pedido_id),
+                    (
+                        str(mp_payment.get("id") or ""),
+                        mp_payment.get("qr_code"),
+                        mp_payment.get("qr_code_base64"),
+                        payment_status,
+                        mp_payment.get("status_detail"),
+                        pedido_status,
+                        pedido_status,
+                        pedido_id,
+                    ),
                 )
                 conn.commit()
+            except Exception as exc:
+                pix_erro = str(exc)
+        elif pagamento == "mercadopago" and gateway_pagamento != "mercadopago":
+            mp_erro = f"Gateway {gateway_pagamento} configurado, mas o checkout transparente deste gateway ainda não está ativo."
+        elif pagamento == "pix" and gateway_pagamento != "mercadopago":
+            pix_erro = f"Gateway {gateway_pagamento} configurado, mas o PIX automático deste gateway ainda não está ativo."
+        elif pagamento == "mercadopago" and loja.get("mp_access_token"):
+            if loja.get("mp_public_key"):
+                cur.execute(
+                    """
+                    UPDATE ecommerce_pedidos
+                    SET pagamento_status=%s, mp_preference_id=NULL, mp_init_point=NULL
+                    WHERE id=%s
+                    """,
+                    (payment_status, pedido_id),
+                )
+                conn.commit()
+            else:
+                mp_pref = _criar_preferencia_mp(
+                    loja["mp_access_token"], pedido_id, itens, total, cliente
+                )
+                mp_erro = (mp_pref or {}).get("_erro")
+                if mp_pref and not mp_erro:
+                    mp_init = mp_pref.get("init_point")
+                    cur.execute(
+                        """
+                        UPDATE ecommerce_pedidos
+                        SET mp_preference_id=%s, mp_init_point=%s, pagamento_status=%s
+                        WHERE id=%s
+                        """,
+                        (mp_pref.get("id"), mp_init, payment_status, pedido_id),
+                    )
+                    conn.commit()
         elif pagamento == "pix" and loja.get("mp_access_token"):
             mp_payment = _criar_pagamento_pix_mp(
                 loja["mp_access_token"], pedido_id, itens, total, cliente
@@ -6288,6 +7421,9 @@ def api_checkout():
             "pix_chave":    loja["pix_chave"] or "",
             "pix_nome":     loja["pix_nome"]  or "",
             "mp_init_point":mp_init,
+            "mp_public_key": loja.get("mp_public_key") or "",
+            "gateway_pagamento": gateway_pagamento,
+            "gateway_habilitado": gateway_habilitado,
             "mp_erro":      mp_erro,
             "pix_qr_code":  mp_payment.get("qr_code", ""),
             "pix_qr_base64":mp_payment.get("qr_code_base64", ""),
@@ -6306,6 +7442,261 @@ def api_checkout():
     _disparar_emails_novos_pedidos(pedidos_result, _itens_por_loja, cliente)
 
     return jsonify({"pedidos": pedidos_result})
+
+
+@app.post("/api/pedido/<pedido_id>/cartao-transparente")
+def api_pedido_cartao_transparente(pedido_id):
+    if not session.get("consumidor_id"):
+        return jsonify({"error": "Faça login para pagar."}), 401
+    _ensure_payment_schema()
+    data = request.get_json(force=True) or {}
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT p.id, p.cnpjloja, p.consumidor_id, p.total, p.status, p.pagamento_status,
+               p.cliente_nome, p.cliente_email, c.mp_access_token,
+               COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo
+        FROM ecommerce_pedidos p
+        JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+        WHERE p.id=%s LIMIT 1
+        """,
+        (pedido_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        return jsonify({"error": "Pedido não encontrado."}), 404
+    if str(row.get("consumidor_id")) != str(session.get("consumidor_id")):
+        cur.close()
+        return jsonify({"error": "Pedido não pertence ao usuário logado."}), 403
+    if not row.get("mp_access_token"):
+        cur.close()
+        return jsonify({"error": "Loja sem Mercado Pago configurado."}), 400
+    if (row.get("gateway_alternativo") or "mercadopago") != "mercadopago":
+        cur.close()
+        return jsonify({
+            "error": "Esta loja selecionou outro gateway. O checkout transparente dele precisa ser ativado antes de processar cartao por aqui."
+        }), 400
+    if (row.get("pagamento_status") or "").lower() == "approved":
+        cur.close()
+        return jsonify({"status": "approved"})
+    payer = data.get("payer") or {}
+    identification = payer.get("identification") or {}
+    doc_number = _digits(identification.get("number"))
+    doc_type = (identification.get("type") or ("CNPJ" if len(doc_number) == 14 else "CPF")).upper()
+    if doc_type not in {"CPF", "CNPJ"} or len(doc_number) not in {11, 14}:
+        cur.close()
+        return jsonify({"error": "Informe CPF ou CNPJ valido do pagador."}), 400
+    data["payer"] = {
+        **payer,
+        "identification": {"type": doc_type, "number": doc_number},
+    }
+    cliente = {
+        "nome": row.get("cliente_nome") or session.get("consumidor_nome") or "",
+        "email": row.get("cliente_email") or session.get("consumidor_email") or "",
+    }
+    consumidor_id = str(row.get("consumidor_id") or "")
+    cnpjloja = str(row.get("cnpjloja") or "")
+    mp_customer_id = _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
+    pay = _criar_pagamento_cartao_mp(row["mp_access_token"], pedido_id, row["total"], cliente, data, mp_customer_id)
+    erro = pay.get("_erro") if isinstance(pay, dict) else None
+    if erro:
+        cur.close()
+        return jsonify({"error": erro}), 400
+    status = (pay.get("status") or "pending").lower()
+    detail = pay.get("status_detail")
+    pedido_status = _status_pedido_por_pagamento(status)
+    cur.execute(
+        """
+        UPDATE ecommerce_pedidos
+        SET mp_payment_id=%s,
+            pagamento_status=%s,
+            pagamento_status_detail=%s,
+            status=%s,
+            pagamento_confirmado_em=CASE WHEN %s='pago' THEN COALESCE(pagamento_confirmado_em, NOW()) ELSE pagamento_confirmado_em END,
+            atualizado_em=NOW()
+        WHERE id=%s
+        """,
+        (str(pay.get("id") or ""), status, detail, pedido_status, pedido_status, pedido_id),
+    )
+    if pedido_status == "pago" and mp_customer_id:
+        _registrar_cartao_de_pagamento(conn, pay, consumidor_id, cnpjloja)
+    conn.commit()
+    cur.close()
+    if pedido_status == "pago":
+        _auto_pronto_retirada(pedido_id)
+        _notificar_pedido_evento(
+            pedido_id,
+            "pagamento",
+            "Pagamento aprovado",
+            f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
+        )
+    return jsonify({
+        "status": status,
+        "status_detail": detail,
+        "pedido_status": pedido_status,
+        "payment_id": str(pay.get("id") or ""),
+    })
+
+
+@app.post("/api/pedido/<pedido_id>/asaas-cartao")
+def api_pedido_asaas_cartao(pedido_id):
+    if not session.get("consumidor_id"):
+        return jsonify({"error": "Faça login para pagar."}), 401
+    _ensure_payment_schema()
+    _ensure_gateway_alt_columns()
+    data = request.get_json(force=True) or {}
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT p.id, p.cnpjloja, p.consumidor_id, p.total, p.status, p.pagamento_status,
+               p.cliente_nome, p.cliente_email, p.cliente_telefone,
+               c.asaas_api_key, COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo
+        FROM ecommerce_pedidos p
+        JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+        WHERE p.id=%s LIMIT 1
+        """,
+        (pedido_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        return jsonify({"error": "Pedido não encontrado."}), 404
+    if str(row.get("consumidor_id")) != str(session.get("consumidor_id")):
+        cur.close()
+        return jsonify({"error": "Pedido não pertence ao usuário logado."}), 403
+    if (row.get("gateway_alternativo") or "") != "asaas":
+        cur.close()
+        return jsonify({"error": "Esta loja não está configurada para Asaas."}), 400
+    if not row.get("asaas_api_key"):
+        cur.close()
+        return jsonify({"error": "Loja sem API Key Asaas configurada."}), 400
+    holder = data.get("holder") or {}
+    doc = _digits(holder.get("cpfCnpj") or "")
+    cep = _digits(holder.get("postalCode") or "")
+    if len(doc) not in {11, 14}:
+        cur.close()
+        return jsonify({"error": "Informe CPF ou CNPJ válido do pagador."}), 400
+    if len(cep) != 8:
+        cur.close()
+        return jsonify({"error": "Informe CEP válido do titular do cartão."}), 400
+    cliente = {
+        "nome": row.get("cliente_nome") or session.get("consumidor_nome") or "",
+        "email": row.get("cliente_email") or session.get("consumidor_email") or "",
+        "telefone": row.get("cliente_telefone") or session.get("consumidor_telefone") or "",
+    }
+    if not holder.get("email"):
+        holder["email"] = cliente["email"]
+    if not holder.get("phone"):
+        holder["phone"] = cliente["telefone"]
+    data["holder"] = holder
+    try:
+        pay = _criar_pagamento_cartao_asaas(
+            row["asaas_api_key"], pedido_id, row["total"], cliente,
+            str(row.get("consumidor_id") or ""), str(row.get("cnpjloja") or ""), data
+        )
+    except Exception as exc:
+        cur.close()
+        return jsonify({"error": str(exc)}), 400
+    status = (pay.get("status") or "PENDING").upper()
+    pedido_status = _asaas_status_para_pedido(status)
+    cur.execute(
+        """
+        UPDATE ecommerce_pedidos
+        SET mp_payment_id=%s,
+            pagamento_status=%s,
+            pagamento_status_detail=%s,
+            status=%s,
+            pagamento_confirmado_em=CASE WHEN %s='pago' THEN COALESCE(pagamento_confirmado_em, NOW()) ELSE pagamento_confirmado_em END,
+            atualizado_em=NOW()
+        WHERE id=%s
+        """,
+        (str(pay.get("id") or ""), status, status, pedido_status, pedido_status, pedido_id),
+    )
+    conn.commit()
+    cur.close()
+    if pedido_status == "pago":
+        _auto_pronto_retirada(pedido_id)
+        _notificar_pedido_evento(
+            pedido_id, "pagamento", "Pagamento aprovado",
+            f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
+        )
+    return jsonify({"status": status, "pedido_status": pedido_status, "payment_id": str(pay.get("id") or "")})
+
+
+@app.get("/api/cartoes-salvos/<cnpjloja>")
+def api_listar_cartoes_salvos(cnpjloja):
+    _ensure_cartoes_schema()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login."}), 401
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT mp_customer_id FROM ecommerce_mp_clientes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+        (consumidor_id, cnpjloja)
+    )
+    mp_row = cur.fetchone()
+    mp_customer_id = mp_row["mp_customer_id"] if mp_row else None
+    cur.execute(
+        "SELECT mp_card_id, ultimos_quatro, mes_vencimento, ano_vencimento, payment_method_id FROM ecommerce_cartoes_salvos WHERE consumidor_id=%s AND cnpjloja=%s ORDER BY criado_em DESC",
+        (consumidor_id, cnpjloja)
+    )
+    cards = [
+        {
+            "id": r["mp_card_id"],
+            "ultimos_quatro": r["ultimos_quatro"],
+            "mes_vencimento": r["mes_vencimento"],
+            "ano_vencimento": r["ano_vencimento"],
+            "payment_method_id": r["payment_method_id"],
+        }
+        for r in cur.fetchall()
+    ]
+    cur.close()
+    return jsonify({
+        "mp_customer_id": mp_customer_id,
+        "cards": cards,
+    })
+
+
+@app.delete("/api/cartoes-salvos/<cnpjloja>/<card_id>")
+def api_deletar_cartao_salvo(cnpjloja, card_id):
+    _ensure_cartoes_schema()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login."}), 401
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT c.mp_access_token FROM ecommerce_config_loja c WHERE c.cnpjloja=%s LIMIT 1",
+        (cnpjloja,)
+    )
+    cfg_row = cur.fetchone()
+    if not cfg_row or not cfg_row.get("mp_access_token"):
+        cur.close()
+        return jsonify({"error": "Loja não configurada."}), 400
+    cur.execute(
+        "SELECT mp_customer_id FROM ecommerce_mp_clientes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+        (consumidor_id, cnpjloja)
+    )
+    mp_row = cur.fetchone()
+    if not mp_row:
+        cur.close()
+        return jsonify({"error": "Nenhum cartão salvo."}), 404
+    mp_customer_id = mp_row["mp_customer_id"]
+    try:
+        _mp_request(cfg_row["mp_access_token"], f"/v1/customers/{mp_customer_id}/cards/{card_id}", method="DELETE")
+    except Exception:
+        pass
+    cur.execute(
+        "DELETE FROM ecommerce_cartoes_salvos WHERE consumidor_id=%s AND cnpjloja=%s AND mp_card_id=%s",
+        (consumidor_id, cnpjloja, card_id)
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
 
 
 def _ensure_payment_schema():
@@ -6362,6 +7753,238 @@ def _mp_request(access_token, path, payload=None, method=None, idempotency_key=N
         raise RuntimeError(f"MP URLError {path}: {e.reason}") from e
 
 
+def _asaas_base_url(api_key=""):
+    if os.getenv("ASAAS_SANDBOX", "").strip().lower() in {"1", "true", "yes"}:
+        return "https://api-sandbox.asaas.com/v3"
+    if "sandbox" in (api_key or "").lower():
+        return "https://api-sandbox.asaas.com/v3"
+    return "https://api.asaas.com/v3"
+
+
+def _asaas_request(api_key, path, payload=None, method=None, timeout=60):
+    headers = {
+        "access_token": api_key,
+        "accept": "application/json",
+        "content-type": "application/json",
+        "User-Agent": "Poupaqui/1.0",
+    }
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        f"{_asaas_base_url(api_key)}{path}",
+        data=data,
+        headers=headers,
+        method=method or ("POST" if data else "GET"),
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read().decode("utf-8", errors="replace")
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Asaas {e.code} {path}: {body}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Asaas URLError {path}: {e.reason}") from e
+
+
+def _asaas_remote_ip():
+    raw = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP") or request.remote_addr or ""
+    return raw.split(",", 1)[0].strip() or "127.0.0.1"
+
+
+def _asaas_status_para_pedido(status):
+    status = (status or "").upper()
+    if status in {"RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"}:
+        return "pago"
+    if status in {"REFUNDED", "CHARGEBACK_REQUESTED", "CHARGEBACK_DISPUTE", "AWAITING_CHARGEBACK_REVERSAL"}:
+        return "cancelado"
+    return "pendente"
+
+
+def _asaas_cliente_payload(cliente, doc_number=""):
+    nome = ((cliente or {}).get("nome") or "Cliente Poupaqui").strip()
+    email = ((cliente or {}).get("email") or "").strip()
+    telefone = _digits((cliente or {}).get("telefone") or "")
+    payload = {"name": nome[:100]}
+    if email and "@" in email:
+        payload["email"] = email
+    if doc_number:
+        payload["cpfCnpj"] = _digits(doc_number)
+    if telefone:
+        payload["mobilePhone"] = telefone[-11:]
+    return payload
+
+
+def _obter_ou_criar_asaas_customer(api_key, consumidor_id, cnpjloja, cliente, doc_number=""):
+    _ensure_gateway_alt_columns()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT asaas_customer_id FROM ecommerce_asaas_clientes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+        (str(consumidor_id), cnpjloja),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.close()
+        return row["asaas_customer_id"]
+    data = _asaas_request(api_key, "/customers", _asaas_cliente_payload(cliente, doc_number))
+    customer_id = data.get("id")
+    if not customer_id:
+        cur.close()
+        raise RuntimeError("Asaas não retornou ID do cliente.")
+    cur.execute(
+        "INSERT INTO ecommerce_asaas_clientes(consumidor_id, cnpjloja, asaas_customer_id) VALUES(%s,%s,%s) ON CONFLICT(consumidor_id, cnpjloja) DO UPDATE SET asaas_customer_id=EXCLUDED.asaas_customer_id",
+        (str(consumidor_id), cnpjloja, customer_id),
+    )
+    conn.commit()
+    cur.close()
+    return customer_id
+
+
+def _asaas_due_date(days=0):
+    return (datetime.now(timezone.utc) + timedelta(days=days)).date().isoformat()
+
+
+def _criar_pagamento_pix_asaas(api_key, pedido_id, total, cliente, consumidor_id, cnpjloja):
+    customer_id = _obter_ou_criar_asaas_customer(api_key, consumidor_id, cnpjloja, cliente)
+    payment = _asaas_request(api_key, "/payments", {
+        "customer": customer_id,
+        "billingType": "PIX",
+        "value": round(float(total), 2),
+        "dueDate": _asaas_due_date(0),
+        "description": f"Pedido Poupaqui #{str(pedido_id)[:8].upper()}",
+        "externalReference": str(pedido_id),
+    })
+    payment_id = payment.get("id")
+    qr = _asaas_request(api_key, f"/payments/{payment_id}/pixQrCode", method="GET") if payment_id else {}
+    return {
+        "id": payment_id,
+        "status": payment.get("status") or "PENDING",
+        "status_detail": payment.get("status"),
+        "qr_code": qr.get("payload"),
+        "qr_code_base64": qr.get("encodedImage"),
+    }
+
+
+def _asaas_card_payload(form):
+    doc = _digits((form.get("holder") or {}).get("cpfCnpj") or (form.get("payer") or {}).get("doc_number"))
+    phone = _digits((form.get("holder") or {}).get("phone") or "")
+    return {
+        "creditCard": {
+            "holderName": (form.get("card_holder_name") or "").strip(),
+            "number": _digits(form.get("card_number")),
+            "expiryMonth": str(form.get("expiry_month") or "").zfill(2),
+            "expiryYear": str(form.get("expiry_year") or ""),
+            "ccv": _digits(form.get("ccv")),
+        },
+        "creditCardHolderInfo": {
+            "name": (form.get("holder") or {}).get("name") or form.get("card_holder_name") or "",
+            "email": (form.get("holder") or {}).get("email") or "",
+            "cpfCnpj": doc,
+            "postalCode": _digits((form.get("holder") or {}).get("postalCode")),
+            "addressNumber": str((form.get("holder") or {}).get("addressNumber") or "S/N"),
+            "phone": phone[-11:] if phone else "",
+            "mobilePhone": phone[-11:] if phone else "",
+        },
+    }
+
+
+def _criar_pagamento_cartao_asaas(api_key, pedido_id, total, cliente, consumidor_id, cnpjloja, form):
+    holder = form.get("holder") or {}
+    doc = _digits(holder.get("cpfCnpj") or (form.get("payer") or {}).get("doc_number"))
+    customer_id = _obter_ou_criar_asaas_customer(api_key, consumidor_id, cnpjloja, cliente, doc)
+    card_payload = _asaas_card_payload(form)
+    payload = {
+        "customer": customer_id,
+        "billingType": "CREDIT_CARD",
+        "value": round(float(total), 2),
+        "dueDate": _asaas_due_date(0),
+        "description": f"Pedido Poupaqui #{str(pedido_id)[:8].upper()}",
+        "externalReference": str(pedido_id),
+        "remoteIp": _asaas_remote_ip(),
+        **card_payload,
+    }
+    return _asaas_request(api_key, "/payments", payload, timeout=75)
+
+
+def _criar_assinatura_cartao_asaas(api_key, assinatura_id, cnpjloja, plano, cliente, consumidor_id, form):
+    holder = form.get("holder") or {}
+    doc = _digits(holder.get("cpfCnpj") or (form.get("payer") or {}).get("doc_number"))
+    customer_id = _obter_ou_criar_asaas_customer(api_key, consumidor_id, cnpjloja, cliente, doc)
+    card_payload = _asaas_card_payload(form)
+    payload = {
+        "customer": customer_id,
+        "billingType": "CREDIT_CARD",
+        "value": round(float(plano.get("preco_mensal") or plano.get("preco") or 0), 2),
+        "nextDueDate": _asaas_due_date(0),
+        "cycle": "MONTHLY",
+        "description": f"Assinatura {plano.get('plano_nome') or plano.get('nome') or 'Clube'} - {plano.get('razao') or 'Poupaqui'}"[:255],
+        "externalReference": f"assinatura:{assinatura_id}",
+        "remoteIp": _asaas_remote_ip(),
+        **card_payload,
+    }
+    return _asaas_request(api_key, "/subscriptions", payload, timeout=75)
+
+
+def _obter_ou_criar_mp_customer(access_token, consumidor_id, cnpjloja, cliente):
+    try:
+        _ensure_cartoes_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT mp_customer_id FROM ecommerce_mp_clientes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+            (str(consumidor_id), cnpjloja)
+        )
+        row = cur.fetchone()
+        if row:
+            cur.close()
+            return str(row["mp_customer_id"])
+        email = (cliente or {}).get("email") or f"cliente_{str(consumidor_id)[:8]}@poupaqui.com.br"
+        nome = (cliente or {}).get("nome") or ""
+        parts = (nome or "").split(None, 1)
+        payload = {"email": email.strip()}
+        if parts:
+            payload["first_name"] = parts[0]
+        if len(parts) > 1:
+            payload["last_name"] = parts[1]
+        data = _mp_request(access_token, "/v1/customers", payload)
+        mp_customer_id = data.get("id")
+        if not mp_customer_id:
+            cur.close()
+            return None
+        cur.execute(
+            "INSERT INTO ecommerce_mp_clientes(consumidor_id, cnpjloja, mp_customer_id) VALUES(%s, %s, %s) ON CONFLICT(consumidor_id, cnpjloja) DO NOTHING",
+            (str(consumidor_id), cnpjloja, str(mp_customer_id))
+        )
+        conn.commit()
+        cur.close()
+        return str(mp_customer_id)
+    except Exception:
+        return None
+
+
+def _registrar_cartao_de_pagamento(conn, payment_data, consumidor_id, cnpjloja):
+    try:
+        card = payment_data.get("card") or {}
+        card_id = card.get("id")
+        if not card_id:
+            return
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO ecommerce_cartoes_salvos(consumidor_id, cnpjloja, mp_card_id, ultimos_quatro, mes_vencimento, ano_vencimento, payment_method_id) VALUES(%s, %s, %s, %s, %s, %s, %s) ON CONFLICT(consumidor_id, cnpjloja, mp_card_id) DO NOTHING",
+            (
+                str(consumidor_id), cnpjloja, str(card_id),
+                card.get("last_four_digits") or "",
+                card.get("expiration_month"),
+                card.get("expiration_year"),
+                payment_data.get("payment_method_id") or card.get("payment_method_id") or "",
+            )
+        )
+        conn.commit()
+        cur.close()
+    except Exception:
+        pass
+
+
 def _status_pedido_por_pagamento(status):
     status = (status or "").lower()
     if status == "approved":
@@ -6407,7 +8030,7 @@ def _criar_preferencia_mp(access_token, pedido_id, itens, total, cliente):
         data = _mp_request(access_token, "/checkout/preferences", payload, idempotency_key=f"{pedido_id}-checkout")
         init_point = data.get("init_point") or data.get("sandbox_init_point")
         if not init_point:
-            return {"_erro": "Mercado Pago nao retornou link de pagamento."}
+            return {"_erro": "Mercado Pago não retornou link de pagamento."}
         return {"id": data.get("id"), "init_point": init_point}
     except Exception as exc:
         import logging
@@ -6440,6 +8063,115 @@ def _criar_pagamento_pix_mp(access_token, pedido_id, itens, total, cliente):
         import logging
         logging.error("Mercado Pago PIX falhou para pedido %s: %s", pedido_id, exc)
         return {"_erro": str(exc)}
+
+
+def _criar_pagamento_cartao_mp(access_token, pedido_id, total, cliente, form, mp_customer_id=None):
+    try:
+        payer = dict(form.get("payer") or {})
+        payer["email"] = (
+            payer.get("email")
+            or (cliente or {}).get("email")
+            or f"comprador{int(time.time())}@poupaqui.com.br"
+        ).strip()
+        if mp_customer_id:
+            payer["id"] = mp_customer_id
+            payer["type"] = "customer"
+        payload = {
+            "transaction_amount": round(float(total), 2),
+            "token": form.get("token"),
+            "description": f"Pedido Poupaqui #{str(pedido_id)[:8].upper()}",
+            "installments": int(form.get("installments") or 1),
+            "payment_method_id": form.get("payment_method_id"),
+            "external_reference": str(pedido_id),
+            "payer": payer,
+        }
+        issuer_id = form.get("issuer_id")
+        if issuer_id:
+            payload["issuer_id"] = issuer_id
+        notification_url = _mp_notification_url()
+        if notification_url:
+            payload["notification_url"] = notification_url
+        return _mp_request(access_token, "/v1/payments", payload, idempotency_key=f"{pedido_id}-card")
+    except Exception as exc:
+        return {"_erro": str(exc)}
+
+
+def _criar_assinatura_recorrente_mp(access_token, assinatura_id, plano, cliente):
+    try:
+        preco = float(plano.get("preco_mensal") or plano.get("preco") or 0)
+        email = (_payer_payload(cliente).get("email") or "").strip()
+        payload = {
+            "reason": f"Assinatura {plano.get('plano_nome') or plano.get('nome') or 'Clube'} - {plano.get('razao') or 'Poupaqui'}"[:255],
+            "external_reference": f"assinatura:{assinatura_id}",
+            "payer_email": email,
+            "auto_recurring": {
+                "frequency": 1,
+                "frequency_type": "months",
+                "transaction_amount": round(preco, 2),
+                "currency_id": "BRL",
+            },
+        }
+        notification_url = _mp_notification_url()
+        if notification_url:
+            payload["notification_url"] = notification_url
+            payload["back_url"] = f"{_public_base_url()}/minhas-assinaturas"
+        data = _mp_request(access_token, "/preapproval", payload, idempotency_key=f"assin-{assinatura_id}-preapproval")
+        init_point = data.get("init_point") or data.get("sandbox_init_point")
+        if not init_point:
+            return {"_erro": "Mercado Pago não retornou link da assinatura recorrente."}
+        return {"id": data.get("id"), "init_point": init_point, "status": data.get("status")}
+    except Exception as exc:
+        import logging
+        logging.error("Mercado Pago recorrencia falhou para assinatura %s: %s", assinatura_id, exc)
+        return {"_erro": str(exc)}
+
+
+def _criar_assinatura_recorrente_cartao_mp(access_token, assinatura_id, plano, cliente, card_token_id):
+    try:
+        preco = float(plano.get("preco_mensal") or plano.get("preco") or 0)
+        email = (_payer_payload(cliente).get("email") or "").strip()
+        payload = {
+            "reason": f"Assinatura {plano.get('plano_nome') or plano.get('nome') or 'Clube'} - {plano.get('razao') or 'Poupaqui'}"[:255],
+            "external_reference": f"assinatura:{assinatura_id}",
+            "payer_email": email,
+            "card_token_id": card_token_id,
+            "status": "authorized",
+            "auto_recurring": {
+                "frequency": 1,
+                "frequency_type": "months",
+                "transaction_amount": round(preco, 2),
+                "currency_id": "BRL",
+            },
+        }
+        notification_url = _mp_notification_url()
+        if notification_url:
+            payload["notification_url"] = notification_url
+            payload["back_url"] = f"{_public_base_url()}/minhas-assinaturas"
+        return _mp_request(access_token, "/preapproval", payload, idempotency_key=f"assin-{assinatura_id}-brick")
+    except Exception as exc:
+        return {"_erro": str(exc)}
+
+
+def _ativar_assinatura_row(cur, assinatura_id, recorrente=False):
+    if recorrente:
+        cur.execute(
+            """UPDATE ecommerce_assinantes
+               SET status='ativo', pagamento_status='aprovado',
+                   data_inicio=COALESCE(data_inicio, NOW()),
+                   data_fim=NULL, assinatura_recorrente=TRUE
+               WHERE id=%s""",
+            (assinatura_id,),
+        )
+    else:
+        cur.execute(
+            """UPDATE ecommerce_assinantes
+               SET status='ativo', pagamento_status='aprovado',
+                   data_inicio=COALESCE(data_inicio, NOW()),
+                   data_fim=NOW() + INTERVAL '30 days',
+                   assinatura_recorrente=FALSE
+               WHERE id=%s""",
+            (assinatura_id,),
+        )
 
 
 def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_id=None):
@@ -6475,6 +8207,11 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
         detail = data.get("status_detail")
         pedido_status = _status_pedido_por_pagamento(status)
         cur.execute(
+            "SELECT status, pagamento_status FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
+            (pedido_id,),
+        )
+        old_payment_row = cur.fetchone() or {}
+        cur.execute(
             """
             UPDATE ecommerce_pedidos
             SET pagamento_status=%s,
@@ -6492,8 +8229,23 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
         cur.close()
         result = dict(updated) if updated else None
         # auto-avanço para retirada com flag
+        status_changed_to_paid = (
+            result
+            and result.get("status") == "pago"
+            and (
+                (old_payment_row.get("status") or "") != "pago"
+                or (old_payment_row.get("pagamento_status") or "") != status
+            )
+        )
         if result and result.get("status") == "pago":
             _auto_pronto_retirada(pedido_id)
+        if status_changed_to_paid:
+            _notificar_pedido_evento(
+                pedido_id,
+                "pagamento",
+                "Pagamento aprovado",
+                f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
+            )
         return result
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         reset_db_conn()
@@ -6551,6 +8303,97 @@ def _aplicar_webhook_pagamento(payment_id):
     return None
 
 
+def _ativar_assinatura_mp(payment_id: str):
+    """Ativa assinatura quando MP confirma pagamento com external_reference=assinatura:<id>."""
+    try:
+        _ensure_assinatura_schema()
+        conn = db(); cur = conn.cursor()
+        # Busca access_token de qualquer loja que tenha esse payment_id pendente
+        cur.execute(
+            """SELECT a.id, a.cnpjloja, c.mp_access_token
+               FROM ecommerce_assinantes a
+               LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
+               WHERE a.mp_payment_id=%s AND a.status='aguardando_pagamento'
+               LIMIT 1""",
+            (str(payment_id),),
+        )
+        row = cur.fetchone()
+        payment_status = None
+        if not row:
+            cur.execute("SELECT cnpjloja, mp_access_token FROM ecommerce_config_loja WHERE COALESCE(mp_access_token,'')<>''")
+            configs = cur.fetchall()
+            for cfg in configs:
+                try:
+                    data = _mp_request(cfg["mp_access_token"], f"/v1/payments/{payment_id}", method="GET")
+                except Exception:
+                    continue
+                payment_status = (data.get("status") or "").lower()
+                ext_ref = str(data.get("external_reference") or "")
+                if not ext_ref.startswith("assinatura:"):
+                    continue
+                assinatura_id = ext_ref.split(":", 1)[1]
+                cur.execute(
+                    """
+                    SELECT id FROM ecommerce_assinantes
+                    WHERE id=%s AND cnpjloja=%s AND status='aguardando_pagamento'
+                    LIMIT 1
+                    """,
+                    (assinatura_id, cfg["cnpjloja"]),
+                )
+                row = cur.fetchone()
+                if row:
+                    cur.execute("UPDATE ecommerce_assinantes SET mp_payment_id=%s WHERE id=%s", (str(payment_id), row["id"]))
+                    break
+            if not row:
+                cur.close(); return
+        elif row.get("mp_access_token"):
+            try:
+                data = _mp_request(row["mp_access_token"], f"/v1/payments/{payment_id}", method="GET")
+                payment_status = (data.get("status") or "").lower()
+            except Exception:
+                pass
+        if payment_status != "approved":
+            cur.close(); return
+        _ativar_assinatura_row(cur, row["id"], recorrente=False)
+        conn.commit(); cur.close()
+    except Exception:
+        pass
+
+
+def _sincronizar_assinatura_preapproval(preapproval_id: str):
+    try:
+        _ensure_assinatura_schema()
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT a.id, a.cnpjloja, c.mp_access_token
+            FROM ecommerce_assinantes a
+            JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
+            WHERE a.mp_preapproval_id=%s
+            LIMIT 1
+            """,
+            (str(preapproval_id),),
+        )
+        row = cur.fetchone()
+        if not row or not row.get("mp_access_token"):
+            cur.close()
+            return None
+        data = _mp_request(row["mp_access_token"], f"/preapproval/{preapproval_id}", method="GET")
+        status = (data.get("status") or "").lower()
+        if status in {"authorized", "active"}:
+            _ativar_assinatura_row(cur, row["id"], recorrente=True)
+        elif status in {"cancelled", "paused"}:
+            cur.execute(
+                "UPDATE ecommerce_assinantes SET status='cancelado', data_fim=NOW() WHERE id=%s",
+                (row["id"],),
+            )
+        conn.commit()
+        cur.close()
+        return status
+    except Exception:
+        return None
+
+
 @app.route("/api/mercadopago/webhook", methods=["GET", "POST"])
 def mercado_pago_webhook():
     body = request.get_json(silent=True) or {}
@@ -6562,10 +8405,77 @@ def mercado_pago_webhook():
         or data.get("id")
         or body.get("id")
     )
+    if event_type and "preapproval" in str(event_type).lower() and payment_id:
+        _sincronizar_assinatura_preapproval(str(payment_id))
+        return jsonify({"ok": True})
     if event_type and event_type not in {"payment", "merchant_order"}:
         return jsonify({"ok": True})
     if payment_id:
+        _ativar_assinatura_mp(str(payment_id))
         _aplicar_webhook_pagamento(str(payment_id))
+    return jsonify({"ok": True})
+
+
+@app.post("/api/asaas/webhook")
+def asaas_webhook():
+    body = request.get_json(silent=True) or {}
+    event = (body.get("event") or "").upper()
+    payment = body.get("payment") if isinstance(body.get("payment"), dict) else {}
+    payment_id = str(payment.get("id") or "")
+    ext_ref = str(payment.get("externalReference") or "")
+    status = (payment.get("status") or "").upper()
+    if event.startswith("PAYMENT_") and (payment_id or ext_ref):
+        conn = db()
+        cur = conn.cursor()
+        if ext_ref.startswith("assinatura:"):
+            assinatura_id = ext_ref.split(":", 1)[1]
+            if status in {"RECEIVED", "CONFIRMED"} or event in {"PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"}:
+                _ativar_assinatura_row(cur, assinatura_id, recorrente=True)
+                cur.execute("UPDATE ecommerce_assinantes SET mp_payment_id=%s WHERE id=%s", (payment_id, assinatura_id))
+            elif event in {"PAYMENT_DELETED", "PAYMENT_REFUNDED"}:
+                cur.execute("UPDATE ecommerce_assinantes SET status='cancelado', data_fim=NOW() WHERE id=%s", (assinatura_id,))
+            conn.commit()
+            cur.close()
+            return jsonify({"ok": True})
+        pedido_status = _asaas_status_para_pedido(status)
+        if ext_ref:
+            cur.execute(
+                """
+                UPDATE ecommerce_pedidos
+                SET mp_payment_id=COALESCE(NULLIF(%s,''), mp_payment_id),
+                    pagamento_status=%s,
+                    pagamento_status_detail=%s,
+                    status=%s,
+                    pagamento_confirmado_em=CASE WHEN %s='pago' THEN COALESCE(pagamento_confirmado_em, NOW()) ELSE pagamento_confirmado_em END,
+                    atualizado_em=NOW()
+                WHERE id=%s
+                RETURNING id
+                """,
+                (payment_id, status or event, event, pedido_status, pedido_status, ext_ref),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE ecommerce_pedidos
+                SET pagamento_status=%s,
+                    pagamento_status_detail=%s,
+                    status=%s,
+                    pagamento_confirmado_em=CASE WHEN %s='pago' THEN COALESCE(pagamento_confirmado_em, NOW()) ELSE pagamento_confirmado_em END,
+                    atualizado_em=NOW()
+                WHERE mp_payment_id=%s
+                RETURNING id
+                """,
+                (status or event, event, pedido_status, pedido_status, payment_id),
+            )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        if row and pedido_status == "pago":
+            _auto_pronto_retirada(str(row["id"]))
+            _notificar_pedido_evento(
+                str(row["id"]), "pagamento", "Pagamento aprovado",
+                f"O pagamento do pedido #{str(row['id'])[:8].upper()} foi confirmado.",
+            )
     return jsonify({"ok": True})
 
 
@@ -6639,7 +8549,7 @@ def pedido_confirmacao():
                        p.mp_preference_id, p.mp_payment_id, p.mp_init_point,
                        p.pix_qr_code, p.pix_qr_base64,
                        p.pagamento_status, p.pagamento_status_detail, p.pagamento_confirmado_em,
-                       p.tipo_entrega, p.codigo_entrega, p.endereco_entrega,
+                       p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
                        p.receita_status,
                        u.razao, u.telefone,
                        c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.mp_access_token
@@ -6656,6 +8566,31 @@ def pedido_confirmacao():
                     synced = _sincronizar_pagamento_mp_para_pedido(pid, p.get("mp_access_token"), p.get("mp_payment_id"))
                     if synced:
                         p.update(synced)
+                if (
+                    p.get("status") == "pago"
+                    and (p.get("tipo_entrega") or "retirada") != "entrega"
+                    and not p.get("codigo_retirada")
+                ):
+                    _auto_pronto_retirada(pid)
+                    cur.execute(
+                        """
+                        SELECT p.id, p.cnpjloja, p.cliente_nome, p.forma_pagamento,
+                               p.status, p.total, p.criado_em,
+                               p.mp_preference_id, p.mp_payment_id, p.mp_init_point,
+                               p.pix_qr_code, p.pix_qr_base64,
+                               p.pagamento_status, p.pagamento_status_detail, p.pagamento_confirmado_em,
+                               p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
+                               p.receita_status,
+                               u.razao, u.telefone,
+                               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.mp_access_token
+                        FROM ecommerce_pedidos p
+                        JOIN users u ON u.cnpjloja = p.cnpjloja
+                        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+                        WHERE p.id = %s LIMIT 1
+                        """,
+                        (pid,),
+                    )
+                    p = cur.fetchone() or p
                 cur.execute(
                     "SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id",
                     (pid,),
@@ -6753,13 +8688,13 @@ def painel_sincronizar_pagamento(pedido_id):
     pedido = cur.fetchone()
     cur.close()
     if not pedido:
-        flash("Pedido nÃ£o encontrado.", "error")
+        flash("Pedido não encontrado.", "error")
         return redirect(url_for("painel_pedidos"))
     synced = _sincronizar_pagamento_mp_para_pedido(pedido_id)
     if synced:
         flash("Pagamento sincronizado com o Mercado Pago.", "success")
     else:
-        flash("NÃ£o foi possÃ­vel sincronizar. Verifique se o pedido tem pagamento automÃ¡tico e token configurado.", "error")
+        flash("Não foi possível sincronizar. Verifique se o pedido tem pagamento automático e token configurado.", "error")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
 
@@ -6776,22 +8711,15 @@ def painel_pedido_status(pedido_id):
     ml_order_id = None
     if novo_status == "entregue":
         cur.execute(
-            "SELECT tipo_entrega, origem, ml_order_id, codigo_retirada FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+            "SELECT tipo_entrega, origem, ml_order_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
             (pedido_id, cnpjloja),
         )
         row = cur.fetchone()
         is_ml = row and row.get("origem") == "mercado_livre"
-        if row and row.get("tipo_entrega") == "entrega" and not is_ml:
+        if row and not is_ml:
             cur.close()
             flash(
-                "Para confirmar a entrega, use o formulário de confirmação informando o código do cliente.",
-                "error",
-            )
-            return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
-        if row and row.get("tipo_entrega") != "entrega" and row.get("codigo_retirada"):
-            cur.close()
-            flash(
-                "Para confirmar a retirada, informe o código que o cliente mostrará no app.",
+                "Para finalizar entrega/retirada, use o formulário de confirmação informando o código do cliente.",
                 "error",
             )
             return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
@@ -6800,7 +8728,7 @@ def painel_pedido_status(pedido_id):
     if novo_status == "pronto_retirada":
         codigo = _novo_codigo_entrega()
         cur.execute(
-            "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=COALESCE(codigo_retirada, %s), atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
             (codigo, pedido_id, cnpjloja),
         )
     else:
@@ -6813,6 +8741,12 @@ def painel_pedido_status(pedido_id):
     if novo_status == "entregue" and ml_order_id:
         _ml_feedback_entregue(ml_order_id)
     _email_status_pedido(pedido_id, novo_status)
+    _notificar_pedido_evento(
+        pedido_id,
+        "pedido",
+        f"Pedido {_STATUS_LABEL.get(novo_status, novo_status)}",
+        f"O status do pedido #{str(pedido_id)[:8].upper()} foi atualizado para {_STATUS_LABEL.get(novo_status, novo_status)}.",
+    )
     # se ficou como pago e é retirada com flag ativada, avança automaticamente
     if novo_status == "pago":
         _auto_pronto_retirada(pedido_id)
@@ -6861,6 +8795,12 @@ def painel_confirmar_entrega(pedido_id):
         _ml_feedback_entregue(ok["ml_order_id"])
     if ok:
         _email_status_pedido(pedido_id, "entregue")
+        _notificar_pedido_evento(
+            pedido_id,
+            "pedido",
+            "Pedido entregue",
+            f"A entrega do pedido #{str(pedido_id)[:8].upper()} foi confirmada.",
+        )
     flash("Entrega confirmada." if ok else "Código de entrega inválido.", "success" if ok else "error")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
@@ -6887,6 +8827,12 @@ def painel_confirmar_retirada(pedido_id):
     cur.close()
     if ok:
         _email_status_pedido(pedido_id, "entregue")
+        _notificar_pedido_evento(
+            pedido_id,
+            "pedido",
+            "Pedido retirado",
+            f"A retirada do pedido #{str(pedido_id)[:8].upper()} foi confirmada.",
+        )
     flash(
         "Retirada confirmada com sucesso!" if ok
         else "Código inválido. Peça ao cliente o código exibido no aplicativo.",
@@ -7618,6 +9564,8 @@ def painel_relatorios():
 @painel_required
 def painel_config():
     _ensure_receita_schema()
+    _ensure_mp_public_key_column()
+    _ensure_gateway_alt_columns()
     cnpjloja = session.get("cnpjloja")
     conn = db()
     cur  = conn.cursor()
@@ -7686,6 +9634,8 @@ def painel_mp_test():
 @painel_required
 def painel_config_salvar():
     _ensure_receita_schema()
+    _ensure_mp_public_key_column()
+    _ensure_gateway_alt_columns()
     cnpjloja = session.get("cnpjloja")
     f = request.form
     conn = db()
@@ -7695,9 +9645,11 @@ def painel_config_salvar():
         INSERT INTO ecommerce_config_loja
           (cnpjloja, whatsapp_pedidos, whatsapp_receita, email_notificacao, aceita_whatsapp, aceita_pix, aceita_mp,
            aceita_entrega, raio_entrega_km, cobra_frete, valor_frete,
-           pedido_minimo_entrega, pix_chave, pix_nome, mp_access_token,
+           pedido_minimo_entrega, pix_chave, pix_nome, mp_access_token, mp_public_key,
+           gateway_alternativo, asaas_api_key, pagbank_token, pagbank_public_key,
+           asaas_taxa_pct, asaas_taxa_fixa, pagbank_taxa_pct, pagbank_taxa_fixa,
            todos_prontos_retirada, updated_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
         ON CONFLICT (cnpjloja) DO UPDATE SET
           whatsapp_pedidos       = EXCLUDED.whatsapp_pedidos,
           whatsapp_receita       = EXCLUDED.whatsapp_receita,
@@ -7713,6 +9665,15 @@ def painel_config_salvar():
           pix_chave              = EXCLUDED.pix_chave,
           pix_nome               = EXCLUDED.pix_nome,
           mp_access_token        = EXCLUDED.mp_access_token,
+          mp_public_key          = EXCLUDED.mp_public_key,
+          gateway_alternativo    = EXCLUDED.gateway_alternativo,
+          asaas_api_key          = EXCLUDED.asaas_api_key,
+          pagbank_token          = EXCLUDED.pagbank_token,
+          pagbank_public_key     = EXCLUDED.pagbank_public_key,
+          asaas_taxa_pct         = EXCLUDED.asaas_taxa_pct,
+          asaas_taxa_fixa        = EXCLUDED.asaas_taxa_fixa,
+          pagbank_taxa_pct       = EXCLUDED.pagbank_taxa_pct,
+          pagbank_taxa_fixa      = EXCLUDED.pagbank_taxa_fixa,
           todos_prontos_retirada = EXCLUDED.todos_prontos_retirada,
           updated_at             = NOW()
         """,
@@ -7732,6 +9693,15 @@ def painel_config_salvar():
             (f.get("pix_chave")       or "").strip(),
             (f.get("pix_nome")        or "").strip(),
             (f.get("mp_access_token") or "").strip(),
+            (f.get("mp_public_key")   or "").strip(),
+            (f.get("gateway_alternativo") or "mercadopago").strip(),
+            (f.get("asaas_api_key") or "").strip() or None,
+            (f.get("pagbank_token") or "").strip() or None,
+            (f.get("pagbank_public_key") or "").strip() or None,
+            _to_float_or_none(f.get("asaas_taxa_pct")) or 0,
+            _to_float_or_none(f.get("asaas_taxa_fixa")) or 0,
+            _to_float_or_none(f.get("pagbank_taxa_pct")) or 0,
+            _to_float_or_none(f.get("pagbank_taxa_fixa")) or 0,
             "todos_prontos_retirada" in f,
         ),
     )
@@ -7739,6 +9709,120 @@ def painel_config_salvar():
     cur.close()
     flash("Configurações salvas com sucesso.", "success")
     return redirect(url_for("painel_config"))
+
+
+def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
+    _ensure_notificacoes_schema()
+    _ensure_assinatura_schema()
+    _ensure_favoritos_schema()
+    publico = publico if publico in {"todos", "compradores", "assinantes", "favoritos"} else "todos"
+    conn = db()
+    cur = conn.cursor()
+    parts = []
+    args = []
+    if publico in {"todos", "compradores"}:
+        parts.append("SELECT DISTINCT consumidor_id FROM ecommerce_pedidos WHERE cnpjloja=%s AND consumidor_id IS NOT NULL")
+        args.append(cnpjloja)
+    if publico in {"todos", "assinantes"}:
+        parts.append(
+            "SELECT DISTINCT consumidor_id::uuid AS consumidor_id FROM ecommerce_assinantes "
+            "WHERE cnpjloja=%s AND consumidor_id ~* '^[0-9a-f-]{36}$'"
+        )
+        args.append(cnpjloja)
+    if publico in {"todos", "favoritos"}:
+        parts.append("SELECT DISTINCT consumidor_id FROM ecommerce_favoritos WHERE cnpjloja=%s AND consumidor_id IS NOT NULL")
+        args.append(cnpjloja)
+    if not parts:
+        cur.close()
+        return []
+    cur.execute(" UNION ".join(parts), tuple(args))
+    ids = [r["consumidor_id"] for r in cur.fetchall() if r.get("consumidor_id")]
+    cur.close()
+    return ids
+
+
+@app.get("/painel/notificacoes")
+@painel_required
+def painel_notificacoes():
+    cnpjloja = session.get("cnpjloja")
+    publico_counts = {
+        "todos": len(_consumidores_notificacao_loja(cnpjloja, "todos")),
+        "compradores": len(_consumidores_notificacao_loja(cnpjloja, "compradores")),
+        "assinantes": len(_consumidores_notificacao_loja(cnpjloja, "assinantes")),
+        "favoritos": len(_consumidores_notificacao_loja(cnpjloja, "favoritos")),
+    }
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT n.titulo, n.mensagem, n.imagem_url, n.url, n.criada_em, COUNT(*) AS total
+        FROM ecommerce_notificacoes_consumidor n
+        WHERE n.tipo='loja' AND n.url LIKE %s
+        GROUP BY n.titulo, n.mensagem, n.imagem_url, n.url, n.criada_em
+        ORDER BY n.criada_em DESC
+        LIMIT 20
+        """,
+        (f"%/loja/{cnpjloja}%",),
+    )
+    historico = cur.fetchall()
+    cur.close()
+    return render_template("painel_notificacoes.html", publico_counts=publico_counts, historico=historico)
+
+
+@app.post("/painel/notificacoes")
+@painel_required
+def painel_notificacoes_enviar():
+    cnpjloja = session.get("cnpjloja")
+    titulo = (request.form.get("titulo") or "").strip()
+    mensagem = (request.form.get("mensagem") or "").strip()
+    publico = (request.form.get("publico") or "todos").strip()
+    url = (request.form.get("url") or "").strip() or url_for("catalogo_loja", cnpjloja=cnpjloja)
+    imagem_url = None
+    imagem = request.files.get("imagem")
+    if imagem and imagem.filename:
+        raw = imagem.read()
+        if len(raw) > 3 * 1024 * 1024:
+            flash("A imagem deve ter no máximo 3 MB.", "error")
+            return redirect(url_for("painel_notificacoes"))
+        ext = (imagem.filename.rsplit(".", 1)[-1].lower()) if "." in imagem.filename else "jpg"
+        content_type = {
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "webp": "image/webp",
+            "gif": "image/gif",
+        }.get(ext)
+        if not content_type:
+            flash("Use uma imagem JPG, PNG, WEBP ou GIF.", "error")
+            return redirect(url_for("painel_notificacoes"))
+        storage_path = f"notificacoes/{cnpjloja}/{int(time.time())}-{secrets.token_hex(6)}.{ext}"
+        imagem_url = upload_to_supabase_storage(raw, storage_path, content_type)
+        if not imagem_url:
+            flash("Não foi possível enviar a imagem. Tente novamente.", "error")
+            return redirect(url_for("painel_notificacoes"))
+    if not titulo or not mensagem:
+        flash("Informe título e mensagem.", "error")
+        return redirect(url_for("painel_notificacoes"))
+    consumidores = _consumidores_notificacao_loja(cnpjloja, publico)
+    if not consumidores:
+        flash("Nenhum consumidor encontrado para esse público.", "error")
+        return redirect(url_for("painel_notificacoes"))
+    rows = [(cid, "loja", titulo[:160], mensagem[:600], imagem_url, url) for cid in consumidores]
+    conn = db()
+    cur = conn.cursor()
+    execute_values(
+        cur,
+        """
+        INSERT INTO ecommerce_notificacoes_consumidor
+          (consumidor_id, tipo, titulo, mensagem, imagem_url, url)
+        VALUES %s
+        """,
+        rows,
+    )
+    conn.commit()
+    cur.close()
+    flash(f"Notificação enviada para {len(rows)} consumidor(es).", "success")
+    return redirect(url_for("painel_notificacoes"))
 
 
 # ─── PAINEL: UPLOAD IMAGEM DO PRODUTO ────────────────────────────────────────
@@ -7814,7 +9898,37 @@ def catalogo_loja(cnpjloja):
 
     produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
-    return render_template("catalogo_loja.html", loja=loja, produtos=produtos, q=q)
+    # Plano de assinatura da loja (se ativo)
+    plano_assinatura = None
+    ja_assina = False
+    assinatura_pendente = False
+    try:
+        _ensure_assinatura_schema()
+        cur2 = conn.cursor()
+        cur2.execute(
+            "SELECT id, nome, descricao, preco_mensal, beneficios FROM ecommerce_planos_assinatura WHERE cnpjloja=%s AND ativo=TRUE LIMIT 1",
+            (cnpjloja,),
+        )
+        plano_assinatura = cur2.fetchone()
+        if plano_assinatura:
+            consumidor_id = str(session.get("consumidor_id") or "")
+            if consumidor_id:
+                cur2.execute(
+                    """SELECT status, pagamento_status, data_fim FROM ecommerce_assinantes
+                       WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1""",
+                    (consumidor_id, cnpjloja),
+                )
+                row_assin = cur2.fetchone()
+                if row_assin:
+                    ja_assina = _assinatura_vigente_row(row_assin)
+                    assinatura_pendente = row_assin["status"] == "aguardando_pagamento"
+        cur2.close()
+    except Exception:
+        pass
+
+    return render_template("catalogo_loja.html", loja=loja, produtos=produtos, q=q,
+                           plano_assinatura=plano_assinatura, ja_assina=ja_assina,
+                           assinatura_pendente=assinatura_pendente)
 
 
 # ─── PAINEL DA LOJA (login) ───────────────────────────────────────────────────
@@ -8254,6 +10368,80 @@ def api_painel_buscar_estoque():
     return jsonify(resultados[:40])
 
 
+@app.get("/api/painel/estoque-disponivel")
+@painel_required
+def api_painel_estoque_disponivel():
+    cnpjloja = session.get("cnpjloja")
+    somente_novos = request.args.get("somente_novos", "1") != "0"
+    try:
+        limit = int(request.args.get("limit") or 5000)
+    except Exception:
+        limit = 5000
+    limit = max(1, min(limit, 5000))
+
+    _ensure_precificador_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT ean FROM ecommerce_catalogo_extra WHERE cnpjloja = %s", (cnpjloja,))
+    ja_extras = {str(r["ean"]).strip() for r in cur.fetchall() if r.get("ean")}
+
+    resultados = []
+    seen = set()
+    cur.execute("""
+        SELECT e.barras AS ean, e.descricao AS nome, CAST(e.estoque AS INTEGER) AS qty,
+               e.preco_referencial AS preco_ref
+        FROM estoque e
+        WHERE e.cnpj = %s AND e.estoque > 0 AND COALESCE(e.barras,'') <> ''
+        ORDER BY e.descricao
+        LIMIT %s
+    """, (cnpjloja, limit))
+    for r in cur.fetchall():
+        ean = (r["ean"] or "").strip()
+        if not ean or ean in seen:
+            continue
+        seen.add(ean)
+        if somente_novos and ean in ja_extras:
+            continue
+        resultados.append({
+            "ean": ean,
+            "nome": r["nome"] or "",
+            "qty": int(r["qty"] or 0),
+            "preco_ref": float(r["preco_ref"] or 0),
+            "ja_incluido": ean in ja_extras,
+        })
+        if len(resultados) >= limit:
+            break
+
+    if len(resultados) < limit:
+        cur.execute("""
+            SELECT ae.ean, ae.descricao_produto AS nome,
+                   CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+                   ae.valor_final_produto AS preco_ref
+            FROM automatiza_estoque ae
+            WHERE ae.cnpj_loja = %s AND ae.quantidade_estoque > 0 AND COALESCE(ae.ean,'') <> ''
+            ORDER BY ae.descricao_produto
+            LIMIT %s
+        """, (cnpjloja, limit))
+        for r in cur.fetchall():
+            ean = (r["ean"] or "").strip()
+            if not ean or ean in seen:
+                continue
+            seen.add(ean)
+            if somente_novos and ean in ja_extras:
+                continue
+            resultados.append({
+                "ean": ean,
+                "nome": r["nome"] or "",
+                "qty": int(r["qty"] or 0),
+                "preco_ref": float(r["preco_ref"] or 0),
+                "ja_incluido": ean in ja_extras,
+            })
+            if len(resultados) >= limit:
+                break
+    cur.close()
+    return jsonify({"ok": True, "total": len(resultados), "itens": resultados})
+
+
 @app.post("/painel/precificador/incluir-extra")
 @painel_required
 def precificador_incluir_extra():
@@ -8275,7 +10463,76 @@ def precificador_incluir_extra():
     )
     conn.commit()
     cur.close()
+    _batch_cache_clear()
     return jsonify({"ok": True})
+
+
+@app.post("/painel/precificador/incluir-extra-lote")
+@painel_required
+def precificador_incluir_extra_lote():
+    cnpjloja = session.get("cnpjloja")
+    data = request.get_json(silent=True) or {}
+    raw_eans = data.get("eans")
+    if isinstance(raw_eans, str):
+        eans = re.findall(r"\d{5,}", raw_eans)
+    elif isinstance(raw_eans, list):
+        eans = [re.sub(r"\D", "", str(x or "")) for x in raw_eans]
+    else:
+        eans = re.findall(r"\d{5,}", request.form.get("eans", ""))
+    eans = list(dict.fromkeys(e for e in eans if e))
+    if not eans:
+        return jsonify({"ok": False, "msg": "Informe ao menos um EAN."}), 400
+    if len(eans) > 5000:
+        return jsonify({"ok": False, "msg": "Envie no maximo 5000 EANs por lote."}), 400
+
+    _ensure_precificador_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT DISTINCT barras AS ean
+        FROM estoque
+        WHERE cnpj=%s AND estoque > 0 AND barras = ANY(%s)
+        UNION
+        SELECT DISTINCT ean
+        FROM automatiza_estoque
+        WHERE cnpj_loja=%s AND quantidade_estoque > 0 AND ean = ANY(%s)
+        """,
+        (cnpjloja, eans, cnpjloja, eans),
+    )
+    validos = {str(r["ean"]).strip() for r in cur.fetchall() if r.get("ean")}
+    cur.execute("SELECT ean FROM ecommerce_catalogo_extra WHERE cnpjloja=%s AND ean = ANY(%s)", (cnpjloja, eans))
+    existentes = {str(r["ean"]).strip() for r in cur.fetchall() if r.get("ean")}
+    rows = [(cnpjloja, ean) for ean in eans if ean in validos and ean not in existentes]
+    inseridos = 0
+    if rows:
+        execute_values(
+            cur,
+            """
+            INSERT INTO ecommerce_catalogo_extra (cnpjloja, ean)
+            VALUES %s
+            ON CONFLICT DO NOTHING
+            """,
+            rows,
+        )
+        inseridos = len(rows)
+        cur.execute(
+            "DELETE FROM ecommerce_catalogo_oculto WHERE cnpjloja=%s AND ean = ANY(%s)",
+            (cnpjloja, [ean for _, ean in rows]),
+        )
+    conn.commit()
+    cur.close()
+    _batch_cache_clear()
+    invalidos = [ean for ean in eans if ean not in validos]
+    return jsonify({
+        "ok": True,
+        "total": len(eans),
+        "validos": len(validos),
+        "inseridos": inseridos,
+        "ja_existiam": len([ean for ean in eans if ean in existentes]),
+        "ignorados": len(invalidos),
+        "invalidos": invalidos[:50],
+    })
 
 
 @app.post("/painel/precificador/remover-extra")
@@ -9168,6 +11425,7 @@ _ANVISA_STOP_WORDS = {
     "mg","mcg","ml","ui","gr","cp","caps","comp","tab","un","und",
     "sol","solucao","injetavel","oral","topico","cutaneo","subl",
     "cpr","drg","amp","fco","bsa","gel","crem","pom","sup","xpe",
+    "susp","solu","gota","gotas","soln","inj",
     "rev","retard","ret","iny","inf","efervescente","spray",
     "comprimido","comprimidos","capsula","capsulas","softgel","gelcap",
     "dragea","drageias","xarope","pomada","creme","supositorio",
@@ -9175,14 +11433,23 @@ _ANVISA_STOP_WORDS = {
     "pastilha","pastilhas","sublingual","transdermico","inalacao",
     "revestido","revestidos","liberacao","prolongada","retardada",
     "efervescente","mastigavel","dispersivel","orodisp","orodispersivel",
+    # Embalagem / acessório dosador — nunca fazem parte do INN
+    "frasco","frascos","litro","litros","copo","copinho","dosador","medidor",
+    "conta","seringa","caneta","nebulizador","inalador","vaporizador",
+    # Rótulos comerciais — não aparecem em registros ANVISA
+    "generico","generica","similar","bioequivalente",
     # Prefixos de sal farmacológico (nunca são o nome ANVISA)
     "cloridrato","bromidrato","dicloridrato","hemitartarato","hemifumarato",
     "maleato","fumarato","succinato","besilato","tartarato",
     "monoidratado","monoidratada","hemif","succ",
+    # Sufixos de forma/composição que mascaram INN quando 2ª palavra
+    "hidroclor","medoxomila","flacodin",
     # Nomes de laboratório que aparecem como 2ª palavra no estoque
     "germed","vitamedic","biolab","globo","greenbios","uniphar",
     "farmax","quimica","bellaphytus","rioquimica","medley","sandoz",
     "torrent","teuto","eurofarma","prati","donaduzzi","neo","geolab",
+    "pharlab","pharma","laboratorio","laboratorios",
+    "natulab","multilab","airela","pharmascience","biosintetica",
 }
 
 # Mapeamento nome-comercial → INN para lookup no anvisa_cache.
@@ -9339,10 +11606,11 @@ def _anvisa_extrair_secao(html, padroes):
     return None
 
 
-# Tarja Preta — controle especial (Portaria 344/98 listas A/B/C)
+# Tarja Preta: somente sinais fortes. "Controle especial" sozinho tambem aparece
+# em tarja vermelha com receita retida, entao nao deve virar preta por regex.
 _TARJA_PRETA_RE = re.compile(
     r"notifica[cç][aã]o\s+de\s+receita\s+[ab]"
-    r"|(?:lista|port(?:aria)?\s*)\s*[AB]\d?"
+    r"|\blista\s+[AB]\d?\b"
     r"|tarja\s+preta",
     re.IGNORECASE,
 )
@@ -9371,50 +11639,6 @@ _RECEITA_RETENCAO_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Fallback: nomes de princípios ativos/classes que são sempre tarja vermelha no Brasil
-# Usado quando anvisa_cache não tem o produto cadastrado
-_NOME_TARJA_VERMELHA_RE = re.compile(
-    # Antidiabéticos orais
-    r"\bglibenclamida\b|\bgliclazida\b|\bglimepirida\b|\bglipizida\b"
-    r"|\bmetformina\b|\binsulina\b|\bsitagliptina\b|\bempagliflozina\b|\bdapagliflozina\b"
-    # Anti-hipertensivos / cardiovasculares
-    r"|\batenolol\b|\bmetoprolol\b|\bpropranolol\b|\bcarvedilol\b|\bbisoprolol\b"
-    r"|\blosartana\b|\bvalsartana\b|\birbesartana\b|\bolmesartana\b|\bcandesartana\b"
-    r"|\benalapril\b|\bcaptopril\b|\bramipril\b|\blisinopril\b|\bperindopril\b"
-    r"|\b(?:anl|aml)odipino\b|\bnifedipino\b|\bdiltiazem\b|\bverapamil\b|\bfelodipino\b|\blercarnidipino\b"
-    r"|\bhidroclorotiazida\b|\bfurosemida\b|\bespironolactona\b|\bindapamida\b"
-    r"|\batorvastatina\b|\bsinvastatina\b|\brosuvastatina\b|\bpravastatina\b|\bfluvastatina\b"
-    r"|\bdigoxina\b|\bamiodarona\b|\bwarfarina\b|\bclopidogrel\b"
-    # Antibióticos (todos precisam de receita no BR)
-    r"|\bamoxicilina\b|\bampicilina\b|\bcefalexina\b|\bcefadroxila\b|\bcefaclor\b"
-    r"|\bazitromicina\b|\bclaritromicina\b|\beritromicina\b"
-    r"|\bciprofloxacino\b|\blevofloxacino\b|\bnorfloxacino\b|\bofloxacino\b"
-    r"|\bmetronidazol\b|\btinidazol\b|\bsulfametoxazol\b|\btrimetoprim\b"
-    r"|\btetraciclina\b|\bdoxiciclina\b|\bminociclina\b"
-    # Antidepressivos / ansiolíticos (não controlados)
-    r"|\bfluoxetina\b|\bsertralina\b|\bescitalopram\b|\bcitalopram\b"
-    r"|\bparoxetina\b|\bvenlafaxina\b|\bdesvenlafaxina\b|\bduloxetina\b"
-    r"|\bamitriptilina\b|\bnortriptilina\b|\bimipramina\b"
-    r"|\bbuspirona\b|\bhydroxizina\b|\bhidroxizina\b"
-    # Tireóide
-    r"|\blevotiroxina\b|\bmetimazol\b|\bpropiltiouracil\b"
-    # Corticoides (uso sistêmico)
-    r"|\bprednisona\b|\bprednisolona\b|\bdexametasona\b|\bbetametasona\b"
-    r"|\bmetilprednisolona\b|\btriancinolona\b"
-    # Antiulcerosos de prescrição
-    r"|\bomeprazol\b|\bpantoprazol\b|\blansoprazol\b|\besomeprazol\b|\brabeprazol\b"
-    # Anticonvulsivantes
-    r"|\bcarbamazepina\b|\bfenitoina\b|\bvalproato\b|\btopiramate?\b|\blamotrigina\b"
-    # Broncodilatadores sistêmicos
-    r"|\bsalbutamol\b|\bformoterol\b|\bsalmeterol\b|\btiotropio\b|\bbudesonida\b"
-    # Antiasmáticos / antialérgicos de prescrição
-    r"|\bmontelucaste\b|\bzafirlucaste\b"
-    # Outros comuns
-    r"|\bisossorbida\b|\bnitroglicerina\b|\btrimetazidina\b"
-    r"|\balopurinol\b|\bcolchicina\b",
-    re.IGNORECASE,
-)
-
 _NOME_RECEITA_RETIDA_RE = re.compile(
     # Antimicrobianos comuns: tarja vermelha com retencao/escrituracao.
     r"\bamoxicilina\b|\bampicilina\b|\bcefalexina\b|\bcefadroxila\b|\bcefaclor\b"
@@ -9433,34 +11657,12 @@ _NOME_RECEITA_RETIDA_RE = re.compile(
 
 
 def _detectar_tarja(anvisa: dict) -> str | None:
-    """Retorna 'preta', 'vermelha' ou None (sem tarja / OTC)."""
+    """Retorna somente a tarja explicita salva no anvisa_cache."""
     if not anvisa:
         return None
-    # Campo direto salvo pelo worker (API ANVISA)
     tarja_bd = (anvisa.get("tarja") or "").strip().lower()
     if tarja_bd in ("preta", "vermelha"):
-        blob_bd = " ".join(filter(None, [
-            anvisa.get("nome_anvisa") or "",
-            anvisa.get("principio_ativo") or "",
-            anvisa.get("alertas") or "",
-            anvisa.get("como_usar") or "",
-        ]))
-        if tarja_bd == "vermelha" and _CONTROLADO_TARJA_PRETA_RE.search(blob_bd):
-            return "preta"
         return tarja_bd
-    if anvisa.get("receita_retida") is True:
-        return "vermelha"
-    # Detecta do texto da bula
-    textos = " ".join(filter(None, [
-        anvisa.get("alertas") or "",
-        anvisa.get("como_usar") or "",
-        anvisa.get("nome_anvisa") or "",
-        anvisa.get("principio_ativo") or "",
-    ]))
-    if _TARJA_PRETA_RE.search(textos):
-        return "preta"
-    if _TARJA_VERMELHA_RE.search(textos):
-        return "vermelha"
     return None
 
 
@@ -9498,18 +11700,27 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
     except Exception:
         pass
     nomes = [p.get("nome") or "" for p in produtos]
-    chaves_map: dict[str, list[int]] = {}   # chave → índices na lista
+
+    # Mapa primário: chave 2 palavras → índices
+    chaves_map: dict[str, list[int]] = {}
+    # Mapa fallback: chave 1 palavra → índices (usada só quando 2 palavras não bate)
+    chaves_fallback: dict[str, list[int]] = {}
     for i, nome in enumerate(nomes):
         ch = _anvisa_chave(nome)
-        if ch:
-            chaves_map.setdefault(ch, []).append(i)
+        if not ch:
+            continue
+        chaves_map.setdefault(ch, []).append(i)
+        parts = ch.split()
+        if len(parts) == 2:
+            chaves_fallback.setdefault(parts[0], []).append(i)
 
-    # Inicializa tudo como False
     for p in produtos:
         p["requer_receita"] = False
 
     if not chaves_map:
         return produtos
+
+    all_chaves = set(chaves_map.keys()) | set(chaves_fallback.keys())
 
     cur = conn.cursor()
     try:
@@ -9517,50 +11728,54 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
             "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
             "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, dizeres_imagem "
             "FROM anvisa_cache WHERE chave = ANY(%s) AND encontrado = TRUE",
-            (list(chaves_map.keys()),),
+            (list(all_chaves),),
         )
-        for row in cur.fetchall():
+        rows_by_chave = {r["chave"]: r for r in cur.fetchall()}
+
+        matched: set[int] = set()
+
+        def _aplicar(idx, row):
             tarja = _detectar_tarja(dict(row))
-            for idx in chaves_map.get(row["chave"], []):
-                produtos[idx]["tarja"] = tarja
-                produtos[idx]["receita_retida"] = bool(row.get("receita_retida")) if row.get("receita_retida") is not None else _exige_receita_digital_entrega(dict(row), produtos[idx].get("nome") or "")
-                produtos[idx]["requer_receita"] = bool(produtos[idx]["receita_retida"])
-                produtos[idx]["venda_online_permitida"] = row.get("venda_online_permitida")
-                produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
-                produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
-                produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-                _tipo = _classificar_produto(produtos[idx].get("nome") or "")
-                _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
-                if _is_med and tarja in ("preta", "vermelha") and row.get("exibir_imagem_publica") is False:
-                    placeholder = _placeholder_for_tarja(tarja)
-                    if placeholder:
-                        produtos[idx]["imagem"] = placeholder
-                        produtos[idx]["imagem_padrao_poupaqui"] = True
-                        produtos[idx]["imagem_bloqueada_anvisa"] = True
+            produtos[idx]["tarja"] = tarja
+            produtos[idx]["receita_retida"] = bool(row.get("receita_retida")) if row.get("receita_retida") is not None else _exige_receita_digital_entrega(dict(row), produtos[idx].get("nome") or "")
+            produtos[idx]["requer_receita"] = bool(produtos[idx]["receita_retida"])
+            produtos[idx]["venda_online_permitida"] = row.get("venda_online_permitida")
+            produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
+            produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
+            produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
+            _tipo = _classificar_produto(produtos[idx].get("nome") or "")
+            _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
+            # tarja preta: bloqueia sempre; vermelha: só bloqueia se exibir_imagem_publica=False
+            _bloquear = _is_med and (
+                tarja == "preta"
+                or (tarja == "vermelha" and row.get("exibir_imagem_publica") is False)
+            )
+            if _bloquear:
+                placeholder = _placeholder_for_tarja(tarja)
+                if placeholder:
+                    produtos[idx]["imagem"] = placeholder
+                    produtos[idx]["imagem_padrao_poupaqui"] = True
+                    produtos[idx]["imagem_bloqueada_anvisa"] = True
+
+        # Passo 1: aplica matches da chave primária (2 palavras)
+        for ch, indices in chaves_map.items():
+            if ch in rows_by_chave:
+                for idx in indices:
+                    matched.add(idx)
+                    _aplicar(idx, rows_by_chave[ch])
+
+        # Passo 2: fallback 1 palavra para produtos sem match primário
+        # Ex: "FEXOFENADINA COPO" → não bate → tenta "FEXOFENADINA"
+        for ch1, indices in chaves_fallback.items():
+            if ch1 in rows_by_chave:
+                for idx in indices:
+                    if idx not in matched:
+                        _aplicar(idx, rows_by_chave[ch1])
+
     except Exception:
         pass
     finally:
         cur.close()
-
-    # Fallback: produtos que o anvisa_cache não detectou — checar pelo nome
-    for p in produtos:
-        if not p.get("requer_receita"):
-            nome = p.get("nome") or ""
-            _tipo = _classificar_produto(nome)
-            if _tipo in _TIPOS_NAO_MEDICAMENTO:
-                continue
-            if _NOME_TARJA_VERMELHA_RE.search(nome):
-                p["tarja"] = "vermelha"
-                p["receita_retida"] = bool(_NOME_RECEITA_RETIDA_RE.search(nome))
-                p["requer_receita"] = p["receita_retida"]
-                p["exibir_imagem_publica"] = False
-                p["dizeres_receita"] = "VENDA SOB PRESCRICAO - COM RETENCAO DA RECEITA." if p["receita_retida"] else "VENDA SOB PRESCRICAO."
-                p["dizeres_imagem"] = "Medicamento sob prescricao: nao utilizar imagem, propaganda, publicidade ou promocao no site publico."
-                placeholder = _placeholder_for_tarja("vermelha")
-                if placeholder:
-                    p["imagem"] = placeholder
-                    p["imagem_padrao_poupaqui"] = True
-                    p["imagem_bloqueada_anvisa"] = True
 
     return produtos
 
@@ -10154,6 +12369,17 @@ def _ensure_produto_canon_schema():
             return
         conn = db()
         cur = conn.cursor()
+        try:
+            cur.execute("SELECT to_regclass('public.produto_canon') AS tbl")
+            if (cur.fetchone() or {}).get("tbl"):
+                cur.close()
+                _schema_ready.add(key)
+                return
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS produto_canon (
                 ean               TEXT PRIMARY KEY,
@@ -10271,6 +12497,7 @@ def _ensure_cupons_schema():
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS tipo_regra TEXT DEFAULT 'codigo'")
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS forma_pagamento TEXT DEFAULT ''")
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS qtd_minima INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS so_assinantes BOOLEAN DEFAULT FALSE")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_cupons_clientes (
                 id SERIAL PRIMARY KEY,
@@ -10380,17 +12607,18 @@ def painel_cupons_novo():
     elif escopo == "produto":
         eans = request.form.getlist("escopo_eans")
         escopo_eans = ",".join(e.strip() for e in eans if e.strip())
+    so_assinantes = f.get("so_assinantes") == "1"
     conn = db(); cur = conn.cursor()
     try:
         cur.execute("""
             INSERT INTO ecommerce_cupons (cnpjloja, codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
-              tipo_regra, forma_pagamento, qtd_minima)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              tipo_regra, forma_pagamento, qtd_minima, so_assinantes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (cnpjloja, codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
-              tipo_regra, forma_pagamento, qtd_minima))
+              tipo_regra, forma_pagamento, qtd_minima, so_assinantes))
         cupom_row = cur.fetchone()
         cupom_id = str(cupom_row["id"])
         consumidores_ids = request.form.getlist("consumidores_ids")
@@ -10605,6 +12833,69 @@ def api_descontos_auto():
     return jsonify({"pagamento": pagamento_rules, "quantidade": quantidade_rules})
 
 
+@app.get("/api/lojas-com-assinatura")
+def api_lojas_com_assinatura():
+    """Retorna quais CNPJs têm plano de assinatura ativo e se o consumidor já assina cada um."""
+    cnpjs_param = (request.args.get("cnpjs") or "").strip()
+    if not cnpjs_param:
+        return jsonify({"planos": {}})
+    cnpjs = [c.strip() for c in cnpjs_param.split(",") if c.strip()][:30]
+    cnpj_keys = sorted({_digits(c) for c in cnpjs if _digits(c)})
+    if not cnpjs or not cnpj_keys:
+        return jsonify({"planos": {}})
+    try:
+        _ensure_assinatura_schema()
+        conn = db(); cur = conn.cursor()
+        placeholders = ",".join(["%s"] * len(cnpj_keys))
+        cur.execute(
+            f"""SELECT regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') AS cnpj_key,
+                       cnpjloja, nome, preco_mensal
+                FROM ecommerce_planos_assinatura
+                WHERE regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') IN ({placeholders})
+                  AND ativo=TRUE""",
+            cnpj_keys,
+        )
+        rows = cur.fetchall()
+        requested_by_key = {_digits(c): c for c in cnpjs if _digits(c)}
+        planos = {
+            requested_by_key.get(r["cnpj_key"], r["cnpjloja"]): {
+                "nome": r["nome"],
+                "preco": float(r["preco_mensal"] or 0),
+                "cnpj_key": r["cnpj_key"],
+            }
+            for r in rows
+        }
+
+        # Verifica quais o consumidor já assina
+        assinados = set()
+        consumidor_id = str(session.get("consumidor_id") or "")
+        if consumidor_id and planos:
+            cnpjs_com_plano = [info["cnpj_key"] for info in planos.values()]
+            ph2 = ",".join(["%s"] * len(cnpjs_com_plano))
+            cur.execute(
+                f"""SELECT regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') AS cnpj_key
+                    FROM ecommerce_assinantes
+                    WHERE consumidor_id=%s
+                      AND regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') IN ({ph2})
+                      AND status='ativo' AND pagamento_status='aprovado'
+                      AND (data_fim IS NULL OR data_fim > NOW())""",
+                [consumidor_id] + cnpjs_com_plano,
+            )
+            assinados = {r["cnpj_key"] for r in cur.fetchall()}
+        cur.close()
+        result = {
+            cnpj: {
+                "nome": info["nome"],
+                "preco": info["preco"],
+                "ja_assina": info["cnpj_key"] in assinados,
+            }
+            for cnpj, info in planos.items()
+        }
+        return jsonify({"planos": result})
+    except Exception:
+        return jsonify({"planos": {}})
+
+
 @app.get("/api/cupons/disponiveis")
 def api_cupons_disponiveis():
     if os.getenv("CUPONS_ENABLED", "1") == "0":
@@ -10623,6 +12914,23 @@ def api_cupons_disponiveis():
             (cnpjloja, consumidor_id)
         )
         n_pedidos = (cur.fetchone() or {}).get("n") or 0
+    # Verifica se consumidor é assinante desta loja
+    is_assinante = False
+    if consumidor_id:
+        try:
+            _ensure_assinatura_schema()
+            cur.execute(
+                """SELECT 1 FROM ecommerce_assinantes
+                   WHERE consumidor_id=%s AND cnpjloja=%s
+                     AND status='ativo' AND pagamento_status='aprovado'
+                     AND (data_fim IS NULL OR data_fim > NOW())
+                   LIMIT 1""",
+                (str(consumidor_id), cnpjloja),
+            )
+            is_assinante = bool(cur.fetchone())
+        except Exception:
+            pass
+
     publico_extra = """
             OR (c.publico = 'especifico' AND EXISTS (
                 SELECT 1 FROM ecommerce_cupons_clientes cc
@@ -10631,18 +12939,21 @@ def api_cupons_disponiveis():
             OR (c.publico = 'primeira_compra' AND %s = 0)
             OR (c.publico = 'frequente' AND %s >= c.min_compras AND c.min_compras > 0)
     """ if consumidor_id else ""
+    assin_filter = "" if is_assinante else "AND COALESCE(c.so_assinantes, FALSE) = FALSE"
     params_cupom = (cnpjloja, consumidor_id, n_pedidos, n_pedidos) if consumidor_id else (cnpjloja,)
     cur.execute(f"""
         SELECT c.id, c.codigo, c.desconto_tipo, c.desconto_valor, c.valido_ate, c.publico, c.min_compras,
                COALESCE(c.escopo,'todos') AS escopo,
                COALESCE(c.escopo_categorias,'') AS escopo_categorias,
-               COALESCE(c.escopo_eans,'') AS escopo_eans
+               COALESCE(c.escopo_eans,'') AS escopo_eans,
+               COALESCE(c.so_assinantes, FALSE) AS so_assinantes
         FROM ecommerce_cupons c
         WHERE c.cnpjloja = %s
           AND c.ativo = TRUE
           AND COALESCE(c.tipo_regra,'codigo') = 'codigo'
           AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
           AND (c.uso_maximo = 0 OR c.usos_count < c.uso_maximo)
+          {assin_filter}
           AND (
             c.publico = 'todos'
             {publico_extra}
@@ -10662,6 +12973,7 @@ def api_cupons_disponiveis():
             "escopo": r.get("escopo") or "todos",
             "escopo_categorias": r.get("escopo_categorias") or "",
             "escopo_eans": r.get("escopo_eans") or "",
+            "so_assinantes": bool(r.get("so_assinantes")),
         })
     return jsonify({"cupons": result})
 
@@ -12417,34 +14729,80 @@ _STATUS_LABEL = {
 
 
 def _auto_pronto_retirada(pedido_id: str):
-    """Se pedido é retirada e loja tem todos_prontos_retirada=True, avança para pronto_retirada."""
+    """Para retirada paga, gera codigo; se a loja configurou, avanca para pronto_retirada."""
     try:
         conn2 = _new_conn()
         cur2  = conn2.cursor()
         cur2.execute(
-            """SELECT p.tipo_entrega, c.todos_prontos_retirada
+            """SELECT p.tipo_entrega, p.codigo_retirada, c.todos_prontos_retirada
                FROM ecommerce_pedidos p
                LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
                WHERE p.id=%s AND p.status='pago' LIMIT 1""",
             (pedido_id,),
         )
         row = cur2.fetchone()
-        if row and (row.get("tipo_entrega") or "retirada") != "entrega" and row.get("todos_prontos_retirada"):
-            codigo = _novo_codigo_entrega()
-            cur2.execute(
-                "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=%s, atualizado_em=NOW() WHERE id=%s",
-                (codigo, pedido_id),
-            )
+        if row and (row.get("tipo_entrega") or "retirada") != "entrega":
+            codigo = row.get("codigo_retirada") or _novo_codigo_entrega()
+            if row.get("todos_prontos_retirada"):
+                cur2.execute(
+                    "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=%s, atualizado_em=NOW() WHERE id=%s",
+                    (codigo, pedido_id),
+                )
+                status_email = "pronto_retirada"
+            else:
+                cur2.execute(
+                    "UPDATE ecommerce_pedidos SET codigo_retirada=%s, atualizado_em=NOW() WHERE id=%s AND codigo_retirada IS NULL",
+                    (codigo, pedido_id),
+                )
+                status_email = None
             conn2.commit()
             cur2.close()
             conn2.close()
-            _email_status_pedido(pedido_id, "pronto_retirada")
+            if status_email:
+                _email_status_pedido(pedido_id, status_email)
+                _notificar_pedido_evento(
+                    pedido_id,
+                    "pedido",
+                    "Pedido pronto para retirada",
+                    f"Seu pedido #{str(pedido_id)[:8].upper()} esta pronto. Informe o codigo de retirada na loja.",
+                )
+            else:
+                _notificar_pedido_evento(
+                    pedido_id,
+                    "pedido",
+                    "Codigo de retirada gerado",
+                    f"Seu pedido #{str(pedido_id)[:8].upper()} ja tem codigo de retirada disponivel.",
+                )
             return True
         cur2.close()
         conn2.close()
     except Exception as exc:
         app.logger.warning("_auto_pronto_retirada error: %s", exc)
     return False
+
+
+def _garantir_codigo_retirada(pedido_id: str):
+    try:
+        conn2 = _new_conn()
+        cur2 = conn2.cursor()
+        codigo = _novo_codigo_entrega()
+        cur2.execute(
+            """
+            UPDATE ecommerce_pedidos
+            SET codigo_retirada=COALESCE(codigo_retirada, %s), atualizado_em=NOW()
+            WHERE id=%s AND COALESCE(tipo_entrega, 'retirada') != 'entrega'
+            RETURNING codigo_retirada
+            """,
+            (codigo, pedido_id),
+        )
+        row = cur2.fetchone()
+        conn2.commit()
+        cur2.close()
+        conn2.close()
+        return (row or {}).get("codigo_retirada") if row else None
+    except Exception as exc:
+        app.logger.warning("_garantir_codigo_retirada error: %s", exc)
+    return None
 
 
 def _disparar_emails_novos_pedidos(pedidos_result: list, itens_por_loja: dict, cliente: dict):
@@ -12794,6 +15152,850 @@ def api_dbg_email():
         return jsonify({"ok": False, "status": exc.code, "body": body, "from": RESEND_FROM, "key": RESEND_API_KEY[:12]}), 200
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc), "from": RESEND_FROM, "key": RESEND_API_KEY[:12]}), 200
+
+
+# ─── PROMOÇÕES ────────────────────────────────────────────────────────────────
+
+@app.get("/painel/promocoes")
+@painel_required
+def painel_promocoes():
+    _ensure_promo_schema()
+    cnpj = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("""
+        SELECT p.*,
+               (p.ativo AND (p.data_fim IS NULL OR p.data_fim > NOW())) AS vigente
+        FROM ecommerce_promocoes p
+        WHERE p.cnpjloja = %s
+        ORDER BY p.criado_em DESC
+    """, (cnpj,))
+    promos = cur.fetchall()
+    cur.close()
+    return render_template("painel_promocoes.html", promos=promos)
+
+
+@app.post("/painel/promocoes/criar")
+@painel_required
+def painel_promocoes_criar():
+    _ensure_promo_schema()
+    cnpj          = session["cnpjloja"]
+    ean           = request.form.get("ean", "").strip()
+    nome          = request.form.get("nome", "").strip()
+    preco_promo   = request.form.get("preco_promo", "")
+    data_fim      = request.form.get("data_fim", "").strip() or None
+    so_assinantes = request.form.get("so_assinantes") == "1"
+
+    try:
+        preco_promo = float(preco_promo)
+        if preco_promo <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash("Preço promocional inválido.", "error")
+        return redirect(url_for("painel_promocoes"))
+
+    if not ean:
+        flash("EAN obrigatório.", "error")
+        return redirect(url_for("painel_promocoes"))
+
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("UPDATE ecommerce_promocoes SET ativo=FALSE WHERE cnpjloja=%s AND ean=%s", (cnpj, ean))
+    cur.execute("""
+        INSERT INTO ecommerce_promocoes (cnpjloja, ean, nome, preco_promo, data_fim, so_assinantes)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (cnpj, ean, nome or None, preco_promo, data_fim or None, so_assinantes))
+    conn.commit()
+    cur.close()
+    flash("Promoção criada com sucesso!", "success")
+    return redirect(url_for("painel_promocoes"))
+
+
+@app.post("/painel/promocoes/criar-lote")
+@painel_required
+def painel_promocoes_criar_lote():
+    _ensure_promo_schema()
+    cnpj = session["cnpjloja"]
+    data = request.get_json(silent=True) or {}
+    texto = data.get("linhas") or request.form.get("linhas") or ""
+    data_fim = (data.get("data_fim") or request.form.get("data_fim") or "").strip() or None
+    so_assinantes = bool(data.get("so_assinantes")) or request.form.get("so_assinantes") == "1"
+    itens = data.get("itens") if isinstance(data.get("itens"), list) else []
+
+    parsed = []
+    for item in itens:
+        ean = re.sub(r"\D", "", str(item.get("ean") or ""))
+        preco_raw = str(item.get("preco_promo") or item.get("preco") or "").replace(",", ".")
+        nome = (item.get("nome") or "").strip() or None
+        if ean and preco_raw:
+            parsed.append((ean, preco_raw, nome))
+    for line in texto.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if ";" in line:
+            parts = [p.strip() for p in line.split(";", 2)]
+        elif "\t" in line:
+            parts = [p.strip() for p in line.split("\t", 2)]
+        else:
+            m = re.match(r"^(\d{5,})\s+([0-9]+(?:[,.][0-9]+)?)(?:\s+(.+))?$", line)
+            parts = [m.group(1), m.group(2), (m.group(3) or "").strip()] if m else [line]
+        if len(parts) < 2:
+            continue
+        ean = re.sub(r"\D", "", parts[0])
+        preco_raw = parts[1].replace(",", ".")
+        nome = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
+        parsed.append((ean, preco_raw, nome))
+
+    dedup = {}
+    erros = []
+    for ean, preco_raw, nome in parsed:
+        try:
+            preco = float(preco_raw)
+            if not ean or preco <= 0:
+                raise ValueError
+            dedup[ean] = (ean, preco, nome)
+        except Exception:
+            erros.append(ean or preco_raw)
+    if not dedup:
+        return jsonify({"ok": False, "msg": "Nenhuma linha valida. Use EAN;preco ou EAN;preco;nome."}), 400
+    if len(dedup) > 1000:
+        return jsonify({"ok": False, "msg": "Envie no maximo 1000 promocoes por lote."}), 400
+
+    eans = list(dedup.keys())
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE ecommerce_promocoes SET ativo=FALSE WHERE cnpjloja=%s AND ean = ANY(%s)", (cnpj, eans))
+    rows = [(cnpj, ean, nome, preco, data_fim, so_assinantes) for ean, preco, nome in dedup.values()]
+    execute_values(
+        cur,
+        """
+        INSERT INTO ecommerce_promocoes (cnpjloja, ean, nome, preco_promo, data_fim, so_assinantes)
+        VALUES %s
+        """,
+        rows,
+    )
+    conn.commit()
+    cur.close()
+    _batch_cache_clear()
+    return jsonify({"ok": True, "criadas": len(rows), "erros": erros[:50]})
+
+
+@app.post("/painel/promocoes/<int:promo_id>/toggle")
+@painel_required
+def painel_promocoes_toggle(promo_id):
+    _ensure_promo_schema()
+    cnpj = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("UPDATE ecommerce_promocoes SET ativo = NOT ativo WHERE id=%s AND cnpjloja=%s", (promo_id, cnpj))
+    conn.commit()
+    cur.close()
+    return redirect(url_for("painel_promocoes"))
+
+
+@app.post("/painel/promocoes/<int:promo_id>/delete")
+@painel_required
+def painel_promocoes_delete(promo_id):
+    _ensure_promo_schema()
+    cnpj = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("DELETE FROM ecommerce_promocoes WHERE id=%s AND cnpjloja=%s", (promo_id, cnpj))
+    conn.commit()
+    cur.close()
+    flash("Promoção removida.", "success")
+    return redirect(url_for("painel_promocoes"))
+
+
+@app.get("/api/promocao")
+def api_promocao():
+    """Retorna promoção vigente para um EAN+CNPJ. Respeita flag so_assinantes."""
+    _ensure_promo_schema()
+    ean  = request.args.get("ean", "").strip()
+    cnpj = request.args.get("cnpj", "").strip()
+    if not ean or not cnpj:
+        return jsonify({"promo": None})
+
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("""
+        SELECT id, preco_promo, data_fim, so_assinantes, nome
+        FROM ecommerce_promocoes
+        WHERE regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') = regexp_replace(%s, '\\D', '', 'g')
+          AND LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')
+          AND ativo = TRUE
+          AND (data_fim IS NULL OR data_fim > NOW())
+        ORDER BY criado_em DESC
+        LIMIT 1
+    """, (cnpj, ean))
+    row = cur.fetchone()
+    cur.close()
+
+    if not row:
+        return jsonify({"promo": None})
+
+    consumidor_id = session.get("consumidor_id")
+    if row["so_assinantes"]:
+        if not consumidor_id:
+            return jsonify({"promo": None, "assinantes_only": True})
+        cur2 = db().cursor()
+        cur2.execute(
+            """SELECT 1 FROM ecommerce_assinantes
+               WHERE consumidor_id=%s
+                 AND regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') = regexp_replace(%s, '\\D', '', 'g')
+                 AND status='ativo' AND pagamento_status='aprovado'
+                 AND (data_fim IS NULL OR data_fim > NOW())""",
+            (consumidor_id, cnpj),
+        )
+        is_sub = bool(cur2.fetchone())
+        cur2.close()
+        if not is_sub:
+            return jsonify({"promo": None, "assinantes_only": True})
+
+    return jsonify({
+        "promo": {
+            "preco_promo":    float(row["preco_promo"]),
+            "data_fim":       row["data_fim"].isoformat() if row["data_fim"] else None,
+            "nome":           row["nome"] or "Promoção",
+            "so_assinantes":  row["so_assinantes"],
+        }
+    })
+
+
+# ─── ASSINATURAS ──────────────────────────────────────────────────────────────
+
+@app.get("/painel/assinatura")
+@painel_required
+def painel_assinatura():
+    _ensure_assinatura_schema()
+    cnpj = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("SELECT * FROM ecommerce_planos_assinatura WHERE cnpjloja=%s LIMIT 1", (cnpj,))
+    plano = cur.fetchone()
+    cur.execute(
+        """SELECT COUNT(*) AS total FROM ecommerce_assinantes
+           WHERE cnpjloja=%s
+             AND status='ativo' AND pagamento_status='aprovado'
+             AND (data_fim IS NULL OR data_fim > NOW())""",
+        (cnpj,),
+    )
+    total_assinantes = cur.fetchone()["total"]
+    cur.close()
+    return render_template("painel_assinatura.html", plano=plano, total_assinantes=total_assinantes)
+
+
+@app.post("/painel/assinatura/salvar")
+@painel_required
+def painel_assinatura_salvar():
+    _ensure_assinatura_schema()
+    cnpj         = session["cnpjloja"]
+    nome         = request.form.get("nome", "Clube Fidelidade").strip()
+    descricao    = request.form.get("descricao", "").strip()
+    preco_mensal = request.form.get("preco_mensal", "")
+    beneficios   = request.form.get("beneficios", "").strip()
+    ativo        = request.form.get("ativo") == "1"
+
+    try:
+        preco_mensal = float(preco_mensal)
+        if preco_mensal < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash("Preço mensal inválido.", "error")
+        return redirect(url_for("painel_assinatura"))
+
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("""
+        INSERT INTO ecommerce_planos_assinatura (cnpjloja, nome, descricao, preco_mensal, beneficios, ativo)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET
+            nome         = EXCLUDED.nome,
+            descricao    = EXCLUDED.descricao,
+            preco_mensal = EXCLUDED.preco_mensal,
+            beneficios   = EXCLUDED.beneficios,
+            ativo        = EXCLUDED.ativo
+    """, (cnpj, nome, descricao or None, preco_mensal, beneficios or None, ativo))
+    conn.commit()
+    cur.close()
+    flash("Plano de assinatura salvo com sucesso!", "success")
+    return redirect(url_for("painel_assinatura"))
+
+
+@app.get("/minhas-assinaturas")
+def minhas_assinaturas():
+    _ensure_assinatura_schema()
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return redirect(url_for("consumidor_login"))
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("""
+        UPDATE ecommerce_assinantes
+           SET status='vencido'
+         WHERE consumidor_id=%s
+           AND status='ativo'
+           AND data_fim IS NOT NULL
+           AND data_fim <= NOW()
+    """, (str(consumidor_id),))
+    conn.commit()
+    cur.execute("""
+        SELECT a.id, a.status, a.data_inicio, a.data_fim, a.cnpjloja, a.pagamento_status, a.criado_em,
+               p.nome AS plano_nome, p.descricao, p.preco_mensal, p.beneficios,
+               u.razao
+        FROM ecommerce_assinantes a
+        JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
+        JOIN users u ON u.cnpjloja = a.cnpjloja
+        WHERE a.consumidor_id = %s
+        ORDER BY a.criado_em DESC
+    """, (str(consumidor_id),))
+    assinaturas = cur.fetchall()
+    cur.close()
+    consumidor = _consumidor_from_session()
+    return render_template("consumidor_assinaturas.html", assinaturas=assinaturas, consumidor=consumidor)
+
+
+@app.post("/assinar/<cnpjloja>")
+def assinar_loja(cnpjloja):
+    _ensure_assinatura_schema()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return redirect(url_for("consumidor_login"))
+
+    conn = db()
+    cur  = conn.cursor()
+
+    # Busca plano + config de pagamento da loja
+    cur.execute("""
+        SELECT p.id AS plano_id, p.nome AS plano_nome, p.preco_mensal,
+               c.mp_access_token, c.mp_public_key, c.pix_chave, c.pix_nome,
+               COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo,
+               c.asaas_api_key, c.pagbank_token, c.pagbank_public_key,
+               u.razao
+        FROM ecommerce_planos_assinatura p
+        JOIN users u ON u.cnpjloja = %s
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = %s
+        WHERE p.cnpjloja = %s AND p.ativo = TRUE
+        LIMIT 1
+    """, (cnpjloja, cnpjloja, cnpjloja))
+    plano = cur.fetchone()
+    if not plano:
+        flash("Esta farmácia não tem plano de assinatura ativo no momento.", "error")
+        cur.close()
+        return redirect(request.referrer or url_for("index"))
+
+    preco = float(plano["preco_mensal"] or 0)
+
+    # Cria/atualiza assinatura em status aguardando_pagamento
+    cur.execute("""
+        INSERT INTO ecommerce_assinantes (consumidor_id, cnpjloja, plano_id, status, pagamento_status)
+        VALUES (%s, %s, %s, 'aguardando_pagamento', 'pendente')
+        ON CONFLICT (consumidor_id, cnpjloja)
+        DO UPDATE SET status='aguardando_pagamento', pagamento_status='pendente',
+                  plano_id=EXCLUDED.plano_id, mp_payment_id=NULL, mp_preference_id=NULL,
+                  mp_init_point=NULL, mp_preapproval_id=NULL, mp_preapproval_init_point=NULL,
+                  assinatura_recorrente=FALSE
+        RETURNING id
+    """, (consumidor_id, cnpjloja, plano["plano_id"]))
+    assinatura_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.close()
+
+    # Plano gratuito: ativa direto
+    if preco <= 0:
+        conn2 = db(); cur2 = conn2.cursor()
+        _ativar_assinatura_row(cur2, assinatura_id, recorrente=False)
+        conn2.commit(); cur2.close()
+        flash("Assinatura ativada! Agora você tem acesso a benefícios exclusivos.", "success")
+        return redirect(url_for("minhas_assinaturas"))
+
+    gateway_assinatura = (plano.get("gateway_alternativo") or "mercadopago").strip()
+    if gateway_assinatura != "mercadopago":
+        gateway_ok = gateway_assinatura == "asaas" and bool(plano.get("asaas_api_key"))
+        session["assinatura_pix"] = {
+            "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
+            "qr_code": None, "qr_code_base64": None, "mp_payment_id": None,
+            "mp_public_key": "",
+            "gateway_pagamento": gateway_assinatura,
+            "gateway_aviso": "" if gateway_ok else f"Gateway {gateway_assinatura} configurado, mas a credencial ou a integração deste provedor ainda não está ativa.",
+            "plano_nome": plano["plano_nome"], "razao": plano["razao"],
+            "preco": preco,
+            "pix_chave": plano.get("pix_chave") or "",
+            "pix_nome":  plano.get("pix_nome")  or plano["razao"],
+        }
+        return redirect(url_for("assinatura_pagamento", cnpjloja=cnpjloja))
+
+    # Tenta criar pagamento no MP se token disponível
+    mp_token = plano.get("mp_access_token") or ""
+    if mp_token:
+        cliente = _consumidor_from_session() or {}
+        item = [{"nome": f"Assinatura {plano['plano_nome']} — {plano['razao']}", "qty": 1, "preco": preco}]
+        ext_ref = f"assinatura:{assinatura_id}"
+        recorrencia = _criar_assinatura_recorrente_mp(mp_token, assinatura_id, plano, cliente)
+        assinatura_recorrente_link = recorrencia.get("init_point") if not recorrencia.get("_erro") else None
+        if assinatura_recorrente_link:
+            connr = db(); curr = connr.cursor()
+            curr.execute(
+                "UPDATE ecommerce_assinantes SET mp_preapproval_id=%s, mp_preapproval_init_point=%s WHERE id=%s",
+                (str(recorrencia.get("id") or ""), assinatura_recorrente_link, assinatura_id),
+            )
+            connr.commit(); curr.close()
+
+        cartao_link = None
+
+        # Pix via MP (preferência para Pix)
+        try:
+            payload = {
+                "transaction_amount": round(preco, 2),
+                "description": f"Assinatura {plano['plano_nome']} — {plano['razao']}",
+                "payment_method_id": "pix",
+                "external_reference": ext_ref,
+                "payer": _payer_payload(cliente),
+            }
+            notif = _mp_notification_url()
+            if notif:
+                payload["notification_url"] = notif
+            data = _mp_request(mp_token, "/v1/payments", payload, idempotency_key=f"assin-{assinatura_id}-pix")
+            tx = (data.get("point_of_interaction") or {}).get("transaction_data") or {}
+            qr  = tx.get("qr_code")
+            qr64 = tx.get("qr_code_base64")
+            mp_pid = str(data.get("id") or "")
+            if mp_pid and qr:
+                conn3 = db(); cur3 = conn3.cursor()
+                cur3.execute(
+                    "UPDATE ecommerce_assinantes SET mp_payment_id=%s WHERE id=%s",
+                    (mp_pid, assinatura_id),
+                )
+                conn3.commit(); cur3.close()
+                session["assinatura_pix"] = {
+                    "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
+                    "qr_code": qr, "qr_code_base64": qr64,
+                    "mp_payment_id": mp_pid,
+                    "mp_public_key": plano.get("mp_public_key") or "",
+                    "mp_preapproval_id": str(recorrencia.get("id") or "") if assinatura_recorrente_link else "",
+                    "assinatura_recorrente_link": assinatura_recorrente_link,
+                    "cartao_link": None,
+                    "plano_nome": plano["plano_nome"], "razao": plano["razao"],
+                    "preco": preco,
+                }
+        except Exception:
+            pass
+
+        # Link para cartão avulso (um mês)
+        try:
+            pref_payload = {
+                "items": [{"title": f"Assinatura {plano['plano_nome']}", "quantity": 1,
+                           "unit_price": preco, "currency_id": "BRL"}],
+                "external_reference": ext_ref,
+                "payer": _payer_payload(cliente),
+            }
+            base_url = _public_base_url()
+            if base_url:
+                pref_payload["back_urls"] = {
+                    "success": f"{base_url}/minhas-assinaturas",
+                    "failure": f"{base_url}/assinatura/pagamento/{cnpjloja}",
+                    "pending": f"{base_url}/assinatura/pagamento/{cnpjloja}",
+                }
+                pref_payload["auto_return"] = "approved"
+            notif = _mp_notification_url()
+            if notif:
+                pref_payload["notification_url"] = notif
+            pref = _mp_request(mp_token, "/checkout/preferences", pref_payload,
+                               idempotency_key=f"assin-{assinatura_id}-pref")
+            cartao_link = pref.get("init_point") or pref.get("sandbox_init_point")
+            if cartao_link:
+                conn4 = db(); cur4 = conn4.cursor()
+                cur4.execute(
+                    "UPDATE ecommerce_assinantes SET mp_preference_id=%s, mp_init_point=%s WHERE id=%s",
+                    (str(pref.get("id") or ""), cartao_link, assinatura_id),
+                )
+                conn4.commit(); cur4.close()
+        except Exception:
+            pass
+
+        info = session.get("assinatura_pix") or {
+            "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
+            "qr_code": None, "qr_code_base64": None, "mp_payment_id": None,
+            "plano_nome": plano["plano_nome"], "razao": plano["razao"],
+            "preco": preco,
+        }
+        info.update({
+            "mp_preapproval_id": str(recorrencia.get("id") or "") if assinatura_recorrente_link else "",
+            "mp_public_key": plano.get("mp_public_key") or "",
+            "assinatura_recorrente_link": assinatura_recorrente_link,
+            "cartao_link": cartao_link,
+        })
+        session["assinatura_pix"] = info
+        return redirect(url_for("assinatura_pagamento", cnpjloja=cnpjloja))
+
+    # Sem integração de pagamento: mostra info Pix manual
+    session["assinatura_pix"] = {
+        "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
+        "qr_code": None, "qr_code_base64": None, "mp_payment_id": None,
+        "mp_public_key": "",
+        "plano_nome": plano["plano_nome"], "razao": plano["razao"],
+        "preco": preco,
+        "pix_chave": plano.get("pix_chave") or "",
+        "pix_nome":  plano.get("pix_nome")  or plano["razao"],
+    }
+    return redirect(url_for("assinatura_pagamento", cnpjloja=cnpjloja))
+
+
+@app.get("/assinatura/pagamento/<cnpjloja>")
+def assinatura_pagamento(cnpjloja):
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return redirect(url_for("consumidor_login"))
+
+    info = session.get("assinatura_pix") or {}
+    if not info or info.get("cnpjloja") != cnpjloja:
+        # Reconstrói info do banco (caso sessão tenha expirado)
+        _ensure_assinatura_schema()
+        _ensure_cartoes_schema()
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT a.id, a.mp_payment_id, a.mp_preapproval_id, a.mp_preapproval_init_point,
+                   a.mp_init_point, a.status, a.pagamento_status, a.data_fim,
+                   p.nome AS plano_nome, p.preco_mensal,
+                   u.razao,
+                   c.pix_chave, c.pix_nome, c.mp_public_key
+            FROM ecommerce_assinantes a
+            JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
+            JOIN users u ON u.cnpjloja = a.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
+            WHERE a.consumidor_id = %s AND a.cnpjloja = %s
+            LIMIT 1
+        """, (consumidor_id, cnpjloja))
+        row = cur.fetchone()
+        if not row or _assinatura_vigente_row(row):
+            cur.close()
+            return redirect(url_for("minhas_assinaturas"))
+        qr_code = None
+        qr_code_base64 = None
+        mp_pid = row.get("mp_payment_id")
+        mp_customer_id = None
+        cur.execute(
+            "SELECT mp_customer_id FROM ecommerce_mp_clientes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+            (consumidor_id, cnpjloja)
+        )
+        mp_row = cur.fetchone()
+        if mp_row:
+            mp_customer_id = mp_row["mp_customer_id"]
+        # Tenta re-buscar QR code do MP se o pagamento ainda existir
+        if mp_pid:
+            try:
+                conn5 = db(); cur5 = conn5.cursor()
+                cur5.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
+                cfg5 = cur5.fetchone(); cur5.close()
+                if cfg5 and cfg5.get("mp_access_token"):
+                    pdata = _mp_request(cfg5["mp_access_token"], f"/v1/payments/{mp_pid}", method="GET")
+                    tx = (pdata.get("point_of_interaction") or {}).get("transaction_data") or {}
+                    qr_code = tx.get("qr_code")
+                    qr_code_base64 = tx.get("qr_code_base64")
+            except Exception:
+                pass
+        info = {
+            "assinatura_id": row["id"],
+            "cnpjloja": cnpjloja,
+            "qr_code": qr_code,
+            "qr_code_base64": qr_code_base64,
+            "mp_payment_id": mp_pid,
+            "mp_public_key": row.get("mp_public_key") or "",
+            "mp_customer_id": mp_customer_id or "",
+            "mp_preapproval_id": row.get("mp_preapproval_id") or "",
+            "assinatura_recorrente_link": row.get("mp_preapproval_init_point") or "",
+            "cartao_link": row.get("mp_init_point") or "",
+            "plano_nome": row["plano_nome"],
+            "razao": row["razao"],
+            "preco": float(row["preco_mensal"] or 0),
+            "pix_chave": row.get("pix_chave") or "",
+            "pix_nome": row.get("pix_nome") or row["razao"],
+        }
+        cur.close()
+
+    if not info.get("mp_customer_id"):
+        try:
+            _ensure_cartoes_schema()
+            conn_mc = db(); cur_mc = conn_mc.cursor()
+            cur_mc.execute(
+                "SELECT mp_customer_id FROM ecommerce_mp_clientes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+                (consumidor_id, cnpjloja),
+            )
+            mc_row = cur_mc.fetchone()
+            cur_mc.close()
+            info["mp_customer_id"] = mc_row["mp_customer_id"] if mc_row else ""
+        except Exception:
+            info["mp_customer_id"] = ""
+
+    consumidor = _consumidor_from_session()
+    return render_template("consumidor_assinatura_pagamento.html", info=info, consumidor=consumidor)
+
+
+@app.post("/assinatura/pagamento/<cnpjloja>/cartao-transparente")
+def assinatura_cartao_transparente(cnpjloja):
+    _ensure_assinatura_schema()
+    _ensure_cartoes_schema()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login para assinar."}), 401
+    data = request.get_json(force=True) or {}
+    card_token = (data.get("token") or "").strip()
+    if not card_token:
+        return jsonify({"error": "Token do cartão não recebido."}), 400
+    payer = data.get("payer") or {}
+    identification = payer.get("identification") or {}
+    doc_number = _digits(identification.get("number"))
+    doc_type = (identification.get("type") or ("CNPJ" if len(doc_number) == 14 else "CPF")).upper()
+    if doc_type not in {"CPF", "CNPJ"} or len(doc_number) not in {11, 14}:
+        return jsonify({"error": "Informe CPF ou CNPJ valido do pagador."}), 400
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT a.id, a.status, p.nome AS plano_nome, p.preco_mensal, u.razao,
+               c.mp_access_token
+        FROM ecommerce_assinantes a
+        JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
+        JOIN users u ON u.cnpjloja = a.cnpjloja
+        JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
+        WHERE a.consumidor_id=%s AND a.cnpjloja=%s
+        LIMIT 1
+        """,
+        (consumidor_id, cnpjloja),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        return jsonify({"error": "Assinatura não encontrada."}), 404
+    if not row.get("mp_access_token"):
+        cur.close()
+        return jsonify({"error": "Loja sem Mercado Pago configurado."}), 400
+    cliente = _consumidor_from_session() or {}
+    plano = {
+        "plano_nome": row["plano_nome"],
+        "preco_mensal": float(row["preco_mensal"] or 0),
+        "razao": row["razao"],
+    }
+    _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
+    pre = _criar_assinatura_recorrente_cartao_mp(row["mp_access_token"], row["id"], plano, cliente, card_token)
+    erro = pre.get("_erro") if isinstance(pre, dict) else None
+    if erro:
+        cur.close()
+        return jsonify({"error": erro}), 400
+    pre_id = str(pre.get("id") or "")
+    cur.execute(
+        "UPDATE ecommerce_assinantes SET mp_preapproval_id=%s, mp_preapproval_init_point=NULL WHERE id=%s",
+        (pre_id, row["id"]),
+    )
+    status = (pre.get("status") or "").lower()
+    if status in {"authorized", "active"}:
+        _ativar_assinatura_row(cur, row["id"], recorrente=True)
+    conn.commit()
+    cur.close()
+    return jsonify({
+        "status": "ativo" if status in {"authorized", "active"} else status or "pending",
+        "preapproval_id": pre_id,
+    })
+
+
+@app.post("/assinatura/pagamento/<cnpjloja>/asaas-cartao")
+def assinatura_asaas_cartao(cnpjloja):
+    _ensure_assinatura_schema()
+    _ensure_gateway_alt_columns()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login para assinar."}), 401
+    data = request.get_json(force=True) or {}
+    holder = data.get("holder") or {}
+    doc = _digits(holder.get("cpfCnpj") or "")
+    cep = _digits(holder.get("postalCode") or "")
+    if len(doc) not in {11, 14}:
+        return jsonify({"error": "Informe CPF ou CNPJ válido do pagador."}), 400
+    if len(cep) != 8:
+        return jsonify({"error": "Informe CEP válido do titular do cartão."}), 400
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT a.id, p.nome AS plano_nome, p.preco_mensal, u.razao,
+               c.asaas_api_key, COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo
+        FROM ecommerce_assinantes a
+        JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
+        JOIN users u ON u.cnpjloja = a.cnpjloja
+        JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
+        WHERE a.consumidor_id=%s AND a.cnpjloja=%s
+        LIMIT 1
+        """,
+        (consumidor_id, cnpjloja),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        return jsonify({"error": "Assinatura não encontrada."}), 404
+    if row.get("gateway_alternativo") != "asaas":
+        cur.close()
+        return jsonify({"error": "Esta loja não está configurada para Asaas."}), 400
+    if not row.get("asaas_api_key"):
+        cur.close()
+        return jsonify({"error": "Loja sem API Key Asaas configurada."}), 400
+    cliente = _consumidor_from_session() or {}
+    if not holder.get("email"):
+        holder["email"] = cliente.get("email") or ""
+    if not holder.get("phone"):
+        holder["phone"] = cliente.get("telefone") or ""
+    data["holder"] = holder
+    plano = {"plano_nome": row["plano_nome"], "preco_mensal": float(row["preco_mensal"] or 0), "razao": row["razao"]}
+    try:
+        sub = _criar_assinatura_cartao_asaas(row["asaas_api_key"], row["id"], cnpjloja, plano, cliente, consumidor_id, data)
+    except Exception as exc:
+        cur.close()
+        return jsonify({"error": str(exc)}), 400
+    sub_id = str(sub.get("id") or "")
+    cur.execute(
+        "UPDATE ecommerce_assinantes SET mp_preapproval_id=%s, assinatura_recorrente=TRUE WHERE id=%s",
+        (sub_id, row["id"]),
+    )
+    _ativar_assinatura_row(cur, row["id"], recorrente=True)
+    conn.commit()
+    cur.close()
+    return jsonify({"status": "ativo", "subscription_id": sub_id})
+
+
+@app.get("/assinatura/pagamento/<cnpjloja>/status")
+def assinatura_pagamento_status(cnpjloja):
+    """Polling do status do pagamento de assinatura."""
+    _ensure_assinatura_schema()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return jsonify({"status": "nao_logado"})
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status, pagamento_status, mp_payment_id, mp_preapproval_id, data_fim FROM ecommerce_assinantes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
+        (consumidor_id, cnpjloja),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"status": "nao_encontrado"})
+
+    # Se já ativo, retorna
+    if _assinatura_vigente_row(row):
+        return jsonify({"status": "ativo"})
+    if row["status"] == "ativo" and row.get("data_fim") is not None:
+        conn_exp = db(); cur_exp = conn_exp.cursor()
+        cur_exp.execute("UPDATE ecommerce_assinantes SET status='vencido' WHERE id=%s", (row["id"],))
+        conn_exp.commit(); cur_exp.close()
+        return jsonify({"status": "vencido", "pagamento": row["pagamento_status"]})
+
+    # Tenta sincronizar com MP se tiver payment_id
+    mp_pid = row.get("mp_payment_id")
+    preapproval_id = row.get("mp_preapproval_id")
+    if preapproval_id:
+        status_pre = _sincronizar_assinatura_preapproval(str(preapproval_id))
+        if status_pre in {"authorized", "active"}:
+            return jsonify({"status": "ativo"})
+        if status_pre in {"cancelled", "paused"}:
+            return jsonify({"status": "cancelado", "pagamento": row["pagamento_status"]})
+    if mp_pid:
+        try:
+            conn2 = db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT c.mp_access_token FROM ecommerce_config_loja c WHERE c.cnpjloja=%s LIMIT 1",
+                (cnpjloja,),
+            )
+            cfg = cur2.fetchone(); cur2.close()
+            if cfg and cfg.get("mp_access_token"):
+                data = _mp_request(cfg["mp_access_token"], f"/v1/payments/{mp_pid}", method="GET")
+                mp_status = (data.get("status") or "").lower()
+                if mp_status == "approved":
+                    conn3 = db(); cur3 = conn3.cursor()
+                    cur3.execute(
+                        "UPDATE ecommerce_assinantes SET status='ativo', pagamento_status='aprovado', data_inicio=COALESCE(data_inicio, NOW()), data_fim=NOW() + INTERVAL '30 days' WHERE id=%s",
+                        (row["id"],),
+                    )
+                    conn3.commit(); cur3.close()
+                    return jsonify({"status": "ativo"})
+                if mp_status in ("rejected", "cancelled"):
+                    return jsonify({"status": "rejeitado"})
+        except Exception:
+            pass
+
+    return jsonify({"status": row["status"], "pagamento": row["pagamento_status"]})
+
+
+@app.post("/cancelar-assinatura/<cnpjloja>")
+def cancelar_assinatura(cnpjloja):
+    _ensure_assinatura_schema()
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return redirect(url_for("consumidor_login"))
+
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        """
+        SELECT a.mp_preapproval_id, c.mp_access_token
+        FROM ecommerce_assinantes a
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
+        WHERE a.consumidor_id=%s AND a.cnpjloja=%s
+        LIMIT 1
+        """,
+        (consumidor_id, cnpjloja),
+    )
+    row = cur.fetchone()
+    if row and row.get("mp_preapproval_id") and row.get("mp_access_token"):
+        try:
+            _mp_request(
+                row["mp_access_token"],
+                f"/preapproval/{row['mp_preapproval_id']}",
+                {"status": "cancelled"},
+                method="PUT",
+            )
+        except Exception:
+            pass
+    cur.execute(
+        "UPDATE ecommerce_assinantes SET status='cancelado', data_fim=NOW() WHERE consumidor_id=%s AND cnpjloja=%s",
+        (consumidor_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    flash("Assinatura cancelada com sucesso.", "info")
+    return redirect(url_for("minhas_assinaturas"))
+
+
+@app.get("/api/assinatura-status")
+def api_assinatura_status():
+    """Retorna se consumidor logado é assinante de uma loja."""
+    _ensure_assinatura_schema()
+    consumidor_id = session.get("consumidor_id")
+    cnpj          = request.args.get("cnpj", "").strip()
+    if not consumidor_id or not cnpj:
+        return jsonify({"assinante": False})
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        """SELECT 1 FROM ecommerce_assinantes
+           WHERE consumidor_id=%s AND cnpjloja=%s
+             AND status='ativo' AND pagamento_status='aprovado'
+             AND (data_fim IS NULL OR data_fim > NOW())""",
+        (consumidor_id, cnpj),
+    )
+    assinante = bool(cur.fetchone())
+    cur.execute(
+        "SELECT id, nome, preco_mensal, beneficios, ativo FROM ecommerce_planos_assinatura WHERE cnpjloja=%s LIMIT 1",
+        (cnpj,),
+    )
+    plano = cur.fetchone()
+    cur.close()
+    return jsonify({
+        "assinante": assinante,
+        "plano": {
+            "nome":        plano["nome"],
+            "preco_mensal": float(plano["preco_mensal"]),
+            "beneficios":  plano["beneficios"] or "",
+            "ativo":       plano["ativo"],
+        } if plano else None,
+    })
 
 
 if __name__ == "__main__":
