@@ -142,6 +142,16 @@ _CHAVES_OTC_ISENTO: frozenset[str] = frozenset({
     "ACIDO ASCORBICO", "ACIDO FOLICO", "VITAMINA", "VITAM",
     # Chaves genéricas demais (1ª palavra genérica contamina tudo)
     "NOVA", "FONT", "CARVAO VEGETAL",
+    # Marcas cosméticas / higiene cujo nome coincide com entrada ANVISA tarjada
+    "ASEPXIA", "ASEPXIA SECATIVO", "ASEPXIA FORTE",
+    "CAREFREE", "CAREFREE PROT",
+    "CIFLOGEX", "CIFLOGEX DIET", "CIFLOGEX LIMAO", "CIFLOGEX MENTA",
+    "AVENE", "AVENE AGUA",
+    "BEPANTOL", "BEPANTOL DERMA",
+    "BIODERMA", "BIODERMA SENSIBIO",
+    "VICHY", "VICHY LIFTACTIV",
+    "NEUTROGENA", "NEUTROGENA HIDRATANTE",
+    "NIVEA", "NIVEA HIDRATANTE",
 })
 
 # Padrões de CLASSE_TERAPEUTICA que indicam substância controlada (tarja preta).

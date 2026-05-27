@@ -11547,6 +11547,31 @@ _MARCA_TO_INN = {
     "LORATADIN":    "LORATADINA",
 }
 
+# Chaves cujo lookup no anvisa_cache deve ser ignorado tanto na escrita (csv/bulário)
+# quanto na leitura (_marcar_tarja_batch).  São produtos OTC, cosméticos, higiene ou
+# suplementos cujo nome gera uma chave que colide com um medicamento ANVISA tarjado.
+_CHAVES_OTC_ISENTO = frozenset({
+    # Antissépticos / cosméticos que colidem com versão farmacêutica ANVISA
+    "AGUA OXIGENADA", "AGUA BORICADA", "AGUA DESTILADA", "AGUA MELISSA",
+    "AGUA", "ALCOOL ETILICO", "ALCOOL GEL", "ALCOOL ANTISSEPTICO", "ALCOOL IODADO",
+    "SORO FISIOLOGICO", "ANTISSEPTICO", "CANFORA", "AMONIA",
+    # Vitaminas OTC — versão injetável/farmacêutica contamina tablets comuns
+    "ACIDO ASCORBICO", "ACIDO FOLICO", "VITAMINA", "VITAM",
+    # Chaves genéricas demais
+    "NOVA", "FONT", "CARVAO VEGETAL",
+    # Marcas cosméticas / higiene cujo nome coincide com entrada ANVISA tarjada
+    "ASEPXIA", "ASEPXIA SECATIVO", "ASEPXIA FORTE",
+    "CAREFREE", "CAREFREE PROT",
+    "CIFLOGEX", "CIFLOGEX DIET", "CIFLOGEX LIMAO", "CIFLOGEX MENTA",
+    "AVENE", "AVENE AGUA",
+    "BEPANTOL", "BEPANTOL DERMA",
+    "BIODERMA", "BIODERMA SENSIBIO",
+    "VICHY", "VICHY LIFTACTIV",
+    "NEUTROGENA", "NEUTROGENA HIDRATANTE",
+    "NIVEA", "NIVEA HIDRATANTE",
+})
+
+
 def _anvisa_chave(nome):
     """Retorna chave de lookup no anvisa_cache: INN se nome comercial mapeado, senão 2 primeiras palavras significativas."""
     tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
@@ -11701,18 +11726,12 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
         pass
     nomes = [p.get("nome") or "" for p in produtos]
 
-    # Mapa primário: chave 2 palavras → índices
     chaves_map: dict[str, list[int]] = {}
-    # Mapa fallback: chave 1 palavra → índices (usada só quando 2 palavras não bate)
-    chaves_fallback: dict[str, list[int]] = {}
     for i, nome in enumerate(nomes):
         ch = _anvisa_chave(nome)
-        if not ch:
+        if not ch or ch in _CHAVES_OTC_ISENTO:
             continue
         chaves_map.setdefault(ch, []).append(i)
-        parts = ch.split()
-        if len(parts) == 2:
-            chaves_fallback.setdefault(parts[0], []).append(i)
 
     for p in produtos:
         p["requer_receita"] = False
@@ -11720,21 +11739,22 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
     if not chaves_map:
         return produtos
 
-    all_chaves = set(chaves_map.keys()) | set(chaves_fallback.keys())
-
     cur = conn.cursor()
     try:
         cur.execute(
             "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
             "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, dizeres_imagem "
             "FROM anvisa_cache WHERE chave = ANY(%s) AND encontrado = TRUE",
-            (list(all_chaves),),
+            (list(chaves_map.keys()),),
         )
         rows_by_chave = {r["chave"]: r for r in cur.fetchall()}
 
-        matched: set[int] = set()
-
         def _aplicar(idx, row):
+            # Cosméticos, suplementos e varejo não recebem tarja ANVISA
+            _tipo = _classificar_produto(produtos[idx].get("nome") or "")
+            _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
+            if not _is_med:
+                return
             tarja = _detectar_tarja(dict(row))
             produtos[idx]["tarja"] = tarja
             produtos[idx]["receita_retida"] = bool(row.get("receita_retida")) if row.get("receita_retida") is not None else _exige_receita_digital_entrega(dict(row), produtos[idx].get("nome") or "")
@@ -11743,10 +11763,8 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
             produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-            _tipo = _classificar_produto(produtos[idx].get("nome") or "")
-            _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
             # tarja preta: bloqueia sempre; vermelha: só bloqueia se exibir_imagem_publica=False
-            _bloquear = _is_med and (
+            _bloquear = (
                 tarja == "preta"
                 or (tarja == "vermelha" and row.get("exibir_imagem_publica") is False)
             )
@@ -11757,20 +11775,10 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
                     produtos[idx]["imagem_padrao_poupaqui"] = True
                     produtos[idx]["imagem_bloqueada_anvisa"] = True
 
-        # Passo 1: aplica matches da chave primária (2 palavras)
         for ch, indices in chaves_map.items():
             if ch in rows_by_chave:
                 for idx in indices:
-                    matched.add(idx)
                     _aplicar(idx, rows_by_chave[ch])
-
-        # Passo 2: fallback 1 palavra para produtos sem match primário
-        # Ex: "FEXOFENADINA COPO" → não bate → tenta "FEXOFENADINA"
-        for ch1, indices in chaves_fallback.items():
-            if ch1 in rows_by_chave:
-                for idx in indices:
-                    if idx not in matched:
-                        _aplicar(idx, rows_by_chave[ch1])
 
     except Exception:
         pass
