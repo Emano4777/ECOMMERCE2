@@ -192,7 +192,9 @@ def _derivar_tarja(row: dict, principio_ativo: str) -> tuple[str | None, bool | 
         if dci in pa_upper:
             return None, True, f"MIP IN-285/2024 ({dci})"
 
-    return "vermelha", False, "padrao-conservador"
+    # CSV não tem coluna TARJA nem CAP — sem evidência suficiente, não atribui tarja.
+    # Deixa NULL para o bulário (anvisa_sync.py) definir quando processar o produto.
+    return None, None, "sem-dados-suficientes"
 
 
 def _get_conn():
@@ -475,13 +477,20 @@ def run(dry_run: bool, force: bool, stats_only: bool, validate: bool):
         tarja_csv, exibir_csv, motivo = _derivar_tarja(csv_data, pa)
 
         # Hard override: CAP=Sim → tarja preta sempre (substância controlada é fato legal)
-        # Hard override: RESTRICAO_HOSPITALAR=Sim → vermelha se não for já preta
         if tarja_csv == "preta":
             novo_tarja  = "preta"
             novo_exibir = False
-        elif tarja_csv == "vermelha" and _is_sim(csv_data.get("RESTRICAO_HOSPITALAR")) and tarja_atual != "preta":
-            novo_tarja  = "vermelha"
-            novo_exibir = False
+        elif tarja_csv is None and exibir_csv is None:
+            # CSV não tem dados suficientes para classificar.
+            # Reseta para NULL entradas que estavam com vermelha por padrão conservador.
+            # Entradas processadas pelo bulário (têm url_bula/serve_para) são preservadas pelo
+            # WHERE da query sem --force; com --force aceitamos limpar e deixar o bulário reprocessar.
+            novo_tarja  = None
+            novo_exibir = True
+        elif tarja_csv is None:
+            # MIP confirmado → sem tarja, imagem visível
+            novo_tarja  = None
+            novo_exibir = True
         else:
             # Soft fill: preenche apenas NULLs, não sobrescreve dados do bulário
             novo_tarja  = tarja_atual  if tarja_atual  is not None else tarja_csv
