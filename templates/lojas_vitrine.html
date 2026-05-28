@@ -170,6 +170,79 @@
   </div>
 </div>
 
+{% if lojas_com_plano %}
+<!-- ── LOJAS COM CLUBE DE ASSINANTES ──────────────────────── -->
+<div style="max-width:1200px;margin:24px auto 0;padding:0 16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+      <h2 style="margin:0;font-size:1.1rem;font-weight:900;display:flex;align-items:center;gap:8px">
+        <i class="fa fa-star" style="color:var(--pq-red)"></i>Farmácias com Clube de Assinantes
+      </h2>
+      <div style="font-size:.82rem;color:var(--pq-muted);margin-top:3px">Assine e tenha benefícios exclusivos nessas farmácias.</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
+    {% for lp in lojas_com_plano %}
+    {% set ja = lp.cnpjloja in assinados_cnpj %}
+    <a href="{{ url_for('catalogo_loja', cnpjloja=lp.cnpjloja) }}#assinatura-loja"
+       style="background:#fff;border:1.5px solid {% if ja %}#bbf7d0{% else %}#ffd0d8{% endif %};border-radius:16px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column;box-shadow:0 2px 12px rgba(0,0,0,.06);transition:transform .18s,box-shadow .18s"
+       onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(200,16,46,.14)'"
+       onmouseout="this.style.transform='';this.style.boxShadow='0 2px 12px rgba(0,0,0,.06)'">
+      <div style="background:linear-gradient(135deg,#c8102e,#e8354a);padding:16px 18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div>
+            <div style="font-size:.68rem;font-weight:800;color:rgba(255,255,255,.75);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Clube de Assinantes</div>
+            <div style="font-size:.98rem;font-weight:900;color:#fff">{{ lp.plano_nome }}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:1.3rem;font-weight:900;color:#fff;line-height:1">R$ {{ '%.2f'|format(lp.preco_mensal|float) }}</div>
+            <div style="font-size:.65rem;color:rgba(255,255,255,.75)">por mês</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:.85rem;font-weight:800;color:#1a1a1a">{{ lp.razao }}</div>
+        {% if lp.endereco %}
+        <div style="font-size:.74rem;color:var(--pq-muted);display:flex;align-items:flex-start;gap:5px">
+          <i class="fa fa-map-pin" style="color:var(--pq-red);margin-top:2px;flex-shrink:0"></i>{{ lp.endereco }}{% if lp.uf %} — {{ lp.uf }}{% endif %}
+        </div>
+        {% endif %}
+        {% if lp.beneficios %}
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px">
+          {% for b in lp.beneficios.split('\n') if b.strip() %}
+          <span style="background:#fff0f2;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:999px;padding:2px 9px;font-size:.7rem;font-weight:700">
+            <i class="fa fa-check" style="font-size:.55rem;margin-right:3px"></i>{{ b.strip() }}
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div style="margin-top:auto;padding-top:10px">
+          {% if ja %}
+          <div style="display:flex;align-items:center;gap:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;font-weight:900;font-size:.8rem">
+            <i class="fa fa-check-circle"></i>Você já é assinante
+          </div>
+          {% elif consumidor %}
+          <div style="background:var(--pq-red);color:#fff;border-radius:8px;padding:9px 12px;font-weight:900;font-size:.82rem;text-align:center">
+            <i class="fa fa-star me-1"></i>Assinar agora
+          </div>
+          {% else %}
+          <div style="background:var(--pq-red);color:#fff;border-radius:8px;padding:9px 12px;font-weight:900;font-size:.82rem;text-align:center">
+            <i class="fa fa-star me-1"></i>Ver clube
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+<div style="max-width:1200px;margin:28px auto 0;padding:0 16px;border-top:1px solid var(--pq-border);padding-top:24px">
+  <h2 style="font-size:1.1rem;font-weight:900;margin:0 0 16px;display:flex;align-items:center;gap:8px">
+    <i class="fa fa-store" style="color:var(--pq-red)"></i>Todas as nossas lojas
+  </h2>
+</div>
+{% endif %}
+
 {% if lojas %}
 
 <!-- ── CARDS VIEW ───────────────────────────────────────── -->
@@ -195,6 +268,12 @@
           {% endif %}
         </div>
         <div class="lv-card-actions">
+          {% if loja.cnpjloja %}
+          <a class="lv-btn" href="/loja/{{ loja.cnpjloja }}"
+             style="background:var(--pq-red);color:#fff;border:1.5px solid var(--pq-red)">
+            <i class="fa fa-store"></i> Ver produtos
+          </a>
+          {% endif %}
           {% if loja.whatsapp %}
           <button class="lv-btn lv-btn-wpp"
                   onclick="lvClique('{{ loja.cidade | e }}','whatsapp','{{ loja.whatsapp | e }}')">
@@ -393,12 +472,16 @@ async function _iniciarMapa() {
                loja.cidade.replace(/'/g,"\\'").replace(/"/g,'&quot;') +
                "','maps','" + mapsUrl + '\')">' +
                '<i class="fa fa-map-location-dot"></i> Como Chegar</button>';
+    var catalogo = loja.cnpjloja
+      ? '<a class="lv-popup-btn" href="/loja/' + encodeURIComponent(loja.cnpjloja) + '" style="background:var(--pq-red);color:#fff;border:none">' +
+        '<i class="fa fa-store"></i> Ver produtos</a>'
+      : '';
 
     var popup = '<div style="min-width:220px;max-width:270px;font-family:inherit">' +
       img +
       '<div class="lv-popup-cidade">' + loja.cidade + '</div>' +
       '<div class="lv-popup-end"><i class="fa fa-location-dot" style="color:#c0392b;margin-right:4px"></i>' + (loja.endereco||'') + '</div>' +
-      '<div class="lv-popup-btns">' + wpp + maps + '</div>' +
+      '<div class="lv-popup-btns">' + catalogo + wpp + maps + '</div>' +
       '</div>';
 
     var marker = L.marker([loja.lat, loja.lng], {icon: makeIcon()})

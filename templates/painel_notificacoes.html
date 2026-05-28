@@ -1,0 +1,96 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Notificações{% endblock %}
+
+{% block extra_style %}
+<style>
+.ntf-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; }
+.ntf-card { background:#111722; border:1px solid var(--pk-line); border-radius:10px; padding:18px; }
+.ntf-title { font-size:.92rem; font-weight:900; color:var(--pk-txt); margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+.ntf-field { margin-bottom:14px; }
+.ntf-field label { display:block; font-size:.76rem; font-weight:800; color:var(--pk-muted); margin-bottom:6px; }
+.ntf-help { color:var(--pk-muted); font-size:.74rem; line-height:1.45; margin-top:5px; }
+.ntf-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:14px; }
+.ntf-kpi { background:#0b0f17; border:1px solid var(--pk-line); border-radius:8px; padding:12px; }
+.ntf-kpi strong { display:block; color:var(--pk-yellow); font-size:1.25rem; }
+.ntf-kpi span { color:var(--pk-muted); font-size:.74rem; font-weight:800; }
+.ntf-hist { display:flex; flex-direction:column; gap:10px; }
+.ntf-hist-item { background:#0b0f17; border:1px solid var(--pk-line); border-radius:8px; padding:12px; }
+.ntf-hist-item strong { display:block; font-size:.84rem; color:var(--pk-txt); }
+.ntf-hist-item p { margin:5px 0 0; color:var(--pk-muted); font-size:.76rem; line-height:1.35; }
+.ntf-preview { width:100%; max-height:150px; object-fit:cover; border-radius:8px; border:1px solid var(--pk-line); margin-bottom:10px; background:#0b0f17; }
+.ntf-file { display:block; width:100%; color:var(--pk-muted); font-weight:800; }
+@media(max-width:900px){ .ntf-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+  <div>
+    <h1 style="font-size:1.25rem;font-weight:900;margin:0">
+      <i class="fa fa-bell me-2" style="color:var(--pk-yellow)"></i>Notificações
+    </h1>
+    <p style="color:var(--pk-muted);font-size:.84rem;margin:5px 0 0">Envie avisos para consumidores que já interagiram com a sua loja.</p>
+  </div>
+</div>
+
+<div class="ntf-grid">
+  <div class="ntf-card">
+    <div class="ntf-title"><i class="fa fa-paper-plane" style="color:var(--pk-yellow)"></i>Novo disparo</div>
+    <form method="post" action="{{ url_for('painel_notificacoes_enviar') }}" enctype="multipart/form-data">
+      <div class="ntf-field">
+        <label>Público</label>
+        <select class="pk-input" name="publico">
+          <option value="todos">Todos relacionados com a loja ({{ publico_counts.todos }})</option>
+          <option value="compradores">Quem já comprou ({{ publico_counts.compradores }})</option>
+          <option value="assinantes">Assinantes da loja ({{ publico_counts.assinantes }})</option>
+          <option value="favoritos">Quem favoritou produtos ({{ publico_counts.favoritos }})</option>
+        </select>
+      </div>
+      <div class="ntf-field">
+        <label>Título</label>
+        <input class="pk-input" name="titulo" maxlength="160" placeholder="Ex: Promoção relâmpago hoje" required>
+      </div>
+      <div class="ntf-field">
+        <label>Mensagem</label>
+        <textarea class="pk-input" name="mensagem" rows="5" maxlength="600" placeholder="Escreva uma mensagem curta e objetiva." required></textarea>
+      </div>
+      <div class="ntf-field">
+        <label>Imagem da notificação</label>
+        <input class="pk-input ntf-file" type="file" name="imagem" accept="image/png,image/jpeg,image/webp,image/gif">
+        <div class="ntf-help">Opcional. Use uma imagem de até 3 MB para destacar uma promoção, campanha ou aviso.</div>
+      </div>
+      <div class="ntf-field">
+        <label>Link ao abrir</label>
+        <input class="pk-input" name="url" placeholder="Opcional. Se vazio, abre a página da sua loja.">
+        <div class="ntf-help">Use links internos como /loja/{{ session.cnpjloja }} ou /catalogo?q=termo.</div>
+      </div>
+      <button class="btn-pk-yellow" type="submit">
+        <i class="fa fa-paper-plane me-1"></i>Enviar notificação
+      </button>
+    </form>
+  </div>
+
+  <div class="ntf-card">
+    <div class="ntf-title"><i class="fa fa-users" style="color:var(--pk-yellow)"></i>Alcance</div>
+    <div class="ntf-kpis">
+      <div class="ntf-kpi"><strong>{{ publico_counts.todos }}</strong><span>Total</span></div>
+      <div class="ntf-kpi"><strong>{{ publico_counts.compradores }}</strong><span>Compradores</span></div>
+      <div class="ntf-kpi"><strong>{{ publico_counts.assinantes }}</strong><span>Assinantes</span></div>
+      <div class="ntf-kpi"><strong>{{ publico_counts.favoritos }}</strong><span>Favoritos</span></div>
+    </div>
+    <div class="ntf-title" style="margin-top:16px"><i class="fa fa-clock-rotate-left" style="color:var(--pk-yellow)"></i>Últimos disparos</div>
+    <div class="ntf-hist">
+      {% for n in historico %}
+      <div class="ntf-hist-item">
+        {% if n.imagem_url %}<img class="ntf-preview" src="{{ n.imagem_url }}" alt="Imagem da notificação">{% endif %}
+        <strong>{{ n.titulo }}</strong>
+        <p>{{ n.mensagem }}</p>
+        <p>{{ n.total }} envio(s) · {{ n.criada_em.strftime('%d/%m/%Y %H:%M') if n.criada_em else '' }}</p>
+      </div>
+      {% else %}
+      <div class="ntf-hist-item"><p>Nenhum disparo feito ainda.</p></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

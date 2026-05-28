@@ -1,0 +1,181 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Banners{% endblock %}
+
+{% block extra_style %}
+<style>
+.bnr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; margin-bottom:28px; }
+.bnr-card { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; overflow:hidden; position:relative; }
+.bnr-card.inativo { opacity:.5; }
+.bnr-img { width:100%; height:160px; object-fit:cover; display:block; background:#111; }
+.bnr-img-ph { width:100%; height:160px; display:flex; align-items:center; justify-content:center; background:#111; color:#333; font-size:2.5rem; }
+.bnr-body { padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+.bnr-titulo { font-size:.88rem; font-weight:700; color:var(--pk-txt); }
+.bnr-link { font-size:.75rem; color:#60a5fa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bnr-status { font-size:.72rem; font-weight:700; padding:3px 9px; border-radius:6px; display:inline-flex; align-items:center; gap:5px; }
+.bnr-status.on  { background:#0d2d1a; color:#22c55e; border:1px solid #22c55e55; }
+.bnr-status.off { background:#1e0810; color:#f08090; border:1px solid #f0809055; }
+.bnr-actions { display:flex; gap:8px; }
+.bnr-btn { flex:1; padding:7px 0; border-radius:8px; border:1px solid var(--pk-line); background:#181c24; color:var(--pk-txt); font-size:.78rem; font-weight:700; cursor:pointer; text-align:center; transition:.15s; }
+.bnr-btn:hover { border-color:var(--pk-yellow); color:var(--pk-yellow); }
+.bnr-btn.danger:hover { border-color:#f87171; color:#f87171; }
+.bnr-upload-box { border:2px dashed var(--pk-line); border-radius:12px; padding:32px 24px; text-align:center; background:#0d1016; transition:.2s; }
+.bnr-upload-box:hover { border-color:var(--pk-yellow); }
+.bnr-upload-box input[type=file] { display:none; }
+.bnr-upload-label { display:flex; flex-direction:column; align-items:center; gap:10px; cursor:pointer; color:var(--pk-muted); }
+.bnr-upload-label i { font-size:2rem; color:var(--pk-yellow); }
+.bnr-preview { width:100%; max-height:200px; object-fit:contain; border-radius:8px; margin-top:10px; display:none; }
+.pk-input { background:#0d1016; border:1.5px solid var(--pk-line); border-radius:8px; color:var(--pk-txt); padding:9px 12px; font-size:.85rem; width:100%; outline:none; transition:.15s; }
+.pk-input:focus { border-color:var(--pk-yellow); }
+.bnr-limit { font-size:.72rem; color:var(--pk-muted); }
+/* guia de dimensões */
+.bnr-dim-guide { border:1px solid var(--pk-line); border-radius:12px; padding:16px 20px; background:#0d1016; margin-bottom:24px; }
+.bnr-dim-title { font-size:.82rem; font-weight:800; color:var(--pk-yellow); margin-bottom:12px; display:flex; align-items:center; gap:7px; }
+.bnr-dim-preview { position:relative; width:100%; max-width:480px; aspect-ratio:3/1; background:linear-gradient(135deg,#1a1f2e,#111520); border:2px dashed var(--pk-line); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; margin-bottom:10px; }
+.bnr-dim-label { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; }
+.bnr-dim-label strong { display:block; font-size:1.1rem; font-weight:900; color:var(--pk-yellow); }
+.bnr-dim-label span  { display:block; font-size:.72rem; color:var(--pk-muted); margin-top:3px; }
+.bnr-dim-arrow-h { position:absolute; bottom:10px; left:10px; right:10px; height:1px; background:rgba(255,255,255,.12); }
+.bnr-dim-arrow-h::before,.bnr-dim-arrow-h::after { content:''; position:absolute; top:-3px; width:7px; height:7px; border-top:1px solid rgba(255,255,255,.22); }
+.bnr-dim-arrow-h::before { left:0;  border-left:1px solid rgba(255,255,255,.22); }
+.bnr-dim-arrow-h::after  { right:0; border-right:1px solid rgba(255,255,255,.22); transform:scaleX(-1); }
+.bnr-dim-arrow-v { position:absolute; right:10px; top:10px; bottom:10px; width:1px; background:rgba(255,255,255,.12); }
+.bnr-dim-specs { display:flex; flex-wrap:wrap; gap:10px; font-size:.76rem; }
+.bnr-dim-spec { background:#181c26; border:1px solid var(--pk-line); border-radius:7px; padding:6px 12px; color:var(--pk-txt); }
+.bnr-dim-spec strong { color:var(--pk-yellow); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page-head">
+  <h1 class="pk-page-title"><i class="fa fa-images me-2" style="color:var(--pk-yellow)"></i>Banners da Loja</h1>
+  <p class="pk-page-sub">Banners aparecem para consumidores logados e próximos à sua loja na tela inicial do Poupaqui.</p>
+</div>
+
+<!-- Guia de dimensões -->
+<div class="bnr-dim-guide">
+  <div class="bnr-dim-title"><i class="fa fa-ruler-combined"></i>Especificação do banner</div>
+  <div class="bnr-dim-preview">
+    <div class="bnr-dim-label">
+      <strong>1200 × 400 px</strong>
+      <span>proporção 3:1 — ideal para banners de loja</span>
+    </div>
+    <div class="bnr-dim-arrow-h"></div>
+    <div class="bnr-dim-arrow-v"></div>
+  </div>
+  <div class="bnr-dim-specs">
+    <div class="bnr-dim-spec"><strong>Largura:</strong> 1200 px (mínimo 900 px)</div>
+    <div class="bnr-dim-spec"><strong>Altura:</strong> 400 px (mínimo 300 px)</div>
+    <div class="bnr-dim-spec"><strong>Proporção:</strong> 3:1 (3 de largo por 1 de alto)</div>
+    <div class="bnr-dim-spec"><strong>Formato:</strong> JPG, PNG ou WEBP</div>
+    <div class="bnr-dim-spec"><strong>Tamanho máx.:</strong> 4 MB</div>
+  </div>
+  <div style="margin-top:10px;font-size:.74rem;color:var(--pk-muted)">
+    <i class="fa fa-lightbulb me-1" style="color:var(--pk-yellow)"></i>
+    Dica: use ferramentas gratuitas como <strong>Canva</strong> (modelo "Banner de Email 1200×400") para criar banners no tamanho certo.
+  </div>
+</div>
+
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in msgs %}
+    <div class="alert alert-{{ 'success' if cat=='success' else 'danger' }} mb-3" style="border-radius:10px;font-size:.85rem">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<!-- Upload de novo banner -->
+{% if banners|length < 5 %}
+<div class="bnr-upload-box mb-4">
+  <form method="post" action="{{ url_for('painel_banners_upload') }}" enctype="multipart/form-data" id="bnr-form">
+    <label class="bnr-upload-label" for="bnr-file-input">
+      <i class="fa fa-cloud-upload-alt"></i>
+      <span style="font-weight:700;color:var(--pk-txt)">Clique para enviar um banner</span>
+      <span class="bnr-limit">JPG, PNG ou WEBP · Máx 4 MB · até 5 banners por loja</span>
+      <span class="bnr-limit" style="color:var(--pk-yellow);font-size:.68rem"><i class="fa fa-ruler-combined me-1"></i>Dimensão recomendada: <strong>1200 × 400 px</strong> (proporção 3:1)</span>
+    </label>
+    <input type="file" id="bnr-file-input" name="imagem" accept="image/jpeg,image/png,image/webp" onchange="previewBanner(this)">
+    <img id="bnr-preview-img" class="bnr-preview" alt="preview">
+
+    <div id="bnr-form-fields" style="display:none;margin-top:16px">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Título do banner (opcional)</label>
+          <input type="text" name="titulo" class="pk-input" placeholder="Ex: Promoção de Inverno" maxlength="120">
+        </div>
+        <div>
+          <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Link ao clicar no banner (opcional)</label>
+          <input type="url" name="link_url" class="pk-input" placeholder="https://...">
+        </div>
+        <button type="submit" class="btn btn-primary" style="border-radius:8px;font-weight:700;padding:10px 28px;background:var(--pk-yellow);color:#111;border:none;width:fit-content">
+          <i class="fa fa-upload me-2"></i>Publicar Banner
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="alert mb-4" style="background:#1a1200;border:1px solid #fbbf2455;border-radius:10px;color:#fbbf24;font-size:.85rem">
+  <i class="fa fa-triangle-exclamation me-2"></i>Limite de 5 banners atingido. Exclua um para adicionar novo.
+</div>
+{% endif %}
+
+<!-- Lista de banners -->
+{% if banners %}
+<div class="bnr-grid">
+  {% for b in banners %}
+  <div class="bnr-card {% if not b.ativo %}inativo{% endif %}">
+    {% if b.imagem_url %}
+      <img class="bnr-img" src="{{ b.imagem_url }}" alt="{{ b.titulo or 'Banner' }}" loading="lazy">
+    {% else %}
+      <div class="bnr-img-ph"><i class="fa fa-image"></i></div>
+    {% endif %}
+    <div class="bnr-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        {% if b.titulo %}<span class="bnr-titulo">{{ b.titulo }}</span>{% else %}<span class="bnr-titulo" style="color:var(--pk-muted)">Sem título</span>{% endif %}
+        <span class="bnr-status {% if b.ativo %}on{% else %}off{% endif %}">
+          <i class="fa fa-circle" style="font-size:.5rem"></i>{{ 'Ativo' if b.ativo else 'Inativo' }}
+        </span>
+      </div>
+      {% if b.link_url %}<div class="bnr-link"><i class="fa fa-link me-1" style="font-size:.65rem"></i>{{ b.link_url }}</div>{% endif %}
+      <div style="font-size:.72rem;color:var(--pk-muted)">{{ b.criado_em.strftime('%d/%m/%Y') if b.criado_em else '' }}</div>
+      <div class="bnr-actions">
+        <form method="post" action="{{ url_for('painel_banners_toggle', banner_id=b.id) }}" style="flex:1">
+          <button type="submit" class="bnr-btn" style="width:100%">
+            <i class="fa fa-{% if b.ativo %}eye-slash{% else %}eye{% endif %} me-1"></i>{{ 'Desativar' if b.ativo else 'Ativar' }}
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('painel_banners_delete', banner_id=b.id) }}"
+              style="flex:1" onsubmit="return confirm('Excluir este banner?')">
+          <button type="submit" class="bnr-btn danger" style="width:100%">
+            <i class="fa fa-trash me-1"></i>Excluir
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:48px 24px;color:var(--pk-muted)">
+  <i class="fa fa-images" style="font-size:3rem;margin-bottom:12px;display:block;opacity:.3"></i>
+  <div style="font-size:.95rem">Nenhum banner cadastrado ainda.</div>
+  <div style="font-size:.8rem;margin-top:6px">Envie um banner acima para que ele apareça na home para consumidores próximos.</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function previewBanner(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const preview = document.getElementById('bnr-preview-img');
+  const fields  = document.getElementById('bnr-form-fields');
+  const reader  = new FileReader();
+  reader.onload = e => {
+    preview.src = e.target.result;
+    preview.style.display = 'block';
+    fields.style.display  = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+</script>
+{% endblock %}

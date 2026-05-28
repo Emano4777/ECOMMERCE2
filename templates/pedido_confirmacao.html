@@ -59,7 +59,14 @@
   <div class="conf-hero">
     <div class="conf-hero-icon"><i class="fa fa-circle-check"></i></div>
     <h2>Pedido realizado!</h2>
-    <p>Seu pedido foi registrado com sucesso. Siga as instruções abaixo para finalizar o pagamento.</p>
+    {% set todos_pagos = pedidos and pedidos|selectattr('pedido.pagamento_status', 'equalto', 'approved')|list|length == pedidos|length %}
+    <p>
+      {% if todos_pagos %}
+        Pagamento confirmado. A farmácia já recebeu seu pedido.
+      {% else %}
+        Seu pedido foi registrado com sucesso. Siga as instruções abaixo para finalizar o pagamento.
+      {% endif %}
+    </p>
   </div>
 
   {% for entry in pedidos %}
@@ -177,13 +184,21 @@
     {% elif p.forma_pagamento == 'mercadopago' %}
     <div class="conf-pay mp">
       <div class="conf-pay-title"><i class="fa fa-credit-card"></i>Pagamento com cartão</div>
+      {% if p.pagamento_status == 'approved' or p.status == 'pago' %}
+      <div class="conf-pay-status ok">
+        <i class="fa fa-circle-check"></i><span>Pagamento confirmado</span>
+      </div>
+      <div style="font-size:.78rem;color:#15803d;margin-top:8px">A farmácia já recebeu a confirmação e pode seguir com o pedido.</div>
+      {% elif p.mp_init_point %}
       <p style="font-size:.84rem;margin-bottom:10px">Pague com cartão na página segura. A confirmação também aparece automaticamente no painel da loja.</p>
-      {% if p.mp_init_point %}
       <a class="btn-mp-link" href="{{ p.mp_init_point }}" target="_blank">
         <i class="fa fa-external-link me-1"></i>Pagar com cartão
       </a>
       {% else %}
-      <div style="font-size:.84rem;color:#3730a3">Pagamento com cartão indisponível nesta loja no momento.</div>
+      <div id="pay-status-{{ p.id }}" class="conf-pay-status wait">
+        <i class="fa fa-clock"></i><span>Aguardando confirmação do cartão</span>
+      </div>
+      <div style="font-size:.78rem;color:#3730a3;margin-top:8px">Se o pagamento já foi aprovado, esta tela será atualizada automaticamente.</div>
       {% endif %}
     </div>
     {% endif %}

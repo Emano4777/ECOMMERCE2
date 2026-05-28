@@ -141,7 +141,9 @@
       border: 1px solid var(--pq-border);
       border-radius: 22px;
       box-shadow: 0 26px 80px rgba(20,20,20,.20);
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
+      max-height: calc(100vh - 80px);
       display: none;
       z-index: 700;
     }
@@ -224,7 +226,8 @@
       background:#fff3f5;
       color:var(--pq-red);
     }
-    .pq-user-quick small { color:var(--pq-muted); font-size:.67rem; font-weight:800; margin-top:2px; }
+    .pq-user-quick small { display:block; color:var(--pq-muted); font-size:.67rem; font-weight:800; margin-top:2px; line-height:1.35; }
+    .pq-user-quick a span { min-width:0; word-break:break-word; }
     .pq-user-list { padding:8px 10px 10px; }
     .pq-user-section-title {
       color:var(--pq-muted);
@@ -379,35 +382,27 @@
     }
 
     /* ── RESPONSIVE ─────────────────────────────────────── */
-    @media(max-width:960px) and (min-width:681px) {
+    @media(max-width:960px) and (min-width:901px) {
       .pq-store-label, .pq-lojas-label { display: none; }
-      /* hide "SUA LOCALIZAÇÃO" label — show only the address */
       .pq-loc-label { display: none; }
       .pq-loc-btn { max-width: 200px; padding: 6px 10px; }
-      /* tighten icon-only links */
-      .pq-topbar-right { gap: 4px; }
-      .pq-topbar-link { padding: 6px 8px; }
+      .pq-topbar-right { gap: 6px; }
+      .pq-topbar-link { padding: 6px 10px; }
     }
-    @media(max-width:820px) and (min-width:681px) {
-      /* icon-only mode — hide remaining text labels */
-      .pq-receita-label, .pq-user-name { display: none; }
-      /* hide "Painel da loja" link entirely */
-      a.pq-topbar-link[href*="painel"] { display: none !important; }
-      .pq-loc-btn { max-width: 130px; }
-    }
-    @media(max-width:740px) and (min-width:681px) {
-      .pq-lojas-link { display: none !important; }
-      .pq-loc-btn { max-width: 100px; }
+    /* tablet: recolhe links de nav no drawer, dá espaço à busca */
+    @media(max-width:900px) and (min-width:681px) {
+      .pq-hamburger { display: flex; }
+      .pq-desktop-only { display: none !important; }
+      .pq-loc-label { display: none; }
+      .pq-loc-btn { max-width: 160px; padding: 6px 10px; }
+      .pq-topbar-right { gap: 6px; }
     }
     @media(max-width:680px){
-      .pq-user-name, .pq-store-label, .pq-lojas-label { display:none; }
       .pq-topbar { padding:6px 12px; gap:0 8px; }
       .pq-loc-label { display:none; }
-      /* on mobile, loc-btn fills row 1 between logo and cart+hamburger */
       .pq-loc-btn { flex: 1; max-width: none; min-width: 0; padding: 7px 10px; }
       .pq-desktop-only { display: none !important; }
       .pq-hamburger { display: flex; }
-      /* hide brand text on very small screens — keep logo icon */
       .pq-brand-text { display: none; }
     }
     @media(max-width:380px){
@@ -769,11 +764,21 @@
         </div>
         <div class="pq-user-quick">
           <a href="{{ url_for('meus_pedidos') }}"><i class="fa fa-box-open"></i><span>Pedidos<small>Status e entregas</small></span></a>
+          <a href="{{ url_for('consumidor_notificacoes') }}"><i class="fa fa-bell"></i><span>Notificacoes<small>Alertas e novidades</small></span>{% if consumidor_notif_nao_lidas > 0 %}<small style="color:#c8102e;font-weight:900">{{ consumidor_notif_nao_lidas }}</small>{% endif %}</a>
           <a href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span></a>
         </div>
         <div class="pq-user-list">
         <div class="pq-user-section-title">Atalhos da conta</div>
         <a class="pq-user-item" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i><span>Meus pedidos<small>Acompanhe suas compras</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_notificacoes') }}">
+          <i class="fa fa-bell"></i>
+          <span>Notificacoes<small>Sistema, pedidos e beneficios</small></span>
+          {% if consumidor_notif_nao_lidas > 0 %}
+          <span style="background:#c8102e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:900;padding:1px 7px;margin-left:auto">{{ consumidor_notif_nao_lidas }}</span>
+          {% else %}
+          <b class="pq-user-item-arrow">›</b>
+          {% endif %}
+        </a>
         {% if consumidor_rec_abertas > 0 %}
         <a class="pq-user-item" href="{{ url_for('minhas_reclamacoes') }}">
           <i class="fa fa-triangle-exclamation" style="color:#d97706"></i>
@@ -782,6 +787,7 @@
         </a>
         {% endif %}
         <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i><span>Meus cupons<small>Descontos disponíveis</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i><span>Sair</span></a>
@@ -794,9 +800,6 @@
       <span class="pq-user-name">Entrar</span>
     </a>
     {% endif %}
-    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('painel_login') }}">
-      <i class="fa fa-store me-1"></i><span class="pq-store-label">Painel da loja</span>
-    </a>
     <button class="pq-hamburger" id="pq-hamburger" onclick="abrirDrawer()" aria-label="Menu">
       <i class="fa fa-bars"></i>
     </button>
@@ -825,6 +828,12 @@
   <div style="padding:4px 0">
     <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
       <i class="fa fa-receipt"></i>Meus pedidos
+    </a>
+    <a class="pq-drawer-item" href="{{ url_for('consumidor_notificacoes') }}" onclick="fecharDrawer()">
+      <i class="fa fa-bell"></i>Notificacoes
+      {% if consumidor_notif_nao_lidas > 0 %}
+      <span class="pq-drawer-badge">{{ consumidor_notif_nao_lidas }}</span>
+      {% endif %}
     </a>
     {% if consumidor_rec_abertas > 0 %}
     <a class="pq-drawer-item" href="{{ url_for('minhas_reclamacoes') }}" onclick="fecharDrawer()">
@@ -860,9 +869,6 @@
   </a>
   <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer()">
     <i class="fa fa-cart-shopping"></i>Carrinho
-  </a>
-  <a class="pq-drawer-item" href="{{ url_for('painel_login') }}" onclick="fecharDrawer()">
-    <i class="fa fa-lock"></i>Painel da loja
   </a>
 
   {% if consumidor %}
@@ -1390,6 +1396,9 @@ function addToCart(item) {
   const ex = cart.find(c => c.ean === item.ean && c.cnpjloja === item.cnpjloja);
   if (ex) {
     ex.qty = (ex.qty||1) + qty;
+    ex.preco = parseFloat(item.preco) || ex.preco || 0;
+    ex.preco_original = item.preco_original || ex.preco_original || null;
+    ex.promo = item.promo || ex.promo || null;
     ex.requer_receita = !!item.requer_receita;
     ex.receita_retida = item.receita_retida === true;
     ex.tarja = item.tarja || ex.tarja || null;

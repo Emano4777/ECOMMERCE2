@@ -49,7 +49,19 @@
       "Bash(awk '{print $2}')",
       "Bash(grep -v \"^[0-9]*:\\\\s*/\\\\*\\\\|^[0-9]*:\\\\s*\\\\.\\\\|^[0-9]*:\\\\s*//\")",
       "PowerShell(\\(Get-Content \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\app.py\" -Raw\\) -replace 'COALESCE\\\\\\(m\\\\.laboratorio, pc\\\\.laboratorio\\\\\\)', 'COALESCE\\(pc.laboratorio, m.laboratorio\\)' | Set-Content \"c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\app.py\" -Encoding utf8)",
-      "Bash(python scripts/limpar_imagens_erradas.py --stats)"
+      "Bash(python scripts/limpar_imagens_erradas.py --stats)",
+      "Bash(python -c \"print\\(sum\\(1 for _ in open\\(r'c:\\\\Users\\\\emano\\\\dns-ecommerce\\\\app.py', encoding='utf-8'\\)\\)\\)\")",
+      "PowerShell(Get-WmiObject Win32_Process -Filter \"Name='python.exe'\")",
+      "PowerShell(Stop-Process -Id 68556 -Force)",
+      "Bash(python -c \"import paramiko; print\\('paramiko ok', paramiko.__version__\\)\")",
+      "Bash(python)",
+      "mcp__claude_ai_Supabase__get_project",
+      "Bash(schtasks /query /fo LIST /v)",
+      "Bash(python3 -c \"import paramiko; print\\('paramiko ok'\\)\")",
+      "Bash(python -c \"import paramiko; print\\('paramiko ok'\\)\")",
+      "Bash(python migrate_sftp_agents.py)",
+      "Bash(python fix_paramiko.py)",
+      "Bash(python3 -c ' *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\emano\\dns-ecommerce"

@@ -1,0 +1,127 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Minhas Assinaturas{% endblock %}
+
+{% block extra_style %}
+<style>
+.asn-wrap { max-width:900px; margin:0 auto; padding:28px 16px 70px; }
+.asn-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:24px; }
+.asn-head h1 { margin:0; font-size:1.4rem; font-weight:900; display:flex; align-items:center; gap:10px; }
+.asn-sub { color:var(--pq-muted); font-size:.85rem; margin-top:4px; }
+.asn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+.asn-card { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); overflow:hidden; }
+.asn-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:20px; color:#fff; }
+.asn-card-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.22); border-radius:999px; padding:3px 10px; font-size:.72rem; font-weight:800; margin-bottom:10px; }
+.asn-card-badge.cancelado { background:rgba(0,0,0,.2); color:rgba(255,255,255,.6); }
+.asn-card-badge.aguardando { background:rgba(255,200,0,.25); color:#ffe082; }
+.asn-card-nome { font-size:1.15rem; font-weight:900; margin-bottom:2px; }
+.asn-card-loja { font-size:.82rem; opacity:.82; }
+.asn-card-body { padding:18px; }
+.asn-card-preco { font-size:1.6rem; font-weight:900; color:var(--pq-red); margin-bottom:3px; }
+.asn-card-preco small { font-size:.88rem; font-weight:400; color:var(--pq-muted); }
+.asn-card-desc { color:#555; font-size:.83rem; line-height:1.6; margin-bottom:14px; }
+.asn-bens { list-style:none; padding:0; margin:0 0 16px; display:flex; flex-direction:column; gap:7px; }
+.asn-bens li { display:flex; align-items:flex-start; gap:7px; font-size:.83rem; color:#333; }
+.asn-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:var(--pq-red); font-size:.66rem; margin-top:3px; flex-shrink:0; }
+.asn-since { font-size:.74rem; color:var(--pq-muted); margin-bottom:14px; }
+.asn-empty { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); text-align:center; padding:60px 24px; }
+.asn-empty i { font-size:3rem; opacity:.2; margin-bottom:14px; display:block; color:var(--pq-red); }
+.asn-empty p { color:var(--pq-muted); font-size:.9rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="asn-wrap">
+  <div class="asn-head">
+    <div>
+      <h1><i class="fa fa-star" style="color:var(--pq-red)"></i>Minhas Assinaturas</h1>
+      <div class="asn-sub">Farmácias que você assina e seus benefícios exclusivos.</div>
+    </div>
+    <a href="{{ url_for('lojas_vitrine') }}" class="btn" style="background:var(--pq-red);color:#fff;border-radius:10px;padding:10px 18px;text-decoration:none;font-weight:900;font-size:.85rem">
+      <i class="fa fa-store me-1"></i>Ver farmácias
+    </a>
+  </div>
+
+  {% if assinaturas %}
+  <div class="asn-grid">
+    {% for a in assinaturas %}
+    <div class="asn-card">
+      <div class="asn-card-head">
+        <div class="asn-card-badge {% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}{% elif a.status == 'aguardando_pagamento' %}aguardando{% else %}cancelado{% endif %}">
+          <i class="fa fa-{% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}star{% elif a.status == 'aguardando_pagamento' %}clock{% else %}ban{% endif %}" style="font-size:.55rem"></i>
+          {% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}Assinante ativo{% elif a.status == 'aguardando_pagamento' %}Aguardando pagamento{% elif a.status == 'vencido' %}Vencida{% else %}Cancelado{% endif %}
+        </div>
+        <div class="asn-card-nome">{{ a.razao }}</div>
+        <div class="asn-card-loja"><i class="fa fa-star me-1" style="font-size:.7rem"></i>{{ a.plano_nome }}</div>
+      </div>
+      <div class="asn-card-body">
+        <div class="asn-card-preco">
+          R$ {{ '%.2f'|format(a.preco_mensal|float) }}
+          <small>{{ '/mês' if a.preco_mensal > 0 else '— Gratuito' }}</small>
+        </div>
+        {% if a.descricao %}
+        <div class="asn-card-desc">{{ a.descricao }}</div>
+        {% endif %}
+        {% if a.beneficios %}
+        <ul class="asn-bens">
+          {% for b in a.beneficios.split('\n') if b.strip() %}
+          <li>{{ b.strip() }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        <div class="asn-since">
+          <i class="fa fa-calendar-check me-1"></i>
+          {% if a.status == 'aguardando_pagamento' %}
+            Solicitado em {{ a.criado_em.strftime('%d/%m/%Y') if a.criado_em else '—' }}
+          {% elif a.status == 'vencido' %}
+            Venceu em {{ a.data_fim.strftime('%d/%m/%Y') if a.data_fim else '—' }}
+          {% else %}
+            Assinante desde {{ a.data_inicio.strftime('%d/%m/%Y') if a.data_inicio else '—' }}{% if a.data_fim %} · válido até {{ a.data_fim.strftime('%d/%m/%Y') }}{% endif %}
+          {% endif %}
+        </div>
+        {% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}
+        <form method="post" action="{{ url_for('cancelar_assinatura', cnpjloja=a.cnpjloja) }}"
+              onsubmit="return confirm('Cancelar assinatura de {{ a.razao }}?')">
+          <button type="submit"
+                  style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #ffd0d8;background:#fff;color:var(--pq-red);font-family:inherit;font-weight:900;font-size:.82rem;cursor:pointer">
+            <i class="fa fa-ban me-1"></i>Cancelar assinatura
+          </button>
+        </form>
+        {% elif a.status == 'aguardando_pagamento' %}
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <a href="{{ url_for('assinatura_pagamento', cnpjloja=a.cnpjloja) }}"
+             style="display:block;text-align:center;width:100%;padding:10px;border-radius:10px;border:0;background:var(--pq-red);color:#fff;font-family:inherit;font-weight:900;font-size:.82rem;text-decoration:none;box-sizing:border-box">
+            <i class="fa fa-qrcode me-1"></i>Continuar pagamento
+          </a>
+          <form method="post" action="{{ url_for('cancelar_assinatura', cnpjloja=a.cnpjloja) }}"
+                onsubmit="return confirm('Cancelar assinatura de {{ a.razao }}?')">
+            <button type="submit"
+                    style="width:100%;padding:8px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#888;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer">
+              <i class="fa fa-ban me-1"></i>Cancelar
+            </button>
+          </form>
+        </div>
+        {% else %}
+        <form method="post" action="{{ url_for('assinar_loja', cnpjloja=a.cnpjloja) }}">
+          <button type="submit"
+                  style="width:100%;padding:10px;border-radius:10px;border:0;background:var(--pq-red);color:#fff;font-family:inherit;font-weight:900;font-size:.82rem;cursor:pointer">
+            <i class="fa fa-rotate me-1"></i>Reativar assinatura
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="asn-empty">
+    <i class="fa fa-star"></i>
+    <p><strong>Você ainda não assina nenhuma farmácia.</strong></p>
+    <p>Quando uma farmácia tiver um plano de assinatura ativo, você poderá assinar diretamente pela página dela e ter acesso a benefícios exclusivos.</p>
+    <a href="{{ url_for('lojas_vitrine') }}"
+       style="display:inline-flex;align-items:center;gap:6px;background:var(--pq-red);color:#fff;border-radius:10px;padding:11px 22px;text-decoration:none;font-weight:900;font-size:.88rem;margin-top:12px">
+      <i class="fa fa-store"></i>Ver farmácias disponíveis
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

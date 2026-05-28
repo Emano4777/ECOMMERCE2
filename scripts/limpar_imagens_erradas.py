@@ -60,8 +60,101 @@ MODEL         = "claude-haiku-4-5-20251001"
 _client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
 
+def _env_tokens(*names: str) -> list[str]:
+    tokens = []
+    seen = set()
+    for name in names:
+        raw = os.getenv(name, "")
+        for token in re.split(r"[\s,;]+", raw):
+            token = token.strip()
+            if token and token not in seen:
+                tokens.append(token)
+                seen.add(token)
+    return tokens
+
+
+COSMOS_TOKENS = _env_tokens("COSMOS_TOKEN", "COSMOS_TOKENS")
+SERPER_KEYS = _env_tokens("SERPER_API_KEY", "SERPER_API_KEYS")
+
+
 def _digits(s):
     return re.sub(r"\D", "", s or "")
+
+
+def _ean_variants(ean: str) -> list[str]:
+    """
+    Gera variantes úteis para busca.
+    Muitos cadastros vêm como DUN-14 (1/2 + GTIN-13), com zeros à esquerda
+    ou até código interno. Buscar apenas o valor bruto perde muitas imagens.
+    """
+    raw = _digits(ean)
+    if not raw:
+        return []
+    variants = []
+
+    def add(value: str):
+        value = _digits(value).lstrip("0")
+        if len(value) >= 8 and value not in variants:
+            variants.append(value)
+
+    add(raw)
+    if len(raw) == 14:
+        add(raw[1:])       # indicador logístico + EAN-13
+        add(raw[-13:])
+        add(raw[-12:])
+    elif len(raw) == 13:
+        add(raw[-12:])
+    elif len(raw) > 14:
+        add(raw[-14:])
+        add(raw[-13:])
+        add(raw[-12:])
+    return variants
+
+
+_NAME_CLEAN_REPLACEMENTS = [
+    (r"\bc[/\s]*(\d+)\b", r"com \1"),
+    (r"\bcpd?s?\b|\bcpr?s?\b|\bcomp\.?\b", "comprimidos"),
+    (r"\bfr\b", "frasco"),
+    (r"\bund?\b|\bunid?\b", "unidades"),
+]
+
+
+def _clean_product_query(nome: str, laboratorio: str = "") -> str:
+    text = (nome or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    for pat, repl in _NAME_CLEAN_REPLACEMENTS:
+        text = re.sub(pat, repl, text, flags=re.IGNORECASE)
+    # Remove lixo operacional comum, mas preserva medida/sabor/tamanho.
+    text = re.sub(r"\b(display|pote\s+c\s+\d+|sortid[ao]s?)\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    if laboratorio and laboratorio.lower() not in text.lower():
+        text = f"{text} {laboratorio}".strip()
+    return text[:110]
+
+
+def _image_search_queries(ean: str, nome: str, laboratorio: str = "") -> list[str]:
+    variants = _ean_variants(ean)
+    clean_name = _clean_product_query(nome, laboratorio)
+    queries = []
+    if clean_name:
+        # Nome primeiro costuma recuperar itens com EAN/DUN mal cadastrado.
+        queries.extend([
+            f"{clean_name} embalagem",
+            f"{clean_name} produto",
+            f"{clean_name} foto",
+        ])
+    for v in variants[:4]:
+        queries.append(f'"{v}"')
+        if clean_name:
+            queries.append(f"{v} {clean_name[:55]}")
+    if nome:
+        try:
+            q = _claude_suggest_query(variants[0] if variants else ean, nome, laboratorio)
+            if q:
+                queries.insert(0, q)
+        except Exception:
+            pass
+    return list(dict.fromkeys(q.strip() for q in queries if q and q.strip()))
 
 
 def _post_json(url, payload, headers=None, timeout=12):
@@ -74,13 +167,52 @@ def _post_json(url, payload, headers=None, timeout=12):
         return json.loads(r.read().decode("utf-8", "ignore"))
 
 
+def _post_json_with_api_keys(url, payload, header_name: str, api_keys: list[str], timeout=12):
+    if not api_keys:
+        return None
+    last_error = None
+    for api_key in api_keys:
+        try:
+            return _post_json(
+                url,
+                payload,
+                headers={header_name: api_key},
+                timeout=timeout,
+            )
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 400 and isinstance(payload, dict) and "q" in payload:
+                try:
+                    return _post_json(
+                        url,
+                        {"q": payload["q"], "num": payload.get("num", 10)},
+                        headers={header_name: api_key},
+                        timeout=timeout,
+                    )
+                except urllib.error.HTTPError as exc2:
+                    last_error = exc2
+                except Exception as exc2:
+                    last_error = exc2
+                continue
+            if exc.code in (401, 403, 429):
+                continue
+            raise
+        except Exception as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    return None
+
+
 # ── PADRÕES PARA IDENTIFICAR URLs QUE PRECISAM DE VALIDAÇÃO VISUAL ───────────
 
 # URLs que provavelmente têm conteúdo ruim (logo de farmácia, placeholder)
 # e precisam ser validadas pelo Claude Vision
 NEEDS_VALIDATION_RE = re.compile(
     r"supabase\.co/storage.*/auto-ean/"
-    r"|supabase\.co/storage.*/medicamentos-auto",
+    r"|supabase\.co/storage.*/medicamentos-auto"
+    r"|/google_auto/|/pedidoeletronico/google_auto/",
     re.IGNORECASE,
 )
 
@@ -96,7 +228,14 @@ GENERIC_PLACEHOLDER_RE = re.compile(
 COMPETITOR_URL_RE = re.compile(
     r"farmalan|avante[\-_]farm|drogasil|drogaraia|droga[\s_-]raia|paguemenos"
     r"|panvel|nissei|ultrafarma|drogaria[\-_]araujo|farmais|farmasesi"
-    r"|drogarias?[\-_]s[aã]o[\-_]jo[aã]o|saojoao|heroos",
+    r"|drogarias?[\-_]s[aã]o[\-_]jo[aã]o|saojoao|heroos"
+    r"|promofarma|drogariacatarinense|drogaria[\-_]?catarinense"
+    r"|drogariavenancio|venancio|farmaponte|farmacia[\-_]?ponte"
+    r"|farmaciabrito|farmacia[\-_]?brito|drogariasp|drogaria[\-_]?sp"
+    r"|drogarias?[\-_]?pacheco|drogarias?[\-_]?tamoio|drogarias?[\-_]?globo"
+    r"|drogarias?[\-_]?ultra[\-_]?popular|drogarias?[\-_]?campe[aã]"
+    r"|drogaria|droga[a-z0-9_-]*|farmacia|pharma|farma\d+|comprar[\-_]?na[\-_]?farma"
+    r"|[\./_-]farma[a-z0-9_-]*",
     re.IGNORECASE,
 )
 
@@ -105,9 +244,26 @@ def url_needs_vision(url: str) -> bool:
     return bool(NEEDS_VALIDATION_RE.search(url or ""))
 
 
+EXTRA_BAD_IMAGE_REF_RE = re.compile(
+    r"avante[\s\-_]*farm|pague[\s\-_]*menos|droga[\s\-_]*raia|drogaria[\s\-_]*araujo"
+    r"|imagem\s+indispon[iÃ­]vel|sem\s+imagem|sem\s+imagem\s+de\s+divulga[cÃ§][aÃ£]o"
+    r"|para\s+que\s+serve|banner|promo[cÃ§][aÃ£]o|oferta|delivery|entrega|frete"
+    r"|placeholder|default\s+product",
+    re.IGNORECASE,
+)
+
+
+def image_ref_is_bad_by_pattern(*values: str) -> bool:
+    u = " ".join(v or "" for v in values)
+    return bool(
+        GENERIC_PLACEHOLDER_RE.search(u)
+        or COMPETITOR_URL_RE.search(u)
+        or EXTRA_BAD_IMAGE_REF_RE.search(u)
+    )
+
+
 def url_is_bad_by_pattern(url: str) -> bool:
-    u = url or ""
-    return bool(GENERIC_PLACEHOLDER_RE.search(u) or COMPETITOR_URL_RE.search(u))
+    return image_ref_is_bad_by_pattern(url)
 
 
 # ── BUSCA CATÁLOGO ATIVO ─────────────────────────────────────────────────────
@@ -165,47 +321,133 @@ ORDER BY c.ean_key
 {limit}
 """
 
-# Query focada: só EANs com supabase auto-ean (precisa validação visual urgente)
-_CATALOG_SUPABASE = """
-SELECT epi.ean AS ean_raw,
-       LTRIM(epi.ean, '0') AS ean_key,
-       epi.imagem_url AS epi_url,
-       COALESCE(pc.descricao_canon, m.descricao) AS nome,
-       COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio) AS laboratorio,
-       m.id AS med_id,
-       m.imagem AS med_imagem,
+# Query focada: EANs ÚNICOS com epi que precisa validação visual (qualquer URL, não só supabase)
+# Deduplicado por EAN — valida a imagem uma só vez, deleta para todas as lojas se ruim.
+_CATALOG_VALIDATE_EPI = """
+SELECT DISTINCT ON (LTRIM(epi.ean, '0'))
+       epi.ean                                                       AS ean_raw,
+       LTRIM(epi.ean, '0')                                          AS ean_key,
+       epi.imagem_url                                               AS epi_url,
+       COALESCE(pc.descricao_canon, m.descricao)                   AS nome,
+       COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)   AS laboratorio,
+       m.id                                                         AS med_id,
+       m.imagem                                                     AS med_imagem,
        pc.imagem_cosmos,
        mi.cloudinary_url
 FROM ecommerce_produto_imagens epi
-LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(epi.ean, '0')
+LEFT JOIN medicamentos m    ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(epi.ean, '0')
 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(epi.ean, '0')
-         AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+LEFT JOIN produto_canon pc  ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(epi.ean, '0')
+                            AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
 LEFT JOIN ecommerce_lab_ean elab ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(epi.ean, '0')
-WHERE epi.imagem_url ILIKE '%%supabase%%auto-ean%%'
-  AND epi.ean IN (
-      SELECT COALESCE(barras_norm, barras) FROM estoque WHERE estoque > 0
-      UNION
-      SELECT ean FROM automatiza_estoque WHERE quantidade_estoque > 0
-  )
+WHERE epi.imagem_url IS NOT NULL
+  AND TRIM(epi.imagem_url) != ''
+  -- Só valida se NÃO há fonte confiável sobrepondo (cosmos/cloudinary já tapa o problema)
+  AND NULLIF(TRIM(COALESCE(pc.imagem_cosmos, '')), '') IS NULL
+  AND NULLIF(TRIM(COALESCE(mi.cloudinary_url, '')), '') IS NULL
+  -- Pula EANs já validados como OK nos últimos 30 dias
+  AND (epi.validado_em IS NULL OR epi.validado_em < NOW() - INTERVAL '30 days')
 {ean_filter}
-ORDER BY epi.ean
+ORDER BY LTRIM(epi.ean, '0'), epi.ean
+{limit}
+"""
+
+_CATALOG_VALIDATE_DISPLAY = """
+WITH catalog AS MATERIALIZED (
+    SELECT LTRIM(COALESCE(barras_norm, barras, ''), '0') AS ean_key,
+           MIN(COALESCE(barras_norm, barras)) AS ean_raw,
+           MAX(descricao) AS nome_estoque
+    FROM estoque
+    WHERE estoque > 0 AND COALESCE(barras_norm, barras, '') != ''
+    GROUP BY LTRIM(COALESCE(barras_norm, barras, ''), '0')
+    UNION ALL
+    SELECT LTRIM(COALESCE(ean, ''), '0') AS ean_key,
+           MIN(ean) AS ean_raw,
+           MAX(descricao_produto) AS nome_estoque
+    FROM automatiza_estoque
+    WHERE quantidade_estoque > 0 AND COALESCE(ean, '') != ''
+    GROUP BY LTRIM(COALESCE(ean, ''), '0')
+),
+dedup AS MATERIALIZED (
+    SELECT ean_key, MIN(ean_raw) AS ean_raw, MAX(nome_estoque) AS nome_estoque
+    FROM catalog
+    GROUP BY ean_key
+)
+SELECT
+    c.ean_raw,
+    c.ean_key,
+    COALESCE(pc.descricao_canon, m.descricao, c.nome_estoque) AS nome,
+    COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio) AS laboratorio,
+    m.id AS med_id,
+    m.imagem AS med_imagem,
+    pc.imagem_cosmos,
+    mi.cloudinary_url,
+    epi.imagem_url AS epi_url,
+    COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS displayed_url,
+    CASE
+        WHEN NULLIF(TRIM(COALESCE(mi.cloudinary_url, '')), '') IS NOT NULL THEN 'medicamentos_imagens'
+        WHEN NULLIF(TRIM(COALESCE(pc.imagem_cosmos, '')), '') IS NOT NULL THEN 'produto_canon'
+        WHEN NULLIF(TRIM(COALESCE(m.imagem, '')), '') IS NOT NULL THEN 'medicamentos'
+        WHEN NULLIF(TRIM(COALESCE(epi.imagem_url, '')), '') IS NOT NULL THEN 'ecommerce_produto_imagens'
+        ELSE ''
+    END AS image_source
+FROM dedup c
+LEFT JOIN LATERAL (
+    SELECT id, descricao, laboratorio, imagem
+    FROM medicamentos
+    WHERE LTRIM(COALESCE(barra_norm, barra, ''), '0') = c.ean_key
+    ORDER BY id
+    LIMIT 1
+) m ON TRUE
+LEFT JOIN LATERAL (
+    SELECT cloudinary_url
+    FROM medicamentos_imagens
+    WHERE medicamento_id = m.id
+      AND NULLIF(TRIM(COALESCE(cloudinary_url, '')), '') IS NOT NULL
+    ORDER BY created_at DESC NULLS LAST
+    LIMIT 1
+) mi ON TRUE
+LEFT JOIN LATERAL (
+    SELECT descricao_canon, laboratorio, imagem_cosmos
+    FROM produto_canon
+    WHERE LTRIM(COALESCE(ean, ''), '0') = c.ean_key
+      AND fonte NOT IN ('cosmos_miss', 'ia_miss')
+    ORDER BY atualizado_em DESC NULLS LAST
+    LIMIT 1
+) pc ON TRUE
+LEFT JOIN LATERAL (
+    SELECT imagem_url
+    FROM ecommerce_produto_imagens
+    WHERE LTRIM(COALESCE(ean, ''), '0') = c.ean_key
+      AND NULLIF(TRIM(COALESCE(imagem_url, '')), '') IS NOT NULL
+    ORDER BY updated_at DESC NULLS LAST
+    LIMIT 1
+) epi ON TRUE
+LEFT JOIN ecommerce_lab_ean elab ON LTRIM(COALESCE(elab.ean, ''), '0') = c.ean_key
+WHERE NULLIF(TRIM(COALESCE(mi.cloudinary_url, pc.imagem_cosmos, m.imagem, epi.imagem_url, '')), '') IS NOT NULL
+{ean_filter}
+ORDER BY c.ean_key
 {limit}
 """
 
 
-def fetch_catalog_supabase(conn, ean_filter=None, limit=None) -> list[dict]:
-    """EANs com supabase auto-ean em epi — precisam de validação visual."""
+def fetch_epi_to_validate(conn, ean_filter=None, limit=None) -> list[dict]:
+    """EANs únicos com epi sem cobertura de cosmos/cloudinary — precisam validação visual."""
     ean_clause = ""
     params = []
     if ean_filter:
-        ean_clause = "AND LTRIM(epi.ean, '0') = %s"
+        ean_clause = "AND LTRIM(COALESCE(epi.ean, ''), '0') = %s"
         params.append(_digits(ean_filter).lstrip("0"))
     lim = f"LIMIT {int(limit)}" if limit else ""
-    sql = _CATALOG_SUPABASE.format(ean_filter=ean_clause, limit=lim)
+    sql = _CATALOG_VALIDATE_EPI.format(ean_filter=ean_clause, limit=lim)
+    print("  [DB] Executando query de validacao...", flush=True)
+    t0 = time.time()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SET LOCAL statement_timeout = 0")
         cur.execute(sql, params)
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+    print(f"  [DB] {len(rows)} linhas retornadas em {time.time()-t0:.1f}s", flush=True)
+    return rows
 
 
 def fetch_catalog_no_image(conn, ean_filter=None, limit=None) -> list[dict]:
@@ -227,12 +469,28 @@ def fetch_catalog_no_image(conn, ean_filter=None, limit=None) -> list[dict]:
     where = "WHERE " + " AND ".join(where_parts)
     lim   = f"LIMIT {int(limit)}" if limit else ""
     sql = _CATALOG_BASE.format(where=where, limit=lim)
+    print("  [DB] Executando query sem-imagem (pode demorar)...", flush=True)
+    t0 = time.time()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(sql, params)
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+    print(f"  [DB] {len(rows)} linhas retornadas em {time.time()-t0:.1f}s", flush=True)
+    return rows
 
 
 # ── VALIDAÇÃO CLAUDE VISION ───────────────────────────────────────────────────
+
+def dedupe_rows_by_ean(rows: list[dict]) -> list[dict]:
+    deduped = []
+    seen = set()
+    for row in rows:
+        key = (row.get("ean_key") or _digits(row.get("ean_raw"))).lstrip("0")
+        if not key or key in seen:
+            continue
+        deduped.append(row)
+        seen.add(key)
+    return deduped
+
 
 def _url_is_loadable_image(url: str) -> bool:
     """Verifica via HEAD/GET se a URL retorna um content-type de imagem."""
@@ -259,7 +517,7 @@ def validate_image_claude(image_url: str, product_name: str) -> bool:
     Retorna False para logos de farmácia, banners, placeholders ou imagens genéricas.
     Retorna False se a URL não carregar como imagem válida.
     """
-    if not _url_is_loadable_image(image_url):
+    if image_ref_is_bad_by_pattern(image_url) or not _url_is_loadable_image(image_url):
         return False
     try:
         msg = _client.messages.create(
@@ -272,11 +530,13 @@ def validate_image_claude(image_url: str, product_name: str) -> bool:
                     {
                         "type": "text",
                         "text": (
-                            f"Produto: {product_name}\n"
-                            "Esta imagem e a embalagem/foto de um produto farmaceutico ou de saude? "
+                            f"Produto esperado: {product_name}\n"
+                            "Esta imagem mostra a embalagem/foto deste produto especifico, "
+                            "compativel com o nome esperado? "
                             "Responda apenas 'sim' ou 'nao'. "
-                            "Diga 'nao' se for: logo de farmacia, banner, caixa generica sem marca "
-                            "do produto, imagem com nome de rede de farmacia, ou placeholder."
+                            "Diga 'nao' se for outro produto, outra marca/laboratorio, logo de farmacia, "
+                            "banner informativo, imagem com texto 'para que serve', caixa generica sem marca "
+                            "do produto, imagem indisponivel, ou placeholder."
                         ),
                     },
                 ],
@@ -294,10 +554,7 @@ TRUSTED_PHARMA_DOMAINS = [
     "precoremedio.com.br",
     "eanfacil.com.br",
     "bulas.med.br",
-    "efarma.com.br",
     "saudedireta.com.br",
-    "farmacenter.com.br",
-    "remediobarato.com.br",
 ]
 
 # Domínios de fabricantes conhecidos (imagens oficiais)
@@ -379,26 +636,34 @@ def _claude_suggest_query(ean: str, nome: str, laboratorio: str = "") -> str:
 
 
 def fetch_cosmos_image(ean: str) -> str | None:
-    if not COSMOS_TOKEN:
+    if not COSMOS_TOKENS:
         return None
-    ean_d = _digits(ean)
-    if len(ean_d) < 8:
+    variants = _ean_variants(ean)
+    if not variants:
         return None
-    try:
-        req = urllib.request.Request(
-            f"https://api.cosmos.bluesoft.com.br/gtins/{ean_d}",
-            headers={
-                "X-Cosmos-Token": COSMOS_TOKEN,
-                "User-Agent": "Cosmos-API-Request",
-                "Content-Type": "application/json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=8) as r:
-            data = json.loads(r.read().decode("utf-8", "ignore"))
-        thumb = (data.get("thumbnail") or "").strip()
-        return thumb if thumb.startswith("http") else None
-    except Exception:
-        return None
+    for ean_d in variants:
+        for token in COSMOS_TOKENS:
+            try:
+                req = urllib.request.Request(
+                    f"https://api.cosmos.bluesoft.com.br/gtins/{ean_d}",
+                    headers={
+                        "X-Cosmos-Token": token,
+                        "User-Agent": "Cosmos-API-Request",
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = json.loads(r.read().decode("utf-8", "ignore"))
+                thumb = (data.get("thumbnail") or "").strip()
+                if thumb.startswith("http"):
+                    return thumb
+            except urllib.error.HTTPError as exc:
+                if exc.code in (401, 403, 429):
+                    continue
+                break
+            except Exception:
+                continue
+    return None
 
 
 def fetch_from_trusted_sources(ean: str, nome: str, laboratorio: str = "") -> str | None:
@@ -407,40 +672,52 @@ def fetch_from_trusted_sources(ean: str, nome: str, laboratorio: str = "") -> st
     via Serper, com raspa de página para extrair foto estruturada.
     Não depende de domínio concorrente; valida o conteúdo HTML.
     """
-    if not SERPER_KEY:
+    if not SERPER_KEYS:
         return None
-    ean_d = _digits(ean)
-    if len(ean_d) < 8:
+    variants = _ean_variants(ean)
+    if not variants:
         return None
 
     # 1. Tenta sites de banco de dados farmacêutico (query por EAN)
     trusted_site_str = " OR ".join(f"site:{d}" for d in TRUSTED_PHARMA_DOMAINS[:4])
-    queries_text = [
-        f'"{ean_d}" ({trusted_site_str})',
-        f'"{ean_d}" produto farmaceutico embalagem',
-    ]
+    clean_name = _clean_product_query(nome, laboratorio)
+    queries_text = []
+    for ean_d in variants[:4]:
+        queries_text.extend([
+            f'"{ean_d}" ({trusted_site_str})',
+            f'"{ean_d}" produto farmaceutico embalagem',
+        ])
+    if clean_name:
+        queries_text.append(f"{clean_name} ({trusted_site_str})")
+    queries_text = list(dict.fromkeys(queries_text))
 
     # 2. Tenta site do fabricante se soubermos o lab
     if laboratorio:
         for dom in MANUFACTURER_DOMAINS:
             if any(part in dom for part in laboratorio.lower().split()):
-                queries_text.insert(0, f'"{ean_d}" site:{dom}')
+                for ean_d in variants[:3]:
+                    queries_text.insert(0, f'"{ean_d}" site:{dom}')
+                if clean_name:
+                    queries_text.insert(0, f"{clean_name} site:{dom}")
                 break
 
     for q in queries_text:
         try:
-            data = _post_json(
+            data = _post_json_with_api_keys(
                 "https://google.serper.dev/search",
                 {"q": q, "num": 5, "gl": "br", "hl": "pt-br"},
-                headers={"X-API-KEY": SERPER_KEY},
+                "X-API-KEY",
+                SERPER_KEYS,
             )
         except Exception:
             continue
         for item in (data.get("organic") or [])[:5]:
             page_url = (item.get("link") or "").strip()
-            if not page_url or url_is_bad_by_pattern(page_url):
+            title = (item.get("title") or "").strip()
+            snippet = (item.get("snippet") or "").strip()
+            if not page_url or image_ref_is_bad_by_pattern(page_url, title, snippet):
                 continue
-            img = _scrape_image_from_page(page_url, ean_d)
+            img = _scrape_image_from_page(page_url, variants[0])
             if img and _url_is_loadable_image(img):
                 return img
 
@@ -453,42 +730,105 @@ def fetch_serper_images_multi(ean: str, nome: str, laboratorio: str = "") -> lis
     usando query sugerida pelo Claude + query por EAN como fallback.
     Filtra concorrentes, mas não valida conteúdo — deixa para Claude Vision.
     """
-    if not SERPER_KEY:
+    if not SERPER_KEYS:
         return []
-    ean_d = _digits(ean)
-    if len(ean_d) < 8:
+    variants = _ean_variants(ean)
+    if not variants:
         return []
 
-    # Claude sugere a query mais precisa
-    claude_query = _claude_suggest_query(ean_d, nome, laboratorio) if nome else ean_d
-    queries = list(dict.fromkeys([
-        claude_query,
-        f"{ean_d} {nome[:30]}".strip() if nome else ean_d,
-        f'"{ean_d}"',
-    ]))
+    queries = _image_search_queries(ean, nome, laboratorio)
 
     candidates = []
     for q in queries:
         try:
-            data = _post_json(
+            data = _post_json_with_api_keys(
                 "https://google.serper.dev/images",
-                {"q": q, "num": 10, "gl": "br", "hl": "pt-br"},
-                headers={"X-API-KEY": SERPER_KEY},
+                {"q": q, "num": 20, "gl": "br", "hl": "pt-br"},
+                "X-API-KEY",
+                SERPER_KEYS,
             )
         except Exception:
             continue
-        for item in (data.get("images") or [])[:10]:
+        for item in (data.get("images") or [])[:20]:
             url  = (item.get("imageUrl") or "").strip()
             page = item.get("link") or ""
+            title = item.get("title") or ""
             if not url or url in candidates:
                 continue
-            if url_is_bad_by_pattern(url) or url_is_bad_by_pattern(page):
+            if image_ref_is_bad_by_pattern(url, page, title):
                 continue
             candidates.append(url)
-            if len(candidates) >= 5:
+            if len(candidates) >= 10:
                 return candidates
 
+    # Fallback: busca textual normal. Alguns produtos não aparecem no endpoint
+    # /images, mas páginas orgânicas trazem imageUrl/thumbnail ou og:image.
+    for q in queries:
+        try:
+            data = _post_json_with_api_keys(
+                "https://google.serper.dev/search",
+                {"q": q, "num": 10, "gl": "br", "hl": "pt-br"},
+                "X-API-KEY",
+                SERPER_KEYS,
+            )
+        except Exception:
+            continue
+        blocks = []
+        kg = data.get("knowledgeGraph") or {}
+        if kg:
+            blocks.append(kg)
+        blocks.extend(data.get("organic") or [])
+        blocks.extend(data.get("places") or [])
+        for item in blocks[:12]:
+            title = item.get("title") or ""
+            page = item.get("link") or item.get("website") or ""
+            snippet = item.get("snippet") or item.get("description") or ""
+            for key in ("imageUrl", "thumbnailUrl", "thumbnail", "image"):
+                url = (item.get(key) or "").strip()
+                if url and url.startswith("http") and url not in candidates:
+                    if not image_ref_is_bad_by_pattern(url, page, title, snippet):
+                        candidates.append(url)
+                        if len(candidates) >= 10:
+                            return candidates
+            if page and not image_ref_is_bad_by_pattern(page, title, snippet):
+                img = _scrape_image_from_page(page, variants[0])
+                if img and img not in candidates and _url_is_loadable_image(img):
+                    candidates.append(img)
+                    if len(candidates) >= 10:
+                        return candidates
+
     return candidates
+
+
+_STOP_NAME_TOKENS = {
+    "com", "sem", "para", "por", "das", "dos", "fr", "frasco", "caixa", "unidade",
+    "unidades", "c", "cp", "cpr", "comprimido", "comprimidos", "ml", "mg", "g",
+    "solucao", "xpe", "xarope", "gotas", "gts",
+}
+
+
+def _norm_hint_text(value: str) -> str:
+    value = (value or "").lower()
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def product_hint_matches_url(image_url: str, nome: str) -> bool:
+    text = _norm_hint_text(urllib.parse.unquote(image_url or ""))
+    name_text = _norm_hint_text(nome or "")
+    if not text or not name_text:
+        return False
+    name_tokens = [
+        t for t in name_text.split()
+        if len(t) >= 4 and t not in _STOP_NAME_TOKENS and not t.isdigit()
+    ]
+    if not name_tokens or name_tokens[0] not in text:
+        return False
+    measures = re.findall(r"\d+\s*(?:ml|mg|g|cp|cpr)", name_text)
+    if measures:
+        compact_text = text.replace(" ", "")
+        return any(m.replace(" ", "") in compact_text for m in measures)
+    return sum(1 for t in name_tokens[:4] if t in text) >= min(2, len(name_tokens))
 
 
 def find_best_image(ean: str, nome: str, laboratorio: str = "",
@@ -516,6 +856,8 @@ def find_best_image(ean: str, nome: str, laboratorio: str = "",
             continue
         if skip_validate or validate_image_claude(url, nome):
             return url, "serper"
+        if product_hint_matches_url(url, nome):
+            return url, "serper-hint"
 
     return None, ""
 
@@ -526,7 +868,10 @@ def delete_epi_for_ean(conn, ean_raw: str, dry_run=False):
     if dry_run:
         return
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM ecommerce_produto_imagens WHERE ean = %s", (ean_raw,))
+        cur.execute(
+            "DELETE FROM ecommerce_produto_imagens WHERE LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')",
+            (ean_raw,),
+        )
     conn.commit()
 
 
@@ -536,6 +881,74 @@ def clear_med_imagem(conn, med_id: int, dry_run=False):
     with conn.cursor() as cur:
         cur.execute("UPDATE medicamentos SET imagem = NULL WHERE id = %s", (med_id,))
     conn.commit()
+
+
+def mark_epi_validated(conn, ean_key: str, dry_run=False):
+    """Marca todas as linhas de ecommerce_produto_imagens deste EAN como validadas agora."""
+    if dry_run:
+        return
+    ean_norm = _digits(ean_key).lstrip("0")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ecommerce_produto_imagens SET validado_em = NOW()"
+            " WHERE LTRIM(COALESCE(ean, ''), '0') = %s",
+            (ean_norm,),
+        )
+    conn.commit()
+
+
+def clear_bad_sources_for_ean(conn, ean_key: str, bad_url: str, dry_run=False) -> dict:
+    """Remove a mesma URL ruim de todas as fontes que podem sobrepor a imagem nova."""
+    counts = {"epi": 0, "med": 0, "canon": 0, "cloudinary": 0}
+    if dry_run:
+        return counts
+    ean_norm = _digits(ean_key).lstrip("0")
+    bad_url = (bad_url or "").strip()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM ecommerce_produto_imagens
+             WHERE LTRIM(COALESCE(ean, ''), '0') = %s
+            """,
+            (ean_norm,),
+        )
+        counts["epi"] = cur.rowcount
+
+        cur.execute(
+            """
+            UPDATE medicamentos
+               SET imagem = NULL
+             WHERE LTRIM(COALESCE(barra_norm, barra, ''), '0') = %s
+               AND (%s = '' OR imagem = %s OR imagem ILIKE '%%farmalan%%' OR imagem ILIKE '%%avante%%')
+            """,
+            (ean_norm, bad_url, bad_url),
+        )
+        counts["med"] = cur.rowcount
+
+        cur.execute(
+            """
+            UPDATE produto_canon
+               SET imagem_cosmos = NULL, atualizado_em = NOW()
+             WHERE LTRIM(COALESCE(ean, ''), '0') = %s
+               AND (%s = '' OR imagem_cosmos = %s OR imagem_cosmos ILIKE '%%farmalan%%' OR imagem_cosmos ILIKE '%%avante%%')
+            """,
+            (ean_norm, bad_url, bad_url),
+        )
+        counts["canon"] = cur.rowcount
+
+        cur.execute(
+            """
+            DELETE FROM medicamentos_imagens mi
+             USING medicamentos m
+             WHERE mi.medicamento_id = m.id
+               AND LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = %s
+               AND (%s = '' OR mi.cloudinary_url = %s OR mi.cloudinary_url ILIKE '%%farmalan%%' OR mi.cloudinary_url ILIKE '%%avante%%')
+            """,
+            (ean_norm, bad_url, bad_url),
+        )
+        counts["cloudinary"] = cur.rowcount
+    conn.commit()
+    return counts
 
 
 def save_image_for_all_stores(conn, ean_key: str, image_url: str, dry_run=False) -> int:
@@ -575,6 +988,23 @@ def save_med_imagem(conn, med_id: int, image_url: str, dry_run=False):
 
 
 # ── STATS ─────────────────────────────────────────────────────────────────────
+
+def save_med_imagem_for_ean(conn, ean_key: str, image_url: str, dry_run=False) -> int:
+    if dry_run:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE medicamentos
+               SET imagem = %s
+             WHERE LTRIM(COALESCE(barra_norm, barra, ''), '0') = LTRIM(%s, '0')
+            """,
+            (image_url, ean_key),
+        )
+        saved = cur.rowcount
+    conn.commit()
+    return saved
+
 
 def show_stats(conn):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -628,55 +1058,55 @@ def main():
         conn.close()
         return
 
-    # ── FASE 1: validar EANs com imagem supabase auto-ean ────────────────────
-    print("FASE 1 — Validando imagens supabase auto-ean (podem conter logos de farmacia)...")
-    supabase_rows = fetch_catalog_supabase(conn, ean_filter=args.ean, limit=args.limit)
-    print(f"  {len(supabase_rows)} EANs com supabase auto-ean\n")
+    # ── FASE 1: validar EANs com epi sem cobertura de cosmos/cloudinary ────────
+    # Deduplicado por EAN — Claude Vision chamado 1x por EAN, não 1x por loja
+    print("FASE 1 - Validando imagem exibida por EAN unico...")
+    epi_rows = fetch_epi_to_validate(conn, ean_filter=args.ean, limit=args.limit)
+    print(f"  {len(epi_rows)} EANs unicos para validar\n")
 
-    stats = {"epi_removidas": 0, "med_limpas": 0, "salvas_epi": 0, "salvas_med": 0,
-             "sem_imagem": 0, "ja_ok": 0}
+    stats = {"epi_eans_removidos": 0, "med_limpas": 0, "salvas_epi": 0, "salvas_med": 0,
+             "fontes_limpas": 0, "sem_imagem": 0, "ja_ok": 0}
 
     # EANs que perderam imagem na fase 1 e precisam de substituicao
     needs_replacement: list[dict] = []
 
-    for i, row in enumerate(supabase_rows, 1):
+    for i, row in enumerate(epi_rows, 1):
         ean_key  = (row["ean_key"]  or "").lstrip("0")
         ean_raw  = row["ean_raw"]   or ean_key
         nome     = (row["nome"]     or "").strip()
         lab      = (row["laboratorio"] or "").strip()
         med_id   = row["med_id"]
-        epi_url  = row["epi_url"]   or ""
-        cosmos   = row["imagem_cosmos"]
-        cloudify = row["cloudinary_url"]
+        img_url  = row.get("displayed_url") or row.get("epi_url") or ""
+        img_src  = row.get("image_source") or ""
 
-        prefix = f"[F1 {i}/{len(supabase_rows)}] {ean_raw} | {nome[:45]}"
-
-        # Se ja tem fonte boa, a imagem epi ficara invisivel pelo COALESCE
-        if (cloudify and cloudify.strip()) or (cosmos and cosmos.strip()):
-            print(f"{prefix}\n  ja tem cosmos/cloudinary — epi sera ignorada")
-            stats["ja_ok"] += 1
-            continue
+        prefix = f"[F1 {i}/{len(epi_rows)}] {ean_raw} | {nome[:45]}"
 
         # Validar com Claude Vision
         if args.skip_validate:
             valid = True
+        elif image_ref_is_bad_by_pattern(img_url):
+            valid = False
+            print(f"{prefix}\n  padrao=RUIM ({img_src}): {img_url[:75]}")
         else:
-            valid = validate_image_claude(epi_url, nome)
-            print(f"{prefix}\n  vision={'OK' if valid else 'RUIM'}: {epi_url[:75]}")
+            valid = validate_image_claude(img_url, nome)
+            print(f"{prefix}\n  vision={'OK' if valid else 'RUIM'} ({img_src}): {img_url[:75]}")
 
         if not valid:
-            delete_epi_for_ean(conn, ean_raw, dry_run=args.dry_run)
-            stats["epi_removidas"] += 1
+            # Remove TODAS as lojas deste EAN de uma vez (não só uma)
+            cleared = clear_bad_sources_for_ean(conn, ean_key or ean_raw, img_url, dry_run=args.dry_run)
+            stats["fontes_limpas"] += sum(cleared.values())
+            stats["epi_eans_removidos"] += 1
             if nome:
                 needs_replacement.append(row)
         else:
+            mark_epi_validated(conn, ean_key or ean_raw, dry_run=args.dry_run)
             stats["ja_ok"] += 1
 
         time.sleep(0.2)
 
     # ── FASE 2: EANs sem nenhuma imagem boa (inclui os que perderam na fase 1) ─
     print(f"\nFASE 2 — Buscando imagens para EANs sem fonte valida...")
-    no_image_rows = fetch_catalog_no_image(conn, ean_filter=args.ean, limit=args.limit)
+    no_image_rows = dedupe_rows_by_ean(fetch_catalog_no_image(conn, ean_filter=args.ean, limit=args.limit))
 
     # Unir com os que perderam imagem na fase 1 (sem duplicar)
     seen_keys = {r["ean_key"] for r in no_image_rows}
@@ -701,12 +1131,13 @@ def main():
         prefix = f"[F2 {i}/{len(no_image_rows)}] {ean_raw} | {nome[:45]}"
 
         # Verificar e limpar medicamentos.imagem supabase se existir
-        if med_id and med_img and url_needs_validation(med_img):
-            valid_med = args.skip_validate or validate_image_claude(med_img, nome)
+        if med_id and med_img and (url_needs_validation(med_img) or image_ref_is_bad_by_pattern(med_img)):
+            valid_med = args.skip_validate or (not image_ref_is_bad_by_pattern(med_img) and validate_image_claude(med_img, nome))
             print(f"{prefix}\n  MED vision={'OK' if valid_med else 'RUIM'}: {med_img[:70]}")
             if not valid_med:
-                clear_med_imagem(conn, med_id, dry_run=args.dry_run)
-                stats["med_limpas"] += 1
+                cleared = clear_bad_sources_for_ean(conn, ean_key or ean_raw, med_img, dry_run=args.dry_run)
+                stats["med_limpas"] += cleared.get("med", 0)
+                stats["fontes_limpas"] += sum(cleared.values())
                 med_img = None
 
         # Buscar melhor imagem: Cosmos → trusted-db → Serper multi-candidata
@@ -722,21 +1153,23 @@ def main():
 
         print(f"{prefix}\n  [{source}] OK: {best_url[:75]}")
 
-        # Salvar em epi para todas as lojas
+        # Salvar em epi para todas as lojas e marcar como validada
         saved = save_image_for_all_stores(conn, ean_key, best_url, dry_run=args.dry_run)
         stats["salvas_epi"] += saved
         print(f"    epi: {saved} lojas {'(dry-run)' if args.dry_run else 'salvos'}")
+        mark_epi_validated(conn, ean_key, dry_run=args.dry_run)
 
-        # Salvar em medicamentos.imagem se nao tinha
-        if med_id and not med_img:
-            save_med_imagem(conn, med_id, best_url, dry_run=args.dry_run)
-            stats["salvas_med"] += 1
-            print(f"    med: atualizado {'(dry-run)' if args.dry_run else ''}")
+        # Salvar em medicamentos.imagem para todos os cadastros duplicados do EAN
+        med_saved = save_med_imagem_for_ean(conn, ean_key, best_url, dry_run=args.dry_run)
+        stats["salvas_med"] += med_saved
+        if med_saved:
+            print(f"    med: {med_saved} cadastros atualizados {'(dry-run)' if args.dry_run else ''}")
 
         time.sleep(0.25)
 
     print(f"\n=== CONCLUÍDO {'(DRY-RUN)' if args.dry_run else ''} ===")
-    print(f"  EPI removidas (logo/placeholder)  : {stats['epi_removidas']}")
+    print(f"  EPI EANs removidos (todas lojas)  : {stats['epi_eans_removidos']}")
+    print(f"  Fontes ruins limpas               : {stats['fontes_limpas']}")
     print(f"  medicamentos.imagem limpas        : {stats['med_limpas']}")
     print(f"  EPI salvas (novas imagens)        : {stats['salvas_epi']}")
     print(f"  medicamentos.imagem atualizadas   : {stats['salvas_med']}")

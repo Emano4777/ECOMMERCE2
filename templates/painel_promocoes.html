@@ -1,0 +1,252 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Promoções{% endblock %}
+
+{% block extra_style %}
+<style>
+.prm-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; margin-top:20px; }
+.prm-card { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; padding:16px; position:relative; }
+.prm-card.encerrada { opacity:.55; }
+.prm-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:6px; font-size:.7rem; font-weight:800; margin-bottom:10px; }
+.prm-badge.vigente  { background:#0d2d1a; color:#22c55e; border:1px solid #22c55e55; }
+.prm-badge.encerrada{ background:#1e0810; color:#f08090; border:1px solid #f0809055; }
+.prm-badge.assin    { background:#1a1208; color:#f5c842; border:1px solid #f5c84255; }
+.prm-nome { font-weight:800; font-size:.9rem; color:var(--pk-txt); margin-bottom:4px; }
+.prm-ean  { font-size:.75rem; color:var(--pk-muted); font-family:monospace; }
+.prm-preco { font-size:1.4rem; font-weight:900; color:#22c55e; margin:10px 0 4px; }
+.prm-validade { font-size:.74rem; color:var(--pk-muted); }
+.prm-actions { display:flex; gap:8px; margin-top:12px; }
+.prm-btn { flex:1; padding:7px 0; border-radius:8px; border:1px solid var(--pk-line); background:#181c24; color:var(--pk-txt); font-size:.78rem; font-weight:700; cursor:pointer; text-align:center; transition:.15s; }
+.prm-btn:hover { border-color:var(--pk-yellow); color:var(--pk-yellow); }
+.prm-btn.danger:hover { border-color:#f87171; color:#f87171; }
+/* modal */
+.prm-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:1000; align-items:center; justify-content:center; padding:16px; }
+.prm-modal-overlay.open { display:flex; }
+.prm-modal { background:#131720; border:1px solid var(--pk-line); border-radius:14px; padding:28px; width:min(520px,96vw); max-height:88vh; overflow-y:auto; }
+.prm-modal-title { font-weight:900; font-size:1.1rem; margin-bottom:20px; display:flex; align-items:center; gap:8px; }
+.prm-field { margin-bottom:14px; }
+.prm-field label { display:block; font-size:.78rem; color:var(--pk-muted); font-weight:700; margin-bottom:5px; }
+.prm-ean-search { display:flex; gap:8px; }
+.prm-ean-result { margin-top:6px; font-size:.8rem; color:var(--pk-yellow); font-weight:700; min-height:1.2em; }
+.prm-toggle { display:flex; align-items:center; gap:10px; }
+.prm-toggle input[type=checkbox] { width:18px; height:18px; accent-color:var(--pk-yellow); }
+.prm-bulk { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; padding:16px; margin-bottom:18px; }
+.prm-bulk textarea { min-height:120px; resize:vertical; }
+.prm-bulk-row { display:grid; grid-template-columns:1fr 170px auto auto; gap:10px; align-items:end; }
+@media (max-width: 760px) { .prm-bulk-row { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+  <div>
+    <h1 style="font-size:1.3rem;font-weight:900;margin:0">
+      <i class="fa fa-bolt me-2" style="color:var(--pk-yellow)"></i>Promoções
+    </h1>
+    <p style="color:var(--pk-muted);font-size:.85rem;margin:4px 0 0">
+      Crie promoções por tempo determinado. Aparecem com destaque no catálogo para os consumidores.
+    </p>
+  </div>
+  <button class="btn-pk-yellow" onclick="abrirModalPromo()">
+    <i class="fa fa-plus me-1"></i>Nova promoção
+  </button>
+</div>
+
+<div class="prm-bulk">
+  <div style="font-size:.9rem;font-weight:900;color:var(--pk-txt);margin-bottom:8px">
+    <i class="fa fa-layer-group me-1" style="color:var(--pk-yellow)"></i>Promocoes em lote
+  </div>
+  <div class="prm-bulk-row">
+    <div>
+      <label style="display:block;font-size:.76rem;color:var(--pk-muted);font-weight:800;margin-bottom:5px">Linhas: EAN;preco ou EAN;preco;nome</label>
+      <textarea id="prm-lote-linhas" class="pk-input" placeholder="7890000000000;9,90&#10;7891111111111;14,50;Produto opcional"></textarea>
+    </div>
+    <div>
+      <label style="display:block;font-size:.76rem;color:var(--pk-muted);font-weight:800;margin-bottom:5px">Encerramento</label>
+      <input type="datetime-local" id="prm-lote-data" class="pk-input">
+    </div>
+    <label class="prm-toggle" style="margin-bottom:8px;color:var(--pk-txt);font-size:.82rem;font-weight:800">
+      <input type="checkbox" id="prm-lote-assin">Assinantes
+    </label>
+    <button type="button" class="btn-pk-yellow" onclick="criarPromosLote(this)">
+      <i class="fa fa-bolt me-1"></i>Criar lote
+    </button>
+  </div>
+  <div id="prm-lote-msg" style="font-size:.78rem;color:var(--pk-muted);margin-top:8px"></div>
+</div>
+
+{% if promos %}
+<div class="prm-grid">
+  {% for p in promos %}
+  <div class="prm-card {% if not p.vigente %}encerrada{% endif %}">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <span class="prm-badge {% if p.vigente %}vigente{% else %}encerrada{% endif %}">
+        <i class="fa fa-circle" style="font-size:.5rem"></i>
+        {{ 'Ativa' if p.vigente else 'Encerrada' }}
+      </span>
+      {% if p.so_assinantes %}
+      <span class="prm-badge assin"><i class="fa fa-star" style="font-size:.6rem"></i>Só assinantes</span>
+      {% endif %}
+    </div>
+    <div class="prm-nome">{{ p.nome or 'EAN ' + p.ean }}</div>
+    <div class="prm-ean"><i class="fa fa-barcode me-1"></i>{{ p.ean }}</div>
+    <div class="prm-preco">R$ {{ '%.2f'|format(p.preco_promo|float) }}</div>
+    <div class="prm-validade">
+      {% if p.data_fim %}
+        <i class="fa fa-clock me-1"></i>Até {{ p.data_fim.strftime('%d/%m/%Y %H:%M') }}
+      {% else %}
+        <i class="fa fa-infinity me-1"></i>Sem data de encerramento
+      {% endif %}
+    </div>
+    <div class="prm-actions">
+      <form method="post" action="{{ url_for('painel_promocoes_toggle', promo_id=p.id) }}" style="flex:1">
+        <button type="submit" class="prm-btn" style="width:100%">
+          <i class="fa fa-{% if p.ativo %}pause{% else %}play{% endif %} me-1"></i>
+          {{ 'Pausar' if p.ativo else 'Reativar' }}
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('painel_promocoes_delete', promo_id=p.id) }}"
+            style="flex:1" onsubmit="return confirm('Excluir esta promoção?')">
+        <button type="submit" class="prm-btn danger" style="width:100%">
+          <i class="fa fa-trash me-1"></i>Excluir
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:56px 24px;color:var(--pk-muted)">
+  <i class="fa fa-bolt" style="font-size:3rem;margin-bottom:14px;display:block;opacity:.25"></i>
+  <div style="font-size:.95rem;font-weight:700">Nenhuma promoção criada ainda</div>
+  <div style="font-size:.82rem;margin-top:6px;max-width:380px;margin-left:auto;margin-right:auto">
+    Crie promoções por tempo determinado para produtos específicos. Consumidores próximos verão o preço promocional com destaque no catálogo.
+  </div>
+  <button class="btn-pk-yellow" style="margin-top:18px" onclick="abrirModalPromo()">
+    <i class="fa fa-plus me-1"></i>Criar primeira promoção
+  </button>
+</div>
+{% endif %}
+
+<!-- Modal nova promoção -->
+<div class="prm-modal-overlay" id="prm-modal-overlay">
+  <div class="prm-modal">
+    <div class="prm-modal-title">
+      <i class="fa fa-bolt" style="color:var(--pk-yellow)"></i>Nova promoção
+    </div>
+    <form method="post" action="{{ url_for('painel_promocoes_criar') }}">
+
+      <div class="prm-field">
+        <label>EAN do produto *</label>
+        <div class="prm-ean-search">
+          <input type="text" id="prm-ean-inp" name="ean" class="pk-input" placeholder="Digite o EAN e pressione buscar" required>
+          <button type="button" class="btn-pk" onclick="buscarEanPromo()" style="white-space:nowrap">
+            <i class="fa fa-search"></i> Buscar
+          </button>
+        </div>
+        <div class="prm-ean-result" id="prm-ean-result"></div>
+        <input type="hidden" id="prm-nome-hidden" name="nome">
+      </div>
+
+      <div class="prm-field">
+        <label>Preço promocional (R$) *</label>
+        <input type="number" name="preco_promo" class="pk-input" step="0.01" min="0.01" placeholder="Ex: 19.90" required>
+      </div>
+
+      <div class="prm-field">
+        <label>Data e hora de encerramento (opcional)</label>
+        <input type="datetime-local" name="data_fim" class="pk-input">
+        <div style="font-size:.72rem;color:var(--pk-muted);margin-top:4px">Deixe em branco para promoção sem prazo.</div>
+      </div>
+
+      <div class="prm-field">
+        <label>Visibilidade</label>
+        <div class="prm-toggle">
+          <input type="checkbox" id="prm-so-assin" name="so_assinantes" value="1">
+          <label for="prm-so-assin" style="color:var(--pk-txt);font-size:.88rem;font-weight:700;margin:0">
+            <i class="fa fa-star me-1" style="color:var(--pk-yellow)"></i>
+            Exclusivo para assinantes
+          </label>
+        </div>
+        <div style="font-size:.72rem;color:var(--pk-muted);margin-top:5px">
+          Se marcado, só consumidores com assinatura ativa da sua loja verão o preço promocional.
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button type="submit" class="btn-pk-yellow" style="flex:1">
+          <i class="fa fa-bolt me-1"></i>Criar promoção
+        </button>
+        <button type="button" class="btn-pk-ghost" onclick="fecharModalPromo()">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function abrirModalPromo(){ document.getElementById('prm-modal-overlay').classList.add('open'); }
+function fecharModalPromo(){ document.getElementById('prm-modal-overlay').classList.remove('open'); document.getElementById('prm-ean-result').textContent=''; }
+
+document.getElementById('prm-modal-overlay').addEventListener('click', function(e){
+  if(e.target === this) fecharModalPromo();
+});
+
+function buscarEanPromo(){
+  const ean = document.getElementById('prm-ean-inp').value.trim();
+  const res = document.getElementById('prm-ean-result');
+  const nomeCampo = document.getElementById('prm-nome-hidden');
+  if(!ean){ res.textContent='Digite o EAN primeiro.'; return; }
+  res.textContent = 'Buscando...';
+  fetch(`/painel/precificador/testar-ean?ean=${encodeURIComponent(ean)}`)
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.nome){
+        res.innerHTML = '<i class="fa fa-check-circle me-1"></i>' + d.nome;
+        nomeCampo.value = d.nome;
+      } else {
+        res.innerHTML = '<span style="color:#f87171">Produto não encontrado no seu catálogo.</span>';
+        nomeCampo.value = '';
+      }
+    })
+    .catch(()=>{ res.innerHTML = '<span style="color:#f87171">Erro ao buscar.</span>'; });
+}
+
+document.getElementById('prm-ean-inp').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ e.preventDefault(); buscarEanPromo(); }
+});
+
+function criarPromosLote(btn){
+  const linhas = document.getElementById('prm-lote-linhas').value.trim();
+  const msg = document.getElementById('prm-lote-msg');
+  if(!linhas){ msg.innerHTML = '<span style="color:#f87171">Cole ao menos uma linha.</span>'; return; }
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Criando...';
+  fetch('/painel/promocoes/criar-lote', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      linhas,
+      data_fim: document.getElementById('prm-lote-data').value,
+      so_assinantes: document.getElementById('prm-lote-assin').checked,
+    })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if(!d.ok){
+      msg.innerHTML = '<span style="color:#f87171">' + (d.msg || 'Erro ao criar lote.') + '</span>';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-bolt me-1"></i>Criar lote';
+      return;
+    }
+    msg.innerHTML = `<span style="color:#22c55e">${d.criadas} promocoes criadas.</span>`;
+    setTimeout(() => location.reload(), 900);
+  })
+  .catch(() => {
+    msg.innerHTML = '<span style="color:#f87171">Erro ao criar lote.</span>';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-bolt me-1"></i>Criar lote';
+  });
+}
+</script>
+{% endblock %}

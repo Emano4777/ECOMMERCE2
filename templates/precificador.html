@@ -134,6 +134,19 @@
 .btn-ml-warn:hover  { background:rgba(245,200,66,.15); }
 .btn-ml-err   { background:rgba(240,128,144,.08); color:#f08090; border-color:rgba(240,128,144,.35); }
 .btn-ml-err:hover   { background:rgba(240,128,144,.15); }
+.btn-promo    { background:rgba(251,146,60,.1);  color:#fb923c;  border-color:rgba(251,146,60,.3); }
+.btn-promo:hover { background:rgba(251,146,60,.2); }
+.btn-promo.ativo { background:rgba(251,146,60,.2); border-color:#fb923c; }
+/* modal promoção */
+.pf-promo-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:1000; align-items:center; justify-content:center; padding:16px; }
+.pf-promo-overlay.open { display:flex; }
+.pf-promo-box { background:#131720; border:1px solid var(--pk-line); border-radius:14px; padding:28px; width:min(460px,96vw); max-height:88vh; overflow-y:auto; }
+.pf-promo-title { font-weight:900; font-size:1.05rem; margin-bottom:18px; color:var(--pk-txt); display:flex; align-items:center; gap:8px; }
+.pf-promo-field { margin-bottom:14px; }
+.pf-promo-field label { display:block; font-size:.76rem; color:var(--pk-muted); font-weight:700; margin-bottom:5px; }
+.pf-promo-toggle { display:flex; align-items:center; gap:9px; padding:10px 13px; background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; cursor:pointer; }
+.pf-promo-toggle input[type=checkbox] { width:16px; height:16px; accent-color:var(--pk-yellow); flex-shrink:0; }
+.pf-promo-toggle span { font-size:.82rem; color:var(--pk-txt); font-weight:700; }
 /* modal ML */
 .ml-modal-overlay {
   display:none; position:fixed; inset:0; background:rgba(0,0,0,.7);
@@ -578,6 +591,12 @@
                 <svg width="11" height="11" viewBox="0 0 48 48" style="vertical-align:-1px"><rect width="48" height="48" rx="3" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>
                 ML
               </button>
+              <button type="button" class="btn-row-act btn-promo"
+                      data-ean="{{ p.ean }}" data-nome="{{ p.nome|e }}"
+                      data-preco="{{ p.preco or p.preco_ref or 0 }}"
+                      onclick="abrirModalPromoItem(this)">
+                <i class="fa fa-bolt me-1"></i>Promoção
+              </button>
             </div>
           </td>
         </tr>
@@ -717,6 +736,23 @@
     <p style="font-size:.82rem;color:var(--pk-muted);margin-bottom:12px">
       Busque um produto do seu estoque para incluir no ecommerce.
     </p>
+    <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="font-size:.76rem;font-weight:900;color:var(--pk-txt);margin-bottom:6px">
+        <i class="fa fa-layer-group me-1" style="color:var(--pk-yellow)"></i>Incluir varios por EAN
+      </div>
+      <textarea id="modal-eans-lote" class="pk-input" rows="4"
+                placeholder="Cole um EAN por linha ou separados por espaco"
+                style="resize:vertical;margin-bottom:8px"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn-pk" onclick="carregarEstoqueDisponivel(this)">
+          <i class="fa fa-download me-1"></i>Carregar estoque disponível
+        </button>
+        <button type="button" class="btn-pk-yellow" onclick="incluirExtrasLote(this)">
+          <i class="fa fa-plus me-1"></i>Incluir lote
+        </button>
+      </div>
+      <div id="modal-lote-msg" style="font-size:.75rem;color:var(--pk-muted);margin-top:8px"></div>
+    </div>
     <div class="pf-modal-search">
       <input type="text" id="modal-busca" placeholder="Digite o nome do produto…"
              oninput="buscarEstoque(this.value)" autocomplete="off"/>
@@ -729,6 +765,56 @@
     <div style="margin-top:16px;display:flex;justify-content:flex-end">
       <button type="button" onclick="fecharModalAdicionar()" class="btn-pk-ghost">Fechar</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal promoção por produto -->
+<div class="pf-promo-overlay" id="pf-promo-overlay">
+  <div class="pf-promo-box">
+    <div class="pf-promo-title"><i class="fa fa-bolt" style="color:#fb923c"></i>Criar promoção</div>
+    <form method="post" action="{{ url_for('painel_promocoes_criar') }}">
+      <input type="hidden" id="pf-promo-ean" name="ean">
+      <input type="hidden" id="pf-promo-nome" name="nome">
+
+      <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+        <div style="font-size:.72rem;color:var(--pk-muted);font-weight:700">PRODUTO</div>
+        <div id="pf-promo-prod-nome" style="font-weight:800;color:var(--pk-txt);margin-top:3px"></div>
+        <div id="pf-promo-prod-ean"  style="font-size:.74rem;color:var(--pk-muted);font-family:monospace"></div>
+      </div>
+
+      <div class="pf-promo-field">
+        <label>Preço atual</label>
+        <div id="pf-promo-preco-atual" style="font-size:1rem;font-weight:700;color:var(--pk-yellow)"></div>
+      </div>
+
+      <div class="pf-promo-field">
+        <label>Preço promocional (R$) *</label>
+        <input type="number" name="preco_promo" id="pf-promo-preco" class="pk-input"
+               step="0.01" min="0.01" required placeholder="Ex: 24.90">
+      </div>
+
+      <div class="pf-promo-field">
+        <label>Encerramento (opcional — deixe em branco para sem prazo)</label>
+        <input type="datetime-local" name="data_fim" class="pk-input">
+      </div>
+
+      <div class="pf-promo-field">
+        <label class="pf-promo-toggle" style="cursor:pointer">
+          <input type="checkbox" name="so_assinantes" value="1" id="pf-promo-assin">
+          <span><i class="fa fa-star me-1" style="color:var(--pk-yellow)"></i>Exclusivo para assinantes</span>
+        </label>
+        <div style="font-size:.71rem;color:var(--pk-muted);margin-top:5px;padding-left:2px">
+          Só consumidores com assinatura ativa da sua loja verão esse preço.
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button type="submit" class="btn-pk-yellow" style="flex:1">
+          <i class="fa fa-bolt me-1"></i>Criar promoção
+        </button>
+        <button type="button" class="btn-pk-ghost" onclick="fecharModalPromoItem()">Cancelar</button>
+      </div>
+    </form>
   </div>
 </div>
 {% endblock %}
@@ -891,6 +977,68 @@ function incluirExtra(ean, btn) {
                      </button>`;
     // Recarrega a página para mostrar o produto na lista
     setTimeout(() => location.reload(), 800);
+  });
+}
+
+function carregarEstoqueDisponivel(btn) {
+  const msg = document.getElementById('modal-lote-msg');
+  const ta = document.getElementById('modal-eans-lote');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Carregando...';
+  msg.textContent = 'Buscando produtos com estoque da loja...';
+  fetch('/api/painel/estoque-disponivel?somente_novos=1&limit=5000')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) {
+        msg.innerHTML = '<span style="color:#f87171">Erro ao carregar estoque.</span>';
+        return;
+      }
+      const linhas = (d.itens || []).map(it => {
+        const preco = it.preco_ref ? ' - R$ ' + Number(it.preco_ref).toFixed(2).replace('.', ',') : '';
+        return `${it.ean} - ${it.nome || 'Produto sem descricao'} - estoque ${it.qty}${preco}`;
+      });
+      ta.value = linhas.join('\n');
+      msg.innerHTML = `<span style="color:#22c55e">${linhas.length} produtos carregados. Revise a lista e clique em Incluir lote.</span>`;
+    })
+    .catch(() => {
+      msg.innerHTML = '<span style="color:#f87171">Erro ao carregar estoque.</span>';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-download me-1"></i>Carregar estoque disponível';
+    });
+}
+
+function incluirExtrasLote(btn) {
+  const txt = document.getElementById('modal-eans-lote').value;
+  const msg = document.getElementById('modal-lote-msg');
+  const eans = [...new Set((txt.match(/\d{5,}/g) || []))];
+  if (!eans.length) {
+    msg.innerHTML = '<span style="color:#f87171">Cole ao menos um EAN valido.</span>';
+    return;
+  }
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Incluindo...';
+  fetch('/painel/precificador/incluir-extra-lote', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({eans}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (!d.ok) {
+      msg.innerHTML = '<span style="color:#f87171">' + (d.msg || 'Erro ao incluir lote.') + '</span>';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-plus me-1"></i>Incluir lote';
+      return;
+    }
+    msg.innerHTML = `<span style="color:#22c55e">Lote processado: ${d.inseridos} incluidos, ${d.ja_existiam || 0} ja existiam, ${d.ignorados} ignorados fora do estoque.</span>`;
+    setTimeout(() => location.reload(), 900);
+  })
+  .catch(() => {
+    msg.innerHTML = '<span style="color:#f87171">Erro ao processar lote.</span>';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-plus me-1"></i>Incluir lote';
   });
 }
 
@@ -1597,4 +1745,27 @@ function renderConcorrentes(precos, lastUpdate, keepSearching) {
     </div>
   </div>
 </div>
+
+<script>
+// ── Modal promoção por produto ───────────────────────────────────────────────
+function abrirModalPromoItem(btn){
+  const ean   = btn.dataset.ean;
+  const nome  = btn.dataset.nome;
+  const preco = parseFloat(btn.dataset.preco)||0;
+  document.getElementById('pf-promo-ean').value  = ean;
+  document.getElementById('pf-promo-nome').value = nome;
+  document.getElementById('pf-promo-prod-nome').textContent = nome;
+  document.getElementById('pf-promo-prod-ean').textContent  = 'EAN: ' + ean;
+  document.getElementById('pf-promo-preco-atual').textContent = preco > 0 ? 'R$ ' + preco.toFixed(2).replace('.', ',') : '—';
+  document.getElementById('pf-promo-preco').value = '';
+  document.getElementById('pf-promo-assin').checked = false;
+  document.getElementById('pf-promo-overlay').classList.add('open');
+}
+function fecharModalPromoItem(){
+  document.getElementById('pf-promo-overlay').classList.remove('open');
+}
+document.getElementById('pf-promo-overlay').addEventListener('click', function(e){
+  if(e.target === this) fecharModalPromoItem();
+});
+</script>
 {% endblock %}

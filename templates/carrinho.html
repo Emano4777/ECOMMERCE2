@@ -1,4 +1,4 @@
-{% extends "base_public.html" %}
+﻿{% extends "base_public.html" %}
 {% block title %}Poupaqui - Produtos{% endblock %}
 
 {% block extra_style %}
@@ -303,9 +303,68 @@
     </div>
   </div>
 </div>
+
+<div id="mp-card-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(15,23,42,.58);align-items:center;justify-content:center;padding:18px">
+  <div style="width:min(520px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:12px;box-shadow:0 18px 60px rgba(15,23,42,.28);border:1px solid #e5e7eb">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #eef2f7">
+      <div>
+        <div style="font-size:.78rem;color:#64748b;font-weight:800;text-transform:uppercase">Pagamento seguro</div>
+        <div id="mp-card-title" style="font-size:1.05rem;font-weight:900;color:#111827">Cartão</div>
+      </div>
+      <button type="button" onclick="closeMpCardModal()" style="width:34px;height:34px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer"><i class="fa fa-xmark"></i></button>
+    </div>
+    <div style="padding:18px">
+      <div style="display:grid;grid-template-columns:112px 1fr;gap:10px;margin-bottom:14px">
+        <label style="display:block">
+          <span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Documento</span>
+          <select id="mp-doc-type" style="width:100%;height:42px;border:1px solid #d1d5db;border-radius:8px;padding:0 10px;font:inherit;font-weight:700;color:#111827;background:#fff">
+            <option value="CPF">CPF</option>
+            <option value="CNPJ">CNPJ</option>
+          </select>
+        </label>
+        <label style="display:block">
+          <span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">CPF/CNPJ do pagador</span>
+          <input id="mp-doc-number" inputmode="numeric" autocomplete="off" maxlength="18" placeholder="Somente numeros"
+                 style="width:100%;height:42px;border:1px solid #d1d5db;border-radius:8px;padding:0 12px;font:inherit;color:#111827">
+        </label>
+      </div>
+      <div id="mp-card-brick"></div>
+      <div id="mp-card-msg" style="display:none;margin-top:12px;border-radius:9px;padding:10px 12px;font-size:.82rem;font-weight:800"></div>
+    </div>
+  </div>
+</div>
+
+<div id="asaas-card-modal" style="display:none;position:fixed;inset:0;z-index:3001;background:rgba(15,23,42,.58);align-items:center;justify-content:center;padding:18px">
+  <div style="width:min(560px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:12px;box-shadow:0 18px 60px rgba(15,23,42,.28);border:1px solid #e5e7eb">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #eef2f7">
+      <div>
+        <div style="font-size:.78rem;color:#64748b;font-weight:800;text-transform:uppercase">Pagamento seguro Asaas</div>
+        <div id="asaas-card-title" style="font-size:1.05rem;font-weight:900;color:#111827">Cartão</div>
+      </div>
+      <button type="button" onclick="closeAsaasCardModal()" style="width:34px;height:34px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer"><i class="fa fa-xmark"></i></button>
+    </div>
+    <form id="asaas-card-form" style="padding:18px" onsubmit="return submitAsaasCard(event)">
+      <input type="hidden" id="asaas-pedido-id">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Nome no cartão</span><input id="asaas-holder-name" class="asaas-input" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">CPF/CNPJ</span><input id="asaas-doc" class="asaas-input" inputmode="numeric" required></label>
+        <label style="grid-column:1/-1"><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Número do cartão</span><input id="asaas-card-number" class="asaas-input" inputmode="numeric" autocomplete="off" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Mês</span><input id="asaas-exp-month" class="asaas-input" inputmode="numeric" maxlength="2" placeholder="MM" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Ano</span><input id="asaas-exp-year" class="asaas-input" inputmode="numeric" maxlength="4" placeholder="AAAA" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">CVV</span><input id="asaas-cvv" class="asaas-input" inputmode="numeric" autocomplete="off" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">CEP</span><input id="asaas-cep" class="asaas-input" inputmode="numeric" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Número endereço</span><input id="asaas-address-number" class="asaas-input" required></label>
+        <label><span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Telefone</span><input id="asaas-phone" class="asaas-input" inputmode="numeric" value="{{ consumidor.telefone if consumidor else '' }}"></label>
+      </div>
+      <button id="asaas-pay-btn" type="submit" style="width:100%;margin-top:14px;border:none;border-radius:10px;background:#d10a2c;color:white;font-weight:900;padding:13px;cursor:pointer">Pagar com cartão</button>
+      <div id="asaas-card-msg" style="display:none;margin-top:12px;border-radius:9px;padding:10px 12px;font-size:.82rem;font-weight:800"></div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://sdk.mercadopago.com/js/v2"></script>
 <script>
 const _configLojas = {};
 const _cuponsDisponiveis = {};  // cupons disponíveis por cnpjloja
@@ -316,6 +375,12 @@ const _receitaDeclaracaoOk = {}; // {cnpjloja: true} — cliente confirmou recei
 const CONSUMIDOR_ENDERECO = {{ (consumidor.endereco if consumidor else '')|tojson }};
 const CONSUMIDOR_LAT = {{ (consumidor.lat if consumidor else none)|tojson }};
 const CONSUMIDOR_LNG = {{ (consumidor.lng if consumidor else none)|tojson }};
+const CONSUMIDOR_EMAIL = {{ (consumidor.email if consumidor else '')|tojson }};
+let _mpBrickController = null;
+
+const asaasStyle = document.createElement('style');
+asaasStyle.textContent = '.asaas-input{width:100%;height:42px;border:1px solid #d1d5db;border-radius:8px;padding:0 12px;font:inherit;color:#111827;box-sizing:border-box;background:#fff}';
+document.head.appendChild(asaasStyle);
 
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R = 6371, rad = Math.PI / 180;
@@ -342,7 +407,11 @@ let _cartRecItems = [];
 function addCartRec(idx, btn) {
   const p = _cartRecItems[idx];
   if (!p) return;
-  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.receita_retida || p.requer_receita), tarja:p.tarja||null});
+  const promo = p.promo || null;
+  const precoBase = parseFloat(p.preco)||0;
+  const preco = promo && promo.aplicada && promo.preco_promo ? parseFloat(promo.preco_promo) : precoBase;
+  const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoBase)||precoBase;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco, preco_original:precoOriginal, promo, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.receita_retida || p.requer_receita), tarja:p.tarja||null});
   if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>Adicionado'; }
   renderCart();
 }
@@ -416,6 +485,204 @@ function usarCupom(cnpjloja, codigo) {
   if (inp) { inp.value = codigo; aplicarCupom(cnpjloja); }
 }
 
+function closeMpCardModal() {
+  document.getElementById('mp-card-modal').style.display = 'none';
+  try { _mpBrickController?.unmount?.(); } catch {}
+  _mpBrickController = null;
+  const box = document.getElementById('mp-card-brick');
+  if (box) box.innerHTML = '';
+}
+
+function setMpCardMsg(text, ok=false) {
+  const el = document.getElementById('mp-card-msg');
+  el.style.display = '';
+  el.style.background = ok ? '#dcfce7' : '#fef2f2';
+  el.style.color = ok ? '#166534' : '#991b1b';
+  el.textContent = text;
+}
+
+function closeAsaasCardModal() {
+  document.getElementById('asaas-card-modal').style.display = 'none';
+}
+
+function setAsaasCardMsg(text, ok=false) {
+  const el = document.getElementById('asaas-card-msg');
+  el.style.display = '';
+  el.style.background = ok ? '#dcfce7' : '#fef2f2';
+  el.style.color = ok ? '#166534' : '#991b1b';
+  el.textContent = text;
+}
+
+function onlyDigits(v) {
+  return String(v || '').replace(/\D+/g, '');
+}
+
+function getMpPayerIdentification() {
+  const docTypeEl = document.getElementById('mp-doc-type');
+  const docNumberEl = document.getElementById('mp-doc-number');
+  const number = onlyDigits(docNumberEl?.value || '');
+  const type = (docTypeEl?.value || (number.length === 14 ? 'CNPJ' : 'CPF')).toUpperCase();
+  const expected = type === 'CNPJ' ? 14 : 11;
+  if (number.length !== expected) {
+    return {error: `Informe um ${type} valido do pagador.`};
+  }
+  return {type, number};
+}
+
+async function openMpCardBrick(pedido) {
+  if (!pedido?.mp_public_key) {
+    alert('Não foi possível carregar o checkout transparente do Mercado Pago. Verifique a Public Key da loja e tente novamente.');
+    return false;
+  }
+  if (!window.MercadoPago) {
+    alert('SDK do Mercado Pago não carregou. Verifique sua conexão e tente novamente.');
+    return false;
+  }
+  try {
+    closeMpCardModal();
+    document.getElementById('mp-card-title').textContent = `${pedido.razao || 'Farmácia'} · ${brl(pedido.total)}`;
+    document.getElementById('mp-card-modal').style.display = 'flex';
+    document.getElementById('mp-card-msg').style.display = 'none';
+    let mpCustomerId = undefined;
+    try {
+      const cartoesResp = await fetch(`/api/cartoes-salvos/${encodeURIComponent(pedido.cnpjloja)}`);
+      if (cartoesResp.ok) {
+        const cartoesData = await cartoesResp.json();
+        mpCustomerId = cartoesData.mp_customer_id || undefined;
+      }
+    } catch (e) {
+      console.log('Não foi possível buscar cartões salvos:', e);
+    }
+    const mp = new MercadoPago(pedido.mp_public_key, { locale: 'pt-BR' });
+    const bricksBuilder = mp.bricks();
+    _mpBrickController = await bricksBuilder.create('cardPayment', 'mp-card-brick', {
+      initialization: {
+        amount: Number(pedido.total || 0),
+        payer: {
+          email: CONSUMIDOR_EMAIL || undefined,
+          customerId: mpCustomerId,
+        },
+      },
+      customization: {
+        paymentMethods: { maxInstallments: 6 },
+      },
+      callbacks: {
+        onReady: () => {
+          document.getElementById('mp-card-msg').style.display = 'none';
+        },
+        onSubmit: (cardFormData) => new Promise((resolve, reject) => {
+          const identification = getMpPayerIdentification();
+          if (identification.error) {
+            setMpCardMsg(identification.error);
+            reject();
+            return;
+          }
+          cardFormData.payer = {
+            ...(cardFormData.payer || {}),
+            email: (cardFormData.payer || {}).email || CONSUMIDOR_EMAIL || undefined,
+            identification: {
+              type: identification.type,
+              number: identification.number,
+            },
+          };
+          fetch(`/api/pedido/${encodeURIComponent(pedido.id)}/cartao-transparente`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(cardFormData),
+          })
+            .then(async r => {
+              const d = await r.json().catch(() => ({}));
+              if (!r.ok || d.error) {
+                throw new Error(d.error || 'Não foi possível processar o cartão agora.');
+              }
+              return d;
+            })
+            .then(d => {
+              if (d.status === 'approved' || d.pedido_status === 'pago') {
+                setMpCardMsg('Pagamento aprovado. Pedido confirmado.', true);
+                localStorage.removeItem('pq_cart');
+                updateCartBadge();
+                setTimeout(() => { window.location.href = '/pedido/confirmacao?ids=' + encodeURIComponent(pedido.id); }, 900);
+                resolve();
+                return;
+              }
+              setMpCardMsg('Pagamento enviado, mas ainda não aprovado: ' + (d.status_detail || d.status || 'pendente'));
+              reject();
+            })
+            .catch((err) => {
+              console.error('Mercado Pago cartão:', err);
+              setMpCardMsg(err.message || 'Não foi possível processar o cartão agora.');
+              reject();
+            });
+        }),
+        onError: (error) => {
+          console.error('Mercado Pago Brick:', error);
+          setMpCardMsg(error?.message || 'Erro ao carregar o formulário de cartão.');
+        },
+      },
+    });
+    return true;
+  } catch (err) {
+    console.error('Mercado Pago Brick init:', err);
+    document.getElementById('mp-card-modal').style.display = 'flex';
+    setMpCardMsg(err?.message || 'Erro ao iniciar o checkout transparente do Mercado Pago.');
+    return false;
+  }
+}
+
+async function openAsaasCardModal(pedido) {
+  document.getElementById('asaas-pedido-id').value = pedido.id;
+  document.getElementById('asaas-card-title').textContent = `${pedido.razao || 'Farmácia'} · ${brl(pedido.total)}`;
+  document.getElementById('asaas-card-msg').style.display = 'none';
+  document.getElementById('asaas-card-modal').style.display = 'flex';
+}
+
+async function submitAsaasCard(event) {
+  event.preventDefault();
+  const btn = document.getElementById('asaas-pay-btn');
+  const pedidoId = document.getElementById('asaas-pedido-id').value;
+  btn.disabled = true;
+  btn.textContent = 'Processando...';
+  const payload = {
+    card_holder_name: document.getElementById('asaas-holder-name').value.trim(),
+    card_number: onlyDigits(document.getElementById('asaas-card-number').value),
+    expiry_month: onlyDigits(document.getElementById('asaas-exp-month').value),
+    expiry_year: onlyDigits(document.getElementById('asaas-exp-year').value),
+    ccv: onlyDigits(document.getElementById('asaas-cvv').value),
+    holder: {
+      name: document.getElementById('asaas-holder-name').value.trim(),
+      email: CONSUMIDOR_EMAIL || '',
+      cpfCnpj: onlyDigits(document.getElementById('asaas-doc').value),
+      postalCode: onlyDigits(document.getElementById('asaas-cep').value),
+      addressNumber: document.getElementById('asaas-address-number').value.trim(),
+      phone: onlyDigits(document.getElementById('asaas-phone').value),
+    },
+  };
+  try {
+    const r = await fetch(`/api/pedido/${encodeURIComponent(pedidoId)}/asaas-cartao`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) throw new Error(d.error || 'Não foi possível processar o cartão.');
+    if (d.pedido_status === 'pago') {
+      setAsaasCardMsg('Pagamento aprovado. Pedido confirmado.', true);
+      localStorage.removeItem('pq_cart');
+      updateCartBadge();
+      setTimeout(() => { window.location.href = '/pedido/confirmacao?ids=' + encodeURIComponent(pedidoId); }, 900);
+      return false;
+    }
+    setAsaasCardMsg('Pagamento enviado, status: ' + (d.status || 'pendente'));
+  } catch (err) {
+    setAsaasCardMsg(err.message || 'Não foi possível processar o cartão.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Pagar com cartão';
+  }
+  return false;
+}
+
 function renderCart() {
   const cart = getCart();
   const container = document.getElementById('cart-container');
@@ -453,6 +720,12 @@ function renderCart() {
     
 
     let itensHtml = g.itens.map(item => {
+      const precoItem = parseFloat(item.preco)||0;
+      const precoOriginal = parseFloat(item.preco_original || item.promo?.preco_original || precoItem)||precoItem;
+      const promoAplicada = item.promo && item.promo.aplicada && precoItem > 0 && precoItem < precoOriginal;
+      const precoHtml = promoAplicada
+        ? `${brl(precoItem)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoOriginal)}</s><div style="font-size:.72rem;color:#16a34a;font-weight:800;margin-top:2px"><i class="fa fa-circle-check me-1"></i>preco de assinante aplicado</div>`
+        : brl(precoItem);
       const imgTag = item.imagem
         ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
         : `<div class="cart-item-img-ph"><i class="fa fa-pills"></i></div>`;
@@ -460,8 +733,8 @@ function renderCart() {
         ${imgTag}
         <div class="cart-item-info">
           <div class="cart-item-nome">${esc(item.nome)}</div>
-          <div class="cart-item-preco">${brl(item.preco)}</div>
-          <div class="cart-item-sub">Subtotal: ${brl((item.preco||0)*(item.qty||1))}</div>
+          <div class="cart-item-preco">${precoHtml}</div>
+          <div class="cart-item-sub">Subtotal: ${brl(precoItem*(item.qty||1))}</div>
         </div>
         <div class="cart-item-right">
           <div class="qty-ctrl">
@@ -477,7 +750,7 @@ function renderCart() {
     }).join('');
 
     // Opções de pagamento
-    const showWpp = cfg.aceita_whatsapp !== false;
+    const showWpp = false;
     const showPix = cfg.aceita_pix !== false;
     const showMp  = cfg.aceita_mp === true;
     const distDinamica = distanciaParaLoja(cfg);
@@ -502,7 +775,7 @@ function renderCart() {
     if (cfg.aceita_entrega === true) {
       if (entregaOk) {
         if (temReceitaDigital) {
-          entregaMsg = `Entrega disponivel${raio ? ` em ate ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete gratis'}. <strong>Receita digital original exigida para medicamento com retencao/controle.</strong>`;
+          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete grátis'}. <strong>Receita digital original exigida para medicamento com retenção/controle.</strong>`;
         } else {
           entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete grátis'}.`;
         }
@@ -522,7 +795,7 @@ function renderCart() {
     const receitaAviso = temReceitaDigital
       ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px">
            <i class="fa fa-file-prescription" style="color:#d97706;margin-top:2px;flex-shrink:0"></i>
-           <span><strong>Medicamento(s) com retencao/controle.</strong> ${entregaOk ? 'Para <em>entrega</em>, anexe receita digital original em PDF, com assinatura verificavel. Foto, print ou receita escaneada nao serao aceitos.' : 'A farmacia fara a conferencia sanitaria aplicavel na retirada.'}</span>
+           <span><strong>Medicamento(s) com reten??o/controle.</strong> ${entregaOk ? 'Para <em>entrega</em>, anexe receita digital original em PDF, com assinatura verificavel. Foto, print ou receita escaneada nao serao aceitos.' : 'A farmacia fara a conferencia sanitaria aplicavel na retirada.'}</span>
          </div>`
       : temTarjaVermelhaSimples
         ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px">
@@ -539,7 +812,7 @@ function renderCart() {
              <i class="fa fa-file-prescription" style="color:#d97706"></i>Receita medica obrigatoria para entrega
            </div>
            ${tarjaCount > 1 ? `<div style="font-size:.77rem;color:#78350f;margin-bottom:10px;background:#fff3cd;border:1px solid #fcd34d;border-radius:8px;padding:9px 12px">
-             <strong>${tarjaCount} medicamentos com retencao/controle</strong> nesta farmacia - anexe a receita de cada um:
+             <strong>${tarjaCount} medicamentos com reten??o/controle</strong> nesta farmacia - anexe a receita de cada um:
              <ul style="margin:5px 0 0 16px;padding:0">${tarjaItens.map(i => `<li>${esc(i.nome)}</li>`).join('')}</ul>
            </div>` : ''}
            <p style="font-size:.77rem;color:#78350f;margin-bottom:10px;line-height:1.45">
@@ -846,6 +1119,24 @@ async function carregarConfigLojas() {
   ]));
 }
 
+async function recalcularCarrinhoServidor() {
+  const cart = getCart();
+  if (!cart.length) return;
+  try {
+    const r = await fetch('/api/carrinho/recalcular', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({items: cart}),
+    });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (Array.isArray(data.items) && data.items.length) {
+      localStorage.setItem('pq_cart', JSON.stringify(data.items));
+      updateCartBadge();
+    }
+  } catch {}
+}
+
 async function finalizarPedido() {
   const btn = document.getElementById('btn-finalizar');
   if (btn.disabled) return;
@@ -870,7 +1161,7 @@ async function finalizarPedido() {
     return {
       cnpjloja: g.cnpjloja,
       razao: g.razao,
-      pagamento: radio ? radio.value : 'whatsapp',
+      pagamento: radio ? radio.value : 'pix',
       tipo_entrega: tipoEntrega,
       endereco_entrega: CONSUMIDOR_ENDERECO || localStorage.getItem('pq_loc_nome') || '',
       entrega_lat: CONSUMIDOR_LAT || localStorage.getItem('pq_lat') || '',
@@ -882,7 +1173,7 @@ async function finalizarPedido() {
       itens: g.itens.map(i => ({ean:i.ean, nome:i.nome, preco:i.preco||0, qty:i.qty||1, imagem:i.imagem||'', requer_receita:!!i.requer_receita, receita_retida:!!(i.receita_retida || i.requer_receita), tarja:i.tarja||null})),
     };
   });
-  // Valida receita para entrega apenas quando ha retencao/controle.
+  // Valida receita para entrega apenas quando há retenção/controle.
   for (const fp of farmaciasPedidos) {
     const temRetencao = fp.itens.some(i => i.requer_receita);
     const retencaoCount = fp.itens.filter(i => i.requer_receita).length;
@@ -894,7 +1185,7 @@ async function finalizarPedido() {
     }
     if (temRetencao && fp.tipo_entrega === 'entrega' && fp.receita_urls.length < retencaoCount) {
       const faltam = retencaoCount - fp.receita_urls.length;
-      alert(`Voce tem ${retencaoCount} medicamento(s) com retencao/controle em "${fp.razao || 'farmacia'}". Falta(m) ${faltam} receita(s) para anexar.`);
+      alert(`Voce tem ${retencaoCount} medicamento(s) com reten??o/controle em "${fp.razao || 'farmacia'}". Falta(m) ${faltam} receita(s) para anexar.`);
       btn.disabled = false;
       btn.textContent = 'Finalizar pedido';
       return;
@@ -935,19 +1226,31 @@ async function finalizarPedido() {
     if (data.error) { alert(data.error); btn.disabled=false; btn.textContent='Finalizar pedido'; return; }
 
     // Verificar se algum pedido é MP com init_point
-    const cardError = (data.pedidos||[]).find(p => p.pagamento === 'mercadopago' && !p.mp_init_point);
+    const cardError = (data.pedidos||[]).find(p => p.pagamento === 'mercadopago' && !p.mp_init_point && !p.mp_public_key);
     if (cardError) {
       alert(cardError.mp_erro || 'Não foi possível abrir o pagamento por cartão agora. Verifique o Access Token da loja no painel.');
       btn.disabled = false;
       btn.textContent = 'Finalizar pedido';
       return;
     }
-    const mpPedido = (data.pedidos||[]).find(p => p.mp_init_point);
-    if (mpPedido && data.pedidos.length === 1) {
-      // Único pedido MP: redirecionar direto
-      localStorage.removeItem('pq_cart');
-      updateCartBadge();
-      window.location.href = mpPedido.mp_init_point;
+    const asaasPedido = (data.pedidos||[]).find(p => p.pagamento === 'mercadopago' && p.gateway_pagamento === 'asaas');
+    if (asaasPedido) {
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
+      await openAsaasCardModal(asaasPedido);
+      return;
+    }
+    const mpPedido = (data.pedidos||[]).find(p => p.mp_init_point || p.mp_public_key);
+    if (mpPedido) {
+      if (mpPedido.mp_public_key) {
+        btn.disabled = false;
+        btn.textContent = 'Finalizar pedido';
+        await openMpCardBrick(mpPedido);
+        return;
+      }
+      alert('Para pagar cartão sem sair do Poupaqui, configure a Public Key do Mercado Pago no painel da loja.');
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
       return;
     }
 
@@ -957,7 +1260,8 @@ async function finalizarPedido() {
     const ids = (data.pedidos||[]).map(p => p.id).join(',');
     window.location.href = '/pedido/confirmacao?ids=' + ids;
   } catch(e) {
-    alert('Erro ao processar pedido. Tente novamente.');
+    console.error('Checkout:', e);
+    alert(e?.message || 'Erro ao processar pedido. Tente novamente.');
     btn.disabled = false;
     btn.textContent = 'Finalizar pedido';
   }
@@ -983,6 +1287,7 @@ async function finalizarPedido() {
       }
     }
   } catch {}
+  await recalcularCarrinhoServidor();
   await carregarConfigLojas();
   renderCart();
 })();

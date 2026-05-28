@@ -1,4 +1,4 @@
-{% extends "painel_base.html" %}
+﻿{% extends "painel_base.html" %}
 {% block title %}Poupaqui - Produtos{% endblock %}
 
 {% block extra_style %}
@@ -81,7 +81,7 @@
       </div>
     </div>
     <div class="cfg-field">
-      <label>E-mail para notificações de novos pedidos <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; opcional</span></label>
+      <label>E-mail para notificações de novos pedidos <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">— opcional</span></label>
       <input class="pk-input" type="email" name="email_notificacao"
              value="{{ config.email_notificacao or '' }}"
              placeholder="Ex: pedidos@suafarmacia.com.br"/>
@@ -90,7 +90,7 @@
       </div>
     </div>
     <div class="cfg-field">
-      <label>WhatsApp para notificações de receita médica <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; opcional</span></label>
+      <label>WhatsApp para notificações de receita médica <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">— opcional</span></label>
       <input class="pk-input" type="tel" name="whatsapp_receita"
              value="{{ config.whatsapp_receita or '' }}"
              placeholder="Ex: 11999999999 (deixe em branco para usar o mesmo acima)"/>
@@ -105,15 +105,6 @@
       <i class="fa fa-credit-card"></i>Formas de pagamento aceitas
     </div>
 
-    <div class="cfg-field">
-      <label class="cfg-toggle">
-        <input type="checkbox" name="aceita_whatsapp" id="chk-wpp"
-               {% if config.aceita_whatsapp is not false %}checked{% endif %}>
-        <span class="cfg-switch"></span>
-        <span class="cfg-toggle-label"><i class="fa-brands fa-whatsapp" style="color:#25d366"></i> WhatsApp</span>
-        <span class="cfg-toggle-desc">Pedido via mensagem</span>
-      </label>
-    </div>
 
     <div class="cfg-field">
       <label class="cfg-toggle">
@@ -131,8 +122,18 @@
                {% if config.aceita_mp %}checked{% endif %}>
         <span class="cfg-switch"></span>
         <span class="cfg-toggle-label"><i class="fa fa-credit-card" style="color:#009ee3"></i> Cartão</span>
-        <span class="cfg-toggle-desc">Processado pelo Mercado Pago</span>
+        <span class="cfg-toggle-desc" id="cfg-card-desc">Processado pelo gateway escolhido</span>
       </label>
+    </div>
+
+    <div class="cfg-field">
+      <label>Gateway usado por esta loja</label>
+      <select class="pk-input" name="gateway_alternativo" id="gateway_alternativo">
+        <option value="mercadopago" {% if (config.gateway_alternativo or 'mercadopago') == 'mercadopago' %}selected{% endif %}>Mercado Pago</option>
+        <option value="asaas" {% if config.gateway_alternativo == 'asaas' %}selected{% endif %}>Asaas</option>
+        <option value="pagbank" {% if config.gateway_alternativo == 'pagbank' %}selected{% endif %}>PagBank</option>
+      </select>
+      <div class="cfg-help">Essa escolha é salva por loja e será usada pelo carrinho e pelas assinaturas. Mercado Pago e Asaas já usam checkout dentro do Poupaqui; PagBank fica preparado até a integração final do provedor.</div>
     </div>
   </div>
 
@@ -156,7 +157,7 @@
       <div class="cfg-help">Se o endereço do cliente estiver fora desse raio, o checkout oferece apenas retirada na loja.</div>
     </div>
     <div class="cfg-field">
-      <label>Pedido mínimo para entrega (R$) <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">&mdash; 0 = sem mínimo</span></label>
+      <label>Pedido mínimo para entrega (R$) <span style="font-weight:400;text-transform:none;color:var(--pk-muted)">— 0 = sem mínimo</span></label>
       <input class="pk-input" type="number" min="0" step="0.01" name="pedido_minimo_entrega"
              value="{{ config.pedido_minimo_entrega or 0 }}" placeholder="Ex: 50.00">
       <div class="cfg-help">O cliente só poderá escolher entrega se o valor dos produtos atingir esse mínimo.</div>
@@ -226,6 +227,13 @@
       <div class="cfg-help">
         O token fica armazenado e é usado apenas para criar cobranças e consultar o status dos pagamentos da loja.
       </div>
+      <label style="margin-top:14px">Public Key da sua conta Mercado Pago</label>
+      <input class="pk-input" type="password" name="mp_public_key"
+             value="{{ config.mp_public_key or '' }}"
+             placeholder="APP_USR-... ou TEST-..."/>
+      <div class="cfg-help">
+        Necessária para o checkout transparente: o cliente digita o cartão dentro do Poupaqui e o Mercado Pago gera o token do cartão com segurança.
+      </div>
 
       <div class="mp-guide">
         <div class="mp-guide-head">
@@ -264,10 +272,100 @@
     </div>
   </div>
 
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title">
+      <i class="fa fa-building-columns"></i>Gateway alternativo
+    </div>
+    <div class="cfg-help" style="margin-bottom:14px">
+      O gateway principal é escolhido na seção "Formas de pagamento aceitas". Os campos abaixo guardam as credenciais e taxas do provedor escolhido para esta loja.
+    </div>
+    <div class="cfg-field">
+      <label>API Key Asaas</label>
+      <input class="pk-input" type="password" name="asaas_api_key"
+             value="{{ config.asaas_api_key or '' }}"
+             placeholder="$aact_..."/>
+      <div class="cfg-help">Guarde aqui a chave da conta Asaas da loja para integração de PIX/cartão.</div>
+    </div>
+    <div class="cfg-field">
+      <label>Token PagBank</label>
+      <input class="pk-input" type="password" name="pagbank_token"
+             value="{{ config.pagbank_token or '' }}"
+             placeholder="Token da conta PagBank"/>
+      <div class="cfg-help">Token usado nas chamadas de cobrança do PagBank.</div>
+    </div>
+    <div class="cfg-field">
+      <label>Chave pública PagBank</label>
+      <textarea class="pk-input" name="pagbank_public_key" rows="3"
+                placeholder="Chave pública para criptografia de cartão">{{ config.pagbank_public_key or '' }}</textarea>
+      <div class="cfg-help">Necessária para checkout transparente com cartão, pois o cartão precisa ser criptografado antes de ir para o PagBank.</div>
+    </div>
+    <div class="mp-guide">
+      <div class="mp-guide-head">
+        <div class="mp-guide-title"><i class="fa fa-route" style="color:var(--pk-yellow)"></i>Como configurar Asaas</div>
+        <a class="mp-guide-link" href="https://www.asaas.com/login" target="_blank">
+          <i class="fa fa-arrow-up-right-from-square"></i>Abrir Asaas
+        </a>
+      </div>
+      <div class="mp-steps">
+        <div class="mp-step"><div class="mp-step-num">1</div><strong>Acesse sua conta</strong><span>Entre no painel Asaas da farmácia.</span></div>
+        <div class="mp-step"><div class="mp-step-num">2</div><strong>Vá em integração</strong><span>Abra a área de API/Integrações e gere a chave de API.</span></div>
+        <div class="mp-step"><div class="mp-step-num">3</div><strong>Cole a API Key</strong><span>Informe a chave no campo acima e salve a configuração.</span></div>
+        <div class="mp-step"><div class="mp-step-num">4</div><strong>Ativação técnica</strong><span>A tokenização/cartão recorrente pode exigir habilitação na conta Asaas. Configure também o webhook <code>/api/asaas/webhook</code>.</span></div>
+      </div>
+    </div>
+    <div class="mp-guide">
+      <div class="mp-guide-head">
+        <div class="mp-guide-title"><i class="fa fa-route" style="color:var(--pk-yellow)"></i>Como configurar PagBank</div>
+        <a class="mp-guide-link" href="https://developer.pagbank.com.br/" target="_blank">
+          <i class="fa fa-arrow-up-right-from-square"></i>Abrir PagBank Dev
+        </a>
+      </div>
+      <div class="mp-steps">
+        <div class="mp-step"><div class="mp-step-num">1</div><strong>Acesse Developers</strong><span>Entre com a conta PagBank da loja.</span></div>
+        <div class="mp-step"><div class="mp-step-num">2</div><strong>Crie uma aplicação</strong><span>Configure a aplicação/API de pagamentos.</span></div>
+        <div class="mp-step"><div class="mp-step-num">3</div><strong>Copie o token</strong><span>Use credenciais de produção quando for vender de verdade.</span></div>
+        <div class="mp-step"><div class="mp-step-num">4</div><strong>Crie a chave pública</strong><span>Ela é usada para criptografar cartão no checkout transparente.</span></div>
+      </div>
+    </div>
+    <div class="cfg-field" style="margin-top:16px">
+      <label>Taxa Asaas sobre venda</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <input class="pk-input" type="number" min="0" step="0.01" name="asaas_taxa_pct" value="{{ config.asaas_taxa_pct or 0 }}" placeholder="% sobre venda">
+        <input class="pk-input" type="number" min="0" step="0.01" name="asaas_taxa_fixa" value="{{ config.asaas_taxa_fixa or 0 }}" placeholder="Taxa fixa R$">
+      </div>
+      <div class="cfg-help">Use a taxa do contrato da loja. Exemplo: 2.99% + R$ 0,49.</div>
+    </div>
+    <div class="cfg-field">
+      <label>Taxa PagBank sobre venda</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <input class="pk-input" type="number" min="0" step="0.01" name="pagbank_taxa_pct" value="{{ config.pagbank_taxa_pct or 0 }}" placeholder="% sobre venda">
+        <input class="pk-input" type="number" min="0" step="0.01" name="pagbank_taxa_fixa" value="{{ config.pagbank_taxa_fixa or 0 }}" placeholder="Taxa fixa R$">
+      </div>
+      <div class="cfg-help">Esses campos são informativos para calcular custo por venda conforme a tabela contratada da loja.</div>
+    </div>
+  </div>
+
   <div style="display:flex;justify-content:flex-end">
     <button type="submit" class="btn-pk-yellow">
       <i class="fa fa-floppy-disk me-1"></i>Salvar configurações
     </button>
   </div>
 </form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function atualizarGatewayPagamento(){
+  const sel = document.getElementById('gateway_alternativo');
+  const desc = document.getElementById('cfg-card-desc');
+  if(!sel || !desc) return;
+  const labels = {mercadopago:'Processado pelo Mercado Pago', asaas:'Processado pelo Asaas', pagbank:'Processado pelo PagBank'};
+  desc.textContent = labels[sel.value] || 'Processado pelo gateway escolhido';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const sel = document.getElementById('gateway_alternativo');
+  if(sel) sel.addEventListener('change', atualizarGatewayPagamento);
+  atualizarGatewayPagamento();
+});
+</script>
 {% endblock %}

@@ -4789,6 +4789,17 @@ def api_lojas_mapa():
     cur  = conn.cursor()
     cur.execute("SELECT cidade, lat, lng FROM ecommerce_vitrine_coords")
     coords = {r["cidade"]: (r["lat"], r["lng"]) for r in cur.fetchall()}
+    cur.execute("""
+        SELECT u.cnpjloja, u.endereco2, g.lat, g.lng
+        FROM users u
+        JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+        WHERE g.lat IS NOT NULL AND g.lng IS NOT NULL
+    """)
+    geo_por_cnpj = {
+        r["cnpjloja"]: {"lat": r["lat"], "lng": r["lng"], "endereco": r.get("endereco2")}
+        for r in cur.fetchall()
+        if r.get("cnpjloja")
+    }
     cur.execute("SELECT cidade, cnpjloja FROM ecommerce_vitrine_cnpj_map")
     cidade_cnpj_map = {r["cidade"]: r["cnpjloja"] for r in cur.fetchall()}
     cur.execute(
@@ -4813,12 +4824,43 @@ def api_lojas_mapa():
 
     from itertools import chain
     resultado = []
+    vistos = set()
     for loja in sorted(chain(lojas_ik_norm, lojas_sb),
                        key=lambda x: (x.get("cidade") or "").lower()):
         c = loja.get("cidade","")
-        loja["lat"], loja["lng"] = coords.get(c, (None, None))
+        cnpj = loja.get("cnpjloja")
+        chave = cnpj or f"{c}|{loja.get('endereco','')}|{loja.get('imagem_url','')}"
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        geo = geo_por_cnpj.get(cnpj) if cnpj else None
+        if geo:
+            loja["lat"], loja["lng"] = geo["lat"], geo["lng"]
+            if geo.get("endereco"):
+                loja["endereco"] = geo["endereco"]
+        else:
+            loja["lat"], loja["lng"] = coords.get(c, (None, None))
         resultado.append(loja)
+    _espalhar_marcadores_sobrepostos(resultado)
     return jsonify(resultado)
+
+
+def _espalhar_marcadores_sobrepostos(lojas):
+    grupos = {}
+    for loja in lojas:
+        if loja.get("lat") is None or loja.get("lng") is None:
+            continue
+        key = (round(float(loja["lat"]), 6), round(float(loja["lng"]), 6))
+        grupos.setdefault(key, []).append(loja)
+    for grupo in grupos.values():
+        if len(grupo) <= 1:
+            continue
+        passo = 0.00018
+        total = len(grupo)
+        for idx, loja in enumerate(grupo):
+            ang = (2 * math.pi * idx) / total
+            loja["lat"] = float(loja["lat"]) + math.sin(ang) * passo
+            loja["lng"] = float(loja["lng"]) + math.cos(ang) * passo
 
 
 @app.get("/painel/admin/lojas-vitrine/pendentes-coords")

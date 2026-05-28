@@ -791,6 +791,7 @@ let _lastServerSearch = '';
 let _serverSearchLoading = false;
 let _produtosLoadSeq = 0;
 const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
+const _planosIndex = {};   // {cnpjloja: {nome, preco, ja_assina}}
 const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
 const FAVORITOS = new Set();
 const INITIAL_PARAMS = new URLSearchParams(location.search);
@@ -991,7 +992,25 @@ function cardHtml(p, idx) {
               <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(cp.cupom.codigo)} ${label}</span>
             </div>`;
           }
-          return `<div class="prod-preco">${brl(p.preco)}</div>
+          const promo = p.promo || null;
+          const precoAtual = parseFloat(p.preco)||0;
+          const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual)||precoAtual;
+          if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
+            return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
+              <span class="prod-preco">${brl(promo.preco_promo)}</span>
+              <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoOriginal)}</span>
+            </div>
+            <div class="prod-cupom-badge" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">
+              <i class="fa fa-circle-check" style="flex-shrink:0"></i><span>Preço de assinante aplicado</span>
+            </div>`;
+          }
+          if (promo && promo.so_assinantes && promo.preco_promo && promo.preco_promo < precoAtual) {
+            return `<div class="prod-preco">${brl(precoAtual)}</div>
+            <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
+              <i class="fa fa-star" style="flex-shrink:0"></i><span>Assine e pague ${brl(promo.preco_promo)}</span>
+            </div>`;
+          }
+          return `<div class="prod-preco">${brl(precoAtual)}</div>
           <div class="prod-cupom-badge" style="visibility:hidden" aria-hidden="true">
             <i class="fa fa-tag"></i><span>-</span>
           </div>`;
@@ -1013,6 +1032,25 @@ function cardHtml(p, idx) {
           </button>
         </div>
       </div>
+      ${(() => {
+        if (!p.promo) return '';
+        if (p.promo.so_assinantes && !p.promo.preco_promo) {
+          return `<div onclick="event.stopPropagation()" style="border-top:1px solid #fde68a;background:#fffbeb;padding:6px 12px;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;gap:5px"><i class="fa fa-star" style="font-size:.58rem"></i>Preço especial para assinantes</div>`;
+        }
+        const precoDe = parseFloat(p.preco)||0;
+        const precoBaseDe = parseFloat(p.preco_original || p.promo.preco_original || precoDe)||precoDe;
+        const precoPor = p.promo.preco_promo;
+        if (precoPor < precoBaseDe) {
+          return `<div onclick="event.stopPropagation()" style="border-top:1px solid #fca5a5;background:#fff1f2;padding:5px 12px;display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font-size:.66rem;color:var(--pq-red);font-weight:900;display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.55rem"></i>PROMO${p.promo.so_assinantes?' · Assinante':''}</span><span style="font-size:.72rem;font-weight:900;color:var(--pq-red)"><s style="opacity:.5;font-size:.62rem;font-weight:400">${brl(precoBaseDe)}</s> ${brl(precoPor)}</span></div>`;
+        }
+        return `<div onclick="event.stopPropagation()" style="border-top:1px solid #fde68a;background:#fffbeb;padding:6px 12px;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span>${brl(precoPor)}</span></div>`;
+      })()}
+      ${(() => {
+        const plano = _planosIndex[p.cnpjloja];
+        if (!plano) return '';
+        if (plano.ja_assina) return `<div onclick="event.stopPropagation()" style="border-top:1px solid #bbf7d0;background:#f0fdf4;padding:6px 12px;font-size:.68rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:5px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante desta farmácia</div>`;
+        return `<div onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:6px 12px;display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font-size:.68rem;color:var(--pq-red);font-weight:800;display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>Clube disponível</span><a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="font-size:.65rem;font-weight:900;color:var(--pq-red);text-decoration:none;border:1px solid #ffd0d8;border-radius:5px;padding:2px 7px;background:#fff;white-space:nowrap">R$ ${parseFloat(plano.preco||0).toFixed(2).replace('.',',')}/mês</a></div>`;
+      })()}
     </div>`;
 }
 
@@ -1027,7 +1065,11 @@ function addFromCard(idx) {
   const p = _cards[idx];
   if (!p) return;
   const qty = parseInt(document.getElementById('qty-' + idx)?.value) || 1;
-  addToCart({ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', distancia_km:p.distancia_km, aceita_entrega:p.aceita_entrega, raio_entrega_km:p.raio_entrega_km, entrega_disponivel:p.entrega_disponivel, valor_frete:p.valor_frete||0, qty, requer_receita: p.requer_receita||false, receita_retida:!!(p.receita_retida || p.requer_receita), tarja: p.tarja||null});
+  const promo = p.promo || null;
+  const precoBase = parseFloat(p.preco)||0;
+  const preco = promo && promo.aplicada && promo.preco_promo ? parseFloat(promo.preco_promo) : precoBase;
+  const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoBase)||precoBase;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco, preco_original:precoOriginal, promo, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', distancia_km:p.distancia_km, aceita_entrega:p.aceita_entrega, raio_entrega_km:p.raio_entrega_km, entrega_disponivel:p.entrega_disponivel, valor_frete:p.valor_frete||0, qty, requer_receita: p.requer_receita||false, receita_retida:!!(p.receita_retida || p.requer_receita), tarja: p.tarja||null});
 }
 
 function toggleFavorito(idx, btn, ev) {
@@ -1482,8 +1524,15 @@ function carregarProdutos(lat, lng, busca='') {
 
       hydrateFilters();
       // Busca cupons disponíveis (só se logado)
+      const allCnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))];
+      const fetchPlanos = allCnpjs.length
+        ? fetch(`/api/lojas-com-assinatura?cnpjs=${allCnpjs.map(encodeURIComponent).join(',')}`)
+            .then(r => r.json())
+            .then(d => { Object.assign(_planosIndex, d.planos || {}); })
+            .catch(() => {})
+        : Promise.resolve();
       if (IS_CONSUMIDOR) {
-        const cnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))];
+        const cnpjs = allCnpjs;
         Promise.all([
           ...cnpjs.map(cnpj =>
             fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
@@ -1497,16 +1546,20 @@ function carregarProdutos(lat, lng, busca='') {
               FAVORITOS.clear();
               (d.favoritos || []).forEach(f => FAVORITOS.add(`${f.cnpjloja || ''}|${f.ean || ''}`));
             })
-            .catch(() => {})
+            .catch(() => {}),
+          fetchPlanos,
         ]).then(() => filterAndRender(true));
       } else {
-        const cnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))].slice(0, 16);
-        Promise.all(cnpjs.map(cnpj =>
-          fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
-            .then(r => r.json())
-            .then(d => { _cuponsIndex[cnpj] = d.cupons || []; })
-            .catch(() => {})
-        )).then(() => filterAndRender(true));
+        const cnpjs = allCnpjs.slice(0, 16);
+        Promise.all([
+          ...cnpjs.map(cnpj =>
+            fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
+              .then(r => r.json())
+              .then(d => { _cuponsIndex[cnpj] = d.cupons || []; })
+              .catch(() => {})
+          ),
+          fetchPlanos,
+        ]).then(() => filterAndRender(true));
       }
     })
     .catch(() => {

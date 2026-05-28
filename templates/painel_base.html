@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"/>
@@ -27,7 +27,7 @@
     * { box-sizing: border-box; }
     body { margin: 0; font-family: 'Nunito', sans-serif; background: var(--pk-bg); color: var(--pk-txt); }
 
-    /* ── TOPBAR ──────────────────── */
+    /* â”€â”€ TOPBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .pk-topbar {
       background: var(--pk-card);
       border-bottom: 1px solid var(--pk-line);
@@ -84,10 +84,10 @@
     .pk-user-link:hover { background: var(--pk-line); color: var(--pk-txt); }
     .pk-user-sair:hover { background: #2a0810; color: #f08090; }
 
-    /* ── LAYOUT ──────────────────── */
+    /* â”€â”€ LAYOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .pk-main { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }
 
-    /* ── CARDS ───────────────────── */
+    /* â”€â”€ CARDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .pk-card {
       background: var(--pk-card);
       border: 1px solid var(--pk-line);
@@ -105,20 +105,20 @@
       gap: 8px;
     }
 
-    /* ── BUTTONS ─────────────────── */
+    /* â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .btn-pk { background: var(--pk-red); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: .88rem; transition: background .15s; }
     .btn-pk:hover { background: #9b0d22; }
     .btn-pk-yellow { background: var(--pk-yellow); color: #111; border: none; border-radius: 8px; padding: 8px 16px; font-weight: 800; cursor: pointer; font-family: inherit; font-size: .88rem; }
     .btn-pk-ghost { background: transparent; border: 1px solid var(--pk-line); color: var(--pk-muted); border-radius: 8px; padding: 8px 16px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: .88rem; }
     .btn-pk-ghost:hover { background: var(--pk-line); color: var(--pk-txt); }
 
-    /* ── ALERTS ──────────────────── */
+    /* â”€â”€ ALERTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .pk-alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: .88rem; font-weight: 600; }
     .pk-alert-success { background: #0d2d1a; border-left: 3px solid var(--pk-green); color: #6ee79a; }
     .pk-alert-error   { background: #2a0810; border-left: 3px solid var(--pk-red); color: #f08090; }
     .pk-alert-info    { background: #1e1a08; border-left: 3px solid var(--pk-yellow); color: #e8c94a; }
 
-    /* ── INPUTS ──────────────────── */
+    /* â”€â”€ INPUTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .pk-input {
       width: 100%;
       padding: 9px 12px;
@@ -156,11 +156,30 @@
 
     <span class="pk-nav-sep"></span>
 
+    <a href="{{ url_for('painel_assinatura') }}" {% if request.endpoint in ('painel_assinatura',) %}class="active"{% endif %}>
+      <i class="fa fa-star me-1"></i>Assinatura
+    </a>
+
     <div class="dropdown">
-      <button class="pk-nav-drop {% if request.endpoint in ('painel_cupons','painel_ml') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <button class="pk-nav-drop {% if request.endpoint in ('painel_promocoes','painel_cupons','painel_notificacoes','painel_ml','painel_banners') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fa fa-puzzle-piece me-1"></i>Extras <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
       </button>
       <ul class="dropdown-menu dropdown-menu-dark">
+        <li>
+          <a class="dropdown-item {% if request.endpoint == 'painel_promocoes' %}active{% endif %}" href="{{ url_for('painel_promocoes') }}">
+            <i class="fa fa-bolt me-2"></i>Promoções
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint in ('painel_notificacoes','painel_notificacoes_enviar') %}active{% endif %}" href="{{ url_for('painel_notificacoes') }}">
+            <i class="fa fa-bell me-2"></i>Notificações
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint == 'painel_banners' %}active{% endif %}" href="{{ url_for('painel_banners') }}">
+            <i class="fa fa-images me-2"></i>Banners
+          </a>
+        </li>
         <li>
           <a class="dropdown-item {% if request.endpoint == 'painel_cupons' %}active{% endif %}" href="{{ url_for('painel_cupons') }}">
             <i class="fa fa-ticket me-2"></i>Cupons

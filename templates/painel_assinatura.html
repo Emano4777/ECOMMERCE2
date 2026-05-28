@@ -1,0 +1,191 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Plano de Assinatura{% endblock %}
+
+{% block extra_style %}
+<style>
+.asn-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media(max-width:720px){ .asn-grid { grid-template-columns:1fr; } }
+.asn-preview { background:linear-gradient(135deg,#1a1f2e,#111520); border:1px solid var(--pk-line); border-radius:16px; padding:28px; position:sticky; top:80px; }
+.asn-preview-badge { display:inline-flex; align-items:center; gap:6px; background:var(--pk-yellow); color:#111; border-radius:999px; padding:4px 12px; font-weight:900; font-size:.78rem; margin-bottom:14px; }
+.asn-preview-nome { font-size:1.4rem; font-weight:900; color:var(--pk-txt); margin-bottom:6px; }
+.asn-preview-razao { color:var(--pk-muted); font-size:.82rem; margin-bottom:16px; }
+.asn-preview-preco { font-size:2rem; font-weight:900; color:var(--pk-yellow); margin-bottom:4px; }
+.asn-preview-preco small { font-size:.95rem; font-weight:400; color:var(--pk-muted); }
+.asn-preview-desc { color:var(--pk-muted); font-size:.85rem; line-height:1.6; margin-bottom:16px; }
+.asn-preview-bens { list-style:none; padding:0; margin:0 0 20px; display:flex; flex-direction:column; gap:8px; }
+.asn-preview-bens li { display:flex; align-items:flex-start; gap:8px; font-size:.85rem; color:var(--pk-txt); }
+.asn-preview-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:var(--pk-yellow); font-size:.7rem; margin-top:3px; flex-shrink:0; }
+.asn-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
+.asn-stat { background:#0d1016; border:1px solid var(--pk-line); border-radius:10px; padding:14px 16px; }
+.asn-stat-num { font-size:1.6rem; font-weight:900; color:var(--pk-yellow); }
+.asn-stat-label { font-size:.75rem; color:var(--pk-muted); margin-top:2px; }
+.asn-toggle-wrap { display:flex; align-items:center; gap:12px; padding:14px 16px; background:#0d1016; border:1px solid var(--pk-line); border-radius:10px; margin-bottom:20px; }
+.asn-toggle-label { font-size:.88rem; font-weight:800; color:var(--pk-txt); }
+.asn-toggle-sub   { font-size:.74rem; color:var(--pk-muted); }
+/* switch */
+.switch { position:relative; display:inline-block; width:44px; height:24px; flex-shrink:0; }
+.switch input { opacity:0; width:0; height:0; }
+.slider { position:absolute; inset:0; background:#2a2f3e; border-radius:999px; transition:.2s; cursor:pointer; }
+.slider::before { content:''; position:absolute; width:18px; height:18px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.2s; }
+.switch input:checked + .slider { background:var(--pk-yellow); }
+.switch input:checked + .slider::before { transform:translateX(20px); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:24px">
+  <h1 style="font-size:1.3rem;font-weight:900;margin:0">
+    <i class="fa fa-star me-2" style="color:var(--pk-yellow)"></i>Plano de Assinatura
+  </h1>
+  <p style="color:var(--pk-muted);font-size:.85rem;margin:4px 0 0">
+    Configure um plano de assinatura para sua loja. Consumidores assinantes têm acesso a cupons e promoções exclusivas.
+  </p>
+</div>
+
+<!-- Estatísticas -->
+<div class="asn-stats">
+  <div class="asn-stat">
+    <div class="asn-stat-num">{{ total_assinantes }}</div>
+    <div class="asn-stat-label">Assinantes ativos</div>
+  </div>
+  <div class="asn-stat">
+    <div class="asn-stat-num">{{ 'Ativo' if plano and plano.ativo else 'Inativo' }}</div>
+    <div class="asn-stat-label">Status do plano</div>
+  </div>
+</div>
+
+<div class="asn-grid">
+  <!-- Formulário -->
+  <div>
+    <form method="post" action="{{ url_for('painel_assinatura_salvar') }}">
+
+      <div class="asn-toggle-wrap">
+        <label class="switch">
+          <input type="checkbox" name="ativo" value="1" id="asn-ativo"
+                 {% if plano and plano.ativo %}checked{% endif %}
+                 onchange="document.getElementById('asn-status-txt').textContent = this.checked ? 'Plano visível para consumidores' : 'Plano oculto — consumidores não podem assinar'">
+          <span class="slider"></span>
+        </label>
+        <div>
+          <div class="asn-toggle-label">Ativar plano de assinatura</div>
+          <div class="asn-toggle-sub" id="asn-status-txt">
+            {{ 'Plano visível para consumidores' if plano and plano.ativo else 'Plano oculto — consumidores não podem assinar' }}
+          </div>
+        </div>
+      </div>
+
+      <div class="pk-card">
+        <div class="pk-card-title"><i class="fa fa-pen-to-square"></i>Configurações do plano</div>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:.78rem;color:var(--pk-muted);font-weight:700;display:block;margin-bottom:5px">
+            Nome do plano *
+          </label>
+          <input type="text" name="nome" class="pk-input"
+                 value="{{ plano.nome if plano else 'Clube Fidelidade' }}"
+                 placeholder="Ex: Clube Fidelidade, Cartão VIP..."
+                 maxlength="80" required oninput="atualizarPreview()">
+        </div>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:.78rem;color:var(--pk-muted);font-weight:700;display:block;margin-bottom:5px">
+            Valor mensal (R$) *
+          </label>
+          <input type="number" name="preco_mensal" id="asn-preco" class="pk-input"
+                 value="{{ '%.2f'|format(plano.preco_mensal|float) if plano else '19.90' }}"
+                 step="0.01" min="0" placeholder="Ex: 19.90" required oninput="atualizarPreview()">
+          <div style="font-size:.72rem;color:var(--pk-muted);margin-top:4px">Informe 0 para assinatura gratuita.</div>
+        </div>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:.78rem;color:var(--pk-muted);font-weight:700;display:block;margin-bottom:5px">
+            Descrição (opcional)
+          </label>
+          <textarea name="descricao" class="pk-input" rows="2"
+                    placeholder="Ex: Tenha acesso a preços e cupons exclusivos da nossa farmácia."
+                    oninput="atualizarPreview()" style="resize:vertical">{{ plano.descricao if plano else '' }}</textarea>
+        </div>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:.78rem;color:var(--pk-muted);font-weight:700;display:block;margin-bottom:5px">
+            Benefícios (um por linha)
+          </label>
+          <textarea name="beneficios" id="asn-beneficios" class="pk-input" rows="4"
+                    placeholder="Ex:&#10;Descontos exclusivos em medicamentos&#10;Cupons mensais&#10;Acesso a promoções antes de todo mundo"
+                    oninput="atualizarPreview()" style="resize:vertical">{{ plano.beneficios if plano else '' }}</textarea>
+          <div style="font-size:.72rem;color:var(--pk-muted);margin-top:4px">
+            Cada linha vira um item na lista de benefícios exibida para o consumidor.
+          </div>
+        </div>
+
+        <button type="submit" class="btn-pk-yellow" style="width:100%">
+          <i class="fa fa-floppy-disk me-1"></i>Salvar plano
+        </button>
+      </div>
+    </form>
+
+    {% if plano and total_assinantes > 0 %}
+    <div class="pk-alert pk-alert-info" style="margin-top:14px">
+      <i class="fa fa-users me-2"></i>
+      Você tem <strong>{{ total_assinantes }}</strong> assinante(s) ativo(s).
+      Ao desativar o plano, os assinantes existentes continuam com o status ativo até cancelarem manualmente.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Preview -->
+  <div>
+    <div style="font-size:.78rem;color:var(--pk-muted);font-weight:700;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
+      <i class="fa fa-eye me-1"></i>Como o consumidor verá
+    </div>
+    <div class="asn-preview">
+      <div class="asn-preview-badge"><i class="fa fa-star me-1"></i>Plano de assinatura</div>
+      <div class="asn-preview-nome" id="prev-nome">{{ plano.nome if plano else 'Clube Fidelidade' }}</div>
+      <div class="asn-preview-razao">{{ session.razao or session.cnpjloja }}</div>
+      <div class="asn-preview-preco">
+        <span id="prev-preco">R$ {{ '%.2f'|format(plano.preco_mensal|float) if plano else '19,90' }}</span>
+        <small id="prev-preco-tipo">{{ '/mês' if not plano or plano.preco_mensal > 0 else ' — Gratuito' }}</small>
+      </div>
+      <div class="asn-preview-desc" id="prev-desc">{{ plano.descricao if plano else 'Tenha acesso a benefícios exclusivos desta farmácia.' }}</div>
+      <ul class="asn-preview-bens" id="prev-bens">
+        {% if plano and plano.beneficios %}
+          {% for b in plano.beneficios.split('\n') if b.strip() %}
+          <li>{{ b.strip() }}</li>
+          {% endfor %}
+        {% else %}
+          <li>Descontos exclusivos</li>
+          <li>Cupons mensais</li>
+          <li>Promoções antecipadas</li>
+        {% endif %}
+      </ul>
+      <div style="background:var(--pk-yellow);color:#111;border-radius:10px;padding:11px;text-align:center;font-weight:900;font-size:.9rem;cursor:default">
+        <i class="fa fa-star me-1"></i>Assinar agora
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function atualizarPreview(){
+  const nome  = document.querySelector('[name=nome]').value || 'Clube Fidelidade';
+  const preco = parseFloat(document.getElementById('asn-preco').value) || 0;
+  const desc  = document.querySelector('[name=descricao]').value || 'Tenha acesso a benefícios exclusivos desta farmácia.';
+  const bens  = document.getElementById('asn-beneficios').value;
+
+  document.getElementById('prev-nome').textContent = nome;
+  document.getElementById('prev-preco').textContent = 'R$ ' + preco.toFixed(2).replace('.', ',');
+  document.getElementById('prev-preco-tipo').textContent = preco > 0 ? '/mês' : ' — Gratuito';
+  document.getElementById('prev-desc').textContent = desc;
+
+  const ul = document.getElementById('prev-bens');
+  const linhas = bens.split('\n').map(l=>l.trim()).filter(Boolean);
+  if(linhas.length){
+    ul.innerHTML = linhas.map(l=>`<li>${l}</li>`).join('');
+  } else {
+    ul.innerHTML = '<li>Descontos exclusivos</li><li>Cupons mensais</li><li>Promoções antecipadas</li>';
+  }
+}
+</script>
+{% endblock %}

@@ -294,7 +294,9 @@
         <i class="fa fa-store me-1"></i>Pronto p/ retirada
       </button>
       <button type="submit" name="status" value="entregue"
-              class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}">
+              class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}"
+              disabled
+              title="Use o formulário abaixo com o código do cliente">
         <i class="fa fa-house-circle-check me-1"></i>Retirado
       </button>
       {% else %}
@@ -304,7 +306,8 @@
         <i class="fa fa-truck me-1"></i>Enviado
       </button>
       <button type="submit" name="status" value="entregue"
-              class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}">
+              class="status-btn s-entregue {% if pedido.status=='entregue' %}active{% endif %}"
+              {% if pedido.origem != 'mercado_livre' %}disabled title="Use o formulário abaixo com o código do cliente"{% endif %}>
         <i class="fa fa-house-circle-check me-1"></i>Entregue
       </button>
       {% endif %}
@@ -327,7 +330,13 @@
     {% endif %}
   </form>
   {% endif %}
-  {% if pedido.tipo_entrega != 'entrega' and pedido.status == 'pronto_retirada' and pedido.codigo_retirada %}
+  {% if pedido.tipo_entrega != 'entrega' and pedido.status in ['pago','pronto_retirada'] %}
+  {% if pedido.status != 'pronto_retirada' or not pedido.codigo_retirada %}
+  <div style="margin-top:14px;background:#111827;border:1px solid var(--pk-line);border-radius:10px;padding:12px 14px;color:var(--pk-muted);font-size:.8rem">
+    <i class="fa fa-key me-1" style="color:#f5c842"></i>
+    Para confirmar retirada, primeiro marque o pedido como <strong style="color:var(--pk-txt)">Pronto p/ retirada</strong>. O sistema gerará o código que o cliente deve informar presencialmente.
+  </div>
+  {% else %}
   <form method="post" action="{{ url_for('painel_confirmar_retirada', pedido_id=pedido.id) }}"
         style="margin-top:14px;background:#1e1a08;border:1px solid #5a430b;border-radius:10px;padding:14px 16px">
     <div style="font-size:.78rem;font-weight:700;color:#f5c842;margin-bottom:10px">
@@ -342,6 +351,7 @@
     </div>
     <div style="font-size:.72rem;color:var(--pk-muted);margin-top:8px">O cliente vê o código no acompanhamento do pedido. Só confirme após receber o código presencialmente.</div>
   </form>
+  {% endif %}
   {% endif %}
   {% if pedido.origem == 'mercado_livre' and pedido.status == 'entregue' %}
   <form method="post" action="{{ url_for('painel_avisar_entrega_ml', pedido_id=pedido.id) }}" style="margin-top:12px">

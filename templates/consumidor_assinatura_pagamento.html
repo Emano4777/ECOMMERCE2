@@ -1,0 +1,375 @@
+﻿{% extends "base_public.html" %}
+{% block title %}Poupaqui - Pagar Assinatura{% endblock %}
+
+{% block extra_style %}
+<style>
+.pgto-wrap { max-width:480px; margin:0 auto; padding:32px 16px 70px; }
+.pgto-card { background:#fff; border:1px solid var(--pq-border); border-radius:20px; box-shadow:var(--pq-shadow); overflow:hidden; }
+.pgto-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:24px; color:#fff; text-align:center; }
+.pgto-head-badge { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.2); border-radius:999px; padding:4px 12px; font-size:.75rem; font-weight:800; margin-bottom:10px; }
+.pgto-head-nome { font-size:1.2rem; font-weight:900; margin-bottom:3px; }
+.pgto-head-loja { font-size:.85rem; opacity:.85; }
+.pgto-body { padding:24px; }
+.pgto-preco { text-align:center; margin-bottom:20px; }
+.pgto-preco-val { font-size:2.4rem; font-weight:900; color:var(--pq-red); }
+.pgto-preco-mes { font-size:.9rem; color:var(--pq-muted); }
+.pgto-qr-wrap { text-align:center; margin-bottom:20px; }
+.pgto-qr-wrap img { width:220px; height:220px; border:3px solid #f0f0f0; border-radius:12px; }
+.pgto-copiar { width:100%; padding:12px; border-radius:10px; background:#f7f7f7; border:1.5px dashed #ddd; font-family:monospace; font-size:.75rem; color:#333; word-break:break-all; text-align:left; cursor:pointer; }
+.pgto-copiar:hover { border-color:var(--pq-red); }
+.pgto-steps { list-style:none; padding:0; margin:20px 0; display:flex; flex-direction:column; gap:10px; }
+.pgto-steps li { display:flex; align-items:flex-start; gap:10px; font-size:.85rem; color:#555; }
+.pgto-step-num { width:24px; height:24px; border-radius:50%; background:var(--pq-red); color:#fff; font-size:.72rem; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.pgto-pix-static { background:#fafafa; border:1.5px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:20px; }
+.pgto-pix-key { font-family:monospace; font-size:.9rem; font-weight:700; color:#111; word-break:break-all; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px; cursor:pointer; }
+.pgto-status-banner { display:none; text-align:center; padding:16px; border-radius:10px; margin-top:16px; font-weight:700; font-size:.88rem; }
+.pgto-status-banner.aprovado { background:#dcfce7; color:#16a34a; display:block; }
+.pgto-status-banner.aguardando { background:#fef3c7; color:#d97706; display:block; }
+.pgto-actions { display:flex; flex-direction:column; gap:10px; margin-bottom:20px; }
+.pgto-pay-btn { width:100%; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:8px; padding:13px; border-radius:12px; text-decoration:none; font-family:inherit; font-weight:900; font-size:.88rem; }
+.pgto-pay-btn.rec { background:var(--pq-red); color:#fff; border:0; }
+.pgto-pay-btn.card { background:#111827; color:#fff; border:0; }
+.pgto-pay-note { font-size:.74rem; color:var(--pq-muted); text-align:center; margin-top:-4px; margin-bottom:4px; }
+.pgto-brick-box { border:1px solid #e5e7eb; border-radius:12px; padding:14px; margin-bottom:18px; background:#fff; }
+.pgto-brick-title { font-size:.84rem; font-weight:900; color:#111827; display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+.pgto-doc-grid { display:grid; grid-template-columns:104px 1fr; gap:10px; margin-bottom:12px; }
+.pgto-doc-grid label span { display:block; font-size:.7rem; font-weight:900; color:#64748b; text-transform:uppercase; margin-bottom:5px; }
+.pgto-doc-grid select, .pgto-doc-grid input { width:100%; height:40px; border:1px solid #d1d5db; border-radius:8px; padding:0 10px; font:inherit; color:#111827; background:#fff; box-sizing:border-box; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pgto-wrap">
+  <div class="pgto-card">
+    <div class="pgto-head">
+      <div class="pgto-head-badge"><i class="fa fa-star" style="font-size:.6rem"></i>Assinatura</div>
+      <div class="pgto-head-nome">{{ info.plano_nome }}</div>
+      <div class="pgto-head-loja"><i class="fa fa-store me-1" style="font-size:.7rem"></i>{{ info.razao }}</div>
+    </div>
+    <div class="pgto-body">
+      <div class="pgto-preco">
+        <div class="pgto-preco-val">R$ {{ '%.2f'|format(info.preco|float) }}</div>
+        <div class="pgto-preco-mes">por mês</div>
+      </div>
+      {% if info.gateway_aviso %}
+      <div style="margin:-4px 0 16px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:12px 14px;font-size:.86rem;line-height:1.45">
+        <i class="fa fa-circle-info me-1"></i>{{ info.gateway_aviso }}
+      </div>
+      {% endif %}
+
+      {% if info.gateway_pagamento == 'asaas' %}
+      <div class="pgto-brick-box">
+        <div class="pgto-brick-title"><i class="fa fa-credit-card" style="color:var(--pq-red)"></i>Assinar com cartão pelo Asaas</div>
+        <form id="asaas-assin-form" onsubmit="return assinarAsaasCartao(event)">
+          <div class="pgto-doc-grid" style="grid-template-columns:1fr 1fr">
+            <label><span>Nome no cartão</span><input id="asaas-holder-name" required></label>
+            <label><span>CPF/CNPJ</span><input id="asaas-doc" inputmode="numeric" required></label>
+            <label style="grid-column:1/-1"><span>Número do cartão</span><input id="asaas-card-number" inputmode="numeric" autocomplete="off" required></label>
+            <label><span>Mês</span><input id="asaas-exp-month" inputmode="numeric" maxlength="2" placeholder="MM" required></label>
+            <label><span>Ano</span><input id="asaas-exp-year" inputmode="numeric" maxlength="4" placeholder="AAAA" required></label>
+            <label><span>CVV</span><input id="asaas-cvv" inputmode="numeric" autocomplete="off" required></label>
+            <label><span>CEP</span><input id="asaas-cep" inputmode="numeric" required></label>
+            <label><span>Número endereço</span><input id="asaas-address-number" required></label>
+            <label style="grid-column:1/-1"><span>Telefone</span><input id="asaas-phone" inputmode="numeric" value="{{ consumidor.telefone if consumidor else '' }}"></label>
+          </div>
+          <button class="pgto-pay-btn card" type="submit" style="width:100%;border:none;margin-top:14px;justify-content:center">
+            <i class="fa fa-credit-card"></i> Assinar agora
+          </button>
+        </form>
+      </div>
+      {% endif %}
+
+      {% if info.mp_public_key %}
+      <div class="pgto-brick-box">
+        <div class="pgto-brick-title"><i class="fa fa-credit-card" style="color:var(--pq-red)"></i>Assinar sem sair do Poupaqui</div>
+        <div class="pgto-doc-grid">
+          <label>
+            <span>Documento</span>
+            <select id="assin-doc-type">
+              <option value="CPF">CPF</option>
+              <option value="CNPJ">CNPJ</option>
+            </select>
+          </label>
+          <label>
+            <span>CPF/CNPJ do pagador</span>
+            <input id="assin-doc-number" inputmode="numeric" autocomplete="off" maxlength="18" placeholder="Somente numeros">
+          </label>
+        </div>
+        <div id="assinatura-card-brick"></div>
+      </div>
+      {% endif %}
+
+      {% if (info.assinatura_recorrente_link or info.cartao_link) and not info.mp_public_key %}
+      <div class="pgto-actions">
+        {% if info.assinatura_recorrente_link %}
+        <a class="pgto-pay-btn rec" href="{{ info.assinatura_recorrente_link }}">
+          <i class="fa fa-rotate"></i> Assinar com cobrança mensal no cartão
+        </a>
+        <div class="pgto-pay-note">O Mercado Pago cobra automaticamente todo mês enquanto a assinatura estiver ativa.</div>
+        {% endif %}
+        {% if info.cartao_link %}
+        <a class="pgto-pay-btn card" href="{{ info.cartao_link }}">
+          <i class="fa fa-credit-card"></i> Pagar este mês no cartão
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if info.qr_code_base64 %}
+      <!-- Pix via MercadoPago (QR dinâmico) -->
+      <div class="pgto-qr-wrap">
+        <img src="data:image/png;base64,{{ info.qr_code_base64 }}" alt="QR Code Pix">
+      </div>
+      <p style="text-align:center;font-size:.82rem;color:var(--pq-muted);margin-bottom:10px">
+        Escaneie o QR Code ou copie o código Pix abaixo:
+      </p>
+      <button class="pgto-copiar" onclick="copiarPix(this)" data-pix="{{ info.qr_code }}">
+        {{ info.qr_code }}
+      </button>
+      <ul class="pgto-steps">
+        <li><div class="pgto-step-num">1</div>Abra o app do seu banco e escolha Pix</li>
+        <li><div class="pgto-step-num">2</div>Escaneie o QR Code ou cole o código acima</li>
+        <li><div class="pgto-step-num">3</div>Confirme o pagamento de R$ {{ '%.2f'|format(info.preco|float) }}</li>
+        <li><div class="pgto-step-num">4</div>Sua assinatura será ativada automaticamente em segundos</li>
+      </ul>
+
+      {% elif info.pix_chave %}
+      <!-- Pix estático (chave manual) -->
+      <div class="pgto-pix-static">
+        <div style="font-size:.78rem;color:var(--pq-muted);font-weight:700;margin-bottom:8px">CHAVE PIX DA FARMÁCIA</div>
+        <div class="pgto-pix-key" onclick="copiarTexto(this, '{{ info.pix_chave }}')">
+          {{ info.pix_chave }}
+          <span style="color:var(--pq-red);font-size:.75rem;margin-left:8px"><i class="fa fa-copy"></i> Copiar</span>
+        </div>
+        <div style="font-size:.74rem;color:var(--pq-muted);margin-top:8px">
+          Titular: {{ info.pix_nome }}
+        </div>
+      </div>
+      <ul class="pgto-steps">
+        <li><div class="pgto-step-num">1</div>Abra o app do seu banco e escolha Pix</li>
+        <li><div class="pgto-step-num">2</div>Cole a chave Pix acima e informe <strong>R$ {{ '%.2f'|format(info.preco|float) }}</strong></li>
+        <li><div class="pgto-step-num">3</div>No campo de descrição, informe seu nome completo</li>
+        <li><div class="pgto-step-num">4</div>A farmácia confirmará sua assinatura em breve</li>
+      </ul>
+      <div style="background:#fef3c7;border-left:3px solid #d97706;border-radius:8px;padding:10px 14px;font-size:.8rem;color:#92400e;margin-bottom:16px">
+        <i class="fa fa-info-circle me-1"></i>
+        Neste caso a ativação é manual pela farmácia. Aguarde a confirmação.
+      </div>
+
+      {% elif not info.assinatura_recorrente_link and not info.cartao_link %}
+      <div style="text-align:center;color:var(--pq-muted);padding:20px 0">
+        <i class="fa fa-exclamation-circle" style="font-size:2rem;margin-bottom:10px;display:block"></i>
+        Esta farmácia ainda não configurou um método de pagamento. Entre em contato diretamente.
+      </div>
+      {% endif %}
+
+      <div id="pgto-status-banner" class="pgto-status-banner"></div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+        {% if info.qr_code_base64 or info.mp_preapproval_id %}
+        <button id="btn-verificar" onclick="verificarPagamento()"
+                style="width:100%;padding:12px;border-radius:10px;border:0;background:var(--pq-red);color:#fff;font-family:inherit;font-weight:900;font-size:.9rem;cursor:pointer">
+          <i class="fa fa-rotate me-1"></i>Já paguei/autorizei — verificar
+        </button>
+        {% endif %}
+        <a href="{{ url_for('minhas_assinaturas') }}"
+           style="text-align:center;width:100%;padding:11px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#555;font-family:inherit;font-weight:700;font-size:.85rem;text-decoration:none;display:block">
+          Ver minhas assinaturas
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if info.mp_public_key %}
+<script src="https://sdk.mercadopago.com/js/v2"></script>
+{% endif %}
+<script>
+function copiarPix(btn){
+  const pix = btn.dataset.pix;
+  navigator.clipboard.writeText(pix).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = 'Copiado!';
+    setTimeout(()=>{ btn.textContent = orig; }, 2000);
+  });
+}
+function copiarTexto(el, txt){
+  navigator.clipboard.writeText(txt).then(()=>{
+    const s = el.querySelector('span');
+    if(s){ const o=s.innerHTML; s.innerHTML='<i class="fa fa-check"></i> Copiado!'; setTimeout(()=>s.innerHTML=o,2000); }
+  });
+}
+
+function onlyDigits(v) {
+  return String(v || '').replace(/\D+/g, '');
+}
+
+function assinaturaIdentification() {
+  const number = onlyDigits(document.getElementById('assin-doc-number')?.value || '');
+  const type = (document.getElementById('assin-doc-type')?.value || (number.length === 14 ? 'CNPJ' : 'CPF')).toUpperCase();
+  const expected = type === 'CNPJ' ? 14 : 11;
+  if (number.length !== expected) {
+    return {error: `Informe um ${type} valido do pagador.`};
+  }
+  return {type, number};
+}
+
+function setAssinaturaStatus(message, ok=false) {
+  const b = document.getElementById('pgto-status-banner');
+  b.className = 'pgto-status-banner ' + (ok ? 'aprovado' : 'aguardando');
+  b.innerHTML = message;
+}
+
+{% if info.mp_public_key %}
+(async () => {
+  try {
+    const mp = new MercadoPago({{ info.mp_public_key|tojson }}, { locale: 'pt-BR' });
+    const bricksBuilder = mp.bricks();
+    await bricksBuilder.create('cardPayment', 'assinatura-card-brick', {
+      initialization: {
+        amount: {{ (info.preco|float)|tojson }},
+        payer: {
+          email: {{ (consumidor.email if consumidor else '')|tojson }} || undefined,
+          customerId: {{ (info.mp_customer_id if info.mp_customer_id else None)|tojson }} || undefined,
+        },
+      },
+      customization: {
+        paymentMethods: { maxInstallments: 1 },
+      },
+      callbacks: {
+        onReady: () => {},
+        onSubmit: (cardFormData) => new Promise((resolve, reject) => {
+          const identification = assinaturaIdentification();
+          if (identification.error) {
+            setAssinaturaStatus('<i class="fa fa-triangle-exclamation me-2"></i>' + identification.error);
+            reject();
+            return;
+          }
+          cardFormData.payer = {
+            ...(cardFormData.payer || {}),
+            email: (cardFormData.payer || {}).email || {{ (consumidor.email if consumidor else '')|tojson }} || undefined,
+            identification: {
+              type: identification.type,
+              number: identification.number,
+            },
+          };
+          fetch('/assinatura/pagamento/{{ info.cnpjloja }}/cartao-transparente', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(cardFormData),
+          })
+            .then(r => r.json())
+            .then(d => {
+              if (d.error) {
+                setAssinaturaStatus('<i class="fa fa-triangle-exclamation me-2"></i>' + d.error);
+                reject();
+                return;
+              }
+              if (d.status === 'ativo' || d.status === 'authorized' || d.status === 'active') {
+                setAssinaturaStatus('<i class="fa fa-check-circle me-2"></i>Assinatura autorizada. Beneficios ativos.', true);
+                setTimeout(()=>window.location.href='/minhas-assinaturas', 1200);
+                resolve();
+                return;
+              }
+              setAssinaturaStatus('<i class="fa fa-clock me-2"></i>Assinatura enviada, status: ' + (d.status || 'pendente'));
+              reject();
+            })
+            .catch(() => {
+              setAssinaturaStatus('<i class="fa fa-triangle-exclamation me-2"></i>Nao foi possivel autorizar a assinatura agora.');
+              reject();
+            });
+        }),
+        onError: (error) => {
+          console.error(error);
+          setAssinaturaStatus('<i class="fa fa-triangle-exclamation me-2"></i>Erro ao carregar o formulario de cartao.');
+        },
+      },
+    });
+  } catch (e) {
+    console.error(e);
+  }
+})();
+{% endif %}
+
+{% if info.gateway_pagamento == 'asaas' %}
+async function assinarAsaasCartao(event) {
+  event.preventDefault();
+  const form = document.getElementById('asaas-assin-form');
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Processando...';
+  const payload = {
+    card_holder_name: document.getElementById('asaas-holder-name').value.trim(),
+    card_number: onlyDigits(document.getElementById('asaas-card-number').value),
+    expiry_month: onlyDigits(document.getElementById('asaas-exp-month').value),
+    expiry_year: onlyDigits(document.getElementById('asaas-exp-year').value),
+    ccv: onlyDigits(document.getElementById('asaas-cvv').value),
+    holder: {
+      name: document.getElementById('asaas-holder-name').value.trim(),
+      email: {{ (consumidor.email if consumidor else '')|tojson }} || '',
+      cpfCnpj: onlyDigits(document.getElementById('asaas-doc').value),
+      postalCode: onlyDigits(document.getElementById('asaas-cep').value),
+      addressNumber: document.getElementById('asaas-address-number').value.trim(),
+      phone: onlyDigits(document.getElementById('asaas-phone').value),
+    },
+  };
+  try {
+    const r = await fetch('/assinatura/pagamento/{{ info.cnpjloja }}/asaas-cartao', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) throw new Error(d.error || 'Não foi possível autorizar a assinatura.');
+    setAssinaturaStatus('<i class="fa fa-check-circle me-2"></i>Assinatura autorizada. Benefícios ativos.', true);
+    setTimeout(()=>window.location.href='/minhas-assinaturas', 1200);
+  } catch (err) {
+    setAssinaturaStatus('<i class="fa fa-triangle-exclamation me-2"></i>' + (err.message || 'Não foi possível autorizar a assinatura agora.'));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa fa-credit-card"></i> Assinar agora';
+  }
+  return false;
+}
+{% endif %}
+
+{% if info.qr_code_base64 or info.mp_preapproval_id %}
+let _checking = false;
+function verificarPagamento(){
+  if(_checking) return;
+  _checking = true;
+  const btn = document.getElementById('btn-verificar');
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Verificando...';
+  btn.disabled = true;
+  fetch('/assinatura/pagamento/{{ info.cnpjloja }}/status')
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.status === 'ativo'){
+        const b = document.getElementById('pgto-status-banner');
+        b.className = 'pgto-status-banner aprovado';
+        b.innerHTML = '<i class="fa fa-check-circle me-2"></i>Pagamento aprovado! Assinatura ativa.';
+        setTimeout(()=>window.location.href='/minhas-assinaturas', 2000);
+      } else {
+        btn.innerHTML = '<i class="fa fa-rotate me-1"></i>Já paguei/autorizei — verificar';
+        btn.disabled = false;
+        const b = document.getElementById('pgto-status-banner');
+        b.className = 'pgto-status-banner aguardando';
+        b.innerHTML = '<i class="fa fa-clock me-2"></i>Pagamento ainda não detectado. Aguarde alguns segundos e tente novamente.';
+        _checking = false;
+      }
+    })
+    .catch(()=>{ btn.innerHTML = '<i class="fa fa-rotate me-1"></i>Já paguei/autorizei — verificar'; btn.disabled=false; _checking=false; });
+}
+
+// Auto-polling a cada 6s
+const _autoCheck = setInterval(()=>{
+  fetch('/assinatura/pagamento/{{ info.cnpjloja }}/status')
+    .then(r=>r.json())
+    .then(d=>{ if(d.status==='ativo'){ clearInterval(_autoCheck); window.location.href='/minhas-assinaturas'; } })
+    .catch(()=>{});
+}, 6000);
+{% endif %}
+</script>
+{% endblock %}

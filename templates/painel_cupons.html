@@ -97,6 +97,11 @@
             {% else %}Todos os clientes{% endif %}
           </span>
         {% endif %}
+        {% if c.so_assinantes %}
+          <span style="background:#1a1208;color:#f5c842;border:1px solid #f5c84255;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:800">
+            <i class="fa fa-star me-1" style="font-size:.55rem"></i>Só assinantes
+          </span>
+        {% endif %}
         <span><i class="fa fa-box me-1"></i>
           {% set esc = c.escopo if c.escopo else 'todos' %}
           {% if esc == 'categoria' %}Categorias: {{ c.escopo_categorias or '—' }}
@@ -204,6 +209,15 @@
             <option value="frequente">Clientes frequentes (mínimo de compras)</option>
             <option value="especifico">Clientes específicos (selecionar abaixo)</option>
           </select>
+        </div>
+        <div class="nf-field full">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px">
+            <input type="checkbox" name="so_assinantes" value="1" style="width:16px;height:16px;accent-color:var(--pk-yellow);flex-shrink:0">
+            <span>
+              <span style="font-weight:800;font-size:.88rem"><i class="fa fa-star me-1" style="color:var(--pk-yellow)"></i>Exclusivo para assinantes</span>
+              <span style="display:block;font-size:.73rem;color:var(--pk-muted);font-weight:400">Só consumidores com assinatura ativa da sua loja verão e poderão usar este cupom.</span>
+            </span>
+          </label>
         </div>
         <div class="nf-field full" id="blk-min-compras" style="display:none">
           <label>Mínimo de compras realizadas na sua loja</label>

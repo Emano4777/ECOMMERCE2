@@ -165,11 +165,60 @@
   .need-grid { grid-template-columns:1fr; }
   .home-hero h1 { font-size:1.3rem; }
 }
+
+/* ── Strip de clubes no hero ─────────────────────────────────── */
+#hero-clubes-row::-webkit-scrollbar { display:none; }
+.hero-clube-chip { flex:0 0 auto; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); border-radius:12px; padding:10px 14px; display:flex; align-items:center; gap:10px; text-decoration:none; color:#fff; transition:.15s; backdrop-filter:blur(4px); }
+.hero-clube-chip:hover { background:rgba(255,255,255,.24); color:#fff; }
+.hero-clube-chip-nome { font-size:.82rem; font-weight:900; line-height:1.2; }
+.hero-clube-chip-loja { font-size:.68rem; opacity:.8; margin-top:1px; }
+.hero-clube-chip-preco { font-size:.88rem; font-weight:900; white-space:nowrap; }
+.hero-clube-chip-preco small { font-size:.6rem; font-weight:400; opacity:.8; }
+.hero-clube-chip-assinado { background:rgba(34,197,94,.2); border-color:rgba(34,197,94,.4); }
+
+/* ── Cards de clube/assinatura ───────────────────────────────── */
+.clube-card { flex:0 0 220px; background:#fff; border:1.5px solid #ffd0d8; border-radius:16px; box-shadow:var(--pq-shadow); overflow:hidden; text-decoration:none; color:inherit; display:flex; flex-direction:column; transition:transform .18s,box-shadow .18s; }
+.clube-card:hover { transform:translateY(-3px); box-shadow:0 8px 28px rgba(200,16,46,.16); color:inherit; }
+.clube-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:14px 16px; }
+.clube-card-nome { font-size:.92rem; font-weight:900; color:#fff; margin-bottom:2px; }
+.clube-card-loja { font-size:.72rem; color:rgba(255,255,255,.82); display:flex; align-items:center; gap:4px; }
+.clube-card-body { padding:12px 14px; flex:1; display:flex; flex-direction:column; gap:6px; }
+.clube-card-preco { font-size:1.3rem; font-weight:900; color:var(--pq-red); }
+.clube-card-preco small { font-size:.72rem; font-weight:400; color:var(--pq-muted); }
+.clube-card-desc { font-size:.76rem; color:#555; line-height:1.4; flex:1; }
+.clube-card-btn { display:block; width:100%; text-align:center; padding:8px; border-radius:8px; background:var(--pq-red); color:#fff; font-weight:900; font-size:.8rem; text-decoration:none; margin-top:6px; }
+.clube-card-btn-ok { background:#dcfce7; color:#16a34a; border:1px solid #bbf7d0; }
+
+/* ── Banners das lojas ────────────────────────────────────────── */
+.bnr-section { margin-bottom:22px; }
+.bnr-carousel { position:relative; overflow:hidden; border-radius:16px; }
+.bnr-track { display:flex; transition:transform .45s cubic-bezier(.25,.8,.25,1); }
+.bnr-slide { flex:0 0 100%; position:relative; cursor:pointer; }
+.bnr-slide img { width:100%; height:240px; object-fit:cover; display:block; border-radius:16px; }
+.bnr-store-tag { position:absolute; bottom:10px; left:12px; background:rgba(0,0,0,.62); color:#fff; font-size:.72rem; font-weight:800; padding:4px 10px; border-radius:20px; backdrop-filter:blur(4px); }
+.bnr-nav-btn { position:absolute; top:50%; transform:translateY(-50%); background:rgba(0,0,0,.45); color:#fff; border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; transition:.2s; }
+.bnr-nav-btn:hover { background:rgba(0,0,0,.75); }
+.bnr-nav-prev { left:10px; }
+.bnr-nav-next { right:10px; }
+.bnr-dots { display:flex; justify-content:center; gap:6px; margin-top:8px; }
+.bnr-dot { width:8px; height:8px; border-radius:50%; background:#d1d5db; cursor:pointer; transition:.2s; border:none; padding:0; }
+.bnr-dot.active { background:var(--pq-red); width:20px; border-radius:4px; }
+@media(max-width:560px){ .bnr-slide img { height:155px; } }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="home-wrap">
+
+  {# ── Banners das lojas (carrossel) — acima das categorias ── #}
+  <section id="bnr-section" class="bnr-section" style="display:none">
+    <div class="bnr-carousel" id="bnr-carousel">
+      <div class="bnr-track" id="bnr-track"></div>
+      <button class="bnr-nav-btn bnr-nav-prev" id="bnr-prev" aria-label="Banner anterior"><i class="fa fa-chevron-left"></i></button>
+      <button class="bnr-nav-btn bnr-nav-next" id="bnr-next" aria-label="Próximo banner"><i class="fa fa-chevron-right"></i></button>
+    </div>
+    <div class="bnr-dots" id="bnr-dots"></div>
+  </section>
 
   {# ── Departamentos: strip rápida acima do hero ── #}
   <div class="dept-strip-wrap">
@@ -227,6 +276,17 @@
         <div class="home-empty"><i class="fa fa-spinner fa-spin me-1"></i>Carregando produtos próximos...</div>
       </div>
     </aside>
+
+    <!-- Strip de clubes — full-width dentro do hero vermelho -->
+    <div id="hero-clubes-wrap" style="display:none;grid-column:1/-1;border-top:1px solid rgba(255,255,255,.2);padding-top:16px;margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:7px;font-weight:900;font-size:.88rem">
+          <i class="fa fa-star" style="font-size:.72rem"></i>Clubes de assinantes disponíveis perto de você
+        </div>
+        <a href="{{ url_for('lojas_vitrine') }}" style="font-size:.76rem;font-weight:800;color:rgba(255,255,255,.8);text-decoration:none">Ver lojas <i class="fa fa-chevron-right" style="font-size:.6rem"></i></a>
+      </div>
+      <div id="hero-clubes-row" style="display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px"></div>
+    </div>
   </section>
 
   <section class="home-section">
@@ -328,17 +388,48 @@
 <script>
 const CAT_LABELS_HOME = {medicamento:'Medicamentos', perfumaria:'Perfumaria', dermocosmetico:'Dermocosméticos', suplemento:'Suplementos', nutricao:'Nutrição', varejo:'Varejo'};
 const cuponsHome = {};
+const planosAssinatura = {};
+let _bnrSlides=[], _bnrCur=0, _bnrTimer=null, _bnrTs=0;
+
+// ── Cache localStorage ─────────────────────────────────────────────────────────
+const _PQC = { prod:600e3, bnr:900e3, mais:1200e3, cupom:300e3, clube:600e3 };
+function _geoK(lat,lng){ return `${parseFloat(lat).toFixed(3)}_${parseFloat(lng).toFixed(3)}`; }
+function _cGet(k){ try{ const s=localStorage.getItem('pq_c_'+k); if(!s) return null; return JSON.parse(s); }catch{ return null; } }
+function _cSet(k,d){ try{ localStorage.setItem('pq_c_'+k, JSON.stringify({t:Date.now(),d})); }catch{} }
+function _cFresh(k,ttl){ const o=_cGet(k); return (o && (Date.now()-o.t)<ttl) ? o.d : null; }
+function _cFetch(k,ttl,url){ const c=_cFresh(k,ttl); if(c!=null) return Promise.resolve(c); return fetch(url).then(r=>r.json()).then(d=>{ _cSet(k,d); return d; }); }
 function hEsc(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function hBrl(v){ const n=parseFloat(v)||0; return 'R$ ' + n.toFixed(2).replace('.',','); }
 function hCat(p){ return ({cosmetico:'perfumaria', higiene:'perfumaria', alimento:'nutricao', correlato:'varejo'}[p.categoria] || p.categoria || 'varejo'); }
 function prodCard(p, badge){
   const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
+  const plano = planosAssinatura[p.cnpjloja];
+  const promoBadge = (() => {
+    if (!p.promo) return '';
+    const s = 'margin:4px -10px -2px;border-radius:0;padding:4px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:.64rem;font-weight:800;';
+    if (p.promo.so_assinantes && !p.promo.preco_promo)
+      return `<div style="${s}border-top:1px solid #fde68a;background:#fffbeb;color:#92400e"><span style="display:flex;align-items:center;gap:3px"><i class="fa fa-star" style="font-size:.5rem"></i>Preço p/ assinantes</span></div>`;
+    const precoDe = parseFloat(p.preco)||0, precoBaseDe = parseFloat(p.preco_original || p.promo.preco_original || precoDe)||precoDe, precoPor = p.promo.preco_promo;
+    if (precoPor < precoBaseDe)
+      return `<div style="${s}border-top:1px solid #fca5a5;background:#fff1f2;color:var(--pq-red)"><span style="display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.5rem"></i>PROMO${p.promo.so_assinantes?' · Assinante':''}</span><span><s style="opacity:.5;font-weight:400">${hBrl(precoBaseDe)}</s> ${hBrl(precoPor)}</span></div>`;
+    return `<div style="${s}border-top:1px solid #fde68a;background:#fffbeb;color:#92400e"><span style="display:flex;align-items:center;gap:3px"><i class="fa fa-star" style="font-size:.5rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span>${hBrl(precoPor)}</span></div>`;
+  })();
+  const assinBadge = plano && !plano.ja_assina
+    ? `<div style="border-top:1px solid #ffd0d8;background:#fff5f6;margin:4px -10px -10px;border-radius:0 0 12px 12px;padding:5px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px"><span style="font-size:.66rem;color:var(--pq-red);font-weight:800;display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.55rem"></i>Clube disponível</span><span style="font-size:.63rem;font-weight:900;color:var(--pq-red)">${hBrl(plano.preco)}/mês</span></div>`
+    : (plano && plano.ja_assina ? `<div style="border-top:1px solid #bbf7d0;background:#f0fdf4;margin:4px -10px -10px;border-radius:0 0 12px 12px;padding:5px 10px;font-size:.66rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:4px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante</div>` : '');
+  const precoAtual = parseFloat(p.preco)||0;
+  const precoOriginal = parseFloat(p.preco_original || p.promo?.preco_original || precoAtual)||precoAtual;
+  const precoHtml = p.promo?.aplicada && p.promo?.preco_promo && p.promo.preco_promo < precoOriginal
+    ? `<div class="home-prod-price">${hBrl(p.promo.preco_promo)} <s style="font-size:.72rem;color:var(--pq-muted);font-weight:600">${hBrl(precoOriginal)}</s></div>`
+    : `<div class="home-prod-price">${hBrl(precoAtual)}</div>`;
   return `<a class="home-prod" href="${url}">
     ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
     <div class="home-prod-name">${hEsc(p.nome)}</div>
     <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao || 'Farmácia Poupaqui')}</div>
-    <div class="home-prod-price">${hBrl(p.preco)}</div>
+    ${precoHtml}
     ${badge ? `<div class="home-prod-badge">${badge}</div>` : ''}
+    ${promoBadge}
+    ${assinBadge}
   </a>`;
 }
 function renderHomeProdutos(produtos){
@@ -359,9 +450,10 @@ function renderHomeProdutos(produtos){
 function renderComparador(produtos){
   const porEan = {};
   produtos.forEach(p => {
-    if (!p.ean) return;
-    porEan[p.ean] = porEan[p.ean] || [];
-    porEan[p.ean].push(p);
+    const ean = String(p.ean || '').replace(/\D/g,'').replace(/^0+/,'');
+    if (!ean || ean.length < 4) return;
+    porEan[ean] = porEan[ean] || [];
+    porEan[ean].push(p);
   });
   const comps = Object.values(porEan).filter(a => a.length > 1).map(arr => {
     arr.sort((a,b)=>(parseFloat(a.preco)||999999)-(parseFloat(b.preco)||999999));
@@ -377,16 +469,58 @@ function renderComparador(produtos){
     </a>`).join('') || '<div class="home-empty">Ainda não há itens repetidos suficientes para comparar nesta região.</div>';
 }
 function carregarHome(lat,lng){
-  fetch(`/api/produtos-proximos?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
-    .then(r=>r.json())
+  const gk = _geoK(lat,lng);
+  _cFetch(`prod_${gk}`, _PQC.prod, `/api/produtos-proximos?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
     .then(async data => {
       const produtos = data.produtos || [];
-      const cnpjs = [...new Set(produtos.map(p=>p.cnpjloja).filter(Boolean))].slice(0,18);
-      await Promise.all(cnpjs.map(cnpj => fetch(`/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`).then(r=>r.json()).then(d=>{cuponsHome[cnpj]=d.cupons||[]}).catch(()=>{})));
+      const lojasProximas = data.lojas_proximas || [];
+      const cnpjsProdutos = [...new Set(produtos.map(p=>p.cnpjloja).filter(Boolean))].slice(0,18);
+      const cnpjsProximos = (data.cnpjs_proximos || cnpjsProdutos).slice(0,30);
+      Object.keys(planosAssinatura).forEach(k => delete planosAssinatura[k]);
+      Object.keys(cuponsHome).forEach(k => delete cuponsHome[k]);
+      await Promise.all([
+        ...cnpjsProdutos.map(cnpj =>
+          _cFetch(`cupom_${cnpj}`, _PQC.cupom, `/api/cupons/disponiveis?cnpj=${encodeURIComponent(cnpj)}`)
+            .then(d=>{ cuponsHome[cnpj]=d.cupons||[]; }).catch(()=>{})
+        ),
+        cnpjsProximos.length
+          ? _cFetch(`clube_${gk}`, _PQC.clube, `/api/lojas-com-assinatura?cnpjs=${cnpjsProximos.map(encodeURIComponent).join(',')}`)
+              .then(d=>{ Object.assign(planosAssinatura, d.planos||{}); }).catch(()=>{})
+          : Promise.resolve(),
+      ]);
       renderHomeProdutos(produtos);
+      renderClubes(produtos, lojasProximas);
       renderCupons(produtos);
     })
     .catch(()=>{ document.getElementById('home-achados').innerHTML='<div class="home-empty">Não foi possível carregar os produtos agora.</div>'; });
+}
+function renderClubes(produtos, lojasProximas){
+  const lojaMap = {};
+  (lojasProximas || []).forEach(l => { if (l.cnpjloja) lojaMap[l.cnpjloja] = l.razao || ''; });
+  produtos.forEach(p => { if (p.cnpjloja && !lojaMap[p.cnpjloja]) lojaMap[p.cnpjloja] = p.razao || ''; });
+  const clubes = Object.entries(planosAssinatura)
+    .map(([cnpj, pl]) => ({cnpj, razao: lojaMap[cnpj] || '', ...pl}))
+    .filter(c => !c.ja_assina);
+
+  // Strip dentro do hero vermelho
+  const heroWrap = document.getElementById('hero-clubes-wrap');
+  const heroRow  = document.getElementById('hero-clubes-row');
+  if (heroWrap && heroRow) {
+    if (clubes.length) {
+      heroRow.innerHTML = clubes.map(c => {
+        const precoStr = `R$ ${parseFloat(c.preco||0).toFixed(2).replace('.',',')}`;
+        return `<a href="/loja/${encodeURIComponent(c.cnpj)}#assinatura-loja" class="hero-clube-chip">
+          <i class="fa fa-star" style="font-size:1rem;flex-shrink:0"></i>
+          <div><div class="hero-clube-chip-nome">${hEsc(c.nome)}</div><div class="hero-clube-chip-loja">${hEsc(c.razao)}</div></div>
+          <div class="hero-clube-chip-preco">${precoStr}<small>/mês</small></div>
+        </a>`;
+      }).join('');
+      heroWrap.style.display = '';
+    } else {
+      heroWrap.style.display = 'none';
+    }
+  }
+
 }
 function renderCupons(produtos){
   const lojaNome = Object.fromEntries(produtos.map(p => [p.cnpjloja, p.razao]));
@@ -398,16 +532,16 @@ function renderCupons(produtos){
       <div class="coupon-store">${hEsc(c.razao || 'Cupom Poupaqui')}${c.valido_ate ? ' · até ' + hEsc(c.valido_ate) : ''}</div>
     </div>`).join('') || '<div class="home-empty">Nenhum cupom disponível para sua região agora.</div>';
 }
-function onLocationReady(lat,lng){ carregarHome(lat,lng); }
+function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); }
 const lat = localStorage.getItem('pq_lat');
 const lng = localStorage.getItem('pq_lng');
-if (lat && lng) carregarHome(lat,lng); else setTimeout(()=>carregarHome(0,0), 2500);
+if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
 
 // ── Mais comprados ────────────────────────────────────────────────────────────
 function carregarMaisComprados(){
   const qs = lat && lng ? `?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}` : '';
-  fetch('/api/mais-comprados' + qs)
-    .then(r=>r.json())
+  const gk = lat && lng ? _geoK(lat,lng) : 'global';
+  _cFetch(`mais_${gk}`, _PQC.mais, '/api/mais-comprados' + qs)
     .then(d=>{
       const produtos = d.produtos || [];
       const el = document.getElementById('home-mais-comprados');
@@ -425,6 +559,57 @@ function carregarMaisComprados(){
     }).catch(()=>{});
 }
 carregarMaisComprados();
+
+// ── Banners das lojas ─────────────────────────────────────────────────────────
+function _bnrGoTo(i){
+  const track = document.getElementById('bnr-track');
+  const dotsEl = document.getElementById('bnr-dots');
+  _bnrCur = (i + _bnrSlides.length) % _bnrSlides.length;
+  if(track) track.style.transform = `translateX(-${_bnrCur * 100}%)`;
+  if(dotsEl) dotsEl.querySelectorAll('.bnr-dot').forEach((d,j)=>d.classList.toggle('active',j===_bnrCur));
+}
+function bnrGoTo(i){ clearInterval(_bnrTimer); _bnrGoTo(i); _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500); }
+function carregarBanners(lat, lng){
+  clearInterval(_bnrTimer);
+  const track   = document.getElementById('bnr-track');
+  const dotsEl  = document.getElementById('bnr-dots');
+  const sec     = document.getElementById('bnr-section');
+  const btnPrev = document.getElementById('bnr-prev');
+  const btnNext = document.getElementById('bnr-next');
+  if(!sec) return;
+  sec.style.display = 'none';
+  if(track) track.innerHTML = '';
+  if(dotsEl) dotsEl.innerHTML = '';
+  _bnrSlides = []; _bnrCur = 0;
+  if(!lat || !lng) return;
+  const gk = _geoK(lat,lng);
+  const _bnrKey = `bnr_${gk}`;
+  const _bnrCached = _cFresh(_bnrKey, _PQC.bnr);
+  const _bnrUsable = _bnrCached && (_bnrCached.banners||[]).length ? _bnrCached : null;
+  const _bnrPromise = _bnrUsable != null
+    ? Promise.resolve(_bnrUsable)
+    : fetch(`/api/banners?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`).then(r=>r.json()).then(d=>{ if((d.banners||[]).length) _cSet(_bnrKey, d); return d; });
+  _bnrPromise
+    .then(d=>{
+      const banners = d.banners || [];
+      if(!banners.length) return;
+      sec.style.display = '';
+      track.innerHTML = banners.map(b=>`
+        <div class="bnr-slide"${b.link_url ? ` onclick="window.open('${hEsc(b.link_url)}','_blank')"` : ''}>
+          <img src="${hEsc(b.imagem_url)}" alt="${hEsc(b.titulo||'Banner')}" loading="lazy">
+          ${b.razao ? `<div class="bnr-store-tag"><i class="fa fa-store" style="font-size:.6rem;margin-right:4px"></i>${hEsc(b.razao)}</div>` : ''}
+        </div>`).join('');
+      _bnrSlides = track.querySelectorAll('.bnr-slide');
+      dotsEl.innerHTML = banners.map((_,i)=>`<button class="bnr-dot${i===0?' active':''}" onclick="bnrGoTo(${i})"></button>`).join('');
+      if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; dotsEl.style.display='none'; }
+      else { btnPrev.style.display=btnNext.style.display=''; dotsEl.style.display=''; }
+      btnPrev.onclick = ()=>bnrGoTo(_bnrCur - 1);
+      btnNext.onclick = ()=>bnrGoTo(_bnrCur + 1);
+      track.addEventListener('touchstart', e=>{ clearInterval(_bnrTimer); _bnrTs=e.touches[0].clientX; },{passive:true});
+      track.addEventListener('touchend',   e=>{ const dx=e.changedTouches[0].clientX-_bnrTs; if(Math.abs(dx)>40){ clearInterval(_bnrTimer); _bnrGoTo(dx<0?_bnrCur+1:_bnrCur-1); _bnrTimer=setInterval(()=>_bnrGoTo(_bnrCur+1),4500); } });
+      _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
+    }).catch(()=>{});
+}
 
 // ── Comprar novamente (só logados) ───────────────────────────────────────────
 fetch('/api/comprar-novamente')
