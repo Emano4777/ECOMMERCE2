@@ -1869,11 +1869,37 @@ def _result_matches_term(item, termo):
 
 
 def _geo_override(endereco, endereco2=None, uf=None):
-    text = f"{endereco or ''} {endereco2 or ''}".lower()
+    text = _norm_text(f"{endereco or ''} {endereco2 or ''}")
     uf = (uf or "").upper()
     if uf == "SP" and "são pedro" in text:
         return -22.5483, -47.9139
+    if "djair jose marques" in text and ("mirassol" in text or "15133" in text or "regissol" in text):
+        return -20.8029, -49.5202
     return None, None
+
+
+def _endereco_geo_hash(endereco, uf=""):
+    base = _norm_text(f"{endereco or ''} {uf or ''}")
+    return hashlib.sha1(base.encode("utf-8")).hexdigest() if base else None
+
+
+def _ensure_lojas_geo_address_hash():
+    key = "lojas_geo_endereco_hash_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_lojas_geo ADD COLUMN IF NOT EXISTS endereco_hash TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _public_store_name(loja):
@@ -2040,26 +2066,28 @@ def api_localizacao():
 
 
 def get_or_geocode(cnpjloja, endereco, uf):
+    _ensure_lojas_geo_address_hash()
+    endereco_hash = _endereco_geo_hash(endereco, uf)
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT lat, lng FROM ecommerce_lojas_geo WHERE cnpjloja = %s", (cnpjloja,)
+        "SELECT lat, lng, endereco_hash FROM ecommerce_lojas_geo WHERE cnpjloja = %s", (cnpjloja,)
     )
     row = cur.fetchone()
     cur.close()
-    if row and row["lat"]:
+    if row and row["lat"] and row.get("endereco_hash") == endereco_hash:
         return float(row["lat"]), float(row["lng"])
     lat, lng = _geo_override(endereco, None, uf)
     if lat:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng)
-            VALUES (%s, %s, %s)
+            INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng, endereco_hash)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (cnpjloja) DO UPDATE
-              SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, geocoded_at = NOW()
+              SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, endereco_hash = EXCLUDED.endereco_hash, geocoded_at = NOW()
             """,
-            (cnpjloja, lat, lng),
+            (cnpjloja, lat, lng, endereco_hash),
         )
         conn.commit()
         cur.close()
@@ -2069,12 +2097,12 @@ def get_or_geocode(cnpjloja, endereco, uf):
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng)
-            VALUES (%s, %s, %s)
+            INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng, endereco_hash)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (cnpjloja) DO UPDATE
-              SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, geocoded_at = NOW()
+              SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, endereco_hash = EXCLUDED.endereco_hash, geocoded_at = NOW()
             """,
-            (cnpjloja, lat, lng),
+            (cnpjloja, lat, lng, endereco_hash),
         )
         conn.commit()
         cur.close()
@@ -3272,7 +3300,7 @@ def _apply_safe_catalog_images(produtos, cur=None):
             if _cosmos_img:
                 produto["imagem"] = _cosmos_img
                 imagem_atual = _cosmos_img
-        if _tipo_p not in _TIPOS_NAO_MEDICAMENTO and placeholder and anvisa.get("tarja") in ("preta", "vermelha") and produto.get("exibir_imagem_publica") is False:
+        if _tipo_p not in _TIPOS_NAO_MEDICAMENTO and placeholder and anvisa.get("tarja") in ("preta", "vermelha"):
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
             produto["imagem_bloqueada_anvisa"] = True
@@ -3357,19 +3385,7 @@ _MARCAS_PROPRIAS_AUTO = """
     )
 """
 
-_SQL_ALPHA = """
-    WITH eligible AS (
-        SELECT
-            e.barras,
-            e.cnpj                            AS cnpjloja,
-            COALESCE(e.barras_norm, e.barras) AS ean_join,
-            e.descricao,
-            CAST(e.estoque AS INTEGER)        AS qty,
-            e.preco_referencial,
-            e.custo_medio
-        FROM estoque e
-        WHERE e.cnpj = %s AND e.estoque > 0 {busca}
-          AND (
+_IMAGEM_FILTER_ALPHA = """AND (
             COALESCE(e.barras_norm, e.barras) IN (SELECT ean_norm FROM omie_estoque_dns)
             OR COALESCE(e.barras_norm, e.barras) IN (
                 SELECT barra_norm FROM medicamentos
@@ -3392,9 +3408,23 @@ _SQL_ALPHA = """
                 '%%anasol%%','%%vit natu%%','%%vitnatu%%',
                 '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
             ])
-          )
+          )"""
+
+_SQL_ALPHA = """
+    WITH eligible AS (
+        SELECT
+            e.barras,
+            e.cnpj                            AS cnpjloja,
+            COALESCE(e.barras_norm, e.barras) AS ean_join,
+            e.descricao,
+            CAST(e.estoque AS INTEGER)        AS qty,
+            e.preco_referencial,
+            e.custo_medio
+        FROM estoque e
+        WHERE e.cnpj = %s AND e.estoque > 0 {busca}
+          {imagem_filter}
         ORDER BY e.descricao
-        LIMIT 300
+        LIMIT {limite}
     )
     SELECT
         el.barras                                                            AS ean,
@@ -3424,18 +3454,7 @@ _SQL_ALPHA = """
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
 """
 
-_SQL_AUTO = """
-    WITH eligible AS (
-        SELECT
-            ae.ean,
-            ae.cnpj_loja                          AS cnpjloja,
-            ae.descricao_produto,
-            CAST(ae.quantidade_estoque AS INTEGER) AS qty,
-            ae.valor_final_produto,
-            ae.custo
-        FROM automatiza_estoque ae
-        WHERE ae.cnpj_loja = %s AND ae.quantidade_estoque > 0 {busca}
-          AND (
+_IMAGEM_FILTER_AUTO = """AND (
             ae.ean IN (SELECT ean_norm FROM omie_estoque_dns)
             OR ae.ean IN (
                 SELECT barra_norm FROM medicamentos
@@ -3458,9 +3477,22 @@ _SQL_AUTO = """
                 '%%anasol%%','%%vit natu%%','%%vitnatu%%',
                 '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
             ])
-          )
+          )"""
+
+_SQL_AUTO = """
+    WITH eligible AS (
+        SELECT
+            ae.ean,
+            ae.cnpj_loja                          AS cnpjloja,
+            ae.descricao_produto,
+            CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+            ae.valor_final_produto,
+            ae.custo
+        FROM automatiza_estoque ae
+        WHERE ae.cnpj_loja = %s AND ae.quantidade_estoque > 0 {busca}
+          {imagem_filter}
         ORDER BY ae.descricao_produto
-        LIMIT 300
+        LIMIT {limite}
     )
     SELECT
         el.ean,
@@ -3491,7 +3523,7 @@ _SQL_AUTO = """
 """
 
 
-def get_dns_products(cnpjloja, q=None, include_hidden=False):
+def get_dns_products(cnpjloja, q=None, include_hidden=False, skip_image_filter=False):
     conn = db()
     cur = conn.cursor()
 
@@ -3511,10 +3543,19 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False):
         args_alpha.extend([like, f"%{q}%"])
         args_auto.extend([like, f"%{q}%"])
 
-    cur.execute(_SQL_ALPHA.format(busca=busca_alpha), args_alpha)
+    if skip_image_filter:
+        imagem_alpha = ""
+        imagem_auto  = ""
+        limite = 2000
+    else:
+        imagem_alpha = _IMAGEM_FILTER_ALPHA
+        imagem_auto  = _IMAGEM_FILTER_AUTO
+        limite = 300
+
+    cur.execute(_SQL_ALPHA.format(busca=busca_alpha, imagem_filter=imagem_alpha, limite=limite), args_alpha)
     alpha = cur.fetchall()
 
-    cur.execute(_SQL_AUTO.format(busca=busca_auto), args_auto)
+    cur.execute(_SQL_AUTO.format(busca=busca_auto, imagem_filter=imagem_auto, limite=limite), args_auto)
     auto = cur.fetchall()
 
     seen, combined = set(), []
@@ -4841,6 +4882,28 @@ def api_lojas_mapa():
         else:
             loja["lat"], loja["lng"] = coords.get(c, (None, None))
         resultado.append(loja)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT u.cnpjloja, u.razao, u.endereco AS apelido, u.endereco2 AS endereco, u.telefone, g.lat, g.lng
+        FROM users u
+        JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+        WHERE u.cnpjloja IS NOT NULL
+          AND g.lat IS NOT NULL
+          AND g.lng IS NOT NULL
+        ORDER BY u.razao, u.cnpjloja
+    """)
+    for row in cur.fetchall():
+        cnpj = row.get("cnpjloja")
+        if not cnpj or cnpj in vistos:
+            continue
+        loja = dict(row)
+        apelido = re.sub(r"\s*-\s*\d{14}\s*$", "", (loja.get("apelido") or "")).strip()
+        loja["cidade"] = apelido or _public_store_name(loja)
+        loja["imagem_url"] = ""
+        loja["whatsapp"] = ""
+        resultado.append(loja)
+        vistos.add(cnpj)
+    cur.close()
     _espalhar_marcadores_sobrepostos(resultado)
     return jsonify(resultado)
 
@@ -5343,10 +5406,8 @@ def api_produto(ean):
                 tarja_img = _detectar_tarja(anvisa_img)
                 _tipo_busca = _classificar_produto(nome_busca)
                 _is_med_busca = _tipo_busca not in _TIPOS_NAO_MEDICAMENTO
-                if tarja_img == "preta" and _is_med_busca:
-                    result["imagem_med"] = _placeholder_for_tarja("preta") or result.get("imagem_med")
-                elif tarja_img == "vermelha" and anvisa_img.get("exibir_imagem_publica") is False and _is_med_busca:
-                    result["imagem_med"] = _placeholder_for_tarja("vermelha") or result.get("imagem_med")
+                if tarja_img in ("preta", "vermelha") and _is_med_busca:
+                    result["imagem_med"] = _placeholder_for_tarja(tarja_img) or result.get("imagem_med")
                 result["tarja"] = tarja_img
                 result["receita_retida"] = _exige_receita_digital_entrega(anvisa_img, nome_busca)
         except Exception:
@@ -5747,10 +5808,8 @@ def produto_detalhe(ean):
 
     tarja = _detectar_tarja(anvisa)
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
-    if tarja == "preta" and _is_med:
-        imagem = _placeholder_for_tarja("preta") or imagem
-    elif tarja == "vermelha" and anvisa.get("exibir_imagem_publica") is False and _is_med:
-        imagem = _placeholder_for_tarja("vermelha") or imagem
+    if tarja in ("preta", "vermelha") and _is_med:
+        imagem = _placeholder_for_tarja(tarja) or imagem
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
     reputacao = _reputacao_loja(loja.get("cnpjloja")) if loja else None
 
@@ -10037,7 +10096,7 @@ def precificador():
     _ensure_competitor_schema()
     cnpjloja = session.get("cnpjloja")
     q = (request.args.get("q") or "").strip()
-    produtos = get_dns_products(cnpjloja, q or None)
+    produtos = get_dns_products(cnpjloja, q or None, skip_image_filter=True)
     _publicados, bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
     # Carrega preços concorrentes cacheados no banco
@@ -10202,7 +10261,7 @@ def precificador_buscar_concorrentes():
     """Dispara busca de preços em background para todos os EANs do catálogo desta loja."""
     _ensure_competitor_schema()
     cnpjloja = session.get("cnpjloja")
-    produtos = get_dns_products(cnpjloja, None)
+    produtos = get_dns_products(cnpjloja, None, skip_image_filter=True)
     eans = [p["ean"] for p in produtos if p.get("ean")]
     if not eans:
         return jsonify({"ok": False, "msg": "Nenhum produto encontrado."})
@@ -10242,7 +10301,7 @@ def precificador_status_concorrentes():
     """Retorna preços atuais em cache para todos os EANs da loja (polling)."""
     _ensure_competitor_schema()
     cnpjloja = session.get("cnpjloja")
-    produtos = get_dns_products(cnpjloja, None)
+    produtos = get_dns_products(cnpjloja, None, skip_image_filter=True)
     eans = [p["ean"] for p in produtos if p.get("ean")]
     if not eans:
         return jsonify({"precos": {}, "last_update": None})
@@ -10616,7 +10675,7 @@ def precificador_ajuste_percentual():
         return redirect(url_for("precificador"))
 
     fator = 1 + pct / 100
-    produtos = get_dns_products(cnpjloja)
+    produtos = get_dns_products(cnpjloja, skip_image_filter=True)
     if not produtos:
         flash("Nenhum produto encontrado.", "error")
         return redirect(url_for("precificador"))
@@ -10939,6 +10998,7 @@ def admin_loja_catalogo_sync():
 @app.post("/painel/admin/geocodificar")
 @admin_required
 def admin_geocodificar():
+    _ensure_lojas_geo_address_hash()
     cnpjloja = (request.form.get("cnpjloja") or "").strip()
     if not cnpjloja:
         return redirect(url_for("admin_lojas"))
@@ -10955,17 +11015,21 @@ def admin_geocodificar():
         flash("Loja não encontrada.", "error")
         return redirect(url_for("admin_lojas"))
 
-    lat, lng = nominatim_geocode(u["endereco2"] or u["endereco"], u["uf"])
+    endereco_geo = u["endereco2"] or u["endereco"]
+    lat, lng = _geo_override(u["endereco"], u["endereco2"], u["uf"])
+    if not lat:
+        lat, lng = nominatim_geocode(endereco_geo, u["uf"])
     if lat:
+        endereco_hash = _endereco_geo_hash(endereco_geo, u["uf"])
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng)
-            VALUES (%s, %s, %s)
+            INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng, endereco_hash)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (cnpjloja) DO UPDATE
-              SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, geocoded_at = NOW()
+              SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, endereco_hash = EXCLUDED.endereco_hash, geocoded_at = NOW()
             """,
-            (cnpjloja, lat, lng),
+            (cnpjloja, lat, lng, endereco_hash),
         )
         conn.commit()
         cur.close()
@@ -10979,33 +11043,42 @@ def admin_geocodificar():
 @app.post("/painel/admin/geocodificar-todos")
 @admin_required
 def admin_geocodificar_todos():
+    _ensure_lojas_geo_address_hash()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT u.cnpjloja, u.endereco, u.endereco2, u.uf
+        SELECT u.cnpjloja, u.endereco, u.endereco2, u.uf, g.endereco_hash, g.lat
         FROM users u
         LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
-        WHERE u.is_admin = FALSE AND (g.lat IS NULL OR g.cnpjloja IS NULL)
-        LIMIT 50
+        WHERE u.is_admin = FALSE
+        LIMIT 300
         """
     )
-    pendentes = cur.fetchall()
+    pendentes = [
+        r for r in cur.fetchall()
+        if not r.get("lat")
+        or r.get("endereco_hash") != _endereco_geo_hash(r.get("endereco2") or r.get("endereco"), r.get("uf"))
+    ][:50]
     cur.close()
 
     ok = fail = 0
     for u in pendentes:
-        lat, lng = nominatim_geocode(u["endereco2"] or u["endereco"], u["uf"])
+        endereco_geo = u["endereco2"] or u["endereco"]
+        lat, lng = _geo_override(u["endereco"], u["endereco2"], u["uf"])
+        if not lat:
+            lat, lng = nominatim_geocode(endereco_geo, u["uf"])
         if lat:
+            endereco_hash = _endereco_geo_hash(endereco_geo, u["uf"])
             cur = conn.cursor()
             cur.execute(
                 """
-                INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng)
-                VALUES (%s, %s, %s)
+                INSERT INTO ecommerce_lojas_geo (cnpjloja, lat, lng, endereco_hash)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (cnpjloja) DO UPDATE
-                  SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, geocoded_at = NOW()
+                  SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, endereco_hash = EXCLUDED.endereco_hash, geocoded_at = NOW()
                 """,
-                (u["cnpjloja"], lat, lng),
+                (u["cnpjloja"], lat, lng, endereco_hash),
             )
             conn.commit()
             cur.close()

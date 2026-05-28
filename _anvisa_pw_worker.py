@@ -211,6 +211,13 @@ _NOME_TARJA_VERMELHA_NORM_RE = re.compile(
     r"|\bLEVOTIROXINA\b|\bMETIMAZOL\b|\bPROPILTIOURACIL\b"
     # Outros comuns de prescricao
     r"|\bALOPURINOL\b|\bCOLCHICINA\b|\bISOSSORBIDA\b|\bNITROGLICERINA\b|\bTRIMETAZIDINA\b"
+    # Corticosteroides sistemicos e topicos de prescricao
+    r"|\bDEXAMETASONA\b|\bDEXAMETAZONA\b|\bPREDNISOLONA\b|\bHIDROCORTISONA\b"
+    r"|\bBETAMETASONA\b|\bMETILPREDNISOLONA\b|\bFLUOCINOLONA\b|\bTRIAMCINOLONA\b"
+    # Imunossupressores e citotoxicos
+    r"|\bAZATIOPRINA\b|\bMETOTREXATO\b|\bCICLOSPORINA\b|\bTACROLIMO\b|\bMICOFENOLATO\b"
+    # Anticoagulante cumarinicos (warfarina nao coberta pelo acenocumarol)
+    r"|\bWARFARINA\b|\bVARFARINA\b"
 )
 
 
@@ -736,6 +743,9 @@ def _buscar(chave, session):
             tarja = "vermelha"
         if tarja is None and _NOME_TARJA_VERMELHA_NORM_RE.search(blob_restricao):
             tarja = "vermelha"
+        # INN definitivamente preta (benzos, opioides, estimulantes) — override qualquer valor anterior
+        if _NOME_TARJA_PRETA_NORM_RE.search(blob_restricao):
+            tarja = "preta"
         restricoes = _restricoes_sanitarias(
             tarja,
             nome=nome,

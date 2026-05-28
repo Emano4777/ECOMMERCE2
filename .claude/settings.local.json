@@ -61,7 +61,9 @@
       "Bash(python -c \"import paramiko; print\\('paramiko ok'\\)\")",
       "Bash(python migrate_sftp_agents.py)",
       "Bash(python fix_paramiko.py)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@162.215.13.255 \"ps aux | grep -E 'python|anvisa|cmed' | grep -v grep\")",
+      "Bash(sshpass -p 'Poupaqui@13' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@162.215.13.255 \"ps aux | grep -E 'python|anvisa|cmed' | grep -v grep; echo '---CRONS---'; crontab -l\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\emano\\dns-ecommerce"

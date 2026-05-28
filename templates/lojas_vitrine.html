@@ -490,7 +490,7 @@ async function _iniciarMapa() {
     clusters.addLayer(marker);
     _mapaMarkerData.push({
       marker: marker,
-      busca: ((loja.cidade || '') + ' ' + (loja.endereco || '')).toLowerCase()
+      busca: ((loja.cidade || '') + ' ' + (loja.apelido || '') + ' ' + (loja.endereco || '')).toLowerCase()
     });
   });
 
