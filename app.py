@@ -11601,6 +11601,11 @@ _CHAVES_OTC_ISENTO = frozenset({
     "BICARBONATO SODIO", "BICARBONATO CALCIO", "CLORETO SODIO", "CLORETO MAGNESIO",
     # Vitaminas OTC — versão injetável/farmacêutica contamina tablets comuns
     "ACIDO ASCORBICO", "ACIDO FOLICO", "VITAMINA", "VITAM",
+    # OTC puros que o CMED/anvisa_sync às vezes tarjam incorretamente
+    "PARACETAMOL", "DIPIRONA", "IBUPROFENO", "ACIDO ACETILSALICILICO",
+    "PANCREATINA", "DIMENTICONE", "SIMETICONA",
+    # Fitoterápicos sem prescrição
+    "VALERIANA", "PASSIFLORA", "PANAX",
     # Chaves genéricas demais
     "NOVA", "FONT", "CARVAO VEGETAL",
     # Marcas cosméticas / higiene cujo nome coincide com entrada ANVISA tarjada
