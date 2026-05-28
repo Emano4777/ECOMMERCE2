@@ -11597,6 +11597,8 @@ _CHAVES_OTC_ISENTO = frozenset({
     "AGUA OXIGENADA", "AGUA BORICADA", "AGUA DESTILADA", "AGUA MELISSA",
     "AGUA", "ALCOOL ETILICO", "ALCOOL GEL", "ALCOOL ANTISSEPTICO", "ALCOOL IODADO",
     "SORO FISIOLOGICO", "ANTISSEPTICO", "CANFORA", "AMONIA",
+    # Compostos que o CMED lista em formulações hospitalares mas vende-se como OTC
+    "BICARBONATO SODIO", "BICARBONATO CALCIO", "CLORETO SODIO", "CLORETO MAGNESIO",
     # Vitaminas OTC — versão injetável/farmacêutica contamina tablets comuns
     "ACIDO ASCORBICO", "ACIDO FOLICO", "VITAMINA", "VITAM",
     # Chaves genéricas demais
@@ -11805,11 +11807,8 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
             produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-            # tarja preta: bloqueia sempre; vermelha: só bloqueia se exibir_imagem_publica=False
-            _bloquear = (
-                tarja == "preta"
-                or (tarja == "vermelha" and row.get("exibir_imagem_publica") is False)
-            )
+            # todo produto tarjado recebe a imagem genérica Poupaqui
+            _bloquear = tarja in ("preta", "vermelha")
             if _bloquear:
                 placeholder = _placeholder_for_tarja(tarja)
                 if placeholder:

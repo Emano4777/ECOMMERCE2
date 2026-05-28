@@ -79,10 +79,10 @@ def _ean_clean(v: object) -> str | None:
 
 
 def _parse_tarja(tarja_raw, cap_raw, hosp_raw) -> tuple[str | None, bool | None]:
-    """Retorna (tarja, exibir_imagem_publica) ou (None, None) quando indefinido."""
-    if _norm(cap_raw) == "SIM":
-        return ("preta", False)
-
+    """Retorna (tarja, exibir_imagem_publica) ou (None, None) quando indefinido.
+    CAP (Componente Especializado) NÃO é tarja preta — são medicamentos de alto custo do SUS.
+    A tarja real vem exclusivamente da coluna TARJA (col 72).
+    """
     key = _norm(tarja_raw)
     pair = _TARJA_MAP.get(key)
     if pair is None:
@@ -109,9 +109,9 @@ def load_excel(path: Path) -> dict[str, dict]:
         total_linhas += 1
 
         tarja, exibir = _parse_tarja(row[72], row[66], row[65])
-        if tarja is None and exibir is None:
+        if tarja is None:
             sem_tarja += 1
-            continue  # '- (*)' — sem classificação definida no CMED
+            continue  # sem tarja definida (indefinido ou "sem tarja") — não altera o cache
 
         eans = [_ean_clean(row[5]), _ean_clean(row[6]), _ean_clean(row[7])]
         eans = list({e for e in eans if e})
@@ -241,46 +241,12 @@ def sync(ean_index: dict, dry_run: bool = False):
     # cache_id → row completa
     cache_by_id = {r["cache_id"]: r for r in cache_rows}
 
-    atualizados = inseridos = ja_ok = sem_match = 0
-    _ops_pendentes = 0
-    _BATCH = 500
-
-    def _commit_batch():
-        nonlocal _ops_pendentes
-        if not dry_run and _ops_pendentes >= _BATCH:
-            conn.commit()
-            _ops_pendentes = 0
-
-    def _aplicar_update(cache_id: int, novo_tarja, novo_exibir, cmed: dict):
-        nonlocal atualizados, ja_ok, _ops_pendentes
-        row = cache_by_id.get(cache_id)
-        if not row:
-            return
-        if row["tarja_atual"] == novo_tarja and row["exibir_atual"] == novo_exibir:
-            ja_ok += 1
-            return
-        if not dry_run:
-            cur.execute("""
-                UPDATE anvisa_cache SET
-                    tarja                 = %s,
-                    exibir_imagem_publica = %s,
-                    encontrado            = TRUE,
-                    nome_anvisa           = COALESCE(nome_anvisa, %s),
-                    principio_ativo       = COALESCE(principio_ativo, %s)
-                WHERE id = %s
-            """, (novo_tarja, novo_exibir,
-                  cmed["produto"][:200] or None,
-                  cmed["substancia"][:200] or None,
-                  cache_id))
-            _ops_pendentes += 1
-            _commit_batch()
-        atualizados += 1
-        log.info("[%s] cache_id=%d chave=%s tarja: %s→%s exibir: %s→%s (%s)",
-                 "DRY" if dry_run else "OK",
-                 cache_id, row["chave"],
-                 row["tarja_atual"], novo_tarja,
-                 row["exibir_atual"], novo_exibir,
-                 cmed["produto"][:40])
+    # Acumula updates: cache_id → (tarja, exibir, produto, substancia)
+    # Resolve conflitos por prioridade (_RANK): preta > vermelha > None
+    pending_updates: dict[int, tuple] = {}
+    # Acumula inserts: chave → (tarja, exibir, produto, substancia)
+    pending_inserts: dict[str, tuple] = {}
+    sem_match = 0
 
     def _nomes_compativeis(nome_estoque: str, cmed_produto: str, cmed_substancia: str) -> bool:
         """True se houver ao menos 1 palavra significativa em comum."""
@@ -291,22 +257,27 @@ def sync(ean_index: dict, dry_run: bool = False):
         cmed_tks = _tks(cmed_produto) | _tks(cmed_substancia)
         return bool(est_tks & cmed_tks)
 
-    # Passo 1: atualiza via EAN direto (medicamentos linkados ao cache)
+    def _registrar_update(cache_id: int, novo_tarja, novo_exibir, cmed: dict):
+        existing = pending_updates.get(cache_id)
+        if existing and _RANK.get(existing[0], 0) >= _RANK.get(novo_tarja, 0):
+            return  # já tem prioridade igual ou maior
+        pending_updates[cache_id] = (novo_tarja, novo_exibir,
+                                     cmed["produto"][:200] or None,
+                                     cmed["substancia"][:200] or None)
+
+    # Passo 1: acumula via EAN direto (medicamentos linkados ao cache)
     for ean_raw, cmed in ean_index.items():
         ean = ean_raw.lstrip("0")
-        cache_ids = ean_to_cache.get(ean, [])
-        for cid in cache_ids:
+        for cid in ean_to_cache.get(ean, []):
             row = cache_by_id.get(cid)
             chave_str = row["chave"] if row else ""
             if not _nomes_compativeis(chave_str, cmed["produto"], cmed["substancia"]):
-                log.warning(
-                    "[SKIP-MISMATCH-P1] chave=%r EAN=%s CMED=%r/%r — nomes incompatíveis",
-                    chave_str, ean, cmed["produto"][:40], cmed["substancia"][:40],
-                )
+                log.warning("[SKIP-MISMATCH-P1] chave=%r EAN=%s CMED=%r/%r",
+                            chave_str, ean, cmed["produto"][:40], cmed["substancia"][:40])
                 continue
-            _aplicar_update(cid, cmed["tarja"], cmed["exibir"], cmed)
+            _registrar_update(cid, cmed["tarja"], cmed["exibir"], cmed)
 
-    # Passo 2: atualiza via EAN do estoque → chave → cache
+    # Passo 2: acumula via EAN do estoque → chave → cache
     for est in estoque_rows:
         ean = (est["ean"] or "").lstrip("0")
         if not ean:
@@ -317,35 +288,18 @@ def sync(ean_index: dict, dry_run: bool = False):
             continue
         nome_est = est["nome"] or ""
         if not _nomes_compativeis(nome_est, cmed["produto"], cmed["substancia"]):
-            log.warning(
-                "[SKIP-MISMATCH] EAN=%s estoque=%r CMED=%r/%r — nomes incompatíveis",
-                ean, nome_est[:40], cmed["produto"][:40], cmed["substancia"][:40],
-            )
+            log.warning("[SKIP-MISMATCH] EAN=%s estoque=%r CMED=%r/%r",
+                        ean, nome_est[:40], cmed["produto"][:40], cmed["substancia"][:40])
             sem_match += 1
             continue
         ch = _chave(nome_est)
         if not ch:
             continue
         for cid in chave_to_cache.get(ch, []):
-            _aplicar_update(cid, cmed["tarja"], cmed["exibir"], cmed)
+            _registrar_update(cid, cmed["tarja"], cmed["exibir"], cmed)
 
-    # Passo 3: insere novas entradas no cache para EANs do estoque sem match no cache ainda
-    # (somente se tiver EAN + tarja definida no CMED)
-    cur.execute("""
-        SELECT DISTINCT
-            LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AS ean,
-            e.descricao AS nome
-        FROM estoque e
-        WHERE COALESCE(e.barras_norm, e.barras) IS NOT NULL
-          AND TRIM(COALESCE(e.barras_norm, e.barras)) <> ''
-        UNION
-        SELECT DISTINCT
-            LTRIM(ae.ean, '0') AS ean,
-            ae.descricao_produto AS nome
-        FROM automatiza_estoque ae
-        WHERE ae.ean IS NOT NULL AND TRIM(ae.ean) <> ''
-    """)
-    for est in cur.fetchall():
+    # Passo 3: acumula inserts (novas chaves sem entrada no cache)
+    for est in estoque_rows:
         ean = (est["ean"] or "").lstrip("0")
         cmed = ean_index.get(ean)
         if not cmed:
@@ -354,16 +308,66 @@ def sync(ean_index: dict, dry_run: bool = False):
         if not _nomes_compativeis(nome_est, cmed["produto"], cmed["substancia"]):
             continue
         ch = _chave(nome_est)
-        if not ch:
+        if not ch or chave_to_cache.get(ch):
             continue
-        if chave_to_cache.get(ch):
-            continue  # já existe no cache — processado no passo 2
-        # Insere nova entrada
+        existing = pending_inserts.get(ch)
+        if not existing or _RANK.get(cmed["tarja"], 0) > _RANK.get(existing[0], 0):
+            pending_inserts[ch] = (cmed["tarja"], cmed["exibir"],
+                                   cmed["produto"][:200] or None,
+                                   cmed["substancia"][:200] or None)
+
+    log.info("Pendentes: %d updates, %d inserts", len(pending_updates), len(pending_inserts))
+
+    # --- Flush updates em lotes ---
+    atualizados = ja_ok = 0
+    _BATCH = 500
+    batch: list[tuple] = []
+
+    def _flush_updates():
+        nonlocal atualizados
+        if not batch:
+            return
         if not dry_run:
-            cur.execute("""
+            psycopg2.extras.execute_batch(cur, """
+                UPDATE anvisa_cache SET
+                    tarja                 = %(tarja)s,
+                    exibir_imagem_publica = %(exibir)s,
+                    encontrado            = TRUE,
+                    nome_anvisa           = COALESCE(nome_anvisa, %(produto)s),
+                    principio_ativo       = COALESCE(principio_ativo, %(substancia)s)
+                WHERE id = %(id)s
+            """, batch, page_size=_BATCH)
+            conn.commit()
+        atualizados += len(batch)
+        batch.clear()
+
+    for cid, (tarja, exibir, produto, substancia) in pending_updates.items():
+        row = cache_by_id.get(cid)
+        if not row:
+            continue
+        if row["tarja_atual"] == tarja and row["exibir_atual"] == exibir:
+            ja_ok += 1
+            continue
+        batch.append({"tarja": tarja, "exibir": exibir,
+                      "produto": produto, "substancia": substancia, "id": cid})
+        if len(batch) >= _BATCH:
+            _flush_updates()
+
+    _flush_updates()
+
+    # --- Flush inserts em lotes ---
+    inseridos = 0
+    ins_batch: list[tuple] = []
+
+    def _flush_inserts():
+        nonlocal inseridos
+        if not ins_batch:
+            return
+        if not dry_run:
+            psycopg2.extras.execute_batch(cur, """
                 INSERT INTO anvisa_cache (chave, encontrado, tarja, exibir_imagem_publica,
                                           nome_anvisa, principio_ativo)
-                VALUES (%s, TRUE, %s, %s, %s, %s)
+                VALUES (%(chave)s, TRUE, %(tarja)s, %(exibir)s, %(produto)s, %(substancia)s)
                 ON CONFLICT (chave) DO UPDATE SET
                     tarja                 = EXCLUDED.tarja,
                     exibir_imagem_publica = EXCLUDED.exibir_imagem_publica,
@@ -371,21 +375,18 @@ def sync(ean_index: dict, dry_run: bool = False):
                     nome_anvisa           = COALESCE(anvisa_cache.nome_anvisa, EXCLUDED.nome_anvisa),
                     principio_ativo       = COALESCE(anvisa_cache.principio_ativo, EXCLUDED.principio_ativo)
                 WHERE anvisa_cache.tarja IS NULL
-            """, (ch, cmed["tarja"], cmed["exibir"],
-                  cmed["produto"][:200] or None,
-                  cmed["substancia"][:200] or None))
-            if cur.rowcount > 0:
-                chave_to_cache[ch].append(-1)  # marca como inserido
-                inseridos += 1
-                _ops_pendentes += 1
-                _commit_batch()
-                log.info("[INSERT] chave=%s ean=%s tarja=%s (%s)",
-                         ch, ean, cmed["tarja"], cmed["produto"][:40])
-        else:
-            inseridos += 1
+            """, ins_batch, page_size=_BATCH)
+            conn.commit()
+        inseridos += len(ins_batch)
+        ins_batch.clear()
 
-    if not dry_run:
-        conn.commit()  # commit final do restante
+    for ch, (tarja, exibir, produto, substancia) in pending_inserts.items():
+        ins_batch.append({"chave": ch, "tarja": tarja, "exibir": exibir,
+                          "produto": produto, "substancia": substancia})
+        if len(ins_batch) >= _BATCH:
+            _flush_inserts()
+
+    _flush_inserts()
 
     cur.execute("""
         SELECT
