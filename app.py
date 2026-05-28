@@ -2145,6 +2145,9 @@ _image_fill_inflight = set()
 _batch_cache: dict = {}
 _batch_cache_lock = threading.Lock()
 _BATCH_CACHE_TTL = 300  # 5 minutos
+_catalogo_loja_cache: dict = {}
+_catalogo_loja_cache_lock = threading.Lock()
+_CATALOGO_LOJA_CACHE_TTL = 300
 
 
 def _batch_cache_get(key: tuple):
@@ -2166,6 +2169,24 @@ def _batch_cache_set(key: tuple, data: list):
 def _batch_cache_clear():
     with _batch_cache_lock:
         _batch_cache.clear()
+    with _catalogo_loja_cache_lock:
+        _catalogo_loja_cache.clear()
+
+
+def _catalogo_loja_cache_get(key: tuple):
+    with _catalogo_loja_cache_lock:
+        e = _catalogo_loja_cache.get(key)
+        if e and time.time() - e["ts"] < _CATALOGO_LOJA_CACHE_TTL:
+            return e["data"]
+    return None
+
+
+def _catalogo_loja_cache_set(key: tuple, data: list):
+    with _catalogo_loja_cache_lock:
+        if len(_catalogo_loja_cache) >= 50:
+            oldest = min(_catalogo_loja_cache, key=lambda k: _catalogo_loja_cache[k]["ts"])
+            del _catalogo_loja_cache[oldest]
+        _catalogo_loja_cache[key] = {"data": data, "ts": time.time()}
 
 
 def _first_valid_url(*values):
@@ -2656,7 +2677,49 @@ def _catalog_product_key(nome):
     return text or ""
 
 
+def _prefer_display_product(current, produto):
+    cur_img = bool((current.get("imagem") or "").strip())
+    new_img = bool((produto.get("imagem") or "").strip())
+    cur_dist = current.get("distancia_km")
+    new_dist = produto.get("distancia_km")
+    if new_img and not cur_img:
+        return True
+    if new_img != cur_img:
+        return False
+    cur_placeholder = bool(current.get("imagem_padrao_poupaqui"))
+    new_placeholder = bool(produto.get("imagem_padrao_poupaqui"))
+    if cur_placeholder and not new_placeholder:
+        return True
+    if new_placeholder and not cur_placeholder:
+        return False
+    if new_dist is not None and (cur_dist is None or new_dist < cur_dist):
+        return True
+    if new_dist == cur_dist:
+        try:
+            return float(produto.get("preco") or 0) < float(current.get("preco") or 0)
+        except Exception:
+            return False
+    return False
+
+
+def _dedupe_products_by_store_ean(produtos):
+    best = {}
+    no_ean = []
+    for produto in produtos:
+        ean_key = _digits(produto.get("ean"))
+        if not ean_key:
+            no_ean.append(produto)
+            continue
+        store_key = _digits(produto.get("cnpjloja")) or (produto.get("cnpjloja") or "").strip()
+        key = (store_key, ean_key)
+        current = best.get(key)
+        if current is None or _prefer_display_product(current, produto):
+            best[key] = produto
+    return list(best.values()) + no_ean
+
+
 def _dedupe_products_for_display(produtos):
+    produtos = _dedupe_products_by_store_ean(produtos)
     best = {}
     for produto in produtos:
         product_key = _catalog_product_key(produto.get("nome") or "") or (produto.get("ean") or "").strip()
@@ -2668,22 +2731,7 @@ def _dedupe_products_for_display(produtos):
         if current is None:
             best[key] = produto
             continue
-        cur_img = bool((current.get("imagem") or "").strip())
-        new_img = bool((produto.get("imagem") or "").strip())
-        cur_dist = current.get("distancia_km")
-        new_dist = produto.get("distancia_km")
-        replace = False
-        if new_img and not cur_img:
-            replace = True
-        elif new_img == cur_img:
-            if new_dist is not None and (cur_dist is None or new_dist < cur_dist):
-                replace = True
-            elif new_dist == cur_dist:
-                try:
-                    replace = float(produto.get("preco") or 0) < float(current.get("preco") or 0)
-                except Exception:
-                    replace = False
-        if replace:
+        if _prefer_display_product(current, produto):
             best[key] = produto
     return list(best.values())
 
@@ -2889,7 +2937,8 @@ def _ocr_image_text(image_url):
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=20) as r:
+        timeout = float(os.getenv("OCR_SPACE_TIMEOUT", "2"))
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8", "ignore"))
         text = " ".join(
             (item.get("ParsedText") or "")
@@ -3203,6 +3252,11 @@ def _has_catalog_image(produto):
         tarja = (produto.get("tarja") or "").strip().lower()
         if tarja in ("vermelha", "preta"):
             return True
+        # exibir=False confirma produto tarjado mesmo sem tarja explícita
+        if produto.get("exibir_imagem_publica") is False:
+            return True
+        if produto.get("imagem_bloqueada_anvisa"):
+            return True
         if _is_generic_product(produto.get("nome") or ""):
             return True
         return False
@@ -3225,7 +3279,7 @@ def _split_catalog_image_status(produtos):
     return publicados, bloqueados
 
 
-def _apply_safe_catalog_images(produtos, cur=None):
+def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
     if not produtos:
         return produtos
     eans = sorted({_digits(p.get("ean")) for p in produtos if _digits(p.get("ean"))})
@@ -3264,13 +3318,15 @@ def _apply_safe_catalog_images(produtos, cur=None):
     _cosmos_by_ean: dict = {}
     if _sem_img_eans:
         try:
-            _cc = db().cursor()
+            _own_cosmos_cur = cur is None
+            _cc = db().cursor() if _own_cosmos_cur else cur
             _cc.execute(
                 "SELECT ean, imagem_cosmos FROM produto_canon WHERE ean = ANY(%s) AND imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''",
                 (_sem_img_eans,),
             )
             _cosmos_by_ean = {r["ean"]: r["imagem_cosmos"] for r in _cc.fetchall()}
-            _cc.close()
+            if _own_cosmos_cur:
+                _cc.close()
         except Exception:
             pass
 
@@ -3317,7 +3373,7 @@ def _apply_safe_catalog_images(produtos, cur=None):
                 to_persist.append((cnpj, ean, placeholder))
 
     # Persiste placeholders em lote para que requisições futuras os encontrem via JOIN direto
-    if to_persist:
+    if persist_placeholders and to_persist:
         try:
             conn2 = _new_conn()
             wc = conn2.cursor()
@@ -3336,7 +3392,7 @@ def _apply_safe_catalog_images(produtos, cur=None):
             pass
 
     # Remove placeholders de medicamento indevidamente salvos para produtos não-medicamento
-    if to_cleanup:
+    if persist_placeholders and to_cleanup:
         try:
             conn3 = _new_conn()
             wc3 = conn3.cursor()
@@ -3395,6 +3451,11 @@ _IMAGEM_FILTER_ALPHA = """AND (
                     OR id IN (SELECT medicamento_id FROM medicamentos_imagens
                               WHERE cloudinary_url IS NOT NULL)
                   )
+            )
+            OR COALESCE(e.barras_norm, e.barras) IN (
+                SELECT ean FROM produto_canon
+                WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
                 SELECT 1
@@ -3465,6 +3526,11 @@ _IMAGEM_FILTER_AUTO = """AND (
                               WHERE cloudinary_url IS NOT NULL)
                   )
             )
+            OR ae.ean IN (
+                SELECT ean FROM produto_canon
+                WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND fonte NOT IN ('cosmos_miss', 'ia_miss')
+            )
             OR EXISTS (
                 SELECT 1
                 FROM ecommerce_produto_imagens epi0
@@ -3522,12 +3588,144 @@ _SQL_AUTO = """
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
 """
 
+_SQL_ALPHA_FAST = """
+    WITH eligible AS (
+        SELECT
+            e.barras,
+            e.cnpj                            AS cnpjloja,
+            COALESCE(e.barras_norm, e.barras) AS ean_join,
+            e.descricao,
+            CAST(e.estoque AS INTEGER)        AS qty,
+            e.preco_referencial,
+            e.custo_medio
+        FROM estoque e
+        WHERE e.cnpj = %s AND e.estoque > 0 {busca}
+          {imagem_filter}
+        ORDER BY e.descricao
+        LIMIT {limite}
+    )
+    SELECT
+        el.barras                                                            AS ean,
+        COALESCE(m.descricao, pc.descricao_canon, el.descricao)             AS nome,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
+        m.marca                                                              AS marca,
+        el.qty,
+        el.preco_referencial                                                  AS preco_ref,
+        ep.preco_customizado                                                  AS preco_custom,
+        COALESCE(ep.preco_customizado, el.preco_referencial)                 AS preco,
+        el.custo_medio                                                        AS custo,
+        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
+        'alpha'                                                               AS fonte_estoque
+    FROM eligible el
+    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
+    LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
+    LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
+    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
+"""
 
-def get_dns_products(cnpjloja, q=None, include_hidden=False, skip_image_filter=False):
+_SQL_AUTO_FAST = """
+    WITH eligible AS (
+        SELECT
+            ae.ean,
+            ae.cnpj_loja                          AS cnpjloja,
+            ae.descricao_produto,
+            CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+            ae.valor_final_produto,
+            ae.custo
+        FROM automatiza_estoque ae
+        WHERE ae.cnpj_loja = %s AND ae.quantidade_estoque > 0 {busca}
+          {imagem_filter}
+        ORDER BY ae.descricao_produto
+        LIMIT {limite}
+    )
+    SELECT
+        el.ean,
+        COALESCE(m.descricao, pc.descricao_canon, el.descricao_produto)           AS nome,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)                 AS laboratorio,
+        m.marca                                                                   AS marca,
+        el.qty,
+        el.valor_final_produto                                                     AS preco_ref,
+        ep.preco_customizado                                                       AS preco_custom,
+        COALESCE(ep.preco_customizado, el.valor_final_produto)                    AS preco,
+        el.custo,
+        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
+        'auto'                                                                     AS fonte_estoque
+    FROM eligible el
+    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
+    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
+"""
+
+
+def _apply_latest_sales_prices(produtos, cnpjloja, cur):
+    alpha_eans = [p["ean"] for p in produtos if p.get("ean") and p.get("fonte_estoque") == "alpha" and p.get("preco_custom") is None]
+    auto_eans = [p["ean"] for p in produtos if p.get("ean") and p.get("fonte_estoque") == "auto" and p.get("preco_custom") is None]
+
+    alpha_prices = {}
+    if alpha_eans:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (ean)
+                   ean, ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+            FROM vendageral
+            WHERE cnpj = %s
+              AND ean = ANY(%s)
+              AND total_vendasgeral > 0
+              AND itens > 0
+            ORDER BY ean, id DESC
+            """,
+            (cnpjloja, alpha_eans),
+        )
+        alpha_prices = {r["ean"]: r["preco_venda"] for r in cur.fetchall() if r.get("preco_venda") is not None}
+
+    auto_prices = {}
+    if auto_eans:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (ean)
+                   ean, ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
+            FROM automatiza_vendas
+            WHERE cnpj_loja = %s
+              AND ean = ANY(%s)
+              AND valor_final_vendido > 0
+              AND quantidade_vendida > 0
+            ORDER BY ean, id DESC
+            """,
+            (cnpjloja, auto_eans),
+        )
+        auto_prices = {r["ean"]: r["preco_venda"] for r in cur.fetchall() if r.get("preco_venda") is not None}
+
+    for produto in produtos:
+        if produto.get("preco_custom") is not None:
+            continue
+        ean = produto.get("ean")
+        preco_venda = alpha_prices.get(ean) if produto.get("fonte_estoque") == "alpha" else auto_prices.get(ean)
+        if preco_venda is not None:
+            produto["preco_ref"] = preco_venda
+            produto["preco"] = preco_venda
+
+
+def get_dns_products(
+    cnpjloja,
+    q=None,
+    include_hidden=False,
+    skip_image_filter=False,
+    schedule_fill=True,
+    persist_image_updates=True,
+    ensure_anvisa_schema=True,
+    ensure_precificador_schema=True,
+    batch_sales_prices=False,
+):
     conn = db()
     cur = conn.cursor()
 
-    _ensure_precificador_schema()
+    if ensure_precificador_schema:
+        _ensure_precificador_schema()
 
     # EANs ocultos por esta loja
     cur.execute("SELECT ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = %s", (cnpjloja,))
@@ -3552,10 +3750,13 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False, skip_image_filter=F
         imagem_auto  = _IMAGEM_FILTER_AUTO
         limite = 300
 
-    cur.execute(_SQL_ALPHA.format(busca=busca_alpha, imagem_filter=imagem_alpha, limite=limite), args_alpha)
+    sql_alpha = _SQL_ALPHA_FAST if batch_sales_prices else _SQL_ALPHA
+    sql_auto = _SQL_AUTO_FAST if batch_sales_prices else _SQL_AUTO
+
+    cur.execute(sql_alpha.format(busca=busca_alpha, imagem_filter=imagem_alpha, limite=limite), args_alpha)
     alpha = cur.fetchall()
 
-    cur.execute(_SQL_AUTO.format(busca=busca_auto, imagem_filter=imagem_auto, limite=limite), args_auto)
+    cur.execute(sql_auto.format(busca=busca_auto, imagem_filter=imagem_auto, limite=limite), args_auto)
     auto = cur.fetchall()
 
     seen, combined = set(), []
@@ -3567,6 +3768,9 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False, skip_image_filter=F
             d["is_extra"] = False
             d["oculto"] = ean in ocultos
             combined.append(d)
+
+    if batch_sales_prices:
+        _apply_latest_sales_prices(combined, cnpjloja, cur)
 
     # Produtos extras incluídos manualmente pela loja
     cur.execute("SELECT ean FROM ecommerce_catalogo_extra WHERE cnpjloja = %s", (cnpjloja,))
@@ -3643,11 +3847,19 @@ def get_dns_products(cnpjloja, q=None, include_hidden=False, skip_image_filter=F
                     d["oculto"] = False
                     combined.append(d)
 
-    _apply_safe_catalog_images(combined, cur=cur)
-    _marcar_tarja_batch(combined, cur.connection)
+    _apply_safe_catalog_images(combined, cur=cur, persist_placeholders=persist_image_updates)
+    _marcar_tarja_batch(combined, cur.connection, ensure_schema=ensure_anvisa_schema)
+    # Remove imagens de farmácias concorrentes que escaparam dos filtros anteriores
+    for _p in combined:
+        _img = (_p.get("imagem") or "").strip()
+        if _img and _looks_like_other_pharmacy_brand(_img):
+            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+            _p["imagem_padrao_poupaqui"] = True
+            _p["imagem_bloqueada_anvisa"] = True
     combined = _dedupe_products_for_display(combined)
     cur.close()
-    _schedule_fill_images(combined, cnpjloja=cnpjloja)
+    if schedule_fill:
+        _schedule_fill_images(combined, cnpjloja=cnpjloja)
     return sorted(combined, key=lambda x: (x.get("nome") or "").lower())
 
 
@@ -3910,6 +4122,12 @@ def get_dns_products_batch(cnpjs):
 
     _apply_safe_catalog_images(combined, cur=cur)
     _marcar_tarja_batch(combined, conn)
+    for _p in combined:
+        _img = (_p.get("imagem") or "").strip()
+        if _img and _looks_like_other_pharmacy_brand(_img):
+            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+            _p["imagem_padrao_poupaqui"] = True
+            _p["imagem_bloqueada_anvisa"] = True
     cur.close()
     try:
         conn.close()
@@ -4022,6 +4240,12 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         conn2.close()
     except Exception:
         pass
+    for _p in rows:
+        _img = (_p.get("imagem") or "").strip()
+        if _img and _looks_like_other_pharmacy_brand(_img):
+            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+            _p["imagem_padrao_poupaqui"] = True
+            _p["imagem_bloqueada_anvisa"] = True
     _attach_product_promos(rows)
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
@@ -5149,29 +5373,20 @@ def api_produtos_proximos():
             if not extra_lookup_terms:
                 extra_lookup_terms = search_terms[1:2]
         seen_search = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
-        if index_eans and not produtos_raw:
-            try:
-                for p in get_dns_products_batch_by_eans(cnpjs, index_eans[:80]):
-                    key = (p.get("cnpjloja"), p.get("ean"))
-                    if key in seen_search:
-                        continue
-                    produtos_raw.append(p)
-                    seen_search.add(key)
-            except Exception:
-                pass
-        if not index_eans:
-            for cnpj in cnpjs[:8]:
-                for term in extra_lookup_terms:
-                    try:
-                        for p in get_dns_products(cnpj, term)[:80]:
-                            key = (p.get("cnpjloja") or cnpj, p.get("ean"))
-                            if key in seen_search:
-                                continue
-                            p = {**p, "cnpjloja": cnpj}
-                            produtos_raw.append(p)
-                            seen_search.add(key)
-                    except Exception:
-                        continue
+        # Sempre complementa com busca por nome — o índice de sintomas cobre sintomas/INN
+        # mas não cobre todos os nomes comerciais presentes no estoque de cada loja.
+        for cnpj in cnpjs[:8]:
+            for term in extra_lookup_terms:
+                try:
+                    for p in get_dns_products(cnpj, term)[:80]:
+                        key = (p.get("cnpjloja") or cnpj, p.get("ean"))
+                        if key in seen_search:
+                            continue
+                        p = {**p, "cnpjloja": cnpj}
+                        produtos_raw.append(p)
+                        seen_search.add(key)
+                except Exception:
+                    continue
 
     # Deduplica por EAN: mantém da farmácia mais próxima
     produtos_view = []
@@ -9961,13 +10176,13 @@ def painel_produto_imagem(ean):
     )
     conn.commit()
     cur.close()
+    _batch_cache_clear()
     flash("Imagem do produto atualizada.", "success")
     return redirect(url_for("precificador"))
 
 
 @app.get("/loja/<cnpjloja>")
 def catalogo_loja(cnpjloja):
-    _ensure_catalog_admin_schema()
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -9995,9 +10210,28 @@ def catalogo_loja(cnpjloja):
     if loja.get("catalogo_publico") is False:
         produtos = []
     else:
-        produtos = get_dns_products(cnpjloja, q or None)
+        cache_key = ("catalogo_loja", cnpjloja, q)
+        produtos = _catalogo_loja_cache_get(cache_key)
+        if produtos is None:
+            # A vitrine precisa aplicar a mesma regra do precificador: buscar o
+            # estoque completo, normalizar/preencher imagens seguras e só depois
+            # remover o que ainda ficou sem imagem publicável. No caminho público
+            # não disparamos o worker de imagens para não segurar a resposta.
+            produtos = get_dns_products(
+                cnpjloja,
+                q or None,
+                skip_image_filter=True,
+                schedule_fill=False,
+                persist_image_updates=False,
+                ensure_anvisa_schema=False,
+                ensure_precificador_schema=False,
+                batch_sales_prices=True,
+            )
+            produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
+            _catalogo_loja_cache_set(cache_key, produtos)
 
-    produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
+    if loja.get("catalogo_publico") is False:
+        produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
     # Plano de assinatura da loja (se ativo)
     plano_assinatura = None
@@ -10367,6 +10601,8 @@ def precificador_salvar():
 
     conn.commit()
     cur.close()
+    if saved:
+        _batch_cache_clear()
     flash(f"{saved} preço(s) atualizado(s).", "success")
     return redirect(url_for("precificador"))
 
@@ -10387,6 +10623,7 @@ def precificador_ocultar():
     )
     conn.commit()
     cur.close()
+    _batch_cache_clear()
     return jsonify({"ok": True})
 
 
@@ -10406,6 +10643,7 @@ def precificador_restaurar():
     )
     conn.commit()
     cur.close()
+    _batch_cache_clear()
     return jsonify({"ok": True})
 
 
@@ -11401,9 +11639,11 @@ def health():
 # Fluxo:
 #   1. Admin clica "Sincronizar ANVISA" → POST /painel/admin/anvisa-sync
 #   2. Worker em thread busca todos os produtos em estoque na ANVISA (lote)
-#   3. Salva em anvisa_cache (TTL 90 dias)
+#   3. Salva em anvisa_cache (TTL longo; evita reprocessar massa ANVISA)
 #   4. produto_detalhe lê do cache → passa var `anvisa` ao template
 #   5. /bula/<chave> faz proxy do PDF com Authorization: Guest
+
+ANVISA_CACHE_TTL_DAYS = int(os.getenv("ANVISA_CACHE_TTL_DAYS", "3650"))
 
 _TIPO_PERFUMARIA = re.compile(
     r"\b(sabonete|shampoo|condicionador|creme.capilar|mascara.capilar|oleo.capilar|anticaspa|"
@@ -11660,6 +11900,21 @@ _MARCA_TO_INN = {
     "KAOSEC":       "LOPERAMIDA",
     # Variação de grafia INN
     "LORATADIN":    "LORATADINA",
+    # Antiemético / cinetose
+    "DRAMIN":       "DIMENIDRINATO",
+    # Antineoplásico
+    "TAMISA":       "TAMOXIFENO",
+    # Antidiabético (gliptina)
+    "NESINA":       "ALOGLIPTINA",
+    # Anticoncepcionais
+    "NEOVLAR":      "NORGESTREL",
+    "FOLDAN":       "NORGESTREL",
+    # Antipsicótico
+    "NEOZINE":      "LEVOMEPROMAZINA",
+    # Estrogênio TRH
+    "SYSTEN":       "ESTRADIOL",
+    # Anti-histamínico
+    "AVIANT":       "BILASTINA",
 }
 
 # Chaves cujo lookup no anvisa_cache deve ser ignorado tanto na escrita (csv/bulário)
@@ -11691,6 +11946,11 @@ _CHAVES_OTC_ISENTO = frozenset({
     "VICHY", "VICHY LIFTACTIV",
     "NEUTROGENA", "NEUTROGENA HIDRATANTE",
     "NIVEA", "NIVEA HIDRATANTE",
+    # Suplementos/proteínas — falso positivo com Ultracet (tramadol+paracetamol)
+    "GOOD ULTRA", "GOOD GLUTAMINA", "GOOD PLUS",
+    # Linha capilar — falso positivo com fitoterápicos ANVISA
+    "TRUFA MARACUJA", "TRUFA MENTA", "TRUFA BRANCO", "TRUFA CEREJA",
+    "TRUFA KIDS", "TRUFA LACREME", "TRUFA LEITE", "TRUFA MEZZO", "TRUFA TRADICIONAL",
 })
 
 
@@ -11798,7 +12058,10 @@ _NOME_RECEITA_RETIDA_RE = re.compile(
     r"|\bparoxetina\b|\bvenlafaxina\b|\bdesvenlafaxina\b|\bduloxetina\b"
     r"|\bamitriptilina\b|\bnortriptilina\b|\bimipramina\b"
     r"|\bcarbamazepina\b|\bfenitoina\b|\bvalproato\b|\btopiramate?\b|\blamotrigina\b"
-    r"|\bcodeina\b",
+    r"|\bcodeina\b"
+    # Contraceptivos hormonais: tarja vermelha com prescrição.
+    r"|\blevonorgestrel\b|\betinilestradiol\b|\bdesogestrel\b|\bgestodeno\b"
+    r"|\bnoretisterona\b|\bdrospirenona\b|\bclormadinona\b|\bdienogeste\b",
     re.IGNORECASE,
 )
 
@@ -11838,14 +12101,15 @@ def _exige_receita_digital_entrega(anvisa: dict | None, nome: str = "") -> bool:
     return bool(_RECEITA_RETENCAO_RE.search(textos) or _NOME_RECEITA_RETIDA_RE.search(nome or textos))
 
 
-def _marcar_tarja_batch(produtos: list, conn) -> list:
+def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
     """Adiciona requer_receita=True/False a cada produto da lista (in-place + retorna)."""
     if not produtos:
         return produtos
-    try:
-        _anvisa_schema()
-    except Exception:
-        pass
+    if ensure_schema:
+        try:
+            _anvisa_schema()
+        except Exception:
+            pass
     nomes = [p.get("nome") or "" for p in produtos]
 
     chaves_map: dict[str, list[int]] = {}
@@ -11885,10 +12149,17 @@ def _marcar_tarja_batch(produtos: list, conn) -> list:
             produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-            # todo produto tarjado recebe a imagem genérica Poupaqui
-            _bloquear = tarja in ("preta", "vermelha")
+            # Produto tarjado ou marcado como nao-exibivel recebe imagem Poupaqui
+            _nao_exibir = row.get("exibir_imagem_publica") is False
+            _bloquear = tarja in ("preta", "vermelha") or _nao_exibir
+            # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
+            _imagem_atual = (produtos[idx].get("imagem") or "").strip()
+            if not _bloquear and _imagem_atual and _looks_like_other_pharmacy_brand(_imagem_atual):
+                _bloquear = True
             if _bloquear:
-                placeholder = _placeholder_for_tarja(tarja)
+                # Se tarja nao definida mas imagem bloqueada, usa vermelha como padrao
+                tarja_placeholder = tarja if tarja in ("preta", "vermelha") else "vermelha"
+                placeholder = _placeholder_for_tarja(tarja_placeholder)
                 if placeholder:
                     produtos[idx]["imagem"] = placeholder
                     produtos[idx]["imagem_padrao_poupaqui"] = True
@@ -12040,7 +12311,7 @@ def _anvisa_salvar(chave, dados):
 
 @app.get("/api/anvisa-info")
 def api_anvisa_info():
-    """Return ANVISA product info by product name. Uses 30-day cache."""
+    """Return ANVISA product info by product name. Uses long-lived cache."""
     _anvisa_schema()
     nome = (request.args.get("nome") or "").strip()
     if len(nome) < 3:
@@ -12053,8 +12324,8 @@ def api_anvisa_info():
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT * FROM anvisa_cache WHERE chave=%s AND criado_em > NOW() - INTERVAL '30 days'",
-        (chave,),
+        "SELECT * FROM anvisa_cache WHERE chave=%s AND criado_em > NOW() - (%s || ' days')::interval",
+        (chave, ANVISA_CACHE_TTL_DAYS),
     )
     cached = cur.fetchone()
     cur.close()
@@ -12230,10 +12501,13 @@ def _anvisa_sync_worker(nomes: list):
 
     worker_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_anvisa_pw_worker.py")
 
-    # Filtra chaves já no cache (90 dias)
+    # Filtra chaves já no cache dentro do TTL configurado.
     try:
         conn = db(); cur = conn.cursor()
-        cur.execute("SELECT chave FROM anvisa_cache WHERE criado_em >= DATE_TRUNC('year', NOW())")
+        cur.execute(
+            "SELECT chave FROM anvisa_cache WHERE criado_em >= NOW() - (%s || ' days')::interval",
+            (ANVISA_CACHE_TTL_DAYS,),
+        )
         cached = {r["chave"] for r in cur.fetchall()}
         cur.close()
     except Exception:

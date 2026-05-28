@@ -23,6 +23,7 @@ import psycopg2.extras
 
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+ANVISA_CACHE_TTL_DAYS = int(os.getenv("ANVISA_CACHE_TTL_DAYS", "3650"))
 
 GENERIC_TARJA_VERMELHA_IMG = "https://res.cloudinary.com/dizfq460q/image/upload/v1778783063/CAIXA_GEN%C3%89RICO_-_POUPAQUI_itiyth.jpg"
 GENERIC_TARJA_PRETA_IMG = "https://res.cloudinary.com/dizfq460q/image/upload/v1778783450/ChatGPT_Image_14_de_mai._de_2026_15_30_35_wuovpb.png"
@@ -156,6 +157,21 @@ _MARCA_TO_INN = {
     "KAOSEC":       "LOPERAMIDA",              # loperamida 2mg (Pharmascience)
     # Variação de nome INN no estoque (sem 'A' final)
     "LORATADIN":    "LORATADINA",              # loratadina (variação de grafia no estoque)
+    # Antiemético / cinetose
+    "DRAMIN":       "DIMENIDRINATO",           # dimenidrinato (J&J/Bayer) — tarja vermelha
+    # Antineoplásico (tamoxifeno)
+    "TAMISA":       "TAMOXIFENO",              # citrato de tamoxifeno (EMS) — tarja vermelha, retenção
+    # Antidiabético (gliptina)
+    "NESINA":       "ALOGLIPTINA",             # alogliptina 25mg (Takeda) — tarja vermelha
+    # Anticoncepcionais orais
+    "NEOVLAR":      "NORGESTREL",              # norgestrel + etinilestradiol (Bayer) — tarja vermelha
+    "FOLDAN":       "NORGESTREL",              # norgestrel + etinilestradiol (EMS) — tarja vermelha
+    # Antipsicótico
+    "NEOZINE":      "LEVOMEPROMAZINA",         # levomepromazina (Sanofi) — tarja preta
+    # Estrogênio TRH
+    "SYSTEN":       "ESTRADIOL",               # estradiol transdérmico (Janssen) — tarja vermelha
+    # Anti-histamínico de 3ª geração (prescricao)
+    "AVIANT":       "BILASTINA",               # bilastina 20mg (Eurofarma) — tarja vermelha
 }
 
 # Chaves OTC que NÃO devem ser sobrescritas pelo bulário.
@@ -176,7 +192,107 @@ _CHAVES_OTC_ISENTO = frozenset({
     "VICHY", "VICHY LIFTACTIV",
     "NEUTROGENA", "NEUTROGENA HIDRATANTE",
     "NIVEA", "NIVEA HIDRATANTE",
+    # Linha de suplementos/proteínas — falso positivo com Ultracet (tramadol+paracetamol)
+    "GOOD ULTRA", "GOOD GLUTAMINA", "GOOD PLUS",
+    # Linha capilar — falso positivo com fitoterápicos ANVISA
+    "TRUFA MARACUJA", "TRUFA MENTA", "TRUFA BRANCO", "TRUFA CEREJA",
+    "TRUFA KIDS", "TRUFA LACREME", "TRUFA LEITE", "TRUFA MEZZO", "TRUFA TRADICIONAL",
 })
+
+
+# ─── Regex para inferência de tarja a partir dos textos do anvisa_cache ───────
+_TARJA_PRETA_RE = re.compile(
+    r"notifica[cç][aã]o\s+de\s+receita\s+[ab]"
+    r"|\blista\s+[AB]\d?\b"
+    r"|tarja\s+preta",
+    re.IGNORECASE,
+)
+_TARJA_VERMELHA_RE = re.compile(
+    r"venda\s+sob\s+prescri[cç][aã]o\s+m[eé]dica"
+    r"|uso\s+sob\s+prescri[cç][aã]o\s+m[eé]dica"
+    r"|somente\s+(?:com|sob)\s+prescri[cç][aã]o"
+    r"|tarja\s+vermelha"
+    r"|medicamento\s+sujeito\s+a\s+prescri[cç][aã]o"
+    r"|receita\s+de\s+controle\s+especial"
+    r"|controle\s+especial",
+    re.IGNORECASE,
+)
+_NOME_RECEITA_RE = re.compile(
+    r"\bamoxicilina\b|\bampicilina\b|\bcefalexina\b|\bcefadroxila\b|\bcefaclor\b"
+    r"|\bazitromicina\b|\bclaritromicina\b|\beritromicina\b"
+    r"|\bciprofloxacino\b|\blevofloxacino\b|\bnorfloxacino\b|\bofloxacino\b"
+    r"|\bmetronidazol\b|\btinidazol\b|\bsulfametoxazol\b|\btrimetoprim\b"
+    r"|\btetraciclina\b|\bdoxiciclina\b|\bminociclina\b"
+    r"|\bfluoxetina\b|\bsertralina\b|\bescitalopram\b|\bcitalopram\b"
+    r"|\bparoxetina\b|\bvenlafaxina\b|\bdesvenlafaxina\b|\bduloxetina\b"
+    r"|\bamitriptilina\b|\bnortriptilina\b|\bimipramina\b"
+    r"|\bcarbamazepina\b|\bfenitoina\b|\bvalproato\b|\btopiramate?\b|\blamotrigina\b"
+    r"|\bcodeina\b"
+    r"|\blevonorgestrel\b|\betinilestradiol\b|\bdesogestrel\b|\bgestodeno\b"
+    r"|\bnoretisterona\b|\bdrospirenona\b|\bclormadinona\b|\bdienogeste\b",
+    re.IGNORECASE,
+)
+
+
+def _inferir_tarja_dos_textos(chaves=None, apply=True):
+    """Preenche tarja NULL no anvisa_cache usando os campos de texto já salvos.
+
+    Não consulta API externa — usa apenas o que já está no banco.
+    Seguro chamar a qualquer momento (idempotente).
+    """
+    conn = _db()
+    cur = conn.cursor()
+
+    if chaves:
+        cur.execute("""
+            SELECT chave, tarja, nome_anvisa, principio_ativo,
+                   alertas, como_usar, dizeres_receita, dizeres_imagem
+            FROM anvisa_cache
+            WHERE encontrado = TRUE
+              AND (tarja IS NULL OR TRIM(tarja) = '')
+              AND chave = ANY(%s)
+        """, (list(chaves),))
+    else:
+        cur.execute("""
+            SELECT chave, tarja, nome_anvisa, principio_ativo,
+                   alertas, como_usar, dizeres_receita, dizeres_imagem
+            FROM anvisa_cache
+            WHERE encontrado = TRUE
+              AND (tarja IS NULL OR TRIM(tarja) = '')
+        """)
+
+    rows = [dict(r) for r in cur.fetchall()]
+    atualizados = 0
+
+    for row in rows:
+        blob = " ".join(str(row.get(k) or "") for k in (
+            "nome_anvisa", "principio_ativo",
+            "alertas", "como_usar", "dizeres_receita", "dizeres_imagem",
+        ))
+        tarja = None
+        if _TARJA_PRETA_RE.search(blob):
+            tarja = "preta"
+        elif (
+            _TARJA_VERMELHA_RE.search(blob)
+            or _NOME_RECEITA_RE.search(blob)
+        ):
+            tarja = "vermelha"
+
+        if tarja:
+            print(f"  [inferir tarja] {row['chave']}: NULL → {tarja}")
+            if apply:
+                cur.execute(
+                    "UPDATE anvisa_cache SET tarja = %s WHERE chave = %s",
+                    (tarja, row["chave"]),
+                )
+            atualizados += 1
+
+    if apply and atualizados:
+        conn.commit()
+
+    cur.close()
+    conn.close()
+    return atualizados
 
 
 def _chave(nome):
@@ -518,6 +634,8 @@ def main():
                     help="Quantidade de resultados ANVISA para salvar por commit (padrao: 40)")
     ap.add_argument("--sem-imagens", action="store_true",
                     help="Nao grava placeholders no catalogo ao final")
+    ap.add_argument("--preencher-nulos", action="store_true",
+                    help="Preenche tarja NULL usando campos de texto do anvisa_cache (sem consulta externa)")
     args = ap.parse_args()
     db_batch = max(1, min(int(args.db_batch or 40), 200))
 
@@ -566,19 +684,19 @@ def main():
     cur.execute(_catalogo_sql(recorte_antigo=args.recorte_antigo))
     catalogo_rows = [dict(r) for r in cur.fetchall() if r.get("ean") and r.get("nome")]
 
-    # Chaves já em cache (90 dias)
+    # Chaves ja em cache dentro do TTL configurado.
     if args.forcar:
         cached = set()
     else:
         cur.execute("""
             SELECT chave
             FROM anvisa_cache
-            WHERE criado_em >= DATE_TRUNC('year', NOW())
+            WHERE criado_em >= NOW() - (%s || ' days')::interval
               AND (
                     encontrado = FALSE
                     OR (receita_retida IS NOT NULL AND exibir_imagem_publica IS NOT NULL)
                   )
-        """)
+        """, (ANVISA_CACHE_TTL_DAYS,))
         cached = {r["chave"] for r in cur.fetchall()}
     cur.close()
     conn.close()  # libera antes do worker; cada batch abre/fecha sua própria conexão
@@ -627,7 +745,7 @@ def main():
     print(f"Ignorados operacionais          : {ignorados_operacionais}")
     print(f"Ignorados por tipo nao ANVISA   : {ignorados_tipo}")
     print(f"Ignorados sem indicio ANVISA    : {ignorados_sem_indicio}")
-    print(f"Já em cache (<=90 dias)    : {len(cached)}")
+    print(f"Ja em cache (<={ANVISA_CACHE_TTL_DAYS} dias) : {len(cached)}")
     print(f"A processar agora          : {total}")
 
     if args.limite and total > args.limite:
@@ -658,7 +776,8 @@ def main():
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".txt",
                                      delete=False, newline="\n") as fin:
         for ch in chaves_pendentes:
-            fin.write(ch + "\n")
+            eans = ",".join(sorted(eans_por_chave.get(ch) or []))
+            fin.write(f"{ch}|{eans}\n" if eans else f"{ch}\n")
         input_path = fin.name
 
     output_path = input_path.replace(".txt", "_out.jsonl")

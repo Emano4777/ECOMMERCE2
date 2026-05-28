@@ -44,6 +44,7 @@ _FALLBACK_BLOCKLIST = frozenset([
 _SALT_PREFIXES = [
     "CLORIDRATO DE",
     "SULFATO DE",        # salbutamol, morfina, neomicina, gentamicina...
+    "BROMETO DE",        # ipratrópio, tiotrópio, glicopirrônio, neostigmina...
     "BESILATO DE",
     "MALEATO DE",
     "FUMARATO DE",
@@ -94,6 +95,8 @@ _PREFIXOS_NAO_MEDICAMENTO = frozenset([
     "SORO",   # soro fisiologico/oral nao e medicamento por INN — evita falso match com "Fisioton"
     "MACA",   # maca peruana = suplemento alimentar, nao medicamento ANVISA
     "HYABAK", # acido hialuronico lacrimal = dispositivo medico, nao drug ANVISA
+    "GOOD",   # linha de suplementos/proteínas — falso positivo com Ultracet (tramadol)
+    "TRUFA",  # linha capilar/cosmético — falso positivo com fitoterápicos ANVISA
 ])
 
 _QUALIFICADORES_FORMA_MARCA = frozenset([
@@ -189,7 +192,7 @@ _NOME_RECEITA_RETIDA_NORM_RE = re.compile(
 # Texto comparado via _norm() → ASCII maiusculo sem acentos.
 _NOME_TARJA_VERMELHA_NORM_RE = re.compile(
     # Bloqueadores de canal de calcio (CCB)
-    r"\bANLODIPINO\b|\bAMLODIPINO\b|\bNIFEDIPINO\b|\bDILTIAZEM\b|\bVERAPAMIL\b"
+    r"\bANLODIPINO\b|\bAMLODIPINO\b|\bLEVANLODIPINO\b|\bNIFEDIPINO\b|\bDILTIAZEM\b|\bVERAPAMIL\b"
     r"|\bFELODIPINO\b|\bLERCANIDIPINO\b|\bNICARDIPINO\b"
     # Sartans (ARB) nao cobertos por outros checks
     r"|\bOLMESARTANA\b|\bAZILSARTANA\b|\bTELMISARTANA\b|\bCANDESARTANA\b|\bIRBESARTANA\b"
@@ -211,6 +214,10 @@ _NOME_TARJA_VERMELHA_NORM_RE = re.compile(
     r"|\bLEVOTIROXINA\b|\bMETIMAZOL\b|\bPROPILTIOURACIL\b"
     # Outros comuns de prescricao
     r"|\bALOPURINOL\b|\bCOLCHICINA\b|\bISOSSORBIDA\b|\bNITROGLICERINA\b|\bTRIMETAZIDINA\b"
+    # Fibratos (lipid-lowering, prescricao obrigatoria)
+    r"|\bCIPROFIBRATO\b|\bFENOFIBRATO\b|\bGEMFIBROZILA\b|\bBEZAFIBRATO\b"
+    # Urologia / bexiga hiperativa
+    r"|\bSOLIFENACINA\b|\bTOLTERODINA\b|\bMIRABEGRONA\b|\bDARIFENACINA\b|\bFESSOTERODINA\b"
     # Corticosteroides sistemicos e topicos de prescricao
     r"|\bDEXAMETASONA\b|\bDEXAMETAZONA\b|\bPREDNISOLONA\b|\bHIDROCORTISONA\b"
     r"|\bBETAMETASONA\b|\bMETILPREDNISOLONA\b|\bFLUOCINOLONA\b|\bTRIAMCINOLONA\b"
@@ -620,7 +627,9 @@ def _api_bulario(chave, session):
             tentativas_unicas.append(t)
 
     _got_403 = False
-    for q in tentativas_unicas:
+    for i, q in enumerate(tentativas_unicas):
+        if i > 0:
+            time.sleep(0.8)  # pausa entre tentativas para nao disparar rate limit
         q_enc = urllib.parse.quote(q)
         url = (
             f"{ANVISA_BASE}/api/consulta/bulario"
@@ -644,22 +653,102 @@ def _api_bulario(chave, session):
     return _HTTP_403 if _got_403 else []
 
 
-def _buscar(chave, session):
+def _api_bulario_por_ean(ean, session):
+    """Busca na ANVISA pelo código de barras (EAN). Retorna lista de items ou []."""
+    ean_digits = re.sub(r"\D", "", ean or "")
+    if not ean_digits:
+        return []
+    url = (
+        f"{ANVISA_BASE}/api/consulta/bulario"
+        f"?column=PRODUTO&count=5"
+        f"&filter[codigoDeBarras]={urllib.parse.quote(ean_digits)}"
+        f"&order=asc&page=1"
+    )
+    data = _get_json(session, url)
+    if data is _HTTP_403:
+        return _HTTP_403
+    if not data:
+        return []
+    items = data.get("content") or data.get("data") or []
+    return [i for i in (items if isinstance(items, list) else []) if i.get("idProduto")]
+
+
+def _eans_do_produto(id_produto, session):
+    """Retorna o conjunto de EANs associados ao produto no detalhe ANVISA."""
+    url = f"{ANVISA_BASE}/api/consulta/medicamento/produtos/codigo/{id_produto}"
+    detail = _get_json(session, url) or {}
+    eans: set[str] = set()
+    # Campo direto
+    cb = str(detail.get("codigoDeBarras") or "").strip()
+    if cb:
+        eans.add(cb)
+    # Lista de apresentações (cada embalagem tem seu EAN)
+    for apres in (
+        detail.get("apresentacoes")
+        or detail.get("listaApresentacoes")
+        or detail.get("listaDeApresentacoes")
+        or []
+    ):
+        for campo in ("codigoDeBarras", "ean", "codigoBarras", "barcode"):
+            val = str(apres.get(campo) or "").strip()
+            if val:
+                eans.add(val)
+                break
+    return eans
+
+
+def _desempatar_por_ean(items, eans_busca, session):
+    """Entre vários candidatos retorna o que tem EAN em comum com eans_busca.
+
+    Para cada item busca os EANs no detalhe. Retorna o primeiro com match,
+    ou None se nenhum confirmar.
+    """
+    eans_norm = {re.sub(r"\D", "", e) for e in (eans_busca or []) if e}
+    if not eans_norm:
+        return None
+    for item in items:
+        id_prod = item.get("idProduto")
+        if not id_prod:
+            continue
+        eans_anvisa = {re.sub(r"\D", "", e) for e in _eans_do_produto(id_prod, session)}
+        if eans_anvisa & eans_norm:
+            return item
+    return None
+
+
+def _buscar(chave, session, eans=None):
+    """Busca produto no ANVISA.
+
+    Estratégia:
+    1. [EAN] Tenta achar pelo EAN diretamente — mais preciso, sem ambiguidade.
+    2. [Nome] Busca por nome (lógica original) como fallback.
+    3. [Desempate] Com múltiplos candidatos por nome, usa EAN para escolher o correto.
+    """
     if chave in _CHAVES_BLOQUEADAS:
         return {"encontrado": False}
     palavras = _norm(chave).split()
     if palavras and palavras[0] in _PREFIXOS_NAO_MEDICAMENTO:
         return {"encontrado": False}
-    try:
-        items = _api_bulario(chave, session)
-        if items is _HTTP_403:
+
+    item = None
+
+    # ── Busca por nome (ANVISA bulário não suporta lookup por EAN) ────────────
+    # O EAN é usado apenas para desempate quando há múltiplos candidatos por nome.
+    if True:
+        name_items = _api_bulario(chave, session)
+        if name_items is _HTTP_403:
             return {"encontrado": False, "bloqueado_403": True}
-        if not items:
+        if not name_items:
             return {"encontrado": False}
 
-        item = _melhor_item(chave, items)
+        if item is None:
+            item = _melhor_item(chave, name_items)
+
         if item is None or not _match_valido(chave, item.get("nomeProduto", "")):
             return {"encontrado": False}
+
+    # ── Detalhe + bula ────────────────────────────────────────────────────────
+    try:
 
         id_prod  = item["idProduto"]
         jwt_bula = item.get("idBulaPacienteProtegido", "")
@@ -785,21 +874,32 @@ def main():
     session = _make_session()
     print("Sessão pronta.\n", file=sys.stderr, flush=True)
 
+    def _parse_linha(linha):
+        """Parseia 'CHAVE|ean1,ean2' ou 'CHAVE'. Retorna (chave, [eans])."""
+        linha = linha.strip()
+        if "|" in linha:
+            chave, eans_str = linha.split("|", 1)
+            eans = [e.strip() for e in eans_str.split(",") if e.strip()]
+        else:
+            chave, eans = linha, []
+        return chave.strip(), eans
+
     if args.input and args.output:
         with open(args.input, encoding="utf-8") as fin:
-            chaves = [l.strip() for l in fin if l.strip()]
+            linhas = [l.strip() for l in fin if l.strip()]
         with open(args.output, "w", encoding="utf-8") as fout:
-            for chave in chaves:
-                dados = _buscar(chave, session)
+            for linha in linhas:
+                chave, eans = _parse_linha(linha)
+                dados = _buscar(chave, session, eans=eans or None)
                 fout.write(json.dumps({"chave": chave, "dados": dados}, ensure_ascii=False) + "\n")
                 fout.flush()
                 time.sleep(1.5)  # respeita rate limit da ANVISA
     else:
         for line in sys.stdin:
-            chave = line.strip()
+            chave, eans = _parse_linha(line)
             if not chave:
                 continue
-            dados = _buscar(chave, session)
+            dados = _buscar(chave, session, eans=eans or None)
             print(json.dumps({"chave": chave, "dados": dados}, ensure_ascii=False), flush=True)
             time.sleep(0.8)
 
