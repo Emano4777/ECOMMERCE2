@@ -3461,8 +3461,6 @@ _IMAGEM_FILTER_ALPHA = """AND (
             OR COALESCE(e.barras_norm, e.barras) IN (
                 SELECT ean FROM produto_canon
                 WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
-                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
-                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
                   AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
@@ -3540,8 +3538,6 @@ _IMAGEM_FILTER_AUTO = """AND (
             OR ae.ean IN (
                 SELECT ean FROM produto_canon
                 WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
-                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
-                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
                   AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
@@ -3932,8 +3928,6 @@ _SQL_ALPHA_BATCH = """
             OR COALESCE(e.barras_norm, e.barras) IN (
                 SELECT ean FROM produto_canon
                 WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
-                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
-                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
                   AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
@@ -4006,8 +4000,6 @@ _SQL_AUTO_BATCH = """
             OR ae.ean IN (
                 SELECT ean FROM produto_canon
                 WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
-                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
-                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
                   AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
