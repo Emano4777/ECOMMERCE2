@@ -357,7 +357,26 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
         return [dict(r) for r in rows] if rows else [{"ean": ean_filtro, "nome": ean_filtro}]
 
     if todos:
-        # Todos os EANs disponíveis no ecommerce sem imagem — sem filtro por categoria
+        # Todos os EANs sem imagem — exclui medicamentos tarjados e genéricos
+        # (esses têm tratamento próprio via Anvisa e placeholder de tarja)
+        _EXCLUIR_MED = """
+            AND NOT EXISTS (
+                SELECT 1 FROM medicamentos m2
+                WHERE LTRIM(COALESCE(m2.barra_norm, m2.barra, ''), '0') =
+                      LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                  AND (
+                    m2.classe ILIKE '%%genéric%%'
+                    OR m2.classe ILIKE '%%generic%%'
+                    OR m2.descricao ILIKE '%%genérico%%'
+                    OR m2.descricao ILIKE '%%generico%%'
+                    OR m2.classe ILIKE '%%tarja%%'
+                    OR m2.classe ILIKE '%%controla%%'
+                  )
+            )
+        """
+        _EXCLUIR_MED_AE = _EXCLUIR_MED.replace(
+            "COALESCE(e.barras_norm, e.barras, '')", "ae.ean"
+        )
         cur.execute(f"""
             SELECT DISTINCT ON (ean) ean, nome
             FROM (
@@ -370,6 +389,7 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
                   AND COALESCE(e.barras_norm, e.barras) ~ '^[1-9][0-9]{{7,12}}$'
                   AND e.estoque > 0
                   AND {_SEM_IMAGEM_COND}
+                  {_EXCLUIR_MED}
 
                 UNION
 
@@ -382,6 +402,7 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
                   AND ae.ean ~ '^[1-9][0-9]{{7,12}}$'
                   AND ae.quantidade_estoque > 0
                   AND {_SEM_IMAGEM_COND}
+                  {_EXCLUIR_MED_AE}
             ) t
             ORDER BY ean
             LIMIT %s
