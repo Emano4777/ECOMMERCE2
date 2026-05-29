@@ -28,6 +28,7 @@ Uso:
 """
 from __future__ import annotations
 import argparse
+import datetime
 import itertools
 import json
 import os
@@ -535,17 +536,34 @@ def main():
         print("Nenhum EAN encontrado sem imagem.")
         cur.close(); conn.close(); return
 
+    # Log em arquivo para acompanhar EAN por EAN em tempo real
+    log_dir = ROOT / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_path = log_dir / f"buscar_imagens_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = open(log_path, "w", encoding="utf-8", buffering=1)
+    total_r = len(registros)
+
+    def _log(msg: str):
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        line = f"[{ts}] {msg}"
+        print(line, flush=True)
+        log_file.write(line + "\n")
+
+    _log(f"Inicio — {total_r} EANs | apply={args.apply} | limite={args.limite}")
+    _log(f"Log salvo em: {log_path}")
+
     n_cosmos = n_dsp = n_beleza = n_raia = n_serper = n_sem = n_branded = 0
     pendentes = 0
     # Chaves Serper esgotadas persistem entre todos os EANs da sessão
     serper_chaves_esgotadas: set[str] = set()
 
-    for reg in registros:
+    for i, reg in enumerate(registros, 1):
         ean  = reg["ean"]
         nome = (reg.get("nome") or ean)[:70]
         achou = False
         fonte_label = ""
 
+        _log(f"[{i}/{total_r}] EAN {ean}  {nome}")
         if args.verbose:
             print(f"\n[{ean}] {nome}")
 
@@ -553,7 +571,7 @@ def main():
         if cosmos_tokens and not achou:
             img = _cosmos_fetch_rotating(ean, cosmos_tokens, verbose=args.verbose)
             if img:
-                print(f"  [cosmos]  {ean}  {nome[:40]}  {img[:65]}...")
+                _log(f"  -> COSMOS   {img[:80]}")
                 _salvar(cur, ean, nome, img, "cosmos", args.apply, args.verbose)
                 n_cosmos += 1
                 achou = True
@@ -564,7 +582,7 @@ def main():
             d = _extrair_dados_vtex(p, verbose=args.verbose) if p else None
             img = (d or {}).get("imagem")
             if img:
-                print(f"  [dsp]     {ean}  {nome[:40]}  {img[:65]}...")
+                _log(f"  -> DSP      {img[:80]}")
                 _salvar(cur, ean, nome, img, "vtex_dsp", args.apply, args.verbose)
                 n_dsp += 1
                 achou = True
@@ -578,13 +596,12 @@ def main():
             time.sleep(args.delay * 0.3)
             img = _beleza_fetch(ean, verbose=args.verbose)
             if img:
-                # OCR de segurança: rejeita se imagem tiver branding de farmácia
                 if _image_has_other_pharmacy_text(img):
                     if args.verbose:
                         print(f"    [ocr] Beleza na Web branded, rejeitando")
                     n_branded += 1
                 else:
-                    print(f"  [beleza]  {ean}  {nome[:40]}  {img[:65]}...")
+                    _log(f"  -> BELEZA   {img[:80]}")
                     _salvar(cur, ean, nome, img, "beleza_vtex", args.apply, args.verbose)
                     n_beleza += 1
                     achou = True
@@ -595,13 +612,12 @@ def main():
             d = _raia_fetch(ean, verbose=args.verbose)
             img = (d or {}).get("imagem")
             if img:
-                # _raia_fetch já aplica detecção interna; OCR extra de segurança
                 if _image_has_other_pharmacy_text(img):
                     if args.verbose:
                         print(f"    [ocr] Raia branded, rejeitando")
                     n_branded += 1
                 else:
-                    print(f"  [raia]    {ean}  {nome[:40]}  {img[:65]}...")
+                    _log(f"  -> RAIA     {img[:80]}")
                     _salvar(cur, ean, nome, img, "vtex_raia", args.apply, args.verbose)
                     n_raia += 1
                     achou = True
@@ -617,55 +633,55 @@ def main():
             img = _serper_fetch_rotating(ean, nome, serper_keys,
                                          serper_chaves_esgotadas, verbose=args.verbose)
             if img:
-                # OCR de segurança: rejeita se imagem tiver branding ou não for produto
                 if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
                     if args.verbose:
                         print(f"    [ocr] Serper branded/nao-produto, rejeitando")
                     n_branded += 1
                 else:
-                    print(f"  [serper]  {ean}  {nome[:40]}  {img[:65]}...")
+                    _log(f"  -> SERPER   {img[:80]}")
                     _salvar(cur, ean, nome, img, "serper", args.apply, args.verbose)
                     n_serper += 1
                     achou = True
 
         if not achou:
             n_sem += 1
-            if args.verbose:
-                print(f"  [sem imagem] nenhuma fonte retornou resultado")
+            _log(f"  -> SEM IMAGEM")
 
         # Commit parcial
         if achou and args.apply:
             pendentes += 1
             if pendentes >= args.commit_cada:
                 conn.commit()
-                print(f"  [commit parcial] {pendentes} gravadas")
+                _log(f"  [commit parcial] {pendentes} gravadas | cosmos={n_cosmos} dsp={n_dsp} beleza={n_beleza} raia={n_raia} serper={n_serper} sem={n_sem}")
                 pendentes = 0
 
         time.sleep(args.delay)
 
     # Commit final
+    total = n_cosmos + n_dsp + n_beleza + n_raia + n_serper
     if args.apply:
         if pendentes > 0:
             conn.commit()
-        total = n_cosmos + n_dsp + n_beleza + n_raia + n_serper
-        print(f"\nGravado." if total else "\nNenhuma imagem nova.")
+        _log(f"\nGravado: {total} imagem(ns)." if total else "\nNenhuma imagem nova.")
     else:
         conn.rollback()
-        total = n_cosmos + n_dsp + n_beleza + n_raia + n_serper
         if total:
-            print(f"\nDry-run: {total} imagem(ns) — use --apply para gravar.")
+            _log(f"\nDry-run: {total} imagem(ns) — use --apply para gravar.")
         else:
-            print("\nNenhuma imagem nova encontrada.")
+            _log("\nNenhuma imagem nova encontrada.")
 
     serper_info = ""
     if serper_keys:
         esgotadas = len(serper_chaves_esgotadas)
         serper_info = f" ({esgotadas}/{len(serper_keys)} chaves esgotadas)" if esgotadas else ""
-    print(
+    resumo = (
         f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Branded: {n_branded}"
         f"\nCosmos: {n_cosmos} | DSP: {n_dsp} | Beleza na Web: {n_beleza}"
         f" | Raia: {n_raia} | Serper: {n_serper}{serper_info}"
+        f"\nLog completo: {log_path}"
     )
+    _log(resumo)
+    log_file.close()
     cur.close()
     conn.close()
 
