@@ -42,6 +42,8 @@ from app import db, _anvisa_schema  # noqa: E402
 _PLACEHOLDERS_POUPAQUI = frozenset({
     "https://res.cloudinary.com/dizfq460q/image/upload/v1778783063/CAIXA_GEN%C3%89RICO_-_POUPAQUI_itiyth.jpg",
     "https://res.cloudinary.com/dizfq460q/image/upload/v1778783450/ChatGPT_Image_14_de_mai._de_2026_15_30_35_wuovpb.png",
+    # imagem genérica de tarja vermelha subida com EAN interno 44356 e distribuída erroneamente
+    "https://res.cloudinary.com/dizfq460q/image/upload/v1779979170/catalogo_produtos/catalogo/44356.webp",
 })
 
 # Detecta imagem branded/template de qualquer concorrente pela URL/metadados.
