@@ -61,16 +61,15 @@
       letter-spacing: -.3px;
     }
     .pq-brand-logo {
-      width: 34px;
-      height: 34px;
-      margin-right: 8px;
-      border-radius: 10px;
-      background: #fff;
+      height: 38px;
+      width: auto;
+      margin-right: 0;
+      border-radius: 6px;
       object-fit: contain;
       flex: 0 0 auto;
     }
-    .pq-brand-text { color: var(--pq-red); }
-    .pq-brand-highlight { color: var(--pq-yellow); }
+    .pq-brand-text { display: none; }
+    .pq-brand-highlight { display: none; }
 
     /* ── LOCATION WIDGET ────────────────────────────────── */
     .pq-loc-btn {
@@ -314,7 +313,8 @@
       background: var(--pq-red);
     }
     .pq-drawer-logo { display:flex; align-items:center; gap:8px; color:#fff; font-weight:900; font-size:1.1rem; text-decoration:none; white-space:nowrap; }
-    .pq-drawer-logo img { width:30px; height:30px; border-radius:8px; background:#fff; object-fit:contain; }
+    .pq-drawer-logo img { height:34px; width:auto; border-radius:5px; object-fit:contain; }
+    .pq-drawer-logo span { display:none; }
     .pq-drawer-close {
       width: 32px; height: 32px; border: none; border-radius: 50%;
       background: rgba(255,255,255,.2); cursor: pointer;
