@@ -1,28 +1,28 @@
 """
-buscar_imagens_cosmeticos.py — Busca imagens de cosméticos, higiene e puericultura
-via múltiplas fontes, salvando em produto_canon.
+buscar_imagens_cosmeticos.py — Busca imagens de produtos sem imagem via múltiplas fontes.
 
 Fontes consultadas em ordem de prioridade:
   1. Cosmos/Bluesoft API  — base de códigos de barras, cobre marcas nacionais
   2. DSP (VTEX)           — Drogaria São Paulo (bom para Nivea, L'Oreal, etc.)
-  3. Beleza na Web (VTEX) — especialista em cosméticos e perfumaria
-  4. Droga Raia           — scraping HTML/JSON-LD
-  5. Serper Google Images — fallback mais amplo, cobre qualquer loja
+  3. Droga Raia           — scraping HTML/JSON-LD
+  4. Serper Google Images — fallback mais amplo com rotação de chaves e limite
 
 Regras de aceitação (herdadas de app.py):
   - Sem branding de farmácia concorrente na URL ou no OCR da imagem
-  - Sem banners, promoções ou imagens não-produto
-  - Imagem correlacionada ao EAN (verificada via page_url ou query)
+  - Sem banners, promoções ou imagens não-produto (verificado via OCR)
+  - Imagem de site confiável (não YouTube, Vecteezy, Flickr, Getty, etc.)
+  - EAN presente na URL da imagem OU no domínio é de e-commerce conhecido
 
 Como produto_canon é por EAN (não por loja), uma imagem encontrada aqui
 beneficia automaticamente TODAS as lojas que têm aquele EAN em estoque.
 
 Uso:
-    py scripts/buscar_imagens_cosmeticos.py               # dry-run, 100 EANs
+    py scripts/buscar_imagens_cosmeticos.py               # dry-run, 100 EANs cosméticos
     py scripts/buscar_imagens_cosmeticos.py --apply       # grava
     py scripts/buscar_imagens_cosmeticos.py --limite 200
     py scripts/buscar_imagens_cosmeticos.py --ean 7891150037465
     py scripts/buscar_imagens_cosmeticos.py --categoria higiene
+    py scripts/buscar_imagens_cosmeticos.py --todos       # TODOS os EANs sem imagem
     py scripts/buscar_imagens_cosmeticos.py --sem-serper  # pula Serper (economia de cota)
     py scripts/buscar_imagens_cosmeticos.py -v
 """
@@ -208,27 +208,79 @@ def _cosmos_fetch_rotating(ean: str, tokens: list[str], verbose: bool = False) -
 
 # ── Serper com rotação de chaves ──────────────────────────────────────────────
 
+# Sites de mídia/banco de imagem que nunca têm fotos reais de produto correlacionadas ao EAN
+_SERPER_BLOCKED_DOMAINS = re.compile(
+    r"youtube\.com|youtu\.be|vimeo\.com"
+    r"|vecteezy\.com|freepik\.com|shutterstock\.com|gettyimages"
+    r"|flickr\.com|instagram\.com|pinterest\."
+    r"|wikimedia\.org|wikipedia\.org"
+    r"|staticflickr\.com|pimg\.jp"
+    r"|blogger\.com|blogspot\.com",
+    re.IGNORECASE,
+)
+
+# Extensões de arquivo que não são imagens de produto
+_SERPER_BLOCKED_EXT = re.compile(
+    r"\.(gif|svg|webp\.gif|mp4|mov|avi)(\?|$)", re.IGNORECASE
+)
+
+# Domínios de e-commerce confiáveis para produtos brasileiros
+_ECOMMERCE_CONFIAVEL_RE = re.compile(
+    r"mercadolivre|meli\.com|mlstatic"
+    r"|americanas\.|shoptime\.|submarino\."
+    r"|magazineluiza|magalu\."
+    r"|carrefour\.|extra\.|pontofrio\."
+    r"|casasbahia\."
+    r"|belezanaweb\.|sephora\.|netfarma\."
+    r"|drogarmarys|drogasil|farmaponto"
+    r"|paguemenos\."
+    r"|zacaris\.|perfumaria\."
+    r"|cdiscount\.|amazon\.",
+    re.IGNORECASE,
+)
+
+
 def _serper_fetch_rotating(ean: str, nome: str, keys: list[str],
+                            chaves_esgotadas: set[str],
                             verbose: bool = False) -> str | None:
-    """Serper Google Images com rotação de chaves e queries progressivas."""
-    if not keys:
+    """Serper Google Images com rotação de chaves, queries progressivas e validação rigorosa.
+
+    chaves_esgotadas é um set mutável compartilhado entre todos os EANs da sessão.
+    Quando todas as chaves estiverem esgotadas, retorna None imediatamente para
+    economizar chamadas de API.
+    """
+    chaves_disponiveis = [k for k in keys if k not in chaves_esgotadas]
+    if not chaves_disponiveis:
+        if verbose:
+            print("    [serper] todas as chaves esgotadas, pulando")
         return None
+
     ean_digits = re.sub(r"\D", "", ean)
     if len(ean_digits) < 8:
         return None
 
+    # EANs internos/PLU (< 8 dígitos padrão ou não EAN-8/13) são ignorados
+    if len(ean_digits) not in (8, 12, 13) and len(ean_digits) < 12:
+        if verbose:
+            print(f"    [serper] EAN {ean_digits} ({len(ean_digits)} dígitos) parece interno, pulando")
+        return None
+
     nome_curto = " ".join((nome or "").split()[:4])
-    queries = list(dict.fromkeys([  # dedup preservando ordem
+    queries = list(dict.fromkeys([
         f"{ean_digits} {nome_curto}".strip() if nome_curto else ean_digits,
-        f'"{ean_digits}" {nome_curto}'.strip() if nome_curto else f'"{ean_digits}"',
         f'"{ean_digits}"',
-        ean_digits,
     ]))
 
-    key_cycle = itertools.cycle(keys)
+    key_iter = iter(chaves_disponiveis)
+    api_key = next(key_iter, None)
 
     for q in queries:
-        api_key = next(key_cycle)
+        # Avança para chave não esgotada
+        while api_key and api_key in chaves_esgotadas:
+            api_key = next(key_iter, None)
+        if not api_key:
+            break
+
         try:
             payload = json.dumps({"q": q, "num": 10, "gl": "br", "hl": "pt-br"}).encode()
             req = urllib.request.Request(
@@ -240,8 +292,15 @@ def _serper_fetch_rotating(ean: str, nome: str, keys: list[str],
             with urllib.request.urlopen(req, timeout=12) as r:
                 data = json.loads(r.read().decode("utf-8", "ignore"))
         except Exception as exc:
-            if verbose:
-                print(f"    [serper] {type(exc).__name__}: {exc}")
+            err_str = str(exc)
+            if "429" in err_str or "quota" in err_str.lower():
+                if verbose:
+                    print(f"    [serper] chave {api_key[:8]} esgotada (429), trocando...")
+                chaves_esgotadas.add(api_key)
+                api_key = next(key_iter, None)
+            else:
+                if verbose:
+                    print(f"    [serper] {type(exc).__name__}: {exc}")
             continue
 
         for item in (data.get("images") or [])[:10]:
@@ -250,18 +309,35 @@ def _serper_fetch_rotating(ean: str, nome: str, keys: list[str],
             title    = item.get("title") or ""
             if not img_url.startswith("http"):
                 continue
+            # Rejeita mídia/bancos de imagem
+            if _SERPER_BLOCKED_DOMAINS.search(img_url) or _SERPER_BLOCKED_DOMAINS.search(page_url):
+                continue
+            if _SERPER_BLOCKED_EXT.search(img_url):
+                continue
+            # Rejeita farmácias concorrentes
             if _looks_like_other_pharmacy_brand(img_url, page_url, title):
+                continue
+            # Preferência: EAN na URL da imagem OU domínio de e-commerce confiável
+            ean_na_url = ean_digits in img_url.replace("-", "").replace("_", "")
+            site_ok = bool(_ECOMMERCE_CONFIAVEL_RE.search(img_url) or _ECOMMERCE_CONFIAVEL_RE.search(page_url))
+            if not ean_na_url and not site_ok:
+                if verbose:
+                    print(f"    [serper] rejeitada (sem EAN na URL e site desconhecido): {img_url[:70]}")
                 continue
             if verbose:
                 print(f"    [serper] candidata: {img_url[:70]}")
             return img_url
 
+    remaining = len([k for k in keys if k not in chaves_esgotadas])
+    if verbose and chaves_esgotadas:
+        print(f"    [serper] {len(chaves_esgotadas)} chave(s) esgotada(s), {remaining} restante(s)")
     return None
 
 
 # ── Busca de EANs sem imagem ──────────────────────────────────────────────────
 
-def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None) -> list[dict]:
+def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None,
+                 todos: bool = False) -> list[dict]:
     if ean_filtro:
         cur.execute("""
             SELECT ean, nome FROM (
@@ -277,6 +353,38 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
         """, (ean_filtro, ean_filtro))
         rows = cur.fetchall()
         return [dict(r) for r in rows] if rows else [{"ean": ean_filtro, "nome": ean_filtro}]
+
+    if todos:
+        # Todos os EANs disponíveis no ecommerce sem imagem — sem filtro por categoria
+        cur.execute(f"""
+            SELECT DISTINCT ON (ean) ean, nome
+            FROM (
+                SELECT
+                    COALESCE(e.barras_norm, e.barras) AS ean,
+                    e.descricao AS nome
+                FROM estoque e
+                LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras)
+                WHERE COALESCE(e.barras_norm, e.barras) IS NOT NULL
+                  AND COALESCE(e.barras_norm, e.barras) ~ '^[1-9][0-9]{{7,12}}$'
+                  AND e.estoque > 0
+                  AND {_SEM_IMAGEM_COND}
+
+                UNION
+
+                SELECT
+                    ae.ean,
+                    ae.descricao_produto AS nome
+                FROM automatiza_estoque ae
+                LEFT JOIN produto_canon pc ON pc.ean = ae.ean
+                WHERE ae.ean IS NOT NULL
+                  AND ae.ean ~ '^[1-9][0-9]{{7,12}}$'
+                  AND ae.quantidade_estoque > 0
+                  AND {_SEM_IMAGEM_COND}
+            ) t
+            ORDER BY ean
+            LIMIT %s
+        """, [limite])
+        return [dict(r) for r in cur.fetchall()]
 
     keywords = _KEYWORDS.get(categoria, _ALL_KEYWORDS) if categoria else _ALL_KEYWORDS
     ilike_e  = " OR ".join(["e.descricao ILIKE %s"]          * len(keywords))
@@ -370,6 +478,8 @@ def main():
     parser.add_argument("--ean",         help="Processa apenas este EAN")
     parser.add_argument("--categoria",   choices=list(_KEYWORDS.keys()),
                         help="Filtra por categoria (padrão: todas)")
+    parser.add_argument("--todos",       action="store_true",
+                        help="Busca TODOS os EANs do ecommerce sem imagem (sem filtro de categoria)")
     parser.add_argument("--delay",       type=float, default=0.5, metavar="S")
     parser.add_argument("--commit-cada", type=int, default=30, metavar="N")
     parser.add_argument("--sem-serper",  action="store_true",
@@ -384,13 +494,15 @@ def main():
     print(f"Cosmos tokens: {len(cosmos_tokens)} token(s)")
     if args.sem_serper:
         print("Serper: DESATIVADO (--sem-serper)")
+    if args.todos:
+        print("Modo: TODOS os EANs sem imagem (--todos)")
     print()
 
     conn = db()
     cur  = conn.cursor()
 
-    registros = _buscar_eans(cur, args.categoria, args.limite, args.ean)
-    cat_label = args.categoria or "todas"
+    registros = _buscar_eans(cur, args.categoria, args.limite, args.ean, todos=args.todos)
+    cat_label = "todos" if args.todos else (args.categoria or "cosméticos+higiene+puericultura")
     print(f"EANs a processar [{cat_label}]: {len(registros)}")
     if not registros:
         print("Nenhum EAN encontrado sem imagem.")
@@ -398,6 +510,8 @@ def main():
 
     n_cosmos = n_dsp = n_beleza = n_raia = n_serper = n_sem = n_branded = 0
     pendentes = 0
+    # Chaves Serper esgotadas persistem entre todos os EANs da sessão
+    serper_chaves_esgotadas: set[str] = set()
 
     for reg in registros:
         ean  = reg["ean"]
@@ -466,9 +580,15 @@ def main():
                     achou = True
 
         # ── Fonte 5: Serper Google Images ────────────────────────────────
-        if not achou and serper_keys and not args.sem_serper:
+        serper_disponivel = (
+            serper_keys
+            and not args.sem_serper
+            and len(serper_chaves_esgotadas) < len(serper_keys)
+        )
+        if not achou and serper_disponivel:
             time.sleep(args.delay * 0.5)
-            img = _serper_fetch_rotating(ean, nome, serper_keys, verbose=args.verbose)
+            img = _serper_fetch_rotating(ean, nome, serper_keys,
+                                         serper_chaves_esgotadas, verbose=args.verbose)
             if img:
                 # OCR de segurança: rejeita se imagem tiver branding ou não for produto
                 if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
@@ -510,10 +630,14 @@ def main():
         else:
             print("\nNenhuma imagem nova encontrada.")
 
+    serper_info = ""
+    if serper_keys:
+        esgotadas = len(serper_chaves_esgotadas)
+        serper_info = f" ({esgotadas}/{len(serper_keys)} chaves esgotadas)" if esgotadas else ""
     print(
         f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Branded: {n_branded}"
         f"\nCosmos: {n_cosmos} | DSP: {n_dsp} | Beleza na Web: {n_beleza}"
-        f" | Raia: {n_raia} | Serper: {n_serper}"
+        f" | Raia: {n_raia} | Serper: {n_serper}{serper_info}"
     )
     cur.close()
     conn.close()
