@@ -3449,8 +3449,7 @@ _MARCAS_PROPRIAS_AUTO = """
 """
 
 _IMAGEM_FILTER_ALPHA = """AND (
-            COALESCE(e.barras_norm, e.barras) IN (SELECT ean_norm FROM omie_estoque_dns)
-            OR COALESCE(e.barras_norm, e.barras) IN (
+            COALESCE(e.barras_norm, e.barras) IN (
                 SELECT barra_norm FROM medicamentos
                 WHERE barra_norm IS NOT NULL
                   AND (
@@ -3462,6 +3461,8 @@ _IMAGEM_FILTER_ALPHA = """AND (
             OR COALESCE(e.barras_norm, e.barras) IN (
                 SELECT ean FROM produto_canon
                 WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
+                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
                   AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
@@ -3472,10 +3473,6 @@ _IMAGEM_FILTER_ALPHA = """AND (
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
-            OR e.descricao ILIKE ANY(ARRAY[
-                '%%anasol%%','%%vit natu%%','%%vitnatu%%',
-                '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
-            ])
           )"""
 
 _SQL_ALPHA = """
@@ -3531,8 +3528,7 @@ _SQL_ALPHA = """
 """
 
 _IMAGEM_FILTER_AUTO = """AND (
-            ae.ean IN (SELECT ean_norm FROM omie_estoque_dns)
-            OR ae.ean IN (
+            ae.ean IN (
                 SELECT barra_norm FROM medicamentos
                 WHERE barra_norm IS NOT NULL
                   AND (
@@ -3544,6 +3540,8 @@ _IMAGEM_FILTER_AUTO = """AND (
             OR ae.ean IN (
                 SELECT ean FROM produto_canon
                 WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
+                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
                   AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
@@ -3554,10 +3552,6 @@ _IMAGEM_FILTER_AUTO = """AND (
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
-            OR ae.descricao_produto ILIKE ANY(ARRAY[
-                '%%anasol%%','%%vit natu%%','%%vitnatu%%',
-                '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
-            ])
           )"""
 
 _SQL_AUTO = """
@@ -3926,8 +3920,7 @@ _SQL_ALPHA_BATCH = """
         FROM estoque e
         WHERE e.cnpj = ANY(%s) AND e.estoque > 0
           AND (
-            COALESCE(e.barras_norm, e.barras) IN (SELECT ean_norm FROM omie_estoque_dns)
-            OR COALESCE(e.barras_norm, e.barras) IN (
+            COALESCE(e.barras_norm, e.barras) IN (
                 SELECT barra_norm FROM medicamentos
                 WHERE barra_norm IS NOT NULL
                   AND (
@@ -3935,6 +3928,13 @@ _SQL_ALPHA_BATCH = """
                     OR id IN (SELECT medicamento_id FROM medicamentos_imagens
                               WHERE cloudinary_url IS NOT NULL)
                   )
+            )
+            OR COALESCE(e.barras_norm, e.barras) IN (
+                SELECT ean FROM produto_canon
+                WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
+                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
+                  AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
                 SELECT 1
@@ -3944,10 +3944,6 @@ _SQL_ALPHA_BATCH = """
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
-            OR e.descricao ILIKE ANY(ARRAY[
-                '%%anasol%%','%%vit natu%%','%%vitnatu%%',
-                '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
-            ])
           )
         ORDER BY e.descricao
         LIMIT 600
@@ -3998,8 +3994,7 @@ _SQL_AUTO_BATCH = """
         FROM automatiza_estoque ae
         WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
           AND (
-            ae.ean IN (SELECT ean_norm FROM omie_estoque_dns)
-            OR ae.ean IN (
+            ae.ean IN (
                 SELECT barra_norm FROM medicamentos
                 WHERE barra_norm IS NOT NULL
                   AND (
@@ -4007,6 +4002,13 @@ _SQL_AUTO_BATCH = """
                     OR id IN (SELECT medicamento_id FROM medicamentos_imagens
                               WHERE cloudinary_url IS NOT NULL)
                   )
+            )
+            OR ae.ean IN (
+                SELECT ean FROM produto_canon
+                WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND imagem_cosmos NOT LIKE '%%CAIXA_GEN%%'
+                  AND imagem_cosmos NOT LIKE '%%ChatGPT_Image%%'
+                  AND fonte NOT IN ('cosmos_miss', 'ia_miss')
             )
             OR EXISTS (
                 SELECT 1
@@ -4016,10 +4018,6 @@ _SQL_AUTO_BATCH = """
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
-            OR ae.descricao_produto ILIKE ANY(ARRAY[
-                '%%anasol%%','%%vit natu%%','%%vitnatu%%',
-                '%%pronabol%%','%%ricosol%%','%%unispray%%','%%goodvit%%'
-            ])
           )
         ORDER BY ae.descricao_produto
         LIMIT 600
