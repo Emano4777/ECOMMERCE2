@@ -3328,7 +3328,10 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
             _own_cosmos_cur = cur is None
             _cc = db().cursor() if _own_cosmos_cur else cur
             _cc.execute(
-                "SELECT ean, imagem_cosmos FROM produto_canon WHERE ean = ANY(%s) AND imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''",
+                "SELECT ean, imagem_cosmos FROM produto_canon WHERE ean = ANY(%s)"
+                " AND imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''"
+                " AND fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')"
+                " AND imagem_cosmos NOT LIKE '%12466%'",
                 (_sem_img_eans,),
             )
             _cosmos_by_ean = {r["ean"]: r["imagem_cosmos"] for r in _cc.fetchall()}
@@ -3519,7 +3522,7 @@ _SQL_ALPHA = """
     ) vg_market ON TRUE
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
@@ -3587,7 +3590,7 @@ _SQL_AUTO = """
     ) av ON TRUE
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
@@ -3624,7 +3627,7 @@ _SQL_ALPHA_FAST = """
     FROM eligible el
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
@@ -3660,7 +3663,7 @@ _SQL_AUTO_FAST = """
     FROM eligible el
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
@@ -3836,7 +3839,7 @@ def get_dns_products(
             ) vg_market ON TRUE
             LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-            LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+            LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
             LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
             WHERE e.cnpj = %s AND e.barras = ANY(%s)
@@ -3872,7 +3875,7 @@ def get_dns_products(
                 ) av ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-                LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+                LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
                 WHERE ae.cnpj_loja = %s AND ae.ean = ANY(%s)
@@ -3971,7 +3974,7 @@ _SQL_ALPHA_BATCH = """
     ) vg_market ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean_join,''),'0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
@@ -4035,7 +4038,7 @@ _SQL_AUTO_BATCH = """
     ) av ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-    LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+    LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean,''),'0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
@@ -4129,7 +4132,7 @@ def get_dns_products_batch(cnpjs):
                 ) vg_market ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-                LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+                LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
                 WHERE e.cnpj = ANY(%s) AND e.barras = ANY(%s) AND e.estoque > 0
@@ -4161,7 +4164,7 @@ def get_dns_products_batch(cnpjs):
                 ) av ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-                LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+                LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
                 WHERE ae.cnpj_loja = ANY(%s) AND ae.ean = ANY(%s) AND ae.quantidade_estoque > 0
@@ -4246,7 +4249,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         FROM base b
         LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
         LEFT JOIN LATERAL (
@@ -5911,7 +5914,7 @@ def produto_detalhe(ean):
         FROM medicamentos m
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
         LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0')
-                                  AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+                                  AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN LATERAL (
             SELECT imagem_url
             FROM ecommerce_produto_imagens
@@ -5981,7 +5984,7 @@ def produto_detalhe(ean):
             FROM estoque e
             LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
             LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
-            LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+            LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
             LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
             LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             LEFT JOIN LATERAL (
@@ -6015,7 +6018,7 @@ def produto_detalhe(ean):
                 FROM automatiza_estoque ae
                 LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
                 LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
-                LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+                LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
                 LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN LATERAL (
@@ -11120,7 +11123,7 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         FROM estoque e
         LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-        LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+        LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
         WHERE e.cnpj=%s AND e.estoque > %s
           AND COALESCE(e.barras, e.barras_norm, '') <> ''
@@ -11134,7 +11137,7 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         FROM automatiza_estoque ae
         LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-        LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
+        LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
         WHERE ae.cnpj_loja=%s AND ae.quantidade_estoque > %s
           AND COALESCE(ae.ean, '') <> ''

@@ -104,6 +104,8 @@ _SEM_IMAGEM_COND = """(
     OR pc.imagem_cosmos LIKE '%%CAIXA_GEN%%'
     OR pc.imagem_cosmos LIKE '%%ChatGPT_Image%%'
     OR pc.imagem_cosmos LIKE '%%44356%%'
+    OR pc.imagem_cosmos LIKE '%%12466%%'
+    OR pc.fonte = 'placeholder_broken'
 )"""
 
 
@@ -449,6 +451,8 @@ def _salvar(cur, ean: str, nome: str, imagem: str, fonte: str, apply: bool,
                 OR imagem_cosmos LIKE '%%CAIXA_GEN%%'
                 OR imagem_cosmos LIKE '%%ChatGPT_Image%%'
                 OR imagem_cosmos LIKE '%%44356%%'
+                OR imagem_cosmos LIKE '%%12466%%'
+                OR fonte = 'placeholder_broken'
               )
         """, (url_final, fonte, ean))
 
@@ -465,6 +469,8 @@ def _salvar(cur, ean: str, nome: str, imagem: str, fonte: str, apply: bool,
                    OR produto_canon.imagem_cosmos LIKE '%%CAIXA_GEN%%'
                    OR produto_canon.imagem_cosmos LIKE '%%ChatGPT_Image%%'
                    OR produto_canon.imagem_cosmos LIKE '%%44356%%'
+                   OR produto_canon.imagem_cosmos LIKE '%%12466%%'
+                   OR produto_canon.fonte = 'placeholder_broken'
             """, (ean, nome, url_final, fonte))
     return True
 
