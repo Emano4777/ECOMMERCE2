@@ -1,27 +1,41 @@
 """
 buscar_imagens_cosmeticos.py — Busca imagens de cosméticos, higiene e puericultura
-via DSP (VTEX) e Droga Raia por EAN, salvando em produto_canon.
+via múltiplas fontes, salvando em produto_canon.
+
+Fontes consultadas em ordem de prioridade:
+  1. Cosmos/Bluesoft API  — base de códigos de barras, cobre marcas nacionais
+  2. DSP (VTEX)           — Drogaria São Paulo (bom para Nivea, L'Oreal, etc.)
+  3. Beleza na Web (VTEX) — especialista em cosméticos e perfumaria
+  4. Droga Raia           — scraping HTML/JSON-LD
+  5. Serper Google Images — fallback mais amplo, cobre qualquer loja
+
+Regras de aceitação (herdadas de app.py):
+  - Sem branding de farmácia concorrente na URL ou no OCR da imagem
+  - Sem banners, promoções ou imagens não-produto
+  - Imagem correlacionada ao EAN (verificada via page_url ou query)
 
 Como produto_canon é por EAN (não por loja), uma imagem encontrada aqui
 beneficia automaticamente TODAS as lojas que têm aquele EAN em estoque.
 
-Categorias cobertas (não estão no anvisa_cache):
-  cosmeticos  — shampoo, condicionador, hidratante, esmalte, maquiagem, perfume
-  higiene     — sabonete, desodorante, absorvente, preservativo, protetor solar
-  puericultura — fralda, mamadeira, chupeta, lenço umedecido, baby
-
 Uso:
-    py scripts/buscar_imagens_cosmeticos.py               # dry-run, 100 EANs, todas cats
+    py scripts/buscar_imagens_cosmeticos.py               # dry-run, 100 EANs
     py scripts/buscar_imagens_cosmeticos.py --apply       # grava
-    py scripts/buscar_imagens_cosmeticos.py --limite 50
+    py scripts/buscar_imagens_cosmeticos.py --limite 200
     py scripts/buscar_imagens_cosmeticos.py --ean 7891150037465
-    py scripts/buscar_imagens_cosmeticos.py --categoria puericultura
+    py scripts/buscar_imagens_cosmeticos.py --categoria higiene
+    py scripts/buscar_imagens_cosmeticos.py --sem-serper  # pula Serper (economia de cota)
     py scripts/buscar_imagens_cosmeticos.py -v
 """
 from __future__ import annotations
 import argparse
+import itertools
+import json
+import os
+import re
 import sys
 import time
+import urllib.request
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,13 +45,21 @@ if str(ROOT) not in sys.path:
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-from app import db
+from app import (
+    db,
+    _fetch_cosmos_api_image_url,
+    _fetch_serper_image_result_url,
+    _looks_like_other_pharmacy_brand,
+    _image_has_other_pharmacy_text,
+    _image_looks_non_product,
+)
 from scripts.revalidar_tarja_vtex import (
     _vtex_fetch,
     _raia_fetch,
     _extrair_dados_vtex,
     _upload_cloudinary,
     _PLACEHOLDERS_POUPAQUI,
+    _UA,
 )
 
 # ── Palavras-chave por categoria ──────────────────────────────────────────────
@@ -52,7 +74,9 @@ _KEYWORDS: dict[str, list[str]] = {
         "sabonete liq", "cicatricure", "nivea", "dove ", "giovanna",
         "natura ", "boticario", "avon ", "esmalte", "maquiagem",
         "batom", "blush", "rimel", "mascara olho", "perfume",
-        "colonia", "agua de colonia", "oil body",
+        "colonia", "agua de colonia", "oil body", "skala", "salon line",
+        "phytoervas", "monange", "palmolive", "lux ", "koleston",
+        "coloracao", "tintura", "creme alisante", "bothanico", "btox",
     ],
     "higiene": [
         "sabonete barra", "sabonete gel", "desodorante", "des rexona",
@@ -61,7 +85,7 @@ _KEYWORDS: dict[str, list[str]] = {
         "creme dent", "pasta dent", "enxaguante", "antisseptico buc",
         "algodao", "curativo", "band-aid", "repelente", "protetor solar",
         "fps", "protetor labial", "depilatorio", "depilatório",
-        "barbeador", "aparelho barb", "lamina barb",
+        "barbeador", "aparelho barb", "lamina barb", "gillette",
     ],
     "puericultura": [
         "fralda", "lenco umed", "lenço umed", "mamadeira", "chupeta",
@@ -79,8 +103,163 @@ _SEM_IMAGEM_COND = """(
     OR TRIM(pc.imagem_cosmos) = ''
     OR pc.imagem_cosmos LIKE '%%CAIXA_GEN%%'
     OR pc.imagem_cosmos LIKE '%%ChatGPT_Image%%'
+    OR pc.imagem_cosmos LIKE '%%44356%%'
 )"""
 
+
+# ── Rotação de chaves Serper e Cosmos ─────────────────────────────────────────
+
+def _serper_keys() -> list[str]:
+    multi = [k.strip() for k in os.getenv("SERPER_API_KEYS", "").split(",") if k.strip()]
+    single = os.getenv("SERPER_API_KEY", "").strip()
+    keys = multi or ([single] if single else [])
+    return keys
+
+
+def _cosmos_tokens() -> list[str]:
+    multi = [t.strip() for t in os.getenv("COSMOS_TOKENS", "").split(",") if t.strip()]
+    single = os.getenv("COSMOS_TOKEN", "").strip()
+    return multi or ([single] if single else [])
+
+
+# ── Beleza na Web (VTEX) ──────────────────────────────────────────────────────
+
+_BELEZA_BASE = "https://www.belezanaweb.com.br"
+_VTEX_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "application/json",
+    "Accept-Language": "pt-BR,pt;q=0.9",
+}
+
+def _beleza_fetch(ean: str, verbose: bool = False) -> str | None:
+    """Busca imagem real na Beleza na Web pelo EAN via VTEX Catalog API."""
+    ean_digits = re.sub(r"\D", "", ean)
+    if not ean_digits:
+        return None
+    urls_tentativas = [
+        f"{_BELEZA_BASE}/api/catalog_system/pub/products/search?fq=alternateIdValues:{ean_digits}&_from=0&_to=0&sc=1",
+        f"{_BELEZA_BASE}/api/catalog_system/pub/products/search?ft={ean_digits}&_from=0&_to=0&sc=1",
+    ]
+    for url in urls_tentativas:
+        try:
+            req = urllib.request.Request(url, headers=_VTEX_HEADERS)
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception as exc:
+            if verbose:
+                print(f"    [beleza] {type(exc).__name__}: {exc}")
+            continue
+        if not isinstance(data, list) or not data:
+            continue
+        produto = data[0]
+        for item in produto.get("items", []):
+            for img in item.get("images") or []:
+                img_url = (img.get("imageUrl") or "").strip()
+                if not img_url.startswith("http"):
+                    continue
+                fname = img_url.split("?")[0].split("/")[-1].lower()
+                img_text = img.get("imageText") or img.get("imageLabel") or ""
+                if _looks_like_other_pharmacy_brand(img_url, fname, img_text):
+                    if verbose:
+                        print(f"    [beleza] branded, pulando: {img_url[:60]}")
+                    continue
+                if verbose:
+                    print(f"    [beleza] imagem: {img_url[:70]}")
+                return img_url
+    return None
+
+
+# ── Cosmos com rotação de tokens ──────────────────────────────────────────────
+
+def _cosmos_fetch_rotating(ean: str, tokens: list[str], verbose: bool = False) -> str | None:
+    """Tenta Cosmos com rotação de tokens — usa próximo se o atual estiver sem cota."""
+    ean_digits = re.sub(r"\D", "", ean)
+    if not ean_digits or len(ean_digits) < 8:
+        return None
+    for token in tokens:
+        try:
+            req = urllib.request.Request(
+                f"https://api.cosmos.bluesoft.com.br/gtins/{ean_digits}",
+                headers={
+                    "X-Cosmos-Token": token,
+                    "User-Agent": "Cosmos-API-Request",
+                    "Content-Type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as r:
+                if r.status == 429:
+                    if verbose:
+                        print(f"    [cosmos] token {token[:8]} sem cota, trocando...")
+                    continue
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception as exc:
+            if "429" in str(exc) or "quota" in str(exc).lower():
+                continue
+            if verbose:
+                print(f"    [cosmos] {type(exc).__name__}: {exc}")
+            return None
+        thumb = (data.get("thumbnail") or "").strip()
+        if thumb.startswith("http"):
+            if verbose:
+                print(f"    [cosmos] imagem: {thumb[:70]}")
+            return thumb
+    return None
+
+
+# ── Serper com rotação de chaves ──────────────────────────────────────────────
+
+def _serper_fetch_rotating(ean: str, nome: str, keys: list[str],
+                            verbose: bool = False) -> str | None:
+    """Serper Google Images com rotação de chaves e queries progressivas."""
+    if not keys:
+        return None
+    ean_digits = re.sub(r"\D", "", ean)
+    if len(ean_digits) < 8:
+        return None
+
+    nome_curto = " ".join((nome or "").split()[:4])
+    queries = list(dict.fromkeys([  # dedup preservando ordem
+        f"{ean_digits} {nome_curto}".strip() if nome_curto else ean_digits,
+        f'"{ean_digits}" {nome_curto}'.strip() if nome_curto else f'"{ean_digits}"',
+        f'"{ean_digits}"',
+        ean_digits,
+    ]))
+
+    key_cycle = itertools.cycle(keys)
+
+    for q in queries:
+        api_key = next(key_cycle)
+        try:
+            payload = json.dumps({"q": q, "num": 10, "gl": "br", "hl": "pt-br"}).encode()
+            req = urllib.request.Request(
+                "https://google.serper.dev/images",
+                data=payload,
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception as exc:
+            if verbose:
+                print(f"    [serper] {type(exc).__name__}: {exc}")
+            continue
+
+        for item in (data.get("images") or [])[:10]:
+            img_url  = item.get("imageUrl") or item.get("thumbnailUrl") or ""
+            page_url = item.get("link") or ""
+            title    = item.get("title") or ""
+            if not img_url.startswith("http"):
+                continue
+            if _looks_like_other_pharmacy_brand(img_url, page_url, title):
+                continue
+            if verbose:
+                print(f"    [serper] candidata: {img_url[:70]}")
+            return img_url
+
+    return None
+
+
+# ── Busca de EANs sem imagem ──────────────────────────────────────────────────
 
 def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None) -> list[dict]:
     if ean_filtro:
@@ -100,8 +279,8 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
         return [dict(r) for r in rows] if rows else [{"ean": ean_filtro, "nome": ean_filtro}]
 
     keywords = _KEYWORDS.get(categoria, _ALL_KEYWORDS) if categoria else _ALL_KEYWORDS
-    ilike_e  = " OR ".join(["e.descricao ILIKE %s"]           * len(keywords))
-    ilike_ae = " OR ".join(["ae.descricao_produto ILIKE %s"]  * len(keywords))
+    ilike_e  = " OR ".join(["e.descricao ILIKE %s"]          * len(keywords))
+    ilike_ae = " OR ".join(["ae.descricao_produto ILIKE %s"] * len(keywords))
     params   = [f"%{kw}%" for kw in keywords]
 
     cur.execute(f"""
@@ -138,19 +317,74 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
     return [dict(r) for r in cur.fetchall()]
 
 
+def _salvar(cur, ean: str, nome: str, imagem: str, fonte: str, apply: bool,
+            verbose: bool) -> bool:
+    """Faz upload para Cloudinary e salva em produto_canon. Retorna True se gravou."""
+    url_final = imagem
+    if apply:
+        url_cl = _upload_cloudinary(imagem, ean, verbose=verbose)
+        if url_cl:
+            url_final = url_cl
+            if verbose:
+                print(f"    [cloudinary OK] {url_cl[:70]}")
+        else:
+            if verbose:
+                print(f"    [cloudinary FALHOU] usando URL original")
+
+    if apply:
+        cur.execute("""
+            UPDATE produto_canon
+               SET imagem_cosmos = %s, fonte = %s, atualizado_em = NOW()
+            WHERE ean = %s
+              AND (
+                imagem_cosmos IS NULL OR TRIM(imagem_cosmos) = ''
+                OR imagem_cosmos LIKE '%%CAIXA_GEN%%'
+                OR imagem_cosmos LIKE '%%ChatGPT_Image%%'
+                OR imagem_cosmos LIKE '%%44356%%'
+              )
+        """, (url_final, fonte, ean))
+
+        if cur.rowcount == 0:
+            cur.execute("""
+                INSERT INTO produto_canon (ean, descricao_canon, imagem_cosmos, fonte, atualizado_em)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (ean) DO UPDATE
+                  SET imagem_cosmos = EXCLUDED.imagem_cosmos,
+                      fonte         = EXCLUDED.fonte,
+                      atualizado_em = NOW()
+                WHERE produto_canon.imagem_cosmos IS NULL
+                   OR TRIM(produto_canon.imagem_cosmos) = ''
+                   OR produto_canon.imagem_cosmos LIKE '%%CAIXA_GEN%%'
+                   OR produto_canon.imagem_cosmos LIKE '%%ChatGPT_Image%%'
+                   OR produto_canon.imagem_cosmos LIKE '%%44356%%'
+            """, (ean, nome, url_final, fonte))
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Busca imagens de cosméticos/higiene/puericultura via DSP e Raia."
+        description="Busca imagens de cosméticos/higiene/puericultura via múltiplas fontes."
     )
-    parser.add_argument("--apply",     action="store_true", help="Grava no banco + upload Cloudinary")
-    parser.add_argument("--limite",    type=int, default=100, metavar="N")
-    parser.add_argument("--ean",       help="Processa apenas este EAN")
-    parser.add_argument("--categoria", choices=list(_KEYWORDS.keys()),
+    parser.add_argument("--apply",       action="store_true", help="Grava no banco + upload Cloudinary")
+    parser.add_argument("--limite",      type=int, default=100, metavar="N")
+    parser.add_argument("--ean",         help="Processa apenas este EAN")
+    parser.add_argument("--categoria",   choices=list(_KEYWORDS.keys()),
                         help="Filtra por categoria (padrão: todas)")
-    parser.add_argument("--delay",     type=float, default=0.8, metavar="S")
-    parser.add_argument("--commit-cada", type=int, default=50, metavar="N")
+    parser.add_argument("--delay",       type=float, default=0.5, metavar="S")
+    parser.add_argument("--commit-cada", type=int, default=30, metavar="N")
+    parser.add_argument("--sem-serper",  action="store_true",
+                        help="Pula Serper (economia de cota — use quando cota estiver baixa)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+
+    serper_keys   = _serper_keys()
+    cosmos_tokens = _cosmos_tokens()
+
+    print(f"Serper keys:   {len(serper_keys)} chave(s)")
+    print(f"Cosmos tokens: {len(cosmos_tokens)} token(s)")
+    if args.sem_serper:
+        print("Serper: DESATIVADO (--sem-serper)")
+    print()
 
     conn = db()
     cur  = conn.cursor()
@@ -159,114 +393,127 @@ def main():
     cat_label = args.categoria or "todas"
     print(f"EANs a processar [{cat_label}]: {len(registros)}")
     if not registros:
-        print("Nenhum EAN encontrado.")
+        print("Nenhum EAN encontrado sem imagem.")
         cur.close(); conn.close(); return
 
-    n_imagem = n_sem_resposta = n_branded = 0
-    pendentes_commit = 0
+    n_cosmos = n_dsp = n_beleza = n_raia = n_serper = n_sem = n_branded = 0
+    pendentes = 0
 
     for reg in registros:
         ean  = reg["ean"]
         nome = (reg.get("nome") or ean)[:70]
+        achou = False
+        fonte_label = ""
 
         if args.verbose:
             print(f"\n[{ean}] {nome}")
 
-        # ── Consulta DSP ──────────────────────────────────────────────────
-        produto_vtex = _vtex_fetch(ean, verbose=args.verbose)
-        dados_dsp    = _extrair_dados_vtex(produto_vtex, verbose=args.verbose) if produto_vtex else None
-        imagem_dsp   = (dados_dsp or {}).get("imagem")
-        exibir_dsp   = (dados_dsp or {}).get("exibir_imagem")
+        # ── Fonte 1: Cosmos/Bluesoft ──────────────────────────────────────
+        if cosmos_tokens and not achou:
+            img = _cosmos_fetch_rotating(ean, cosmos_tokens, verbose=args.verbose)
+            if img:
+                print(f"  [cosmos]  {ean}  {nome[:40]}  {img[:65]}...")
+                _salvar(cur, ean, nome, img, "cosmos", args.apply, args.verbose)
+                n_cosmos += 1
+                achou = True
 
-        # ── Consulta Raia (quando DSP não trouxe imagem real) ─────────────
-        dados_raia  = None
-        imagem_raia = None
-        if not imagem_dsp and exibir_dsp is not False:
-            time.sleep(args.delay * 0.4)
-            dados_raia  = _raia_fetch(ean, verbose=args.verbose)
-            imagem_raia = (dados_raia or {}).get("imagem")
-
-        imagem = imagem_dsp or imagem_raia
-
-        if not imagem:
-            if exibir_dsp is False or (dados_raia and dados_raia.get("exibir_imagem") is False):
+        # ── Fonte 2: DSP (Drogaria São Paulo) ─────────────────────────────
+        if not achou:
+            p = _vtex_fetch(ean, verbose=args.verbose)
+            d = _extrair_dados_vtex(p, verbose=args.verbose) if p else None
+            img = (d or {}).get("imagem")
+            if img:
+                print(f"  [dsp]     {ean}  {nome[:40]}  {img[:65]}...")
+                _salvar(cur, ean, nome, img, "vtex_dsp", args.apply, args.verbose)
+                n_dsp += 1
+                achou = True
+            elif (d or {}).get("exibir_imagem") is False:
                 n_branded += 1
                 if args.verbose:
-                    print("  [branded] farmácias mostram imagem de template, pulando")
-            else:
-                n_sem_resposta += 1
-                if args.verbose:
-                    print("  [sem imagem] não encontrado em DSP nem Raia")
-            time.sleep(args.delay)
-            continue
+                    print("  [branded] DSP retornou imagem de template, pulando")
 
-        fonte = "vtex_dsp" if imagem_dsp else "vtex_raia"
-        print(f"  [imagem {fonte}] {ean}  {nome[:40]}  {imagem[:65]}...")
-        n_imagem += 1
+        # ── Fonte 3: Beleza na Web ────────────────────────────────────────
+        if not achou:
+            time.sleep(args.delay * 0.3)
+            img = _beleza_fetch(ean, verbose=args.verbose)
+            if img:
+                # OCR de segurança: rejeita se imagem tiver branding de farmácia
+                if _image_has_other_pharmacy_text(img):
+                    if args.verbose:
+                        print(f"    [ocr] Beleza na Web branded, rejeitando")
+                    n_branded += 1
+                else:
+                    print(f"  [beleza]  {ean}  {nome[:40]}  {img[:65]}...")
+                    _salvar(cur, ean, nome, img, "beleza_vtex", args.apply, args.verbose)
+                    n_beleza += 1
+                    achou = True
 
-        if args.apply:
-            url_final      = imagem
-            url_cloudinary = _upload_cloudinary(imagem, ean, verbose=args.verbose)
-            if url_cloudinary:
-                url_final = url_cloudinary
-                if args.verbose:
-                    print(f"  [cloudinary OK] {url_cloudinary[:70]}...")
-            else:
-                print(f"  [cloudinary FALHOU] usando URL original")
+        # ── Fonte 4: Droga Raia ───────────────────────────────────────────
+        if not achou:
+            time.sleep(args.delay * 0.3)
+            d = _raia_fetch(ean, verbose=args.verbose)
+            img = (d or {}).get("imagem")
+            if img:
+                # _raia_fetch já aplica detecção interna; OCR extra de segurança
+                if _image_has_other_pharmacy_text(img):
+                    if args.verbose:
+                        print(f"    [ocr] Raia branded, rejeitando")
+                    n_branded += 1
+                else:
+                    print(f"  [raia]    {ean}  {nome[:40]}  {img[:65]}...")
+                    _salvar(cur, ean, nome, img, "vtex_raia", args.apply, args.verbose)
+                    n_raia += 1
+                    achou = True
 
-            placeholders = list(_PLACEHOLDERS_POUPAQUI)
+        # ── Fonte 5: Serper Google Images ────────────────────────────────
+        if not achou and serper_keys and not args.sem_serper:
+            time.sleep(args.delay * 0.5)
+            img = _serper_fetch_rotating(ean, nome, serper_keys, verbose=args.verbose)
+            if img:
+                # OCR de segurança: rejeita se imagem tiver branding ou não for produto
+                if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
+                    if args.verbose:
+                        print(f"    [ocr] Serper branded/nao-produto, rejeitando")
+                    n_branded += 1
+                else:
+                    print(f"  [serper]  {ean}  {nome[:40]}  {img[:65]}...")
+                    _salvar(cur, ean, nome, img, "serper", args.apply, args.verbose)
+                    n_serper += 1
+                    achou = True
 
-            cur.execute("""
-                UPDATE produto_canon
-                   SET imagem_cosmos = %s,
-                       fonte         = %s,
-                       atualizado_em = NOW()
-                WHERE ean = %s
-                  AND (
-                    imagem_cosmos IS NULL
-                    OR TRIM(imagem_cosmos) = ''
-                    OR imagem_cosmos LIKE '%%CAIXA_GEN%%'
-                    OR imagem_cosmos LIKE '%%ChatGPT_Image%%'
-                  )
-            """, (url_final, fonte, ean))
+        if not achou:
+            n_sem += 1
+            if args.verbose:
+                print(f"  [sem imagem] nenhuma fonte retornou resultado")
 
-            if cur.rowcount == 0:
-                cur.execute("""
-                    INSERT INTO produto_canon (ean, descricao_canon, imagem_cosmos, fonte, atualizado_em)
-                    VALUES (%s, %s, %s, %s, NOW())
-                    ON CONFLICT (ean) DO UPDATE
-                      SET imagem_cosmos = EXCLUDED.imagem_cosmos,
-                          fonte         = EXCLUDED.fonte,
-                          atualizado_em = NOW()
-                    WHERE produto_canon.imagem_cosmos IS NULL
-                       OR TRIM(produto_canon.imagem_cosmos) = ''
-                       OR produto_canon.imagem_cosmos LIKE '%%CAIXA_GEN%%'
-                       OR produto_canon.imagem_cosmos LIKE '%%ChatGPT_Image%%'
-                """, (ean, nome, url_final, fonte))
-
-            pendentes_commit += 1
-            if pendentes_commit >= args.commit_cada:
+        # Commit parcial
+        if achou and args.apply:
+            pendentes += 1
+            if pendentes >= args.commit_cada:
                 conn.commit()
-                print(f"  [commit parcial] {pendentes_commit} gravadas")
-                pendentes_commit = 0
+                print(f"  [commit parcial] {pendentes} gravadas")
+                pendentes = 0
 
         time.sleep(args.delay)
 
     # Commit final
     if args.apply:
-        if pendentes_commit > 0:
+        if pendentes > 0:
             conn.commit()
-        print(f"\nGravado." if n_imagem else "\nNenhuma imagem nova encontrada.")
+        total = n_cosmos + n_dsp + n_beleza + n_raia + n_serper
+        print(f"\nGravado." if total else "\nNenhuma imagem nova.")
     else:
         conn.rollback()
-        if n_imagem:
-            print(f"\nDry-run: {n_imagem} imagem(ns) encontrada(s) — use --apply para gravar.")
+        total = n_cosmos + n_dsp + n_beleza + n_raia + n_serper
+        if total:
+            print(f"\nDry-run: {total} imagem(ns) — use --apply para gravar.")
         else:
             print("\nNenhuma imagem nova encontrada.")
 
     print(
-        f"\nTotal: {len(registros)} | Com imagem: {n_imagem} "
-        f"| Branded: {n_branded} | Sem resposta: {n_sem_resposta}"
+        f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Branded: {n_branded}"
+        f"\nCosmos: {n_cosmos} | DSP: {n_dsp} | Beleza na Web: {n_beleza}"
+        f" | Raia: {n_raia} | Serper: {n_serper}"
     )
     cur.close()
     conn.close()
