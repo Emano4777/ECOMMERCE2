@@ -110,6 +110,29 @@ _SEM_IMAGEM_COND = """(
 )"""
 
 
+# ── Validação de EAN comercial (dígito verificador GS1) ──────────────────────
+
+def _ean_comercial(ean: str) -> bool:
+    """True se o EAN é um código comercial válido: EAN-13 ou UPC-12 com dígito verificador correto.
+
+    Elimina PLUs internos de farmácia (ex.: 1000000035520, 10000342, etc.)
+    que passam na regex mas não têm check digit GS1 válido ou têm comprimento errado.
+    """
+    d = re.sub(r"\D", "", ean)
+    # Padrão de PLU interno: começa com 1000 ou 2000 seguido de zeros (padding)
+    if len(d) in (12, 13) and re.match(r"^[12]0{4,}", d):
+        return False
+    if len(d) == 13:
+        pesos = [1, 3, 1, 3, 1, 3, 1, 3, 1, 3, 1, 3]
+        soma = sum(int(d[i]) * pesos[i] for i in range(12))
+        return (10 - soma % 10) % 10 == int(d[12])
+    if len(d) == 12:  # UPC-A
+        pesos = [3, 1, 3, 1, 3, 1, 3, 1, 3, 1, 3]
+        soma = sum(int(d[i]) * pesos[i] for i in range(11))
+        return (10 - soma % 10) % 10 == int(d[11])
+    return False
+
+
 # ── Rotação de chaves Serper e Cosmos ─────────────────────────────────────────
 
 def _serper_keys() -> list[str]:
@@ -359,7 +382,7 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
 
     if todos:
         # Todos os EANs sem imagem — exclui medicamentos tarjados e genéricos
-        # (esses têm tratamento próprio via Anvisa e placeholder de tarja)
+        # e exige 12-13 dígitos (EAN comercial; PLUs internos têm dígito verificador inválido)
         _EXCLUIR_MED = """
             AND NOT EXISTS (
                 SELECT 1 FROM medicamentos m2
@@ -378,6 +401,7 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
         _EXCLUIR_MED_AE = _EXCLUIR_MED.replace(
             "COALESCE(e.barras_norm, e.barras, '')", "ae.ean"
         )
+        # SQL restringe a 12-13 dígitos; Python filtra dígito verificador GS1
         cur.execute(f"""
             SELECT DISTINCT ON (ean) ean, nome
             FROM (
@@ -387,7 +411,7 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
                 FROM estoque e
                 LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras)
                 WHERE COALESCE(e.barras_norm, e.barras) IS NOT NULL
-                  AND COALESCE(e.barras_norm, e.barras) ~ '^[1-9][0-9]{{7,12}}$'
+                  AND COALESCE(e.barras_norm, e.barras) ~ '^[0-9]{{12,13}}$'
                   AND e.estoque > 0
                   AND {_SEM_IMAGEM_COND}
                   {_EXCLUIR_MED}
@@ -400,15 +424,18 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
                 FROM automatiza_estoque ae
                 LEFT JOIN produto_canon pc ON pc.ean = ae.ean
                 WHERE ae.ean IS NOT NULL
-                  AND ae.ean ~ '^[1-9][0-9]{{7,12}}$'
+                  AND ae.ean ~ '^[0-9]{{12,13}}$'
                   AND ae.quantidade_estoque > 0
                   AND {_SEM_IMAGEM_COND}
                   {_EXCLUIR_MED_AE}
             ) t
             ORDER BY ean
             LIMIT %s
-        """, [limite])
-        return [dict(r) for r in cur.fetchall()]
+        """, [limite * 3])  # busca 3x para compensar o filtro Python
+        rows = cur.fetchall()
+        # Filtra pelo dígito verificador GS1 — elimina PLUs internos
+        validos = [dict(r) for r in rows if _ean_comercial(r["ean"])]
+        return validos[:limite]
 
     keywords = _KEYWORDS.get(categoria, _ALL_KEYWORDS) if categoria else _ALL_KEYWORDS
     ilike_e  = " OR ".join(["e.descricao ILIKE %s"]          * len(keywords))
