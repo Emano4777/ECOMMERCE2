@@ -2590,7 +2590,7 @@ def _preco_catalogo_atual(cnpjloja: str, ean: str, fallback=0) -> float:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco
+            SELECT COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco
             FROM estoque e
             LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             LEFT JOIN LATERAL (
@@ -2600,6 +2600,13 @@ def _preco_catalogo_atual(cnpjloja: str, ean: str, fallback=0) -> float:
                   AND total_vendasgeral > 0 AND itens > 0
                 ORDER BY id DESC LIMIT 1
             ) vg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                FROM vendageral
+                WHERE ean = e.barras
+                  AND total_vendasgeral > 0 AND itens > 0
+                ORDER BY id DESC LIMIT 1
+            ) vg_market ON TRUE
             WHERE e.cnpj=%s
               AND (e.barras=%s OR LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') = LTRIM(%s, '0'))
               AND e.estoque > 0
@@ -3493,10 +3500,10 @@ _SQL_ALPHA = """
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         el.qty,
-        COALESCE(vg.preco_venda, el.preco_referencial)                       AS preco_ref,
-        ep.preco_customizado                                                  AS preco_custom,
-        COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial) AS preco,
-        el.custo_medio                                                        AS custo,
+        COALESCE(vg.preco_venda, vg_market.preco_venda, el.preco_referencial)                       AS preco_ref,
+        ep.preco_customizado                                                                        AS preco_custom,
+        COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, el.preco_referencial) AS preco,
+        el.custo_medio                                                                              AS custo,
         COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
@@ -3507,6 +3514,14 @@ _SQL_ALPHA = """
         ORDER BY id DESC
         LIMIT 1
     ) vg ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+        FROM vendageral
+        WHERE ean = el.barras
+          AND total_vendasgeral > 0 AND itens > 0
+        ORDER BY id DESC
+        LIMIT 1
+    ) vg_market ON TRUE
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
@@ -3700,11 +3715,38 @@ def _apply_latest_sales_prices(produtos, cnpjloja, cur):
         )
         auto_prices = {r["ean"]: r["preco_venda"] for r in cur.fetchall() if r.get("preco_venda") is not None}
 
+    # EANs sem preço local — buscar fallback em qualquer loja
+    eans_sem_preco = [
+        p["ean"] for p in produtos
+        if p.get("preco_custom") is None
+        and p.get("ean")
+        and (alpha_prices.get(p["ean"]) is None and auto_prices.get(p["ean"]) is None)
+    ]
+    market_prices: dict = {}
+    if eans_sem_preco:
+        try:
+            cur.execute(
+                """
+                SELECT DISTINCT ON (ean)
+                       ean, ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                FROM vendageral
+                WHERE ean = ANY(%s)
+                  AND total_vendasgeral > 0 AND itens > 0
+                ORDER BY ean, id DESC
+                """,
+                (eans_sem_preco,),
+            )
+            market_prices = {r["ean"]: r["preco_venda"] for r in cur.fetchall() if r.get("preco_venda") is not None}
+        except Exception:
+            pass
+
     for produto in produtos:
         if produto.get("preco_custom") is not None:
             continue
         ean = produto.get("ean")
         preco_venda = alpha_prices.get(ean) if produto.get("fonte_estoque") == "alpha" else auto_prices.get(ean)
+        if preco_venda is None:
+            preco_venda = market_prices.get(ean)
         if preco_venda is not None:
             produto["preco_ref"] = preco_venda
             produto["preco"] = preco_venda
@@ -3780,9 +3822,9 @@ def get_dns_products(
         cur.execute("""
             SELECT e.barras AS ean, e.descricao AS nome,
                    CAST(e.estoque AS INTEGER) AS qty,
-                   COALESCE(vg.preco_venda, e.preco_referencial) AS preco_ref,
+                   COALESCE(vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco_ref,
                    ep.preco_customizado AS preco_custom,
-                   COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
+                   COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
                    e.custo_medio AS custo,
                    COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                    m.marca AS marca,
@@ -3795,6 +3837,13 @@ def get_dns_products(
                   AND total_vendasgeral > 0 AND itens > 0
                 ORDER BY id DESC LIMIT 1
             ) vg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                FROM vendageral
+                WHERE ean = e.barras
+                  AND total_vendasgeral > 0 AND itens > 0
+                ORDER BY id DESC LIMIT 1
+            ) vg_market ON TRUE
             LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
             LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
@@ -3911,7 +3960,7 @@ _SQL_ALPHA_BATCH = """
         m.marca                                                              AS marca,
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)  AS categoria,
         el.qty,
-        COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial)  AS preco,
+        COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, el.preco_referencial)  AS preco,
         COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
@@ -3922,6 +3971,14 @@ _SQL_ALPHA_BATCH = """
         ORDER BY id DESC
         LIMIT 1
     ) vg ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+        FROM vendageral
+        WHERE ean = el.barras
+          AND total_vendasgeral > 0 AND itens > 0
+        ORDER BY id DESC
+        LIMIT 1
+    ) vg_market ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
@@ -4063,7 +4120,7 @@ def get_dns_products_batch(cnpjs):
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
-                       COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
+                       COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
                        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
                 FROM estoque e
                 LEFT JOIN LATERAL (
@@ -4073,6 +4130,13 @@ def get_dns_products_batch(cnpjs):
                       AND total_vendasgeral > 0 AND itens > 0
                     ORDER BY id DESC LIMIT 1
                 ) vg ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                    FROM vendageral
+                    WHERE ean = e.barras
+                      AND total_vendasgeral > 0 AND itens > 0
+                    ORDER BY id DESC LIMIT 1
+                ) vg_market ON TRUE
                 LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
                 LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
                 LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss')
@@ -4232,14 +4296,15 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
     except Exception:
         pass
     _apply_safe_catalog_images(rows)
-    # Remove produtos sem imagem: não devem aparecer no catálogo público
-    rows = [r for r in rows if _has_catalog_image(r)]
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
         conn2.close()
     except Exception:
         pass
+    # Remove produtos sem imagem: não devem aparecer no catálogo público
+    # (depois de _marcar_tarja_batch para que tarjados recebam placeholder antes de filtrar)
+    rows = [r for r in rows if _has_catalog_image(r)]
     for _p in rows:
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
@@ -5378,7 +5443,7 @@ def api_produtos_proximos():
         for cnpj in cnpjs[:8]:
             for term in extra_lookup_terms:
                 try:
-                    for p in get_dns_products(cnpj, term)[:80]:
+                    for p in get_dns_products(cnpj, term, skip_image_filter=True)[:80]:
                         key = (p.get("cnpjloja") or cnpj, p.get("ean"))
                         if key in seen_search:
                             continue
@@ -5921,7 +5986,7 @@ def produto_detalhe(ean):
             """
             SELECT e.barras AS ean, e.descricao AS nome,
                    CAST(e.estoque AS INTEGER) AS qty,
-                   COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
+                   COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
                    COALESCE(%s, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
             FROM estoque e
             LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
@@ -5936,6 +6001,13 @@ def produto_detalhe(ean):
                   AND total_vendasgeral > 0 AND itens > 0
                 ORDER BY id DESC LIMIT 1
             ) vg ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                FROM vendageral
+                WHERE ean = e.barras
+                  AND total_vendasgeral > 0 AND itens > 0
+                ORDER BY id DESC LIMIT 1
+            ) vg_market ON TRUE
             WHERE e.cnpj = %s AND (e.barras = %s OR e.barras_norm = %s) AND e.estoque > 0
             LIMIT 1
             """,
@@ -6179,7 +6251,7 @@ def _buscar_med_catalogo(nome_med: str, cnpjs: list):
 
     def _search_cnpj(cnpj):
         try:
-            return get_dns_products(cnpj, q[:35])
+            return get_dns_products(cnpj, q[:35], skip_image_filter=True)
         except Exception:
             return []
 

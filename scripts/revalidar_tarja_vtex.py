@@ -147,7 +147,7 @@ def _analisar_imagem_branded(url: str, tarja: str | None = None,
             if verbose:
                 print("    [ocr] BRANDED detectado por texto")
             return True
-        # OCR rodou mas não detectou branding → imagem real
+        # OCR rodou mas nao detectou branding -> imagem real
         return False
     except Exception as exc:
         if verbose:
@@ -155,7 +155,7 @@ def _analisar_imagem_branded(url: str, tarja: str | None = None,
         # OCR falhou: usa regra conservadora — CDN de farmácia = incerto
         if _CDN_FARMACIA_RE_LOCAL.search(url):
             if verbose:
-                print("    [ocr-falhou] CDN farmacia → conservador (incerto)")
+                print("    [ocr-falhou] CDN farmacia -> conservador (incerto)")
             return None  # sinaliza "não sabe" ao chamador
         return False
 _HEADERS = {
@@ -291,26 +291,47 @@ def _raia_fetch(ean: str, tarja_bd: str | None = None, verbose: bool = False) ->
                     products = products.get("products") or []
                 if isinstance(products, list) and products:
                     p = products[0]
-                    # Imagem
-                    imgs = p.get("images") or p.get("imageUrls") or []
-                    if isinstance(imgs, list) and imgs:
-                        img = (imgs[0].get("imageUrl") or imgs[0]) if isinstance(imgs[0], dict) else imgs[0]
-                        if isinstance(img, str) and img.startswith("http"):
-                            fname = img.split("?")[0].split("/")[-1]
-                            is_branded = bool(
-                                _BRANDED_IMAGE_RE.search(fname)
-                                or _BRANDED_IMAGE_RE.search(img)
-                                or _TARJA_DA_URL_RE.search(fname)
-                            )
-                            m_tarja = _TARJA_DA_URL_RE.search(fname) or _TARJA_DA_URL_RE.search(img)
-                            if is_branded or m_tarja:
-                                result["exibir_imagem"] = False
-                                if m_tarja:
-                                    result["tarja"] = m_tarja.group(1).lower()
-                            else:
-                                result["imagem"] = img
-                                result["exibir_imagem"] = True
-                    # Tarja via especificacoes
+                    # Imagem — novo formato: image.src (raiadrogasil.io CDN, sem branding)
+                    img = None
+                    img_src = (p.get("image") or {}).get("src") if isinstance(p.get("image"), dict) else None
+                    if img_src and img_src.startswith("http"):
+                        img = img_src
+                    else:
+                        # fallback formato antigo
+                        imgs = p.get("images") or p.get("imageUrls") or []
+                        if isinstance(imgs, list) and imgs:
+                            raw = imgs[0]
+                            img = (raw.get("imageUrl") or raw) if isinstance(raw, dict) else raw
+                            if not isinstance(img, str) or not img.startswith("http"):
+                                img = None
+
+                    if img:
+                        fname = img.split("?")[0].split("/")[-1]
+                        # CDN da Raia (raiadrogasil.io) nunca tem branding — aceita direto
+                        is_raia_cdn = "raiadrogasil.io" in img
+                        is_branded = not is_raia_cdn and bool(
+                            _BRANDED_IMAGE_RE.search(fname)
+                            or _BRANDED_IMAGE_RE.search(img)
+                            or _TARJA_DA_URL_RE.search(fname)
+                        )
+                        m_tarja = _TARJA_DA_URL_RE.search(fname) or _TARJA_DA_URL_RE.search(img)
+                        if is_branded or m_tarja:
+                            result["exibir_imagem"] = False
+                            if m_tarja:
+                                result["tarja"] = m_tarja.group(1).lower()
+                        else:
+                            result["imagem"] = img
+                            result["exibir_imagem"] = True
+                        if verbose:
+                            print(f"    [raia-next] img={img[:70]} raia_cdn={is_raia_cdn} branded={is_branded}")
+
+                    # Tarja via stripeCode (0=isento, 1=vermelha, 2=preta)
+                    stripe = p.get("stripeCode")
+                    if stripe == 2:
+                        result["tarja"] = "preta"
+                    elif stripe == 1 and not result["tarja"]:
+                        result["tarja"] = "vermelha"
+                    # Tarja via especificacoes (formato antigo)
                     for spec in (p.get("Tarja") or p.get("tarja") or []):
                         val = str(spec).lower()
                         mapped = _TARJA_MAP.get(val)
@@ -557,13 +578,13 @@ def _extrair_dados_vtex(produto: dict, tarja_bd: str | None = None,
                 if ocr_result is True:
                     is_branded = True
                 elif ocr_result is None:
-                    # OCR falhou e URL é de CDN de farmácia → não altera exibir
+                    # OCR falhou e URL e de CDN de farmacia -> nao altera exibir
                     if verbose:
-                        print("    [cdn-incerto] OCR falhou + CDN → exibir=None")
+                        print("    [cdn-incerto] OCR falhou + CDN -> exibir=None")
                     result["exibir_imagem"] = None
                     result["imagem"] = None
                     break
-                # ocr_result is False → imagem real, não branded
+                # ocr_result is False -> imagem real, nao branded
             if is_branded:
                 result["exibir_imagem"] = False
                 m = _TARJA_DA_URL_RE.search(url_fname) or _TARJA_DA_URL_RE.search(url)
@@ -622,7 +643,7 @@ def _extrair_dados_vtex(produto: dict, tarja_bd: str | None = None,
     # Tarja do nome do arquivo branded (mais confiável que inferência genérica)
     if result["tarja"] is None and result.get("tarja_da_url"):
         result["tarja"] = result["tarja_da_url"]
-    # Se DSP usa imagem branded e ainda sem tarja → inferimos vermelha (mínimo seguro)
+    # Se DSP usa imagem branded e ainda sem tarja -> inferimos vermelha (minimo seguro)
     elif result["exibir_imagem"] is False and result["tarja"] is None:
         result["tarja"] = "vermelha"
 
@@ -665,6 +686,7 @@ def _resolver_eans_por_chave(cur, chaves: list[str], so_catalogo_ativo: bool = F
         LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
         WHERE COALESCE(e.barras, '') <> ''
           AND e.estoque > 0
+          AND COALESCE(e.barras_norm, e.barras) ~ '^[1-9][0-9]{{6,12}}$'
           {filtro_ativo_e}
 
         UNION
@@ -676,6 +698,7 @@ def _resolver_eans_por_chave(cur, chaves: list[str], so_catalogo_ativo: bool = F
         LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
         WHERE COALESCE(ae.ean, '') <> ''
           AND ae.quantidade_estoque > 0
+          AND ae.ean ~ '^[1-9][0-9]{{6,12}}$'
           {filtro_ativo_ae}
     """)
 
@@ -777,6 +800,8 @@ def main():
     parser.add_argument("--delay",  type=float, default=0.6, metavar="S")
     parser.add_argument("--so-catalogo-ativo", action="store_true",
                         help="Restringe EANs apenas a lojas com catalogo_publico=TRUE")
+    parser.add_argument("--commit-cada", type=int, default=100, metavar="N",
+                        help="Commit a cada N mudancas gravadas (evita timeout no pooler)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Log detalhado de cada requisicao")
     args = parser.parse_args()
 
@@ -802,6 +827,7 @@ def main():
     print(f"  Chaves com EAN: {len(todas_chaves) - sem_ean} | Sem EAN no catalogo: {sem_ean}\n")
 
     sem_resposta = n_tarja = n_exibir = n_imagem = 0
+    pendentes_commit = 0
 
     for reg in registros:
         chave     = reg["chave"]
@@ -918,6 +944,7 @@ def main():
                 n_imagem += 1
 
         # Grava
+        _n_antes = n_tarja + n_exibir + n_imagem
         if args.apply:
             if nova_tarja != tarja_bd or novo_exibir != exibir_bd:
                 cur.execute(
@@ -976,9 +1003,20 @@ def main():
                                OR produto_canon.imagem_cosmos = ANY(%s)
                         """, (ean, descricao, url_final, fonte, list(_PLACEHOLDERS_POUPAQUI)))
 
-    if args.apply and (n_tarja or n_exibir or n_imagem):
-        conn.commit()
-        print(f"\nGravado.")
+        if args.apply and (n_tarja + n_exibir + n_imagem > _n_antes):
+            pendentes_commit += 1
+            if pendentes_commit >= args.commit_cada:
+                conn.commit()
+                print(f"  [commit parcial] {pendentes_commit} mudancas gravadas")
+                pendentes_commit = 0
+
+    if args.apply:
+        if pendentes_commit > 0:
+            conn.commit()
+        if n_tarja or n_exibir or n_imagem:
+            print(f"\nGravado.")
+        else:
+            print("\nNenhuma divergencia encontrada.")
     else:
         conn.rollback()
         if n_tarja or n_exibir or n_imagem:
