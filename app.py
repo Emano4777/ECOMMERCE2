@@ -2902,7 +2902,11 @@ def _fetch_cosmos_api_image_url(ean):
 _NON_PRODUCT_IMAGE_RE = re.compile(
     r"sua\s+sa[uú]de|f[aá]cil\s+e\s+acess[ií]vel|tempo\s+e\s+dinheiro"
     r"|delivery|entrega|frete|promo[cç][aã]o|oferta|desconto"
-    r"|banner|hero|rem[eé]dios|drogarias?\s+online",
+    r"|banner|hero|rem[eé]dios|drogarias?\s+online"
+    # Imagens de pessoa/lifestyle exibindo produto
+    r"|clique\s+aqui|compre\s+agora|saiba\s+mais|aproveite"
+    r"|consulte\s+seu\s+m[eé]dico|sob\s+prescri[cç][aã]o"
+    r"|imagem\s+(meramente\s+)?ilustrativa|foto\s+ilustrativa",
     re.IGNORECASE,
 )
 
@@ -9812,7 +9816,7 @@ def painel_relatorios():
         SELECT a.estrelas, a.comentario, a.criado_em,
                p.cliente_nome
         FROM ecommerce_avaliacoes_loja a
-        LEFT JOIN ecommerce_pedidos p ON p.id = a.pedido_id
+        LEFT JOIN ecommerce_pedidos p ON p.id::text = a.pedido_id
         WHERE a.cnpjloja = %s
         ORDER BY a.criado_em DESC
         LIMIT 50

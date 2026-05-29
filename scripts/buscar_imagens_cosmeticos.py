@@ -198,37 +198,48 @@ def _beleza_fetch(ean: str, verbose: bool = False) -> str | None:
 # ── Cosmos com rotação de tokens ──────────────────────────────────────────────
 
 def _cosmos_fetch_rotating(ean: str, tokens: list[str], verbose: bool = False) -> str | None:
-    """Tenta Cosmos com rotação de tokens — usa próximo se o atual estiver sem cota."""
+    """Tenta Cosmos com rotação de tokens — usa próximo se o atual estiver sem cota.
+
+    Para EANs com zeros à esquerda (ex: 0000042277217 → EAN-8 42277217),
+    tenta também a versão sem zeros para cobrir ambas as indexações.
+    """
     ean_digits = re.sub(r"\D", "", ean)
     if not ean_digits or len(ean_digits) < 8:
         return None
-    for token in tokens:
-        try:
-            req = urllib.request.Request(
-                f"https://api.cosmos.bluesoft.com.br/gtins/{ean_digits}",
-                headers={
-                    "X-Cosmos-Token": token,
-                    "User-Agent": "Cosmos-API-Request",
-                    "Content-Type": "application/json",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=8) as r:
-                if r.status == 429:
-                    if verbose:
-                        print(f"    [cosmos] token {token[:8]} sem cota, trocando...")
+    # Candidatos: EAN completo e sem zeros à esquerda (EAN-8 padded)
+    ean_stripped = ean_digits.lstrip("0") or ean_digits
+    candidatos = list(dict.fromkeys([ean_digits, ean_stripped]))
+
+    for ean_q in candidatos:
+        if len(ean_q) < 7:
+            continue
+        for token in tokens:
+            try:
+                req = urllib.request.Request(
+                    f"https://api.cosmos.bluesoft.com.br/gtins/{ean_q}",
+                    headers={
+                        "X-Cosmos-Token": token,
+                        "User-Agent": "Cosmos-API-Request",
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    if r.status == 429:
+                        if verbose:
+                            print(f"    [cosmos] token {token[:8]} sem cota, trocando...")
+                        continue
+                    data = json.loads(r.read().decode("utf-8", "ignore"))
+            except Exception as exc:
+                if "429" in str(exc) or "quota" in str(exc).lower():
                     continue
-                data = json.loads(r.read().decode("utf-8", "ignore"))
-        except Exception as exc:
-            if "429" in str(exc) or "quota" in str(exc).lower():
-                continue
-            if verbose:
-                print(f"    [cosmos] {type(exc).__name__}: {exc}")
-            return None
-        thumb = (data.get("thumbnail") or "").strip()
-        if thumb.startswith("http"):
-            if verbose:
-                print(f"    [cosmos] imagem: {thumb[:70]}")
-            return thumb
+                if verbose:
+                    print(f"    [cosmos] {type(exc).__name__}: {exc}")
+                break  # EAN não encontrado, tenta próximo candidato
+            thumb = (data.get("thumbnail") or "").strip()
+            if thumb.startswith("http"):
+                if verbose:
+                    print(f"    [cosmos] imagem: {thumb[:70]}")
+                return thumb
     return None
 
 
@@ -291,11 +302,20 @@ def _serper_fetch_rotating(ean: str, nome: str, keys: list[str],
             print(f"    [serper] EAN {ean_digits} ({len(ean_digits)} dígitos) parece interno, pulando")
         return None
 
-    nome_curto = " ".join((nome or "").split()[:4])
+    nome_curto = " ".join((nome or "").split()[:5])
+    ean_stripped = ean_digits.lstrip("0") or ean_digits
+    padded = ean_digits != ean_stripped  # EAN com zeros à esquerda
+
     queries = list(dict.fromkeys([
+        # EAN original + nome (busca principal)
         f"{ean_digits} {nome_curto}".strip() if nome_curto else ean_digits,
+        # Para EAN padded: busca por nome do produto (mais eficaz)
+        f"{nome_curto} produto farmacia" if (padded and nome_curto) else None,
+        # EAN sem zeros + nome
+        f"{ean_stripped} {nome_curto}".strip() if (padded and ean_stripped != ean_digits) else None,
         f'"{ean_digits}"',
     ]))
+    queries = [q for q in queries if q]  # remove None
 
     key_iter = iter(chaves_disponiveis)
     api_key = next(key_iter, None)
@@ -343,10 +363,13 @@ def _serper_fetch_rotating(ean: str, nome: str, keys: list[str],
             # Rejeita farmácias concorrentes
             if _looks_like_other_pharmacy_brand(img_url, page_url, title):
                 continue
-            # Preferência: EAN na URL da imagem OU domínio de e-commerce confiável
-            ean_na_url = ean_digits in img_url.replace("-", "").replace("_", "")
+            # Para EAN padded (zeros à esquerda), aceita também o EAN sem zeros na URL
+            ean_na_url = (ean_digits in img_url.replace("-", "").replace("_", "")
+                          or (padded and ean_stripped in img_url.replace("-", "").replace("_", "")))
             site_ok = bool(_ECOMMERCE_CONFIAVEL_RE.search(img_url) or _ECOMMERCE_CONFIAVEL_RE.search(page_url))
-            if not ean_na_url and not site_ok:
+            # Para queries por nome (EAN padded), aceita de qualquer site de produto
+            nome_query = padded and nome_curto and q.startswith(nome_curto[:6])
+            if not ean_na_url and not site_ok and not nome_query:
                 if verbose:
                     print(f"    [serper] rejeitada (sem EAN na URL e site desconhecido): {img_url[:70]}")
                 continue
@@ -537,24 +560,50 @@ def main():
                         help="Busca TODOS os EANs do ecommerce sem imagem (sem filtro de categoria)")
     parser.add_argument("--delay",       type=float, default=0.5, metavar="S")
     parser.add_argument("--commit-cada", type=int, default=30, metavar="N")
-    parser.add_argument("--sem-serper",  action="store_true",
-                        help="Pula Serper (economia de cota — use quando cota estiver baixa)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
-    serper_keys   = _serper_keys()
-    cosmos_tokens = _cosmos_tokens()
-
-    print(f"Serper keys:   {len(serper_keys)} chave(s)")
-    print(f"Cosmos tokens: {len(cosmos_tokens)} token(s)")
-    if args.sem_serper:
-        print("Serper: DESATIVADO (--sem-serper)")
     if args.todos:
         print("Modo: TODOS os EANs sem imagem (--todos)")
+    print("Fontes: DSP (VTEX) + Droga Raia (VTEX) | OCR ativo")
     print()
 
-    conn = db()
-    cur  = conn.cursor()
+    def _nova_conn():
+        """Abre conexão com keepalives para evitar queda em sessões longas."""
+        import psycopg2, psycopg2.extras
+        database_url = os.getenv("DATABASE_URL", "")
+        c = psycopg2.connect(
+            database_url,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=10,
+            keepalives_count=5,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+        c.autocommit = False
+        return c
+
+    def _commit_seguro(conn_ref, cur_ref):
+        """Commit com reconexão automática se a conexão SSL caiu."""
+        try:
+            conn_ref[0].commit()
+        except Exception as exc:
+            if "SSL" in str(exc) or "connection" in str(exc).lower():
+                _log(f"  [reconexao] SSL caiu, reconectando...")
+                try: conn_ref[0].close()
+                except Exception: pass
+                conn_ref[0] = _nova_conn()
+                cur_ref[0] = conn_ref[0].cursor()
+                conn_ref[0].commit()
+            else:
+                raise
+
+    conn_ref = [_nova_conn()]
+    cur_ref  = [conn_ref[0].cursor()]
+
+    # Usa referências para _buscar_eans (leitura inicial — conn normal basta)
+    conn = conn_ref[0]
+    cur  = cur_ref[0]
 
     registros = _buscar_eans(cur, args.categoria, args.limite, args.ean, todos=args.todos)
     cat_label = "todos" if args.todos else (args.categoria or "cosméticos+higiene+puericultura")
@@ -579,10 +628,8 @@ def main():
     _log(f"Inicio — {total_r} EANs | apply={args.apply} | limite={args.limite}")
     _log(f"Log salvo em: {log_path}")
 
-    n_cosmos = n_dsp = n_beleza = n_raia = n_serper = n_sem = n_branded = 0
+    n_dsp = n_raia = n_sem = n_branded = 0
     pendentes = 0
-    # Chaves Serper esgotadas persistem entre todos os EANs da sessão
-    serper_chaves_esgotadas: set[str] = set()
 
     for i, reg in enumerate(registros, 1):
         ean  = reg["ean"]
@@ -594,123 +641,79 @@ def main():
         if args.verbose:
             print(f"\n[{ean}] {nome}")
 
-        # ── Fonte 1: Cosmos/Bluesoft ──────────────────────────────────────
-        if cosmos_tokens and not achou:
-            img = _cosmos_fetch_rotating(ean, cosmos_tokens, verbose=args.verbose)
-            if img:
-                _log(f"  -> COSMOS   {img[:80]}")
-                _salvar(cur, ean, nome, img, "cosmos", args.apply, args.verbose)
-                n_cosmos += 1
-                achou = True
-
-        # ── Fonte 2: DSP (Drogaria São Paulo) ─────────────────────────────
+        # ── Fonte 1: DSP (Drogaria São Paulo) via VTEX ───────────────────
         if not achou:
             p = _vtex_fetch(ean, verbose=args.verbose)
             d = _extrair_dados_vtex(p, verbose=args.verbose) if p else None
             img = (d or {}).get("imagem")
             if img:
-                _log(f"  -> DSP      {img[:80]}")
-                _salvar(cur, ean, nome, img, "vtex_dsp", args.apply, args.verbose)
-                n_dsp += 1
-                achou = True
-            elif (d or {}).get("exibir_imagem") is False:
-                n_branded += 1
-                if args.verbose:
-                    print("  [branded] DSP retornou imagem de template, pulando")
-
-        # ── Fonte 3: Beleza na Web ────────────────────────────────────────
-        if not achou:
-            time.sleep(args.delay * 0.3)
-            img = _beleza_fetch(ean, verbose=args.verbose)
-            if img:
-                if _image_has_other_pharmacy_text(img):
+                if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
                     if args.verbose:
-                        print(f"    [ocr] Beleza na Web branded, rejeitando")
+                        print(f"    [ocr] DSP imagem rejeitada (farmácia/banner/pessoa)")
                     n_branded += 1
                 else:
-                    _log(f"  -> BELEZA   {img[:80]}")
-                    _salvar(cur, ean, nome, img, "beleza_vtex", args.apply, args.verbose)
-                    n_beleza += 1
+                    _log(f"  -> DSP      {img[:80]}")
+                    _salvar(cur_ref[0], ean, nome, img, "vtex_dsp", args.apply, args.verbose)
+                    n_dsp += 1
                     achou = True
+            elif (d or {}).get("exibir_imagem") is False:
+                n_branded += 1
 
-        # ── Fonte 4: Droga Raia ───────────────────────────────────────────
+        # ── Fonte 2: Droga Raia via VTEX ──────────────────────────────────
         if not achou:
             time.sleep(args.delay * 0.3)
             d = _raia_fetch(ean, verbose=args.verbose)
             img = (d or {}).get("imagem")
             if img:
-                if _image_has_other_pharmacy_text(img):
+                if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
                     if args.verbose:
-                        print(f"    [ocr] Raia branded, rejeitando")
+                        print(f"    [ocr] Raia imagem rejeitada (farmácia/banner/pessoa)")
                     n_branded += 1
                 else:
                     _log(f"  -> RAIA     {img[:80]}")
-                    _salvar(cur, ean, nome, img, "vtex_raia", args.apply, args.verbose)
+                    _salvar(cur_ref[0], ean, nome, img, "vtex_raia", args.apply, args.verbose)
                     n_raia += 1
-                    achou = True
-
-        # ── Fonte 5: Serper Google Images ────────────────────────────────
-        serper_disponivel = (
-            serper_keys
-            and not args.sem_serper
-            and len(serper_chaves_esgotadas) < len(serper_keys)
-        )
-        if not achou and serper_disponivel:
-            time.sleep(args.delay * 0.5)
-            img = _serper_fetch_rotating(ean, nome, serper_keys,
-                                         serper_chaves_esgotadas, verbose=args.verbose)
-            if img:
-                if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
-                    if args.verbose:
-                        print(f"    [ocr] Serper branded/nao-produto, rejeitando")
-                    n_branded += 1
-                else:
-                    _log(f"  -> SERPER   {img[:80]}")
-                    _salvar(cur, ean, nome, img, "serper", args.apply, args.verbose)
-                    n_serper += 1
                     achou = True
 
         if not achou:
             n_sem += 1
             _log(f"  -> SEM IMAGEM")
 
-        # Commit parcial
+        # Commit parcial com reconexão automática
         if achou and args.apply:
             pendentes += 1
             if pendentes >= args.commit_cada:
-                conn.commit()
-                _log(f"  [commit parcial] {pendentes} gravadas | cosmos={n_cosmos} dsp={n_dsp} beleza={n_beleza} raia={n_raia} serper={n_serper} sem={n_sem}")
+                _commit_seguro(conn_ref, cur_ref)
+                _log(f"  [commit parcial] {pendentes} gravadas | dsp={n_dsp} raia={n_raia} sem={n_sem} rejeitadas={n_branded}")
                 pendentes = 0
 
         time.sleep(args.delay)
 
-    # Commit final
-    total = n_cosmos + n_dsp + n_beleza + n_raia + n_serper
+    # Commit final com reconexão automática
+    total = n_dsp + n_raia
     if args.apply:
         if pendentes > 0:
-            conn.commit()
+            _commit_seguro(conn_ref, cur_ref)
         _log(f"\nGravado: {total} imagem(ns)." if total else "\nNenhuma imagem nova.")
     else:
-        conn.rollback()
+        try: conn_ref[0].rollback()
+        except Exception: pass
         if total:
             _log(f"\nDry-run: {total} imagem(ns) — use --apply para gravar.")
         else:
             _log("\nNenhuma imagem nova encontrada.")
 
-    serper_info = ""
-    if serper_keys:
-        esgotadas = len(serper_chaves_esgotadas)
-        serper_info = f" ({esgotadas}/{len(serper_keys)} chaves esgotadas)" if esgotadas else ""
     resumo = (
-        f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Branded: {n_branded}"
-        f"\nCosmos: {n_cosmos} | DSP: {n_dsp} | Beleza na Web: {n_beleza}"
-        f" | Raia: {n_raia} | Serper: {n_serper}{serper_info}"
+        f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Rejeitadas (OCR): {n_branded}"
+        f"\nDSP: {n_dsp} | Raia: {n_raia}"
         f"\nLog completo: {log_path}"
     )
     _log(resumo)
     log_file.close()
-    cur.close()
-    conn.close()
+    try: cur_ref[0].close()
+    except Exception: pass
+    try: conn_ref[0].close()
+    except Exception: pass
 
 
 if __name__ == "__main__":
