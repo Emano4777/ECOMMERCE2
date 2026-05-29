@@ -3776,11 +3776,11 @@ def get_dns_products(
     if skip_image_filter:
         imagem_alpha = ""
         imagem_auto  = ""
-        limite = 2000
+        limite = 9999  # sem limite prático — mostra todos com estoque
     else:
         imagem_alpha = _IMAGEM_FILTER_ALPHA
         imagem_auto  = _IMAGEM_FILTER_AUTO
-        limite = 300
+        limite = 9999  # idem: todos com imagem e estoque
 
     sql_alpha = _SQL_ALPHA_FAST if batch_sales_prices else _SQL_ALPHA
     sql_auto = _SQL_AUTO_FAST if batch_sales_prices else _SQL_AUTO
@@ -3940,7 +3940,7 @@ _SQL_ALPHA_BATCH = """
             )
           )
         ORDER BY e.descricao
-        LIMIT 600
+        LIMIT 9999
     )
     SELECT
         el.cnpjloja,
@@ -4012,7 +4012,7 @@ _SQL_AUTO_BATCH = """
             )
           )
         ORDER BY ae.descricao_produto
-        LIMIT 600
+        LIMIT 9999
     )
     SELECT
         el.cnpjloja,
