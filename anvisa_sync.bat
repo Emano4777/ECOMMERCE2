@@ -16,18 +16,18 @@ echo.
 set /p opcao="Escolha uma opcao (1-7): "
 
 if "%opcao%"=="1" (
-    python anvisa_sync.py
+    py anvisa_sync.py
 ) else if "%opcao%"=="2" (
-    python anvisa_sync.py --forcar
+    py anvisa_sync.py --forcar
 ) else if "%opcao%"=="3" (
-    python anvisa_sync.py --limite 5
+    py anvisa_sync.py --limite 5
 ) else if "%opcao%"=="4" (
-    python anvisa_sync.py --recorte-antigo
+    py anvisa_sync.py --recorte-antigo
 ) else if "%opcao%"=="5" (
-    python anvisa_sync.py --validar-claude
+    py anvisa_sync.py --validar-claude
 ) else if "%opcao%"=="6" (
     set /p lote="Numero do lote (1, 2, 3...): "
-    python anvisa_sync.py --lote %lote% --lote-size 500
+    py anvisa_sync.py --lote %lote% --lote-size 500
 ) else if "%opcao%"=="7" (
     exit /b 0
 ) else (
