@@ -620,6 +620,27 @@ def _ensure_consumidor_auth_columns():
         _mark_migration_done(key)
 
 
+def _ensure_horario_schema():
+    if "horario" not in _schema_ready:
+        with _schema_lock:
+            if "horario" not in _schema_ready:
+                conn = db()
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ecommerce_config_horario (
+                        cnpjloja      TEXT     NOT NULL,
+                        dia_semana    SMALLINT NOT NULL,
+                        hora_abertura TIME,
+                        hora_fechamento TIME,
+                        fechado       BOOLEAN  DEFAULT FALSE,
+                        PRIMARY KEY (cnpjloja, dia_semana)
+                    )
+                """)
+                conn.commit()
+                cur.close()
+                _schema_ready.add("horario")
+
+
 def _ensure_delivery_schema():
     _ensure_consumidor_schema()
     if "delivery" not in _schema_ready:
@@ -2664,6 +2685,10 @@ def _symptom_index_eans_for_query(query, limit=250):
             ) @@ plainto_tsquery('portuguese', %s)
                OR LOWER(COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'') || ' ' ||
                         COALESCE(principio_ativo,'') || ' ' || COALESCE(classe_terapeutica,'')) LIKE %s
+            ORDER BY
+                -- EANs brasileiros reais (789xxxxxxxxxx) primeiro
+                CASE WHEN ean ~ '^789[0-9]{10}$' THEN 0 ELSE 1 END,
+                ean
             LIMIT %s
             """,
             (base, f"%{base}%", limit),
@@ -5417,11 +5442,19 @@ def api_produtos_proximos():
 
     cnpjs        = [l["cnpjloja"] for l in proximas]
     search_terms = _search_terms_for_query(busca_q) if busca_q else []
-    index_eans = _symptom_index_eans_for_query(busca_q, limit=120) if busca_q else []
+    # Busca mais EANs (300) para compensar IDs internos misturados no índice
+    index_eans = _symptom_index_eans_for_query(busca_q, limit=300) if busca_q else []
     produtos_raw = []
     if busca_q:
-        if index_eans:
-            produtos_raw = get_dns_products_batch_by_eans(cnpjs, index_eans[:120])
+        # Filtra apenas EANs brasileiros reais (13 dígitos, começa com 789)
+        # O índice mistura IDs internos com EANs reais
+        real_eans = [e for e in index_eans if re.match(r"^789\d{10}$", e)]
+        if real_eans:
+            produtos_raw = get_dns_products_batch_by_eans(cnpjs, real_eans[:120])
+        # Fallback: carrega todos os produtos e filtra por nome/sintoma
+        # Necessário quando o índice só tem IDs internos ou está vazio
+        if not produtos_raw:
+            produtos_raw = get_dns_products_batch(cnpjs)
     else:
         produtos_raw = get_dns_products_batch(cnpjs)
     if busca_q:
@@ -16465,6 +16498,150 @@ def api_assinatura_status():
             "beneficios":  plano["beneficios"] or "",
             "ativo":       plano["ativo"],
         } if plano else None,
+    })
+
+
+# ── Horário de funcionamento ──────────────────────────────────────────────────
+
+_DIAS_SEMANA = [
+    (0, "Domingo"),
+    (1, "Segunda-feira"),
+    (2, "Terça-feira"),
+    (3, "Quarta-feira"),
+    (4, "Quinta-feira"),
+    (5, "Sexta-feira"),
+    (6, "Sábado"),
+]
+
+# Dia da semana Brasil: 0=Dom, 1=Seg, ..., 6=Sab
+# Python weekday(): 0=Mon...6=Sun → mapeamento: (weekday + 1) % 7
+def _dia_semana_br():
+    tz_br = timezone(timedelta(hours=-3))
+    return (datetime.now(tz_br).weekday() + 1) % 7
+
+
+def _hora_atual_br():
+    tz_br = timezone(timedelta(hours=-3))
+    return datetime.now(tz_br).time()
+
+
+def _proximo_dia_abertura(horarios: list[dict], dia_hoje: int) -> dict | None:
+    """Retorna o próximo dia aberto a partir de amanhã (até 7 dias à frente)."""
+    for delta in range(1, 8):
+        dia = (dia_hoje + delta) % 7
+        for h in horarios:
+            if h["dia_semana"] == dia and not h.get("fechado") and h.get("hora_abertura"):
+                nome_dia = next((n for d, n in _DIAS_SEMANA if d == dia), str(dia))
+                return {
+                    "dia": dia,
+                    "nome_dia": nome_dia,
+                    "hora_abertura": str(h["hora_abertura"])[:5],
+                }
+    return None
+
+
+@app.get("/painel/horario")
+@painel_required
+def painel_horario():
+    _ensure_horario_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT dia_semana, hora_abertura, hora_fechamento, fechado "
+        "FROM ecommerce_config_horario WHERE cnpjloja=%s ORDER BY dia_semana",
+        (cnpjloja,),
+    )
+    rows = {r["dia_semana"]: r for r in cur.fetchall()}
+    cur.close()
+    # Garante todos os 7 dias presentes
+    horarios = []
+    for dia, nome in _DIAS_SEMANA:
+        r = rows.get(dia, {})
+        horarios.append({
+            "dia_semana": dia,
+            "nome": nome,
+            "hora_abertura":  str(r.get("hora_abertura") or "08:00")[:5],
+            "hora_fechamento": str(r.get("hora_fechamento") or "18:00")[:5],
+            "fechado": bool(r.get("fechado", False)),
+        })
+    return render_template("painel_horario.html", horarios=horarios)
+
+
+@app.post("/painel/horario")
+@painel_required
+def painel_horario_salvar():
+    _ensure_horario_schema()
+    cnpjloja = session.get("cnpjloja")
+    f = request.form
+    conn = db(); cur = conn.cursor()
+    for dia, _ in _DIAS_SEMANA:
+        fechado = f.get(f"fechado_{dia}") == "1"
+        abertura  = (f.get(f"abertura_{dia}")  or "08:00").strip() or "08:00"
+        fechamento = (f.get(f"fechamento_{dia}") or "18:00").strip() or "18:00"
+        cur.execute("""
+            INSERT INTO ecommerce_config_horario
+              (cnpjloja, dia_semana, hora_abertura, hora_fechamento, fechado)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (cnpjloja, dia_semana) DO UPDATE SET
+              hora_abertura   = EXCLUDED.hora_abertura,
+              hora_fechamento = EXCLUDED.hora_fechamento,
+              fechado         = EXCLUDED.fechado
+        """, (cnpjloja, dia, abertura, fechamento, fechado))
+    conn.commit()
+    cur.close()
+    flash("Horário de funcionamento salvo com sucesso.", "success")
+    return redirect(url_for("painel_horario"))
+
+
+@app.get("/api/loja/<cnpjloja>/horario-status")
+def api_horario_status(cnpjloja):
+    """Retorna se a loja está aberta agora e, se fechada, quando abre."""
+    _ensure_horario_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT dia_semana, hora_abertura, hora_fechamento, fechado "
+        "FROM ecommerce_config_horario WHERE cnpjloja=%s ORDER BY dia_semana",
+        (cnpjloja,),
+    )
+    horarios = [dict(r) for r in cur.fetchall()]
+    cur.close()
+
+    # Sem configuração = loja sem restrição de horário
+    if not horarios:
+        return jsonify({"aberta": True, "configurado": False})
+
+    dia_hoje = _dia_semana_br()
+    hora_agora = _hora_atual_br()
+
+    config_hoje = next((h for h in horarios if h["dia_semana"] == dia_hoje), None)
+
+    if config_hoje and not config_hoje.get("fechado"):
+        ab  = config_hoje.get("hora_abertura")
+        fech = config_hoje.get("hora_fechamento")
+        if ab and fech:
+            # Converte timedelta (psycopg2) para time se necessário
+            if hasattr(ab, "seconds"):
+                import datetime as _dt
+                ab   = (_dt.datetime.min + ab).time()
+                fech = (_dt.datetime.min + fech).time()
+            if ab <= hora_agora <= fech:
+                return jsonify({
+                    "aberta": True,
+                    "configurado": True,
+                    "hora_abertura": str(ab)[:5],
+                    "hora_fechamento": str(fech)[:5],
+                })
+
+    # Loja fechada agora — busca próxima abertura
+    proximo = _proximo_dia_abertura(horarios, dia_hoje)
+    nome_dia_hoje = next((n for d, n in _DIAS_SEMANA if d == dia_hoje), "hoje")
+
+    return jsonify({
+        "aberta": False,
+        "configurado": True,
+        "fechado_hoje": True,
+        "nome_dia_hoje": nome_dia_hoje,
+        "proximo": proximo,
     })
 
 

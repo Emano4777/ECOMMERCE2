@@ -1137,6 +1137,70 @@ async function recalcularCarrinhoServidor() {
   } catch {}
 }
 
+// ── Verificação de horário de funcionamento ────────────────────────────────
+async function verificarHorarioLojas(farmaciasPedidos) {
+  const fechadas = [];
+  await Promise.all(farmaciasPedidos.map(async fp => {
+    try {
+      const r = await fetch(`/api/loja/${fp.cnpjloja}/horario-status`);
+      const d = await r.json();
+      if (!d.aberta && d.configurado) {
+        fechadas.push({ ...fp, horario: d });
+      }
+    } catch {}
+  }));
+  return fechadas;
+}
+
+function mostrarModalHorario(lojasFechadas, farmaciasPedidos) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+
+    let avisos = lojasFechadas.map(fp => {
+      const h = fp.horario;
+      const tipoEntrega = (farmaciasPedidos.find(p => p.cnpjloja === fp.cnpjloja) || {}).tipo_entrega || 'retirada';
+      const acao = tipoEntrega === 'entrega' ? 'sua entrega' : 'sua retirada';
+      let msg = '';
+      if (h.proximo) {
+        msg = `${acao} seria somente na <strong>${h.proximo.nome_dia} às ${h.proximo.hora_abertura}</strong>, quando a loja reabre.`;
+      } else {
+        msg = `${acao} só poderá ser realizada quando a loja reabrir.`;
+      }
+      return `<div style="margin-bottom:12px;padding:12px;background:#1a1f2e;border-radius:8px;border-left:3px solid #c8102e">
+        <div style="font-weight:700;margin-bottom:6px">${fp.razao || 'Farmácia'}</div>
+        <div style="font-size:.84rem;color:#aab">Esta farmácia está fechada no momento. ${msg}</div>
+        <div style="font-size:.79rem;color:#f5c842;margin-top:6px">Deseja continuar mesmo assim?</div>
+      </div>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div style="background:#111827;border:1px solid #2d3748;border-radius:14px;max-width:480px;width:100%;padding:24px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+          <i class="fa fa-clock" style="font-size:1.3rem;color:#c8102e"></i>
+          <span style="font-size:1rem;font-weight:900;color:#fff">Farmácia fechada</span>
+        </div>
+        ${avisos}
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+          <button id="hrModalCancel" style="padding:9px 20px;border-radius:8px;border:1px solid #3a4560;background:none;color:#aab;cursor:pointer;font-weight:700">
+            Cancelar
+          </button>
+          <button id="hrModalConfirm" style="padding:9px 20px;border-radius:8px;border:none;background:#c8102e;color:#fff;cursor:pointer;font-weight:700">
+            Continuar mesmo assim
+          </button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#hrModalCancel').onclick  = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('#hrModalConfirm').onclick = () => { overlay.remove(); resolve(true);  };
+    overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); resolve(false); } };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function finalizarPedido() {
   const btn = document.getElementById('btn-finalizar');
   if (btn.disabled) return;
@@ -1211,6 +1275,17 @@ async function finalizarPedido() {
     btn.disabled = false;
     btn.textContent = 'Finalizar pedido';
     return;
+  }
+
+  // Verifica horário de funcionamento de cada loja antes de finalizar
+  const lojasFechadas = await verificarHorarioLojas(farmaciasPedidos);
+  if (lojasFechadas.length > 0) {
+    const confirmar = await mostrarModalHorario(lojasFechadas, farmaciasPedidos);
+    if (!confirmar) {
+      btn.disabled = false;
+      btn.textContent = 'Finalizar pedido';
+      return;
+    }
   }
 
   try {

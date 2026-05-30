@@ -196,6 +196,9 @@
     <a href="{{ url_for('painel_config') }}" {% if request.endpoint == 'painel_config' %}class="active"{% endif %}>
       <i class="fa fa-gear me-1"></i>Config
     </a>
+    <a href="{{ url_for('painel_horario') }}" {% if request.endpoint == 'painel_horario' %}class="active"{% endif %}>
+      <i class="fa fa-clock me-1"></i>Horário
+    </a>
 
     {% if session.is_admin %}
     <span class="pk-nav-sep"></span>

@@ -1,0 +1,134 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Horário de Funcionamento{% endblock %}
+
+{% block extra_style %}
+<style>
+.hr-grid { display:flex; flex-direction:column; gap:10px; max-width:620px; }
+.hr-row {
+  display:grid;
+  grid-template-columns: 120px 1fr 1fr 130px;
+  align-items:center;
+  gap:12px;
+  padding:14px 16px;
+  background:#0d1016;
+  border:1px solid var(--pk-line);
+  border-radius:10px;
+  transition:opacity .2s;
+}
+.hr-row.fechado-row { opacity:.55; }
+.hr-dia { font-weight:700; font-size:.87rem; color:var(--pk-txt); }
+.hr-time input {
+  background:#161b27; border:1px solid var(--pk-line); color:var(--pk-txt);
+  border-radius:7px; padding:7px 10px; font-size:.88rem; width:100%;
+  color-scheme: dark;
+}
+.hr-time input:focus { outline:none; border-color:var(--pk-yellow); }
+.hr-time label { display:block; font-size:.72rem; color:var(--pk-muted); margin-bottom:4px; }
+.hr-toggle-btn {
+  display:flex; align-items:center; gap:8px; cursor:pointer;
+  border:none; background:none; padding:0; color:var(--pk-txt);
+  font-size:.82rem; font-weight:700;
+}
+.hr-switch {
+  width:40px; height:22px; border-radius:11px;
+  background:#2d3748; border:2px solid #3a4560;
+  position:relative; flex-shrink:0;
+  transition:background .2s, border-color .2s;
+}
+.hr-switch::after {
+  content:''; position:absolute; top:2px; left:2px;
+  width:14px; height:14px; border-radius:50%;
+  background:#8899aa; transition:transform .2s, background .2s;
+}
+.fechado-ativo .hr-switch { background:#c8102e; border-color:#e03030; }
+.fechado-ativo .hr-switch::after { transform:translateX(18px); background:#fff; }
+.fechado-ativo .hr-toggle-btn .hr-label { color:#e03030; }
+@media(max-width:560px){
+  .hr-row { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
+  .hr-dia { grid-column:1/3; }
+  .hr-toggle-btn { grid-column:1/3; justify-content:flex-end; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:680px">
+  <div style="margin-bottom:20px">
+    <h5 style="font-weight:900;color:var(--pk-txt);margin:0 0 6px">Horário de Funcionamento</h5>
+    <p style="font-size:.82rem;color:var(--pk-muted);margin:0">
+      Configure os horários em que sua farmácia recebe pedidos. Quando fechada, o consumidor verá um aviso com a previsão de reabertura antes de finalizar a compra.
+    </p>
+  </div>
+
+  <form method="POST" action="{{ url_for('painel_horario_salvar') }}">
+    <div class="hr-grid" id="hrGrid">
+      {% for h in horarios %}
+      <div class="hr-row {% if h.fechado %}fechado-row{% endif %}" id="hrRow{{ h.dia_semana }}">
+        <div class="hr-dia">{{ h.nome }}</div>
+
+        <div class="hr-time">
+          <label>Abertura</label>
+          <input type="time" name="abertura_{{ h.dia_semana }}"
+                 value="{{ h.hora_abertura }}"
+                 {% if h.fechado %}disabled{% endif %}>
+        </div>
+
+        <div class="hr-time">
+          <label>Fechamento</label>
+          <input type="time" name="fechamento_{{ h.dia_semana }}"
+                 value="{{ h.hora_fechamento }}"
+                 {% if h.fechado %}disabled{% endif %}>
+        </div>
+
+        <div>
+          <button type="button"
+                  class="hr-toggle-btn {% if h.fechado %}fechado-ativo{% endif %}"
+                  onclick="toggleFechado({{ h.dia_semana }})"
+                  id="hrBtn{{ h.dia_semana }}">
+            <span class="hr-switch"></span>
+            <span class="hr-label">{% if h.fechado %}Fechado{% else %}Aberto{% endif %}</span>
+          </button>
+          <input type="hidden" name="fechado_{{ h.dia_semana }}"
+                 id="fechadoHidden{{ h.dia_semana }}"
+                 value="{{ '1' if h.fechado else '0' }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:20px;gap:10px">
+      <a href="{{ url_for('painel_config') }}" class="btn btn-secondary btn-sm">Voltar</a>
+      <button type="submit" class="btn-pk-yellow">
+        <i class="fa fa-floppy-disk me-1"></i>Salvar horários
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleFechado(dia) {
+  const btn    = document.getElementById('hrBtn' + dia);
+  const row    = document.getElementById('hrRow' + dia);
+  const hidden = document.getElementById('fechadoHidden' + dia);
+  const inputs = row.querySelectorAll('input[type=time]');
+  const label  = btn.querySelector('.hr-label');
+
+  const isFechado = hidden.value === '1';
+  if (isFechado) {
+    hidden.value = '0';
+    btn.classList.remove('fechado-ativo');
+    row.classList.remove('fechado-row');
+    label.textContent = 'Aberto';
+    inputs.forEach(i => i.disabled = false);
+  } else {
+    hidden.value = '1';
+    btn.classList.add('fechado-ativo');
+    row.classList.add('fechado-row');
+    label.textContent = 'Fechado';
+    inputs.forEach(i => i.disabled = true);
+  }
+}
+</script>
+{% endblock %}

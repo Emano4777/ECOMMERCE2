@@ -792,6 +792,51 @@ def _buscar_registros(cur, modo: str, limite: int, chave_filtro: str | None, ean
     return [dict(r) for r in cur.fetchall()]
 
 
+# IDs de imagens placeholder da Raia — genéricas, não representam o produto real
+_RAIA_PLACEHOLDER_IDS: set[str] = {"14982031", "14982032"}
+
+
+def _is_placeholder_image(image_url: str) -> bool:
+    """Retorna True se a URL for de imagem placeholder conhecida."""
+    import re as _re
+    m = _re.search(r'/images/(\d+)', image_url or "")
+    return bool(m and m.group(1) in _RAIA_PLACEHOLDER_IDS)
+
+
+def _tarja_from_image_ocr(image_url: str, verbose: bool = False) -> str | None:
+    """Determina tarja pelo texto OCR da imagem do medicamento.
+
+    - Faixa preta:    "RETENÇÃO DE RECEITA" no texto
+    - Faixa vermelha: "PRESCRIÇÃO MÉDICA" sem "RETENÇÃO"
+    - None:           imagem placeholder, OCR vazio ou chave não configurada
+    """
+    # Rejeita placeholders conhecidos — seu texto genérico não representa o produto
+    if _is_placeholder_image(image_url):
+        if verbose:
+            print(f"    [ocr-tarja] placeholder conhecido, ignorando")
+        return None
+    try:
+        from app import _ocr_image_text
+        text = (_ocr_image_text(image_url) or "").upper()
+        if not text:
+            return None
+        if verbose:
+            print(f"    [ocr-tarja] {text[:120]!r}")
+        # Imagem genérica/ilustrativa — não usar para determinar tarja
+        if "ILUSTRATIVA" in text or "MERAMENTE" in text:
+            if verbose:
+                print(f"    [ocr-tarja] texto indica imagem ilustrativa, ignorando")
+            return None
+        if "RETEN" in text:
+            return "preta"
+        if "PRESCRI" in text or "VENDA SOB" in text:
+            return "vermelha"
+    except Exception as exc:
+        if verbose:
+            print(f"    [ocr-tarja] erro: {exc}")
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Revalida tarja e imagem via VTEX Drogaria SP.")
     parser.add_argument("--apply",  action="store_true", help="Grava correcoes no banco")
@@ -915,12 +960,26 @@ def main():
         novo_exibir = exibir_bd
         nova_imagem = None
 
-        # Tarja
+        # Tarja — valida via OCR da imagem antes de aceitar mudança
         if tarja_vtex and tarja_vtex != tarja_bd:
-            label = "nova" if not tarja_bd else "corrigida"
-            print(f"  [tarja {label}]  {chave}: {tarja_bd!r} -> {tarja_vtex!r}")
-            nova_tarja = tarja_vtex
-            n_tarja += 1
+            # Se há imagem, confirma pelo texto visual da embalagem:
+            # faixa preta = "RETENÇÃO DE RECEITA"; faixa vermelha = só "PRESCRIÇÃO MÉDICA"
+            if imagem_vtex:
+                tarja_ocr = _tarja_from_image_ocr(imagem_vtex, verbose=args.verbose)
+                if tarja_ocr and tarja_ocr != tarja_vtex:
+                    # OCR contradiz catálogo → usa OCR (imagem real do produto)
+                    print(f"  [ocr-tarja]  {chave}: catalogo={tarja_vtex!r} imagem={tarja_ocr!r} — usando imagem")
+                    tarja_vtex = tarja_ocr
+                elif tarja_ocr is None and tarja_bd and _is_placeholder_image(imagem_vtex):
+                    # Placeholder detectado + tarja já existe no banco
+                    # → não há confirmação visual real, mantém tarja atual
+                    print(f"  [ocr-tarja]  {chave}: imagem placeholder, mantendo tarja atual {tarja_bd!r}")
+                    tarja_vtex = tarja_bd
+            if tarja_vtex != tarja_bd:
+                label = "nova" if not tarja_bd else "corrigida"
+                print(f"  [tarja {label}]  {chave}: {tarja_bd!r} -> {tarja_vtex!r}")
+                nova_tarja = tarja_vtex
+                n_tarja += 1
 
         # exibir_imagem_publica: segue decisão da fonte externa (DSP/Raia).
         # A detecção de imagem branded já foi feita em _extrair_dados_vtex/_raia_fetch
