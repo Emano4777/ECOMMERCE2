@@ -4635,7 +4635,7 @@ def api_vitnatu_produtos():
               AND m.barra_norm IS NOT NULL
         LEFT JOIN LATERAL (
             SELECT ROUND(total_vendasgeral / NULLIF(itens,0),2) AS preco_venda
-            FROM vendageral WHERE cnpj=e.cnpj AND LTRIM(ean,'0')=LTRIM(e.barras,'0')
+            FROM vendageral WHERE cnpj=e.cnpj AND ean=e.barras
               AND total_vendasgeral>0 AND itens>0
             ORDER BY id DESC LIMIT 1
         ) vg ON TRUE
