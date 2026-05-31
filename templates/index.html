@@ -1208,7 +1208,7 @@ function filterAndRender(resetPage=false) {
     const lojas = new Set(filteredProdutos.map(p => p.cnpjloja).filter(Boolean)).size;
     badgeOk.textContent = _serverSearchLoading
       ? 'Buscando no catálogo...'
-      : `${filteredProdutos.length} de ${allProdutos.length} produto(s) · ${lojas || 0} farmácia(s)`;
+      : `Exibindo produtos de ${lojas || 0} farmácia(s)`;
   }
 }
 
@@ -1428,6 +1428,8 @@ function carregarProdutos(lat, lng, busca='') {
   const requestedSearch = _lastServerSearch;
   const params = new URLSearchParams({lat, lng});
   if (_lastServerSearch) params.set('q', _lastServerSearch);
+  const _activeCat = catSel ? catSel.value : '';
+  if (_activeCat) params.set('cat', _activeCat);
   fetch(`/api/produtos-proximos?${params.toString()}`)
     .then(r => r.json())
     .then(data => {
@@ -1446,12 +1448,12 @@ function carregarProdutos(lat, lng, busca='') {
           badgeOk.style.display  = 'none';
         } else if (lat === 0 && lng === 0) {
           titleEl.textContent   = 'Produtos disponíveis na rede';
-          badgeOk.textContent   = `${allProdutos.length} produto(s) · ${data.n_lojas} farmácia(s)`;
+          badgeOk.textContent   = `Exibindo produtos de ${data.n_lojas} farmácia(s)`;
           badgeOk.style.display = '';
           badgeWrn.style.display = 'none';
         } else {
           titleEl.textContent   = 'Produtos perto de você';
-          badgeOk.textContent   = `${allProdutos.length} produto(s) · ${data.n_lojas} farmácia(s)`;
+          badgeOk.textContent   = `Exibindo produtos de ${data.n_lojas} farmácia(s)`;
           badgeOk.style.display = '';
           if (data.fora_raio) {
             badgeWrn.textContent   = `Exibindo farmácias até ${data.raio_fallback_km || 60} km porque não há produtos dentro de ${data.raio_km} km`;

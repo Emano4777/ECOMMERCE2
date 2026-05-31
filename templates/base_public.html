@@ -739,6 +739,9 @@
     <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('catalogo_publico') }}">
       <i class="fa fa-table-cells-large me-1"></i><span class="pq-lojas-label">Catálogo</span>
     </a>
+    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}" style="color:#2e7d32;font-weight:800">
+      <i class="fa fa-leaf me-1"></i><span class="pq-lojas-label">Marca Própria</span>
+    </a>
     <a class="pq-topbar-link pq-lojas-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
       <i class="fa fa-store me-1"></i><span class="pq-lojas-label">Lojas</span>
     </a>
@@ -860,6 +863,9 @@
   <div class="pq-drawer-section">Navegação</div>
   <a class="pq-drawer-item" href="{{ url_for('catalogo_publico') }}" onclick="fecharDrawer()">
     <i class="fa fa-table-cells-large"></i>Catálogo
+  </a>
+  <a class="pq-drawer-item" href="{{ url_for('vitnatu_page') }}" onclick="fecharDrawer()" style="color:#2e7d32;font-weight:800">
+    <i class="fa fa-leaf" style="color:#2e7d32"></i>Nossa Marca Própria
   </a>
   <a class="pq-drawer-item" href="{{ url_for('receita_medica') }}" onclick="fecharDrawer()">
     <i class="fa fa-file-medical"></i>Busca por Receita

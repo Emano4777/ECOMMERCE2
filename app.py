@@ -3973,6 +3973,14 @@ _SQL_ALPHA_BATCH = """
           )
         ORDER BY e.descricao
         LIMIT 9999
+    ),
+    vg_precos AS (
+        SELECT DISTINCT ON (cnpj, ean)
+               cnpj, ean,
+               ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+        FROM vendageral
+        WHERE cnpj = ANY(%s) AND total_vendasgeral > 0 AND itens > 0
+        ORDER BY cnpj, ean, id DESC
     )
     SELECT
         el.cnpjloja,
@@ -3982,25 +3990,10 @@ _SQL_ALPHA_BATCH = """
         m.marca                                                              AS marca,
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)  AS categoria,
         el.qty,
-        COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, el.preco_referencial)  AS preco,
+        COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial) AS preco,
         COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
     FROM eligible el
-    LEFT JOIN LATERAL (
-        SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
-        FROM vendageral
-        WHERE cnpj = el.cnpjloja AND ean = el.barras
-          AND total_vendasgeral > 0 AND itens > 0
-        ORDER BY id DESC
-        LIMIT 1
-    ) vg ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
-        FROM vendageral
-        WHERE ean = el.barras
-          AND total_vendasgeral > 0 AND itens > 0
-        ORDER BY id DESC
-        LIMIT 1
-    ) vg_market ON TRUE
+    LEFT JOIN vg_precos vg             ON vg.cnpj = el.cnpjloja AND vg.ean = el.barras
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON pc.ean = el.ean_join AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
@@ -4054,17 +4047,9 @@ _SQL_AUTO_BATCH = """
         m.marca                                                                   AS marca,
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)        AS categoria,
         el.qty,
-        COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
+        COALESCE(ep.preco_customizado, el.valor_final_produto)                    AS preco,
         COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url)  AS imagem
     FROM eligible el
-    LEFT JOIN LATERAL (
-        SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
-        FROM automatiza_vendas
-        WHERE cnpj_loja = el.cnpjloja AND ean = el.ean
-          AND valor_final_vendido > 0 AND quantidade_vendida > 0
-        ORDER BY id DESC
-        LIMIT 1
-    ) av ON TRUE
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON pc.ean = el.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
@@ -4101,7 +4086,7 @@ def get_dns_products_batch(cnpjs):
     _ensure_produto_canon_schema()
     conn = _new_conn_batch()
     cur = conn.cursor()
-    cur.execute(_SQL_ALPHA_BATCH, (cnpjs,))
+    cur.execute(_SQL_ALPHA_BATCH, (cnpjs, cnpjs))
     alpha = cur.fetchall()
     cur.execute(_SQL_AUTO_BATCH, (cnpjs,))
     auto = cur.fetchall()
@@ -4563,6 +4548,190 @@ def catalogo_publico():
     lojas = cur.fetchall()
     cur.close()
     return render_template("index.html", lojas=lojas)
+
+
+@app.get("/vitnatu")
+def vitnatu_page():
+    return render_template("vitnatu.html")
+
+
+@app.get("/api/vitnatu-produtos")
+@_rate_limited_api(max_calls=40, window_secs=60)
+def api_vitnatu_produtos():
+    try:
+        lat_usr = float(request.args.get("lat", 0))
+        lng_usr = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat_usr, lng_usr = 0.0, 0.0
+
+    sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
+    conn = db()
+    cur  = conn.cursor()
+    proximas, loja_info = [], {}
+
+    if not sem_loc:
+        cur.execute("""
+            SELECT u.cnpjloja, u.razao, u.endereco, u.endereco2, u.uf, g.lat, g.lng
+            FROM users u
+            JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE AND g.lat IS NOT NULL
+              AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+        """)
+        geo = cur.fetchall()
+        if geo:
+            dists = []
+            for l in geo:
+                lat_l, lng_l = _geo_override(l.get("endereco"), l.get("endereco2"), l.get("uf"))
+                if not lat_l:
+                    lat_l, lng_l = float(l["lat"]), float(l["lng"])
+                dists.append({**dict(l), "lat": lat_l, "lng": lng_l,
+                               "distancia_km": round(haversine(lat_usr, lng_usr, lat_l, lng_l), 2)})
+            dists.sort(key=lambda x: x["distancia_km"])
+            proximas = [l for l in dists if l["distancia_km"] <= 60] or dists[:5]
+            loja_info = {l["cnpjloja"]: l for l in proximas}
+
+    if not proximas:
+        cur.execute("""
+            SELECT u.cnpjloja, u.razao, u.endereco
+            FROM users u
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+        """)
+        proximas = list(cur.fetchall())
+        loja_info = {l["cnpjloja"]: {"razao": _public_store_name(l), "distancia_km": None} for l in proximas}
+
+    cnpjs = [l["cnpjloja"] for l in proximas]
+    if not cnpjs:
+        cur.close()
+        return jsonify({"produtos": []})
+
+    _VITNATU_FILTER = """
+        AND (
+            UPPER(COALESCE(m.laboratorio,'')) LIKE '%%VITNATU%%'
+            OR UPPER(COALESCE(m.laboratorio,'')) LIKE '%%VIT NATU%%'
+            OR UPPER(COALESCE(m.marca,''))      LIKE '%%VITNATU%%'
+            OR UPPER(COALESCE(m.marca,''))      LIKE '%%VIT NATU%%'
+            OR UPPER(COALESCE(m.descricao,''))  LIKE '%%VITNATU%%'
+            OR UPPER(COALESCE(m.descricao,''))  LIKE '%%VIT NATU%%'
+            OR UPPER(COALESCE(e.descricao,''))  LIKE '%%VITNATU%%'
+            OR UPPER(COALESCE(e.descricao,''))  LIKE '%%VIT NATU%%'
+        )
+        AND LTRIM(e.barras,'0') NOT IN ('7898638342004','7898722820623')
+    """
+
+    cur.execute(f"""
+        SELECT DISTINCT ON (LTRIM(e.barras,'0'))
+               e.cnpj AS cnpjloja,
+               e.barras AS ean,
+               COALESCE(m.descricao, e.descricao) AS nome,
+               m.marca, m.laboratorio,
+               CAST(e.estoque AS INTEGER) AS qty,
+               COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
+               vi.imagem_url AS imagem
+        FROM estoque e
+        LEFT JOIN medicamentos m
+               ON LTRIM(COALESCE(m.barra_norm, m.barra,''),'0') = LTRIM(e.barras,'0')
+              AND m.barra_norm IS NOT NULL
+        LEFT JOIN LATERAL (
+            SELECT ROUND(total_vendasgeral / NULLIF(itens,0),2) AS preco_venda
+            FROM vendageral WHERE cnpj=e.cnpj AND LTRIM(ean,'0')=LTRIM(e.barras,'0')
+              AND total_vendasgeral>0 AND itens>0
+            ORDER BY id DESC LIMIT 1
+        ) vg ON TRUE
+        LEFT JOIN vitnatu_imagens vi ON vi.ean = LTRIM(e.barras,'0')
+        LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+        WHERE e.cnpj = ANY(%s) AND e.estoque > 0
+          AND LENGTH(e.barras) >= 8
+          {_VITNATU_FILTER}
+        ORDER BY LTRIM(e.barras,'0'), array_position(%s::text[], e.cnpj)
+    """, (cnpjs, cnpjs))
+    alpha = cur.fetchall()
+
+    _VF_AUTO = _VITNATU_FILTER.replace('e.descricao', 'ae.descricao_produto').replace('e.barras', 'ae.ean')
+    cur.execute(f"""
+        SELECT DISTINCT ON (LTRIM(ae.ean,'0'))
+               ae.cnpj_loja AS cnpjloja,
+               ae.ean,
+               COALESCE(m.descricao, ae.descricao_produto) AS nome,
+               m.marca, m.laboratorio,
+               CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+               COALESCE(ep.preco_customizado, ae.valor_final_produto) AS preco,
+               vi.imagem_url AS imagem
+        FROM automatiza_estoque ae
+        LEFT JOIN medicamentos m
+               ON LTRIM(COALESCE(m.barra_norm, m.barra,''),'0') = LTRIM(ae.ean,'0')
+              AND m.barra_norm IS NOT NULL
+        LEFT JOIN vitnatu_imagens vi ON vi.ean = LTRIM(ae.ean,'0')
+        LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
+        WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
+          AND LENGTH(ae.ean) >= 8
+          {_VF_AUTO}
+        ORDER BY LTRIM(ae.ean,'0'), array_position(%s::text[], ae.cnpj_loja)
+    """, (cnpjs, cnpjs))
+    auto = cur.fetchall()
+
+    # Carregar todos os dados de vitnatu_produtos para enriquecer
+    cur.execute("SELECT * FROM vitnatu_produtos WHERE ativo=TRUE")
+    vp_all = {r["nome"].upper(): dict(r) for r in cur.fetchall()}
+
+    # Fallback: vitnatu_imagens já tem tudo mapeado por EAN — consulta direta
+    all_eans_raw = list({(row["ean"] or "").strip() for row in list(alpha) + list(auto) if row.get("ean")})
+    _img_fallback: dict = {}
+    if all_eans_raw:
+        try:
+            cur.execute(
+                "SELECT ean, imagem_url FROM vitnatu_imagens WHERE ean = ANY(%s)",
+                ([e.lstrip("0") or e for e in all_eans_raw],),
+            )
+            _img_fallback = {r["ean"]: r["imagem_url"] for r in cur.fetchall()}
+        except Exception:
+            pass
+
+    cur.close()
+
+    stop = {"com","de","do","da","dos","das","para","por","em","e","ou","cp","ml","mg","un","gr","caps","comp","tab"}
+
+    def _enrich_vitnatu(nome):
+        words = [w for w in nome.upper().split() if len(w) >= 4 and w.lower() not in stop][:3]
+        best = None
+        for vp_nome, vp in vp_all.items():
+            if all(w in vp_nome for w in words):
+                best = vp
+                break
+        return best
+
+    seen, produtos = set(), []
+    for row in list(alpha) + list(auto):
+        ean = (row["ean"] or "").strip()
+        if not ean:
+            continue
+        ean_norm = ean.lstrip("0") or ean
+        if ean_norm in seen:
+            continue
+        seen.add(ean_norm)
+        p = dict(row)
+        # Imagem: filtrar placeholders e usar fallback se necessário
+        img = (p.get("imagem") or "").strip()
+        if img in _MEDICINE_PLACEHOLDER_URLS:
+            img = ""
+        if not img:
+            img = _img_fallback.get(ean_norm, "")
+        p["imagem"] = img
+        # Enriquecer com vitnatu_produtos
+        vp = _enrich_vitnatu(p.get("nome") or "")
+        if vp:
+            p["serve_para"]     = vp.get("serve_para") or ""
+            p["porque_comprar"] = vp.get("porque_comprar") or ""
+            p["como_usar"]      = vp.get("como_usar") or ""
+        # Info da loja mais próxima
+        info = loja_info.get(p["cnpjloja"], {})
+        p["razao"]        = _public_store_name(info) if info else ""
+        p["distancia_km"] = info.get("distancia_km")
+        produtos.append(p)
+
+    produtos.sort(key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+    return jsonify({"produtos": produtos, "n_lojas": len({p["cnpjloja"] for p in produtos})})
 
 
 @app.get("/ofertas")
@@ -5368,6 +5537,7 @@ def api_produtos_proximos():
     raio    = float(request.args.get("raio", 30))
     raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
     busca_q = (request.args.get("q") or "").strip()
+    cat_filter = (request.args.get("cat") or "").strip().lower()
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
 
     conn = db()
@@ -5482,6 +5652,18 @@ def api_produtos_proximos():
                         seen_search.add(key)
                 except Exception:
                     continue
+
+    # Filtro server-side de categoria (mesmos aliases que o JS usa)
+    if cat_filter:
+        _CAT_ALIAS_SRV = {
+            "cosmetico": "perfumaria", "higiene": "perfumaria",
+            "correlato": "varejo", "outros": "varejo",
+            "alimento": "nutricao",
+        }
+        def _cat_ok(p):
+            c = (p.get("categoria") or "").lower()
+            return _CAT_ALIAS_SRV.get(c, c) == cat_filter
+        produtos_raw = [p for p in produtos_raw if _cat_ok(p)]
 
     # Deduplica por EAN: mantém da farmácia mais próxima
     produtos_view = []
