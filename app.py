@@ -5962,13 +5962,28 @@ def produto_detalhe(ean):
         ) epi ON TRUE
         WHERE LTRIM(COALESCE(m.barra_norm,''),'0') = LTRIM(%s,'0')
            OR LTRIM(COALESCE(m.barra,''),'0')      = LTRIM(%s,'0')
+        ORDER BY (m.barra_norm IS NOT NULL) DESC, m.id
         LIMIT 1
         """,
         (ean, ean),
     )
     med = cur.fetchone()
 
-    nome_busca = nome_hint or (med["descricao"] if med else "")
+    # Fallback: produto sem entrada em medicamentos pode ter descricao/imagem em produto_canon
+    _descricao_canon = None
+    if not med:
+        cur.execute(
+            "SELECT descricao_canon FROM produto_canon "
+            "WHERE LTRIM(COALESCE(ean,''),'0') = LTRIM(%s,'0') "
+            "  AND descricao_canon IS NOT NULL "
+            "  AND fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken') "
+            "LIMIT 1",
+            (ean,),
+        )
+        _row_canon = cur.fetchone()
+        _descricao_canon = _row_canon["descricao_canon"] if _row_canon else None
+
+    nome_busca = nome_hint or (med["descricao"] if med else _descricao_canon or "")
     vitnatu = None
     if nome_busca:
         stop  = {"com","de","do","da","dos","das","para","por","em","e","ou","cp","ml","mg","un","gr"}
@@ -6011,6 +6026,9 @@ def produto_detalhe(ean):
         )
         row_img = cur.fetchone()
         imagem_custom = row_img["imagem_url"] if row_img else None
+        # Placeholder genérico salvo como imagem_custom é dado obsoleto — ignorar
+        if imagem_custom in _MEDICINE_PLACEHOLDER_URLS:
+            imagem_custom = None
 
         cur.execute(
             """
@@ -6075,7 +6093,7 @@ def produto_detalhe(ean):
     # ANVISA cache lookup (same cursor, before closing)
     anvisa = {}
     _chave_anvisa = _anvisa_chave(nome_busca) if nome_busca else ""
-    if _chave_anvisa:
+    if _chave_anvisa and _chave_anvisa not in _CHAVES_OTC_ISENTO:
         try:
             _anvisa_schema()   # ensure table exists (idempotent, own connection)
             cur.execute(
@@ -6110,23 +6128,34 @@ def produto_detalhe(ean):
             produto["promo"] = promo_produto
             produto["preco"] = preco_corrigido
 
-    imagem = imagem_custom or (produto["imagem"] if produto else None) or (med["imagem"] if med else None)
+    # Ignorar placeholders genéricos que podem ter sido salvos erroneamente em medicamentos.imagem
+    _prod_img = (produto.get("imagem") if produto else "") or ""
+    _med_img  = (med.get("imagem")    if med    else "") or ""
+    if _prod_img in _MEDICINE_PLACEHOLDER_URLS: _prod_img = ""
+    if _med_img  in _MEDICINE_PLACEHOLDER_URLS: _med_img  = ""
+    imagem = imagem_custom or _prod_img or _med_img or None
     if not imagem and cnpjloja:
         imagem = _fill_one_catalog_image(cnpjloja, ean, nome_busca)
-    nome   = (produto["nome"] if produto else None) or (med["descricao"] if med else nome_hint or "Produto")
+    nome   = (med["descricao"] if med else None) or _descricao_canon or (produto["nome"] if produto else None) or nome_hint or "Produto"
+    tipo_produto = _classificar_produto(nome)
+    tarja = _detectar_tarja(anvisa)
+    _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
     placeholder_generico = _generic_placeholder_for(nome, anvisa=anvisa, med=dict(med) if med else {})
+    # Mesma lógica do _marcar_tarja_batch usado no card:
+    # substitui imagem de farmácia concorrente e aplica caixa genérica quando tarja ou exibir=False
     if imagem and _looks_like_other_pharmacy_brand(imagem):
         imagem = placeholder_generico
     elif imagem and placeholder_generico and _is_untrusted_scraped_image(imagem) and _image_has_other_pharmacy_text(imagem):
         imagem = placeholder_generico
-    elif not imagem and placeholder_generico:
-        imagem = placeholder_generico
-    tipo_produto = _classificar_produto(nome)
-
-    tarja = _detectar_tarja(anvisa)
-    _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
-    if tarja in ("preta", "vermelha") and _is_med:
-        imagem = _placeholder_for_tarja(tarja) or imagem
+    if _is_med:
+        _exibir = anvisa.get("exibir_imagem_publica")
+        _nao_exibir = _exibir is False
+        _bloquear_img = tarja in ("preta", "vermelha") or _nao_exibir
+        if not _bloquear_img and imagem and _looks_like_other_pharmacy_brand(imagem):
+            _bloquear_img = True
+        if _bloquear_img:
+            _tarja_box = tarja if tarja in ("preta", "vermelha") else "vermelha"
+            imagem = _placeholder_for_tarja(_tarja_box) or imagem
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
     reputacao = _reputacao_loja(loja.get("cnpjloja")) if loja else None
 
