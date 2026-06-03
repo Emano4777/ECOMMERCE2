@@ -499,6 +499,27 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
     return [dict(r) for r in cur.fetchall()]
 
 
+def _med_imagens_fetch(ean: str, cur) -> str | None:
+    """Busca imagem já indexada em medicamentos_imagens pelo EAN (ex: Vitnatu, Principia)."""
+    ean_stripped = re.sub(r"\D", "", ean).lstrip("0")
+    if not ean_stripped:
+        return None
+    try:
+        cur.execute("""
+            SELECT mi.cloudinary_url
+            FROM medicamentos m
+            JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            WHERE LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = %s
+              AND mi.cloudinary_url IS NOT NULL
+              AND TRIM(mi.cloudinary_url) != ''
+            LIMIT 1
+        """, (ean_stripped,))
+        r = cur.fetchone()
+        return r["cloudinary_url"] if r else None
+    except Exception:
+        return None
+
+
 def _salvar(cur, ean: str, nome: str, imagem: str, fonte: str, apply: bool,
             verbose: bool) -> bool:
     """Faz upload para Cloudinary e salva em produto_canon. Retorna True se gravou."""
@@ -510,8 +531,11 @@ def _salvar(cur, ean: str, nome: str, imagem: str, fonte: str, apply: bool,
             if verbose:
                 print(f"    [cloudinary OK] {url_cl[:70]}")
         else:
+            # None = Cloudinary rejeitou (pessoa detectada, branding, erro de upload)
+            # Não salva a URL externa de farmácia concorrente como fallback
             if verbose:
-                print(f"    [cloudinary FALHOU] usando URL original")
+                print(f"    [cloudinary REJEITOU] imagem descartada, não salva")
+            return False
 
     if apply:
         cur.execute("""
@@ -565,7 +589,7 @@ def main():
 
     if args.todos:
         print("Modo: TODOS os EANs sem imagem (--todos)")
-    print("Fontes: DSP (VTEX) + Droga Raia (VTEX) | OCR ativo")
+    print("Fontes: medicamentos_imagens → DSP (VTEX) → Droga Raia (VTEX) | OCR ativo")
     print()
 
     def _nova_conn():
@@ -583,20 +607,36 @@ def main():
         c.autocommit = False
         return c
 
+    def _reconectar(conn_ref, cur_ref):
+        _log("  [reconexao] SSL caiu, reconectando...")
+        try: conn_ref[0].close()
+        except Exception: pass
+        conn_ref[0] = _nova_conn()
+        cur_ref[0] = conn_ref[0].cursor()
+
     def _commit_seguro(conn_ref, cur_ref):
-        """Commit com reconexão automática se a conexão SSL caiu."""
         try:
             conn_ref[0].commit()
         except Exception as exc:
-            if "SSL" in str(exc) or "connection" in str(exc).lower():
-                _log(f"  [reconexao] SSL caiu, reconectando...")
-                try: conn_ref[0].close()
-                except Exception: pass
-                conn_ref[0] = _nova_conn()
-                cur_ref[0] = conn_ref[0].cursor()
+            if "SSL" in str(exc) or "connection" in str(exc).lower() or "abort" in str(exc).lower():
+                _reconectar(conn_ref, cur_ref)
                 conn_ref[0].commit()
             else:
                 raise
+
+    def _salvar_retry(conn_ref, cur_ref, ean, nome, img, fonte, apply, verbose):
+        """Chama _salvar com reconexão automática em caso de queda SSL."""
+        for tentativa in range(2):
+            try:
+                _salvar(cur_ref[0], ean, nome, img, fonte, apply, verbose)
+                return
+            except Exception as exc:
+                if tentativa == 0 and (
+                    "SSL" in str(exc) or "connection" in str(exc).lower() or "abort" in str(exc).lower()
+                ):
+                    _reconectar(conn_ref, cur_ref)
+                else:
+                    raise
 
     conn_ref = [_nova_conn()]
     cur_ref  = [conn_ref[0].cursor()]
@@ -628,7 +668,7 @@ def main():
     _log(f"Inicio — {total_r} EANs | apply={args.apply} | limite={args.limite}")
     _log(f"Log salvo em: {log_path}")
 
-    n_dsp = n_raia = n_sem = n_branded = 0
+    n_med = n_dsp = n_raia = n_sem = n_branded = 0
     pendentes = 0
 
     for i, reg in enumerate(registros, 1):
@@ -641,37 +681,58 @@ def main():
         if args.verbose:
             print(f"\n[{ean}] {nome}")
 
-        # ── Fonte 1: DSP (Drogaria São Paulo) via VTEX ───────────────────
+        # ── Fonte 1: medicamentos_imagens (Vitnatu, Principia, etc.) ─────
+        if not achou:
+            img = _med_imagens_fetch(ean, cur_ref[0])
+            if img:
+                _log(f"  -> MED_IMG  {img[:80]}")
+                _salvar_retry(conn_ref, cur_ref, ean, nome, img, "medicamentos_imagens", args.apply, args.verbose)
+                n_med += 1
+                achou = True
+
+        # ── Fonte 2: DSP (Drogaria São Paulo) via VTEX ───────────────────
         if not achou:
             p = _vtex_fetch(ean, verbose=args.verbose)
             d = _extrair_dados_vtex(p, verbose=args.verbose) if p else None
             img = (d or {}).get("imagem")
             if img:
-                if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
+                ocr_text = _ocr_image_text(img)
+                # OCR vazio = falhou ou imagem não tem texto legível (foto de pessoa,
+                # embalagem encoberta, etc.) → rejeita sem tentar salvar
+                if not ocr_text:
+                    if args.verbose:
+                        print(f"    [ocr] DSP imagem rejeitada (OCR vazio)")
+                    n_branded += 1
+                elif _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
                     if args.verbose:
                         print(f"    [ocr] DSP imagem rejeitada (farmácia/banner/pessoa)")
                     n_branded += 1
                 else:
                     _log(f"  -> DSP      {img[:80]}")
-                    _salvar(cur_ref[0], ean, nome, img, "vtex_dsp", args.apply, args.verbose)
+                    _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_dsp", args.apply, args.verbose)
                     n_dsp += 1
                     achou = True
             elif (d or {}).get("exibir_imagem") is False:
                 n_branded += 1
 
-        # ── Fonte 2: Droga Raia via VTEX ──────────────────────────────────
+        # ── Fonte 3: Droga Raia via VTEX ──────────────────────────────────
         if not achou:
             time.sleep(args.delay * 0.3)
             d = _raia_fetch(ean, verbose=args.verbose)
             img = (d or {}).get("imagem")
             if img:
-                if _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
+                ocr_text = _ocr_image_text(img)
+                if not ocr_text:
+                    if args.verbose:
+                        print(f"    [ocr] Raia imagem rejeitada (OCR vazio)")
+                    n_branded += 1
+                elif _image_has_other_pharmacy_text(img) or _image_looks_non_product(img):
                     if args.verbose:
                         print(f"    [ocr] Raia imagem rejeitada (farmácia/banner/pessoa)")
                     n_branded += 1
                 else:
                     _log(f"  -> RAIA     {img[:80]}")
-                    _salvar(cur_ref[0], ean, nome, img, "vtex_raia", args.apply, args.verbose)
+                    _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_raia", args.apply, args.verbose)
                     n_raia += 1
                     achou = True
 
@@ -684,13 +745,13 @@ def main():
             pendentes += 1
             if pendentes >= args.commit_cada:
                 _commit_seguro(conn_ref, cur_ref)
-                _log(f"  [commit parcial] {pendentes} gravadas | dsp={n_dsp} raia={n_raia} sem={n_sem} rejeitadas={n_branded}")
+                _log(f"  [commit parcial] {pendentes} gravadas | med={n_med} dsp={n_dsp} raia={n_raia} sem={n_sem}")
                 pendentes = 0
 
         time.sleep(args.delay)
 
     # Commit final com reconexão automática
-    total = n_dsp + n_raia
+    total = n_med + n_dsp + n_raia
     if args.apply:
         if pendentes > 0:
             _commit_seguro(conn_ref, cur_ref)
@@ -705,7 +766,7 @@ def main():
 
     resumo = (
         f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Rejeitadas (OCR): {n_branded}"
-        f"\nDSP: {n_dsp} | Raia: {n_raia}"
+        f"\nMed_Imagens: {n_med} | DSP: {n_dsp} | Raia: {n_raia}"
         f"\nLog completo: {log_path}"
     )
     _log(resumo)

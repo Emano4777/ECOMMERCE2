@@ -2881,7 +2881,8 @@ def _fetch_verified_serper_image_url(ean, nome):
 
 
 _OTHER_PHARMACY_BRANDS_RE = re.compile(
-    r"drogaria\s+s[aã]o\s+jo[aã]o|saojoao|s[aã]o\s+jo[aã]o"
+    r"drogaria\s+s[aã]o\s+paulo|drogaria[\s_-]?sp\b|drogariasp\b|drogariasaopaulo"
+    r"|drogaria\s+s[aã]o\s+jo[aã]o|saojoao|s[aã]o\s+jo[aã]o"
     r"|droga\s*raia|drogasil|pague\s*menos|panvel|nissei|venancio"
     r"|ultrafarma|drogaria\s+araujo|drogaria\s+minas|farm[aá]cia\s+brito"
     r"|drogaria\s+santa|drogariasantaterezinha|farmacias?\s+heroos|farmaciasheroos|farmais|nova\s*farmais"

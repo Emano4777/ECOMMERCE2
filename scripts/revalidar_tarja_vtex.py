@@ -110,9 +110,15 @@ def _analisar_imagem_branded(url: str, tarja: str | None = None,
     if not ocr_key:
         return False  # sem OCR disponível, usa apenas URL patterns
 
+    # CDN próprio da DSP — quando OCR falha, assume branded (fechado por padrão)
+    _CDN_DSP_RE_LOCAL = re.compile(
+        r"drogariasp\.|drogariasaopaulo\.",
+        re.IGNORECASE,
+    )
+    # Outros CDNs de farmácia — quando OCR falha, sinaliza "incerto" ao chamador
     _CDN_FARMACIA_RE_LOCAL = re.compile(
         r"\.vteximg\.com\.br|\.vtexassets\.com"
-        r"|drogaraia\.|drogariasaopaulo\.|drogariasp\."
+        r"|drogaraia\."
         r"|ultrafarma\.|paguemenos\.",
         re.IGNORECASE,
     )
@@ -154,7 +160,12 @@ def _analisar_imagem_branded(url: str, tarja: str | None = None,
     except Exception as exc:
         if verbose:
             print(f"    [ocr] erro: {exc}")
-        # OCR falhou: usa regra conservadora — CDN de farmácia = incerto
+        # CDN da DSP: fail-closed — qualquer falha de OCR = rejeita imagem
+        if _CDN_DSP_RE_LOCAL.search(url):
+            if verbose:
+                print("    [ocr-falhou] CDN DSP -> conservador (branded=True)")
+            return True
+        # Outros CDNs de farmácia: sinaliza incerteza ao chamador
         if _CDN_FARMACIA_RE_LOCAL.search(url):
             if verbose:
                 print("    [ocr-falhou] CDN farmacia -> conservador (incerto)")
@@ -402,19 +413,63 @@ def _upload_cloudinary(imagem_url: str, ean: str, verbose: bool = False) -> str 
     if not img_bytes:
         return None
 
+    # Labels de pessoa/corpo detectados pelo AWS Rekognition que indicam foto com humano
+    _PERSON_LABELS = {
+        "person", "human", "people", "man", "woman", "boy", "girl", "adult",
+        "hand", "arm", "finger", "body", "face", "head", "shoulder",
+    }
+
     try:
-        result = cloudinary.uploader.upload(
-            img_bytes,
+        # Identifica qual add-on de tagging está disponível na conta
+        _TAGGING_ADDONS = ["aws_rek_tagging", "imagga_tagging", "google_tagging"]
+        tagging_addon = os.getenv("CLOUDINARY_TAGGING_ADDON", "").strip() or None
+
+        upload_kwargs: dict = dict(
             public_id=f"catalogo/{ean}",
             folder="catalogo_produtos",
             resource_type="image",
-            overwrite=False,        # nao re-faz upload se ja existe
+            overwrite=False,
             unique_filename=False,
+            faces=True,             # detecção de rostos built-in (gratuito)
             transformation=[
                 {"width": 800, "height": 800, "crop": "pad", "background": "white"},
                 {"format": "jpg", "quality": "auto:good"},
             ],
         )
+        if tagging_addon and tagging_addon in _TAGGING_ADDONS:
+            upload_kwargs["categorization"] = tagging_addon
+            upload_kwargs["auto_tagging"] = 0.6  # confiança mínima para tags automáticas
+
+        result = cloudinary.uploader.upload(img_bytes, **upload_kwargs)
+        public_id = result.get("public_id", "")
+
+        # 1. Verifica rostos (faces built-in)
+        faces = result.get("faces", [])
+        if faces:
+            if verbose:
+                print(f"    [cloudinary] rejeitada: {len(faces)} rosto(s) detectado(s)")
+            try: cloudinary.uploader.destroy(public_id)
+            except Exception: pass
+            return None
+
+        # 2. Verifica labels de pessoa/corpo via add-on de tagging (se ativo)
+        if tagging_addon:
+            tags_data = (
+                result.get("info", {})
+                .get("categorization", {})
+                .get(tagging_addon, {})
+                .get("data", [])
+            )
+            for tag_entry in tags_data:
+                label = (tag_entry.get("tag") or "").lower()
+                confidence = tag_entry.get("confidence", 0)
+                if label in _PERSON_LABELS and confidence >= 70:
+                    if verbose:
+                        print(f"    [cloudinary] rejeitada: pessoa detectada ({label!r} {confidence:.0f}%)")
+                    try: cloudinary.uploader.destroy(public_id)
+                    except Exception: pass
+                    return None
+
         url = result.get("secure_url")
         if verbose:
             print(f"    [cloudinary] upload OK: {url}")
