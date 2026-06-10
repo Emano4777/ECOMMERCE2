@@ -1,0 +1,67 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Minhas Encomendas{% endblock %}
+
+{% block extra_style %}
+<style>
+.enc-list-wrap { max-width:760px; margin:0 auto; padding:28px 16px 80px; }
+.enc-list-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+.enc-list-top h1 { font-size:1.3rem; font-weight:900; margin:0; display:flex; align-items:center; gap:9px; }
+.enc-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; padding:16px 18px; margin-bottom:12px; display:flex; align-items:flex-start; gap:14px; text-decoration:none; color:inherit; transition:box-shadow .15s; }
+.enc-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.08); border-color:var(--pq-red); }
+.enc-card-icon { width:42px; height:42px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1rem; flex-shrink:0; }
+.enc-card-body { flex:1; min-width:0; }
+.enc-card-nome { font-weight:900; font-size:.95rem; margin-bottom:3px; }
+.enc-card-loja { font-size:.8rem; color:var(--pq-muted); margin-bottom:5px; }
+.enc-card-meta { font-size:.75rem; color:var(--pq-muted); display:flex; gap:10px; flex-wrap:wrap; }
+.enc-badge { display:inline-block; border-radius:20px; padding:3px 10px; font-size:.72rem; font-weight:800; }
+.badge-aberta       { background:#fff7dd; color:#b45309; border:1px solid #fde68a; }
+.badge-em_andamento { background:#eaf6ff; color:#0369a1; border:1px solid #bae6fd; }
+.badge-disponivel   { background:#f0fff4; color:#166534; border:1px solid #86efac; }
+.badge-finalizada   { background:#f3f4f6; color:#6b7280; border:1px solid #d1d5db; }
+.enc-empty { text-align:center; padding:48px 24px; color:var(--pq-muted); }
+.enc-empty i { font-size:2.5rem; opacity:.3; display:block; margin-bottom:14px; }
+.enc-empty strong { display:block; font-size:1rem; color:var(--pq-text); margin-bottom:6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="enc-list-wrap">
+  <div class="enc-list-top">
+    <h1><i class="fa fa-box-open" style="color:var(--pq-red)"></i>Minhas Encomendas</h1>
+    <a href="{{ url_for('index') }}" style="color:var(--pq-red);font-weight:800;text-decoration:none;font-size:.9rem">
+      <i class="fa fa-arrow-left me-1"></i>Voltar
+    </a>
+  </div>
+
+  {% if encomendas %}
+    {% for enc in encomendas %}
+    <a class="enc-card" href="{{ url_for('minha_encomenda_detalhe', encomenda_id=enc.id) }}">
+      <div class="enc-card-icon
+        {% if enc.status == 'aberta' %}bg-yellow-lt{% elif enc.status == 'disponivel' %}bg-green-lt{% else %}bg-blue-lt{% endif %}"
+        style="background:{% if enc.status == 'aberta' %}#fff7dd{% elif enc.status == 'disponivel' %}#d1fae5{% else %}#dbeafe{% endif %}">
+        <i class="fa fa-{% if enc.status == 'disponivel' %}circle-check{% elif enc.status == 'finalizada' %}lock{% else %}box-open{% endif %}"
+           style="color:{% if enc.status == 'disponivel' %}#16a34a{% elif enc.status == 'finalizada' %}#9ca3af{% else %}#b45309{% endif %}"></i>
+      </div>
+      <div class="enc-card-body">
+        <div class="enc-card-nome">{{ enc.produto_nome }}</div>
+        <div class="enc-card-loja"><i class="fa fa-store me-1"></i>{{ enc.razao }}</div>
+        <div class="enc-card-meta">
+          <span>{{ enc.criado_em.strftime('%d/%m/%Y') if enc.criado_em else '' }}</span>
+          <span class="enc-badge badge-{{ enc.status }}">{{ status_label.get(enc.status, enc.status) }}</span>
+          {% if enc.n_msgs > 0 %}
+          <span><i class="fa fa-comments me-1"></i>{{ enc.n_msgs }} mensagem{{ 's' if enc.n_msgs > 1 else '' }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <i class="fa fa-chevron-right" style="color:var(--pq-muted);margin-top:4px;flex-shrink:0;font-size:.8rem"></i>
+    </a>
+    {% endfor %}
+  {% else %}
+  <div class="enc-empty">
+    <i class="fa fa-box-open"></i>
+    <strong>Nenhuma encomenda ainda</strong>
+    Quando você solicitar um produto que não está disponível, sua solicitação aparecerá aqui.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

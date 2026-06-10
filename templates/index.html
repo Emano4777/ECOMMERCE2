@@ -784,6 +784,7 @@ let allProdutos = [];
 let filteredProdutos = [];
 let currentPage = 1;
 let _cards = {};
+let _encomendaLojas = [];
 let _currentLat = null;
 let _currentLng = null;
 let _serverSearchTimer = null;
@@ -793,6 +794,8 @@ let _produtosLoadSeq = 0;
 const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
 const _planosIndex = {};   // {cnpjloja: {nome, preco, ja_assina}}
 const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
+const LOJAS_SERVIDOR = {{ (lojas | map(attribute='cnpjloja') | list | tojson) if lojas is defined else '[]' }};
+const LOJAS_SERVIDOR_NOMES = {{ (lojas | map(attribute='razao') | list | tojson) if lojas is defined else '[]' }};
 const FAVORITOS = new Set();
 const INITIAL_PARAMS = new URLSearchParams(location.search);
 const ONLY_OFFERS = INITIAL_PARAMS.get('ofertas') === '1';
@@ -1115,13 +1118,41 @@ function renderProdutos(lista) {
       pagerEl.style.display = 'none';
       return;
     }
+    const termoBusca = (document.getElementById('search-inp')?.value || '').trim();
+    const lojasDisponiveis = _encomendaLojas.length
+      ? _encomendaLojas
+      : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj}));
+    const podeEncomendar = termoBusca.length >= 2 && lojasDisponiveis.length > 0;
+    if (podeEncomendar && !_encomendaLojas.length) _encomendaLojas = lojasDisponiveis;
     prodGrid.innerHTML = `<div class="idx-empty">
       <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
         <i class="fa fa-magnifying-glass" style="font-size:1.4rem;color:var(--pq-muted);opacity:.5"></i>
       </div>
       <div style="font-weight:800;font-size:1rem;color:var(--pq-text);margin-bottom:6px">Nenhum produto encontrado</div>
-      <div style="font-size:.87rem;margin-bottom:18px">Tente outro termo ou ajuste os filtros.</div>
-      <button onclick="clearFilters()" style="background:var(--pq-red);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
+      <div style="font-size:.87rem;margin-bottom:${podeEncomendar ? '20' : '18'}px">
+        ${termoBusca ? `Não encontramos <strong>${esc(termoBusca)}</strong> nas farmácias disponíveis.` : 'Tente outro termo ou ajuste os filtros.'}
+      </div>
+      ${podeEncomendar ? `
+      <div style="background:#fff;border:1.5px solid #bfdbfe;border-radius:18px;padding:24px 20px;max-width:460px;margin:0 auto 16px;box-shadow:0 2px 16px rgba(0,0,0,.06)">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#eff6ff,#dbeafe);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="fa fa-boxes-stacked" style="color:#1d4ed8;font-size:1.1rem"></i>
+          </div>
+          <div>
+            <div style="font-weight:900;font-size:.95rem;color:#1e293b">Solicitar encomenda</div>
+            <div style="font-size:.78rem;color:#64748b">Peça diretamente para a farmácia</div>
+          </div>
+        </div>
+        <p style="font-size:.84rem;color:#475569;margin:0 0 14px;line-height:1.6">
+          Não está disponível agora, mas você pode solicitar a uma farmácia próxima e acompanhar pelo app.
+        </p>
+        <button onclick="abrirModalEncomenda('${esc(termoBusca)}')"
+          style="width:100%;background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border:none;border-radius:12px;padding:12px 20px;font-size:.9rem;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:9px;transition:opacity .15s"
+          onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
+          <i class="fa fa-box-open"></i>Solicitar encomenda
+        </button>
+      </div>` : ''}
+      <button onclick="clearFilters()" style="background:#f5f5f5;color:#555;border:1.5px solid #e5e7eb;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
         <i class="fa fa-rotate-left"></i>Limpar filtros
       </button>
     </div>`;
@@ -1470,16 +1501,43 @@ function carregarProdutos(lat, lng, busca='') {
           prodGrid.style.display = '';
           skelGrid.style.display = 'none';
           pagerEl.style.display = 'none';
+          const lojas = (data.lojas_proximas && data.lojas_proximas.length)
+            ? data.lojas_proximas
+            : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj}));
+          const temLojas = lojas.length > 0;
           prodGrid.innerHTML = `<div class="idx-empty">
             <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
               <i class="fa fa-magnifying-glass" style="font-size:1.4rem;color:var(--pq-muted);opacity:.5"></i>
             </div>
             <div style="font-weight:800;font-size:1rem;color:var(--pq-text);margin-bottom:6px">Nenhum produto encontrado</div>
             <div style="font-size:.87rem;margin-bottom:18px">Não encontramos <strong>${esc(requestedSearch)}</strong> nas farmácias disponíveis.</div>
-            <button onclick="clearFilters()" style="background:var(--pq-red);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
-              <i class="fa fa-rotate-left"></i>Limpar filtros
-            </button>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:${temLojas ? '24' : '0'}px">
+              <button onclick="clearFilters()" style="background:#f5f5f5;color:#555;border:1.5px solid #e5e7eb;border-radius:10px;padding:10px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px">
+                <i class="fa fa-rotate-left"></i>Limpar filtros
+              </button>
+            </div>
+            ${temLojas ? `
+            <div style="background:#fff;border:1.5px solid #bfdbfe;border-radius:18px;padding:24px 20px;max-width:480px;margin:0 auto;box-shadow:0 2px 16px rgba(0,0,0,.06)">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                <div style="width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#eff6ff,#dbeafe);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                  <i class="fa fa-boxes-stacked" style="color:#1d4ed8;font-size:1.2rem"></i>
+                </div>
+                <div>
+                  <div style="font-weight:900;font-size:1rem;color:#1e293b">Solicitar encomenda</div>
+                  <div style="font-size:.82rem;color:#64748b">Peça diretamente para a farmácia</div>
+                </div>
+              </div>
+              <p style="font-size:.85rem;color:#475569;margin:0 0 16px;line-height:1.6">
+                O produto <strong>${esc(requestedSearch)}</strong> não está disponível agora, mas você pode solicitar a uma farmácia próxima e acompanhar o status pelo app.
+              </p>
+              <button onclick="abrirModalEncomenda('${esc(requestedSearch)}')"
+                style="width:100%;background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border:none;border-radius:12px;padding:13px 20px;font-size:.92rem;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:9px;transition:opacity .15s"
+                onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
+                <i class="fa fa-box-open"></i>Solicitar encomenda
+              </button>
+            </div>` : ''}
           </div>`;
+          if (temLojas) _encomendaLojas = lojas;
           return;
         }
         titleEl.textContent   = 'Nenhum produto disponível';
@@ -1657,5 +1715,96 @@ if (_lat && _lng) {
     }
   }, 3000);
 }
+
+/* ─── Encomenda modal ─── */
+function abrirModalEncomenda(nomeProduto) {
+  document.getElementById('enc-produto-inp').value = nomeProduto || '';
+  document.getElementById('enc-produto-label').textContent = nomeProduto || '';
+  const lojas = _encomendaLojas.length
+    ? _encomendaLojas
+    : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj}));
+  const sel = document.getElementById('enc-loja-sel');
+  sel.innerHTML = '<option value="">Selecione a farmácia…</option>';
+  lojas.forEach(l => {
+    const opt = document.createElement('option');
+    opt.value = l.cnpjloja;
+    opt.textContent = l.razao;
+    sel.appendChild(opt);
+  });
+  if (lojas.length === 1) sel.value = lojas[0].cnpjloja;
+  document.getElementById('enc-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function fecharModalEncomenda() {
+  document.getElementById('enc-modal-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModalEncomenda(); });
 </script>
+
+<!-- Modal encomenda -->
+<div id="enc-modal-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)fecharModalEncomenda()">
+  <div style="background:#fff;border-radius:20px;padding:28px 24px;max-width:460px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.2);position:relative;max-height:90vh;overflow-y:auto">
+    <button onclick="fecharModalEncomenda()" style="position:absolute;top:16px;right:16px;background:transparent;border:none;cursor:pointer;font-size:1.1rem;color:#9ca3af;padding:4px">
+      <i class="fa fa-xmark"></i>
+    </button>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#eff6ff,#dbeafe);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fa fa-boxes-stacked" style="color:#1d4ed8;font-size:1.25rem"></i>
+      </div>
+      <div>
+        <div style="font-weight:900;font-size:1.05rem;color:#1e293b">Solicitar encomenda</div>
+        <div style="font-size:.82rem;color:#64748b">Fale diretamente com a farmácia</div>
+      </div>
+    </div>
+
+    {% if consumidor %}
+    <form method="post" action="{{ url_for('encomenda_criar') }}" id="enc-form">
+      <input type="hidden" name="produto_nome" id="enc-produto-inp" value="">
+
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#0369a1">
+        <i class="fa fa-magnifying-glass me-1"></i>Produto buscado: <strong id="enc-produto-label"></strong>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:.82rem;font-weight:700;color:#374151;display:block;margin-bottom:5px">
+          Farmácia <span style="color:var(--pq-red)">*</span>
+        </label>
+        <select name="cnpjloja" id="enc-loja-sel" required
+          style="width:100%;padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:.9rem;background:#fff;color:#111;outline:none">
+          <option value="">Selecione a farmácia…</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:18px">
+        <label style="font-size:.82rem;font-weight:700;color:#374151;display:block;margin-bottom:5px">
+          Mensagem <span style="color:#9ca3af;font-weight:400">(opcional)</span>
+        </label>
+        <textarea name="mensagem" rows="3"
+          placeholder="Ex: Preciso de 2 caixas, com urgência. Você pode verificar?"
+          style="width:100%;padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:.9rem;resize:none;outline:none;box-sizing:border-box"></textarea>
+      </div>
+
+      <button type="submit"
+        style="width:100%;background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border:none;border-radius:12px;padding:13px 20px;font-size:.92rem;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:9px">
+        <i class="fa fa-paper-plane"></i>Enviar solicitação
+      </button>
+    </form>
+    {% else %}
+    <div style="text-align:center;padding:8px 0 16px">
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#0369a1">
+        <i class="fa fa-magnifying-glass me-1"></i>Produto: <strong id="enc-produto-label"></strong>
+      </div>
+      <div style="font-size:.9rem;color:#475569;margin-bottom:18px;line-height:1.6">
+        Para solicitar uma encomenda você precisa estar logado.
+      </div>
+      <a href="{{ url_for('consumidor_login') }}?next={{ request.path | urlencode }}"
+         style="display:inline-flex;align-items:center;gap:8px;background:var(--pq-red);color:#fff;border-radius:12px;padding:12px 24px;font-weight:800;text-decoration:none;font-size:.92rem">
+        <i class="fa fa-user"></i>Entrar / Criar conta
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

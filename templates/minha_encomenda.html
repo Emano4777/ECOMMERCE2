@@ -1,0 +1,129 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Encomenda{% endblock %}
+
+{% block extra_style %}
+<style>
+.enc-wrap { max-width:760px; margin:0 auto; padding:28px 16px 80px; }
+.enc-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.enc-top h1 { font-size:1.3rem; font-weight:900; margin:0; display:flex; align-items:center; gap:9px; }
+.back-link { color:var(--pq-red); font-weight:800; text-decoration:none; font-size:.9rem; }
+
+.enc-status-banner { border-radius:14px; padding:14px 18px; margin-bottom:14px; display:flex; gap:12px; align-items:flex-start; }
+.enc-status-banner.aberta       { background:#fffbeb; border:1.5px solid #fde68a; }
+.enc-status-banner.em_andamento { background:#eaf6ff; border:1.5px solid #bae6fd; }
+.enc-status-banner.disponivel   { background:#f0fff4; border:1.5px solid #86efac; }
+.enc-status-banner.finalizada   { background:#f3f4f6; border:1.5px solid #d1d5db; }
+.enc-status-icon { font-size:1.4rem; flex-shrink:0; margin-top:2px; }
+.enc-status-title { font-weight:900; font-size:.95rem; margin-bottom:3px; }
+.enc-status-sub { font-size:.83rem; color:#444; line-height:1.5; }
+
+.enc-info { background:#fff; border:1px solid var(--pq-border); border-radius:14px; padding:16px 18px; margin-bottom:14px; }
+.enc-info-row { display:flex; gap:8px; font-size:.85rem; margin-bottom:5px; color:#555; }
+.enc-info-row strong { color:#222; min-width:90px; }
+
+.chat-box { background:#fff; border:1px solid var(--pq-border); border-radius:14px; overflow:hidden; margin-bottom:14px; }
+.chat-head { padding:12px 18px; background:#fafafa; border-bottom:1px solid var(--pq-border); font-weight:800; font-size:.9rem; display:flex; align-items:center; gap:8px; }
+.chat-msgs { padding:16px 18px; display:flex; flex-direction:column; gap:10px; min-height:120px; max-height:440px; overflow-y:auto; }
+.msg { max-width:80%; }
+.msg-cliente { align-self:flex-end; }
+.msg-loja    { align-self:flex-start; }
+.msg-bubble { padding:10px 14px; border-radius:14px; font-size:.88rem; line-height:1.5; }
+.msg-cliente .msg-bubble { background:var(--pq-red); color:#fff; border-bottom-right-radius:4px; }
+.msg-loja    .msg-bubble { background:#f3f4f6; color:#111; border-bottom-left-radius:4px; }
+.msg-meta { font-size:.72rem; color:var(--pq-muted); margin-top:3px; }
+.msg-cliente .msg-meta { text-align:right; }
+.chat-input { border-top:1px solid var(--pq-border); padding:14px 18px; display:flex; gap:10px; }
+.chat-input textarea { flex:1; border:1px solid var(--pq-border); border-radius:10px; padding:9px 12px; font-family:inherit; font-size:.9rem; resize:none; outline:none; }
+.chat-input textarea:focus { border-color:var(--pq-red); }
+.btn-send { background:var(--pq-red); color:#fff; border:none; border-radius:10px; padding:9px 18px; font-weight:800; font-size:.9rem; cursor:pointer; white-space:nowrap; }
+.btn-send:hover { background:#9b0d22; }
+
+@media(max-width:600px){ .msg { max-width:95%; } .chat-input { flex-wrap:wrap; } .chat-input textarea { min-height:70px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="enc-wrap">
+  <div class="enc-top">
+    <h1><i class="fa fa-box-open" style="color:var(--pq-red)"></i>Encomenda</h1>
+    <a class="back-link" href="{{ url_for('minhas_encomendas') }}">← Minhas encomendas</a>
+  </div>
+
+  <div class="enc-status-banner {{ enc.status }}">
+    <div class="enc-status-icon">
+      {% if enc.status == 'aberta' %}<i class="fa fa-hourglass-half" style="color:#d97706"></i>
+      {% elif enc.status == 'em_andamento' %}<i class="fa fa-comments" style="color:#0284c7"></i>
+      {% elif enc.status == 'disponivel' %}<i class="fa fa-circle-check" style="color:#16a34a"></i>
+      {% else %}<i class="fa fa-lock" style="color:#6b7280"></i>
+      {% endif %}
+    </div>
+    <div>
+      <div class="enc-status-title">{{ status_label.get(enc.status, enc.status) }}</div>
+      <div class="enc-status-sub">
+        {% if enc.status == 'aberta' %}
+          Sua solicitação foi enviada para <strong>{{ enc.razao }}</strong>. Aguarde a resposta da farmácia.
+        {% elif enc.status == 'em_andamento' %}
+          Conversa em andamento com <strong>{{ enc.razao }}</strong>.
+        {% elif enc.status == 'disponivel' %}
+          <strong>{{ enc.razao }}</strong> informou que o produto está disponível! Entre em contato para finalizar.
+        {% else %}
+          Esta encomenda foi finalizada.
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="enc-info">
+    <div class="enc-info-row"><strong>Produto</strong> {{ enc.produto_nome }}</div>
+    <div class="enc-info-row"><strong>Farmácia</strong> {{ enc.razao }}</div>
+    <div class="enc-info-row"><strong>Aberta em</strong> {{ enc.criado_em.strftime('%d/%m/%Y %H:%M') if enc.criado_em else '—' }}</div>
+  </div>
+
+  {% if enc.status == 'disponivel' %}
+  <div style="background:#f0fff4;border:1.5px solid #86efac;border-radius:14px;padding:16px 18px;margin-bottom:14px">
+    <div style="font-weight:900;color:#15803d;font-size:.95rem;margin-bottom:6px"><i class="fa fa-circle-check me-2"></i>Produto disponível!</div>
+    <div style="font-size:.85rem;color:#166534;margin-bottom:10px">A farmácia confirmou que tem o produto. Entre em contato para confirmar quantidade, preço e forma de retirada/entrega.</div>
+    {% if enc.telefone %}
+    {% set tel_wpp = enc.telefone|replace(' ','')|replace('-','')|replace('(','') |replace(')','') %}
+    <a href="https://wa.me/55{{ tel_wpp }}?text={{ ('Olá! Minha encomenda de ' ~ enc.produto_nome ~ ' no Poupaqui foi marcada como disponível. Gostaria de confirmar.')|urlencode }}"
+       target="_blank"
+       style="display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#fff;border-radius:10px;padding:9px 18px;font-weight:800;text-decoration:none;font-size:.88rem">
+      <i class="fa-brands fa-whatsapp"></i>Contatar via WhatsApp
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="chat-box">
+    <div class="chat-head"><i class="fa fa-comments" style="color:var(--pq-red)"></i>Conversa com a farmácia</div>
+    <div class="chat-msgs" id="chat-msgs">
+      {% for msg in msgs %}
+      <div class="msg msg-{{ msg.autor }}">
+        <div class="msg-bubble">{{ msg.mensagem }}</div>
+        <div class="msg-meta">
+          {{ 'Você' if msg.autor == 'cliente' else enc.razao }} ·
+          {{ msg.enviada_em.strftime('%d/%m %H:%M') if msg.enviada_em else '' }}
+        </div>
+      </div>
+      {% endfor %}
+      {% if not msgs %}
+      <div style="text-align:center;color:var(--pq-muted);font-size:.85rem;padding:20px">Nenhuma mensagem ainda.</div>
+      {% endif %}
+    </div>
+    {% if enc.status != 'finalizada' %}
+    <form method="post" action="{{ url_for('minha_encomenda_mensagem', encomenda_id=enc.id) }}" class="chat-input">
+      <textarea name="mensagem" rows="2" placeholder="Escreva uma mensagem…" required></textarea>
+      <button class="btn-send" type="submit"><i class="fa fa-paper-plane"></i></button>
+    </form>
+    {% else %}
+    <div style="padding:12px 18px;border-top:1px solid var(--pq-border);font-size:.82rem;color:var(--pq-muted);text-align:center">
+      <i class="fa fa-lock me-1"></i>Esta encomenda foi finalizada.
+    </div>
+    {% endif %}
+  </div>
+</div>
+<script>
+const msgs = document.getElementById('chat-msgs');
+if (msgs) msgs.scrollTop = msgs.scrollHeight;
+</script>
+{% endblock %}

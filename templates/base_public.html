@@ -789,6 +789,15 @@
           <span style="background:#c8102e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:900;padding:1px 7px;margin-left:auto">{{ consumidor_rec_abertas }}</span>
         </a>
         {% endif %}
+        {% if consumidor_encomendas_abertas > 0 %}
+        <a class="pq-user-item" href="{{ url_for('minhas_encomendas') }}">
+          <i class="fa fa-box-open" style="color:#1d4ed8"></i>
+          <span>Minhas encomendas<small>Solicitações em aberto</small></span>
+          <span style="background:#1d4ed8;color:#fff;border-radius:999px;font-size:.68rem;font-weight:900;padding:1px 7px;margin-left:auto">{{ consumidor_encomendas_abertas }}</span>
+        </a>
+        {% else %}
+        <a class="pq-user-item" href="{{ url_for('minhas_encomendas') }}"><i class="fa fa-box-open"></i><span>Minhas encomendas<small>Produtos solicitados</small></span><b class="pq-user-item-arrow">›</b></a>
+        {% endif %}
         <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i><span>Meus cupons<small>Descontos disponíveis</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span><b class="pq-user-item-arrow">›</b></a>
@@ -844,6 +853,12 @@
       <span class="pq-drawer-badge">{{ consumidor_rec_abertas }}</span>
     </a>
     {% endif %}
+    <a class="pq-drawer-item" href="{{ url_for('minhas_encomendas') }}" onclick="fecharDrawer()">
+      <i class="fa fa-box-open" style="color:#1d4ed8"></i>Encomendas
+      {% if consumidor_encomendas_abertas > 0 %}
+      <span class="pq-drawer-badge">{{ consumidor_encomendas_abertas }}</span>
+      {% endif %}
+    </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_cupons') }}" onclick="fecharDrawer()">
       <i class="fa fa-ticket"></i>Meus cupons
     </a>

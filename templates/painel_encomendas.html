@@ -1,0 +1,82 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Encomendas{% endblock %}
+
+{% block extra_style %}
+<style>
+.enc-table { width:100%; border-collapse:collapse; font-size:.88rem; }
+.enc-table th { padding:9px 14px; color:var(--pk-muted); font-weight:700; font-size:.75rem; text-transform:uppercase; border-bottom:1px solid var(--pk-line); text-align:left; background:#0d1016; }
+.enc-table td { padding:10px 14px; border-bottom:1px solid var(--pk-line); vertical-align:middle; }
+.enc-table tr:hover td { background:#0d1016; }
+.enc-badge { display:inline-block; border-radius:20px; padding:3px 10px; font-size:.72rem; font-weight:800; }
+.badge-aberta       { background:#1e1a08; color:#f5c842; border:1px solid #5a430b; }
+.badge-em_andamento { background:#0d1e2d; color:#38bdf8; border:1px solid #0369a1; }
+.badge-disponivel   { background:#0d2d1a; color:#22c55e; border:1px solid #166534; }
+.badge-finalizada   { background:#111; color:#4b5563; border:1px solid var(--pk-line); }
+.filter-tabs { display:flex; gap:6px; margin-bottom:18px; }
+.filter-tab { padding:7px 16px; border-radius:8px; border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted); font-size:.82rem; font-weight:700; cursor:pointer; text-decoration:none; transition:all .15s; }
+.filter-tab:hover, .filter-tab.active { background:var(--pk-yellow); color:#111; border-color:var(--pk-yellow); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+  <div style="font-weight:900;font-size:1.2rem">
+    <i class="fa fa-box-open me-2" style="color:var(--pk-yellow)"></i>Encomendas
+  </div>
+  {% if encomendas %}
+  <span style="background:#1e1a08;color:#f5c842;border-radius:20px;padding:3px 12px;font-size:.78rem;font-weight:700">{{ encomendas|length }}</span>
+  {% endif %}
+</div>
+
+<div class="filter-tabs">
+  <a class="filter-tab {% if status_filtro != 'todas' %}active{% endif %}"
+     href="{{ url_for('painel_encomendas') }}">Em aberto</a>
+  <a class="filter-tab {% if status_filtro == 'todas' %}active{% endif %}"
+     href="{{ url_for('painel_encomendas', status='todas') }}">Todas</a>
+</div>
+
+{% if encomendas %}
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <table class="enc-table">
+    <thead>
+      <tr>
+        <th>Cliente</th>
+        <th>Produto solicitado</th>
+        <th>Status</th>
+        <th>Data</th>
+        <th>Msgs</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for enc in encomendas %}
+      <tr>
+        <td>
+          <div style="font-weight:700">{{ enc.consumidor_nome or '—' }}</div>
+          {% if enc.consumidor_telefone %}
+          <div style="font-size:.75rem;color:var(--pk-muted)">{{ enc.consumidor_telefone }}</div>
+          {% endif %}
+        </td>
+        <td style="font-weight:700;max-width:220px">{{ enc.produto_nome }}</td>
+        <td><span class="enc-badge badge-{{ enc.status }}">{{ status_label.get(enc.status, enc.status) }}</span></td>
+        <td style="font-size:.8rem;color:var(--pk-muted)">{{ enc.criado_em.strftime('%d/%m/%Y %H:%M') if enc.criado_em else '—' }}</td>
+        <td style="font-size:.8rem;color:var(--pk-muted)">{{ enc.n_msgs }}</td>
+        <td>
+          <a href="{{ url_for('painel_encomenda_detalhe', encomenda_id=enc.id) }}"
+             style="color:var(--pk-yellow);font-size:.82rem;font-weight:800;text-decoration:none">
+            Ver <i class="fa fa-arrow-right ms-1"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="pk-card" style="text-align:center;padding:48px 24px">
+  <i class="fa fa-box-open" style="font-size:2rem;color:var(--pk-muted);opacity:.3;display:block;margin-bottom:14px"></i>
+  <div style="font-weight:700;margin-bottom:6px">Nenhuma encomenda {% if status_filtro != 'todas' %}em aberto{% endif %}</div>
+  <div style="font-size:.85rem;color:var(--pk-muted)">Quando clientes solicitarem produtos não encontrados, as encomendas aparecerão aqui.</div>
+</div>
+{% endif %}
+{% endblock %}

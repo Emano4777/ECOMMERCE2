@@ -275,7 +275,8 @@
 <!-- ALTERAR STATUS -->
 <div class="pk-card">
   <div class="pk-card-title"><i class="fa fa-pen-to-square"></i>Alterar status</div>
-  <form method="post" action="{{ url_for('painel_pedido_status', pedido_id=pedido.id) }}">
+  <form method="post" action="{{ url_for('painel_pedido_status', pedido_id=pedido.id) }}" id="form-status">
+    <input type="hidden" name="previsao_entrega" id="previsao-hidden" value="">
     <div class="status-row">
       <button type="submit" name="status" value="pendente"
               class="status-btn {% if pedido.status=='pendente' %}active{% endif %}">
@@ -288,9 +289,10 @@
 
       {% if pedido.tipo_entrega == 'retirada' %}
       {# Fluxo retirada: Pago → Pronto p/ retirada → Retirado #}
-      <button type="submit" name="status" value="pronto_retirada"
+      <button type="button"
               class="status-btn {% if pedido.status=='pronto_retirada' %}active{% endif %}"
-              style="border-color:#22c55e;color:#22c55e">
+              style="border-color:#22c55e;color:#22c55e"
+              onclick="abrirPrevisao('pronto_retirada','retirada')">
         <i class="fa fa-store me-1"></i>Pronto p/ retirada
       </button>
       <button type="submit" name="status" value="entregue"
@@ -301,8 +303,9 @@
       </button>
       {% else %}
       {# Fluxo entrega: Pago → Enviado → Entregue #}
-      <button type="submit" name="status" value="enviado"
-              class="status-btn s-enviado {% if pedido.status=='enviado' %}active{% endif %}">
+      <button type="button"
+              class="status-btn s-enviado {% if pedido.status=='enviado' %}active{% endif %}"
+              onclick="abrirPrevisao('enviado','entrega')">
         <i class="fa fa-truck me-1"></i>Enviado
       </button>
       <button type="submit" name="status" value="entregue"
@@ -318,7 +321,55 @@
         <i class="fa fa-xmark me-1"></i>Cancelado
       </button>
     </div>
+
+    <!-- Painel de previsão de entrega/retirada -->
+    <div id="previsao-box" style="display:none;margin-top:14px;background:#111827;border:1px solid var(--pk-line);border-radius:10px;padding:14px 16px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--pk-yellow);margin-bottom:10px">
+        <i class="fa fa-clock me-1"></i>Previsão de <span id="previsao-tipo-label">entrega</span>
+        <span style="font-weight:400;color:var(--pk-muted);margin-left:4px">(opcional — será exibida ao cliente)</span>
+      </div>
+      <input id="previsao-inp" type="text"
+             placeholder="Ex: Hoje às 18h, Amanhã dia 15/06, Em até 2 horas…"
+             style="width:100%;background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.85rem;box-sizing:border-box;margin-bottom:10px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" id="previsao-confirm-btn"
+                class="status-btn"
+                style="background:var(--pk-yellow);color:#111;border-color:var(--pk-yellow)"
+                onclick="confirmarPrevisao()">
+          <i class="fa fa-check me-1"></i>Confirmar
+        </button>
+        <button type="button" class="status-btn" onclick="cancelarPrevisao()">
+          Cancelar
+        </button>
+      </div>
+    </div>
+    <input type="hidden" id="status-pending" value="">
   </form>
+
+  <script>
+  function abrirPrevisao(statusVal, tipo) {
+    document.getElementById('previsao-tipo-label').textContent = tipo === 'retirada' ? 'retirada' : 'entrega';
+    document.getElementById('status-pending').value = statusVal;
+    document.getElementById('previsao-box').style.display = 'block';
+    document.getElementById('previsao-inp').focus();
+  }
+  function confirmarPrevisao() {
+    const statusVal = document.getElementById('status-pending').value;
+    const previsao  = document.getElementById('previsao-inp').value.trim();
+    document.getElementById('previsao-hidden').value = previsao;
+    const form = document.getElementById('form-status');
+    // Add status as hidden field
+    let hid = document.getElementById('confirm-status-hidden');
+    if (!hid) { hid = document.createElement('input'); hid.type='hidden'; hid.id='confirm-status-hidden'; hid.name='status'; form.appendChild(hid); }
+    hid.value = statusVal;
+    form.submit();
+  }
+  function cancelarPrevisao() {
+    document.getElementById('previsao-box').style.display = 'none';
+    document.getElementById('previsao-inp').value = '';
+    document.getElementById('status-pending').value = '';
+  }
+  </script>
   {% if pedido.tipo_entrega == 'entrega' and pedido.status == 'enviado' %}
   <form method="post" action="{{ url_for('painel_confirmar_entrega', pedido_id=pedido.id) }}" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     {% if pedido.origem != 'mercado_livre' %}

@@ -330,6 +330,7 @@ def inject_globals():
     consumidor = None
     consumidor_rec_abertas = 0
     consumidor_notif_nao_lidas = 0
+    consumidor_encomendas_abertas = 0
     if session.get("consumidor_id"):
         consumidor = {
             "id": session.get("consumidor_id"),
@@ -356,16 +357,27 @@ def inject_globals():
                 consumidor_notif_nao_lidas = (cur.fetchone() or {}).get("n", 0) or 0
             except Exception:
                 consumidor_notif_nao_lidas = 0
+            try:
+                _ensure_encomenda_schema()
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM ecommerce_encomendas WHERE consumidor_id=%s AND status NOT IN ('finalizada')",
+                    (session["consumidor_id"],),
+                )
+                consumidor_encomendas_abertas = (cur.fetchone() or {}).get("n", 0) or 0
+            except Exception:
+                consumidor_encomendas_abertas = 0
             cur.close()
         except Exception:
             consumidor_rec_abertas = 0
             consumidor_notif_nao_lidas = 0
+            consumidor_encomendas_abertas = 0
     return {
         "money": fmt_brl,
         "now": datetime.now(timezone.utc),
         "consumidor": consumidor,
         "consumidor_rec_abertas": consumidor_rec_abertas,
         "consumidor_notif_nao_lidas": consumidor_notif_nao_lidas,
+        "consumidor_encomendas_abertas": consumidor_encomendas_abertas,
     }
 
 def _consumidor_from_session():
@@ -671,6 +683,7 @@ def _ensure_delivery_schema():
                 _mark_migration_done("delivery")
     _ensure_loja_email_column()       # sempre chamado, independente do delivery já estar marcado
     _ensure_codigo_retirada_column()  # idem
+    _ensure_previsao_entrega_column() # idem
 
 
 def _ensure_codigo_retirada_column():
@@ -687,6 +700,25 @@ def _ensure_codigo_retirada_column():
         conn = db()
         cur = conn.cursor()
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS codigo_retirada TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_previsao_entrega_column():
+    key = "previsao_entrega_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS previsao_entrega TEXT")
         conn.commit()
         cur.close()
         _schema_ready.add(key)
@@ -1026,6 +1058,52 @@ def _ensure_reclamacao_schema():
         cur.close()
         _schema_ready.add("reclamacao")
         _mark_migration_done("reclamacao")
+
+
+_STATUS_ENCOMENDA_LABEL = {
+    "aberta":       "Aguardando resposta da farmácia",
+    "em_andamento": "Em andamento",
+    "disponivel":   "Produto disponível!",
+    "finalizada":   "Finalizada",
+}
+
+
+def _ensure_encomenda_schema():
+    _ensure_reclamacao_schema()
+    if "encomenda_v1" in _schema_ready:
+        return
+    _load_db_migrations()
+    if "encomenda_v1" in _schema_ready:
+        return
+    with _schema_lock:
+        if "encomenda_v1" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_encomendas (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                cnpjloja TEXT NOT NULL,
+                consumidor_id UUID NOT NULL,
+                produto_nome TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'aberta',
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_encomenda_msgs (
+                id SERIAL PRIMARY KEY,
+                encomenda_id UUID NOT NULL,
+                autor TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                enviada_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add("encomenda_v1")
+        _mark_migration_done("encomenda_v1")
 
 
 def _processar_prazos_reclamacao(rec_id):
@@ -4324,6 +4402,143 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
     return _dedupe_products_for_display(rows)
 
 
+def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
+    """Batch name search — finds products matching any term without loading full catalog."""
+    if not cnpjs or not terms:
+        return []
+    _ensure_catalog_admin_schema()
+    _ensure_precificador_schema()
+    _ensure_produto_canon_schema()
+    patterns = [f"%{t.lower()}%" for t in terms[:4] if t]
+    if not patterns:
+        return []
+    conn = _new_conn_batch()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        WITH alpha AS (
+            SELECT e.cnpj AS cnpjloja,
+                   e.barras AS ean,
+                   COALESCE(e.barras_norm, e.barras) AS ean_join,
+                   e.descricao AS nome_raw,
+                   CAST(e.estoque AS INTEGER) AS qty,
+                   e.preco_referencial AS preco_base
+            FROM estoque e
+            WHERE e.cnpj = ANY(%s) AND e.estoque > 0
+              AND (
+                LOWER(e.descricao) LIKE ANY(%s)
+                OR COALESCE(e.barras_norm, e.barras) IN (
+                    SELECT barra_norm FROM medicamentos
+                    WHERE barra_norm IS NOT NULL
+                      AND (LOWER(descricao) LIKE ANY(%s) OR LOWER(COALESCE(marca,'')) LIKE ANY(%s))
+                )
+                OR COALESCE(e.barras_norm, e.barras) IN (
+                    SELECT ean FROM produto_canon
+                    WHERE ean IS NOT NULL AND fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+                      AND LOWER(descricao_canon) LIKE ANY(%s)
+                )
+              )
+            LIMIT %s
+        ),
+        auto AS (
+            SELECT ae.cnpj_loja AS cnpjloja,
+                   ae.ean AS ean,
+                   ae.ean AS ean_join,
+                   ae.descricao_produto AS nome_raw,
+                   CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+                   ae.valor_final_produto AS preco_base
+            FROM automatiza_estoque ae
+            WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
+              AND (
+                LOWER(ae.descricao_produto) LIKE ANY(%s)
+                OR COALESCE(ae.ean,'') IN (
+                    SELECT barra_norm FROM medicamentos
+                    WHERE barra_norm IS NOT NULL
+                      AND (LOWER(descricao) LIKE ANY(%s) OR LOWER(COALESCE(marca,'')) LIKE ANY(%s))
+                )
+                OR COALESCE(ae.ean,'') IN (
+                    SELECT ean FROM produto_canon
+                    WHERE ean IS NOT NULL AND fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+                      AND LOWER(descricao_canon) LIKE ANY(%s)
+                )
+              )
+            LIMIT %s
+        ),
+        base AS (
+            SELECT * FROM alpha
+            UNION ALL
+            SELECT * FROM auto
+        )
+        SELECT
+            b.cnpjloja,
+            b.ean,
+            COALESCE(m.descricao, pc.descricao_canon, b.nome_raw) AS nome,
+            COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
+            m.marca AS marca,
+            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            b.qty,
+            COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) AS preco,
+            COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+        FROM base b
+        LEFT JOIN medicamentos m           ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
+        LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc         ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
+                                          AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+        LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
+        LEFT JOIN LATERAL (
+            SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+            FROM vendageral
+            WHERE cnpj = b.cnpjloja AND ean = b.ean
+              AND total_vendasgeral > 0 AND itens > 0
+            ORDER BY total_vendasgeral DESC LIMIT 1
+        ) vg ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
+            FROM automatiza_vendas
+            WHERE cnpj_loja = b.cnpjloja AND ean = b.ean
+              AND valor_final_vendido > 0 AND quantidade_vendida > 0
+            ORDER BY valor_final_vendido DESC LIMIT 1
+        ) av ON TRUE
+        """,
+        (cnpjs, patterns, patterns, patterns, patterns, limit,
+         cnpjs, patterns, patterns, patterns, patterns, limit),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    try:
+        cur.execute(
+            "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
+            (cnpjs,),
+        )
+        ocultos_by = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
+        if ocultos_by:
+            rows = [r for r in rows if (r.get("cnpjloja"), r.get("ean")) not in ocultos_by]
+    except Exception:
+        pass
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _apply_safe_catalog_images(rows)
+    try:
+        conn2 = _new_conn()
+        _marcar_tarja_batch(rows, conn2)
+        conn2.close()
+    except Exception:
+        pass
+    rows = [r for r in rows if _has_catalog_image(r)]
+    for _p in rows:
+        _img = (_p.get("imagem") or "").strip()
+        if _img and _looks_like_other_pharmacy_brand(_img):
+            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+            _p["imagem_padrao_poupaqui"] = True
+            _p["imagem_bloqueada_anvisa"] = True
+    _attach_product_promos(rows)
+    _schedule_fill_images(rows)
+    return _dedupe_products_for_display(rows)
+
+
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 
 def painel_required(fn):
@@ -5622,10 +5837,9 @@ def api_produtos_proximos():
         real_eans = [e for e in index_eans if re.match(r"^789\d{10}$", e)]
         if real_eans:
             produtos_raw = get_dns_products_batch_by_eans(cnpjs, real_eans[:120])
-        # Fallback: carrega todos os produtos e filtra por nome/sintoma
-        # Necessário quando o índice só tem IDs internos ou está vazio
+        # Fallback: busca por nome diretamente no SQL — evita carregar catálogo inteiro
         if not produtos_raw:
-            produtos_raw = get_dns_products_batch(cnpjs)
+            produtos_raw = get_dns_products_batch_by_name(cnpjs, search_terms or [busca_q])
     else:
         produtos_raw = get_dns_products_batch(cnpjs)
     if busca_q:
@@ -7216,6 +7430,133 @@ def avaliar_pedido(pedido_id):
         flash("Não foi possível registrar a avaliação. Tente novamente.", "error")
     cur.close()
     return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
+
+
+# ─── ENCOMENDAS: CONSUMIDOR ──────────────────────────────────────────────────
+
+@app.post("/encomenda/criar")
+@_consumer_required
+def encomenda_criar():
+    _ensure_encomenda_schema()
+    cnpjloja = (request.form.get("cnpjloja") or "").strip()
+    produto_nome = (request.form.get("produto_nome") or "").strip()
+    mensagem_texto = (request.form.get("mensagem") or "").strip()
+    if not cnpjloja or not produto_nome:
+        flash("Informe a farmácia e o produto.", "error")
+        return redirect(url_for("index"))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE cnpjloja=%s AND is_admin=FALSE LIMIT 1", (cnpjloja,))
+    loja = cur.fetchone()
+    if not loja:
+        cur.close()
+        flash("Farmácia não encontrada.", "error")
+        return redirect(url_for("index"))
+    consumidor_id = session["consumidor_id"]
+    cur.execute(
+        "INSERT INTO ecommerce_encomendas (cnpjloja, consumidor_id, produto_nome) VALUES (%s,%s,%s) RETURNING id",
+        (cnpjloja, consumidor_id, produto_nome),
+    )
+    encomenda_id = cur.fetchone()["id"]
+    texto = mensagem_texto or f"Olá! Procuro {produto_nome}. Vocês têm ou podem encomendá-lo?"
+    cur.execute(
+        "INSERT INTO ecommerce_encomenda_msgs (encomenda_id, autor, mensagem) VALUES (%s,'cliente',%s)",
+        (encomenda_id, texto),
+    )
+    conn.commit()
+    cur.close()
+    flash("Solicitação de encomenda enviada!", "success")
+    return redirect(url_for("minha_encomenda_detalhe", encomenda_id=encomenda_id))
+
+
+@app.get("/minhas-encomendas")
+@_consumer_required
+def minhas_encomendas():
+    _ensure_encomenda_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT e.*, u.razao,
+               (SELECT COUNT(*) FROM ecommerce_encomenda_msgs m WHERE m.encomenda_id=e.id) AS n_msgs
+        FROM ecommerce_encomendas e
+        JOIN users u ON u.cnpjloja = e.cnpjloja
+        WHERE e.consumidor_id = %s
+        ORDER BY e.atualizado_em DESC
+        """,
+        (session["consumidor_id"],),
+    )
+    encomendas = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return render_template("minhas_encomendas.html", encomendas=encomendas, status_label=_STATUS_ENCOMENDA_LABEL)
+
+
+@app.get("/minhas-encomendas/<encomenda_id>")
+@_consumer_required
+def minha_encomenda_detalhe(encomenda_id):
+    _ensure_encomenda_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT e.*, u.razao, u.telefone
+        FROM ecommerce_encomendas e
+        JOIN users u ON u.cnpjloja = e.cnpjloja
+        WHERE e.id = %s AND e.consumidor_id = %s
+        LIMIT 1
+        """,
+        (encomenda_id, session["consumidor_id"]),
+    )
+    enc = cur.fetchone()
+    if not enc:
+        cur.close()
+        flash("Encomenda não encontrada.", "error")
+        return redirect(url_for("minhas_encomendas"))
+    cur.execute(
+        "SELECT * FROM ecommerce_encomenda_msgs WHERE encomenda_id=%s ORDER BY enviada_em",
+        (encomenda_id,),
+    )
+    msgs = [dict(m) for m in cur.fetchall()]
+    cur.close()
+    return render_template(
+        "minha_encomenda.html",
+        enc=dict(enc),
+        msgs=msgs,
+        status_label=_STATUS_ENCOMENDA_LABEL,
+    )
+
+
+@app.post("/minhas-encomendas/<encomenda_id>/mensagem")
+@_consumer_required
+def minha_encomenda_mensagem(encomenda_id):
+    _ensure_encomenda_schema()
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if not mensagem:
+        return redirect(url_for("minha_encomenda_detalhe", encomenda_id=encomenda_id))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_encomendas WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (encomenda_id, session["consumidor_id"]),
+    )
+    enc = cur.fetchone()
+    if not enc or enc["status"] == "finalizada":
+        cur.close()
+        return redirect(url_for("minhas_encomendas"))
+    cur.execute(
+        "INSERT INTO ecommerce_encomenda_msgs (encomenda_id, autor, mensagem) VALUES (%s,'cliente',%s)",
+        (encomenda_id, mensagem),
+    )
+    if enc["status"] == "aberta":
+        cur.execute(
+            "UPDATE ecommerce_encomendas SET status='em_andamento', atualizado_em=NOW() WHERE id=%s",
+            (encomenda_id,),
+        )
+    else:
+        cur.execute("UPDATE ecommerce_encomendas SET atualizado_em=NOW() WHERE id=%s", (encomenda_id,))
+    conn.commit()
+    cur.close()
+    return redirect(url_for("minha_encomenda_detalhe", encomenda_id=encomenda_id))
 
 
 # ─── RECLAMAÇÕES: CONSUMIDOR ─────────────────────────────────────────────────
@@ -9331,8 +9672,10 @@ def painel_sincronizar_pagamento(pedido_id):
 @app.post("/painel/pedidos/<pedido_id>/status")
 @painel_required
 def painel_pedido_status(pedido_id):
+    _ensure_previsao_entrega_column()
     cnpjloja   = session.get("cnpjloja")
     novo_status = (request.form.get("status") or "").strip()
+    previsao_entrega = (request.form.get("previsao_entrega") or "").strip() or None
     if novo_status not in {"pendente", "pago", "pronto_retirada", "enviado", "entregue", "cancelado"}:
         flash("Status inválido.", "error")
         return redirect(url_for("painel_pedidos"))
@@ -9358,13 +9701,15 @@ def painel_pedido_status(pedido_id):
     if novo_status == "pronto_retirada":
         codigo = _novo_codigo_entrega()
         cur.execute(
-            "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=COALESCE(codigo_retirada, %s), atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
-            (codigo, pedido_id, cnpjloja),
+            "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=COALESCE(codigo_retirada, %s), "
+            "previsao_entrega=COALESCE(%s, previsao_entrega), atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (codigo, previsao_entrega, pedido_id, cnpjloja),
         )
     else:
         cur.execute(
-            "UPDATE ecommerce_pedidos SET status=%s, entregue_em=CASE WHEN %s='entregue' THEN NOW() ELSE entregue_em END, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
-            (novo_status, novo_status, pedido_id, cnpjloja),
+            "UPDATE ecommerce_pedidos SET status=%s, entregue_em=CASE WHEN %s='entregue' THEN NOW() ELSE entregue_em END, "
+            "previsao_entrega=COALESCE(%s, previsao_entrega), atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (novo_status, novo_status, previsao_entrega, pedido_id, cnpjloja),
         )
     conn.commit()
     cur.close()
@@ -9796,6 +10141,141 @@ def painel_reclamacao_marcar_resolvido(reclamacao_id):
     cur.close()
     flash("Reclamação marcada como resolvida. O cliente tem 72 horas para confirmar.", "success")
     return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+
+# ─── PAINEL: ENCOMENDAS ──────────────────────────────────────────────────────
+
+@app.get("/painel/encomendas")
+@painel_required
+def painel_encomendas():
+    _ensure_encomenda_schema()
+    cnpjloja = session.get("cnpjloja")
+    status_filtro = request.args.get("status", "abertas")
+    conn = db()
+    cur = conn.cursor()
+    if status_filtro == "todas":
+        cur.execute(
+            """
+            SELECT e.*, c.nome AS consumidor_nome, c.email AS consumidor_email, c.telefone AS consumidor_telefone,
+                   (SELECT COUNT(*) FROM ecommerce_encomenda_msgs m WHERE m.encomenda_id=e.id) AS n_msgs
+            FROM ecommerce_encomendas e
+            JOIN ecommerce_consumidores c ON c.id = e.consumidor_id
+            WHERE e.cnpjloja = %s
+            ORDER BY e.atualizado_em DESC
+            """,
+            (cnpjloja,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT e.*, c.nome AS consumidor_nome, c.email AS consumidor_email, c.telefone AS consumidor_telefone,
+                   (SELECT COUNT(*) FROM ecommerce_encomenda_msgs m WHERE m.encomenda_id=e.id) AS n_msgs
+            FROM ecommerce_encomendas e
+            JOIN ecommerce_consumidores c ON c.id = e.consumidor_id
+            WHERE e.cnpjloja = %s AND e.status NOT IN ('finalizada')
+            ORDER BY e.atualizado_em DESC
+            """,
+            (cnpjloja,),
+        )
+    encomendas = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return render_template(
+        "painel_encomendas.html",
+        encomendas=encomendas,
+        status_label=_STATUS_ENCOMENDA_LABEL,
+        status_filtro=status_filtro,
+    )
+
+
+@app.get("/painel/encomendas/<encomenda_id>")
+@painel_required
+def painel_encomenda_detalhe(encomenda_id):
+    _ensure_encomenda_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT e.*, c.nome AS consumidor_nome, c.email AS consumidor_email, c.telefone AS consumidor_telefone
+        FROM ecommerce_encomendas e
+        JOIN ecommerce_consumidores c ON c.id = e.consumidor_id
+        WHERE e.id = %s AND e.cnpjloja = %s
+        LIMIT 1
+        """,
+        (encomenda_id, cnpjloja),
+    )
+    enc = cur.fetchone()
+    if not enc:
+        cur.close()
+        flash("Encomenda não encontrada.", "error")
+        return redirect(url_for("painel_encomendas"))
+    cur.execute(
+        "SELECT * FROM ecommerce_encomenda_msgs WHERE encomenda_id=%s ORDER BY enviada_em",
+        (encomenda_id,),
+    )
+    msgs = [dict(m) for m in cur.fetchall()]
+    cur.close()
+    return render_template(
+        "painel_encomenda_detalhe.html",
+        enc=dict(enc),
+        msgs=msgs,
+        status_label=_STATUS_ENCOMENDA_LABEL,
+    )
+
+
+@app.post("/painel/encomendas/<encomenda_id>/mensagem")
+@painel_required
+def painel_encomenda_mensagem(encomenda_id):
+    _ensure_encomenda_schema()
+    cnpjloja = session.get("cnpjloja")
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if not mensagem:
+        return redirect(url_for("painel_encomenda_detalhe", encomenda_id=encomenda_id))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_encomendas WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (encomenda_id, cnpjloja),
+    )
+    enc = cur.fetchone()
+    if not enc or enc["status"] == "finalizada":
+        cur.close()
+        return redirect(url_for("painel_encomendas"))
+    cur.execute(
+        "INSERT INTO ecommerce_encomenda_msgs (encomenda_id, autor, mensagem) VALUES (%s,'loja',%s)",
+        (encomenda_id, mensagem),
+    )
+    if enc["status"] == "aberta":
+        cur.execute(
+            "UPDATE ecommerce_encomendas SET status='em_andamento', atualizado_em=NOW() WHERE id=%s",
+            (encomenda_id,),
+        )
+    else:
+        cur.execute("UPDATE ecommerce_encomendas SET atualizado_em=NOW() WHERE id=%s", (encomenda_id,))
+    conn.commit()
+    cur.close()
+    return redirect(url_for("painel_encomenda_detalhe", encomenda_id=encomenda_id))
+
+
+@app.post("/painel/encomendas/<encomenda_id>/status")
+@painel_required
+def painel_encomenda_status(encomenda_id):
+    _ensure_encomenda_schema()
+    cnpjloja = session.get("cnpjloja")
+    novo_status = (request.form.get("status") or "").strip()
+    if novo_status not in {"em_andamento", "disponivel", "finalizada"}:
+        flash("Status inválido.", "error")
+        return redirect(url_for("painel_encomenda_detalhe", encomenda_id=encomenda_id))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_encomendas SET status=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+        (novo_status, encomenda_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    flash(f"Encomenda marcada como: {_STATUS_ENCOMENDA_LABEL.get(novo_status, novo_status)}.", "success")
+    return redirect(url_for("painel_encomenda_detalhe", encomenda_id=encomenda_id))
 
 
 # ─── PAINEL: CONFIGURAÇÕES ────────────────────────────────────────────────────

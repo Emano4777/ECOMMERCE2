@@ -1,0 +1,134 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Encomenda{% endblock %}
+
+{% block extra_style %}
+<style>
+.chat-box { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; overflow:hidden; margin-bottom:18px; }
+.chat-head { padding:12px 16px; background:#0a0d14; border-bottom:1px solid var(--pk-line); font-weight:800; font-size:.9rem; display:flex; align-items:center; gap:8px; }
+.chat-msgs { padding:16px; display:flex; flex-direction:column; gap:10px; min-height:140px; max-height:460px; overflow-y:auto; }
+.msg { max-width:80%; }
+.msg-loja    { align-self:flex-end; }
+.msg-cliente { align-self:flex-start; }
+.msg-bubble { padding:10px 14px; border-radius:14px; font-size:.88rem; line-height:1.5; }
+.msg-loja    .msg-bubble { background:var(--pk-yellow); color:#111; border-bottom-right-radius:4px; }
+.msg-cliente .msg-bubble { background:#1e2335; color:var(--pk-txt); border-bottom-left-radius:4px; }
+.msg-meta { font-size:.72rem; color:var(--pk-muted); margin-top:3px; }
+.msg-loja .msg-meta { text-align:right; }
+.chat-input { border-top:1px solid var(--pk-line); padding:14px 16px; display:flex; gap:10px; }
+.chat-input textarea { flex:1; background:#0a0d14; border:1px solid var(--pk-line); color:var(--pk-txt); border-radius:10px; padding:9px 12px; font-family:inherit; font-size:.9rem; resize:none; outline:none; }
+.chat-input textarea:focus { border-color:var(--pk-yellow); }
+.btn-send { background:var(--pk-yellow); color:#111; border:none; border-radius:10px; padding:9px 18px; font-weight:800; font-size:.9rem; cursor:pointer; white-space:nowrap; }
+.btn-send:hover { opacity:.9; }
+.info-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+@media(max-width:600px){ .info-grid { grid-template-columns:1fr; } .msg { max-width:95%; } .chat-input { flex-wrap:wrap; } .chat-input textarea { min-height:70px; } }
+.info-item { background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; padding:10px 14px; }
+.info-item .lbl { font-size:.72rem; font-weight:700; text-transform:uppercase; color:var(--pk-muted); margin-bottom:4px; }
+.info-item .val { font-weight:700; font-size:.92rem; }
+.status-action-row { display:flex; gap:8px; flex-wrap:wrap; }
+.status-btn { padding:7px 14px; border-radius:8px; border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted); font-size:.82rem; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s; }
+.status-btn:hover { background:var(--pk-line); color:var(--pk-txt); }
+.status-btn.s-disp  { border-color:#22c55e; color:#22c55e; }
+.status-btn.s-disp:hover { background:#0d2d1a; }
+.status-btn.s-final { border-color:#9ca3af; color:#9ca3af; }
+.status-btn.s-final:hover { background:#1a1f2e; }
+.enc-badge { display:inline-block; border-radius:20px; padding:4px 12px; font-size:.75rem; font-weight:800; }
+.badge-aberta       { background:#1e1a08; color:#f5c842; border:1px solid #5a430b; }
+.badge-em_andamento { background:#0d1e2d; color:#38bdf8; border:1px solid #0369a1; }
+.badge-disponivel   { background:#0d2d1a; color:#22c55e; border:1px solid #166534; }
+.badge-finalizada   { background:#111; color:#4b5563; border:1px solid var(--pk-line); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+  <a href="{{ url_for('painel_encomendas') }}" style="color:var(--pk-muted);text-decoration:none;font-size:.88rem">
+    <i class="fa fa-arrow-left me-1"></i>Voltar às encomendas
+  </a>
+  <div style="font-weight:900;font-size:1.2rem">
+    <i class="fa fa-box-open me-2" style="color:var(--pk-yellow)"></i>Encomenda
+  </div>
+  <span class="enc-badge badge-{{ enc.status }}">{{ status_label.get(enc.status, enc.status) }}</span>
+</div>
+
+<div class="info-grid">
+  <div class="info-item">
+    <div class="lbl">Produto solicitado</div>
+    <div class="val">{{ enc.produto_nome }}</div>
+  </div>
+  <div class="info-item">
+    <div class="lbl">Cliente</div>
+    <div class="val">{{ enc.consumidor_nome or '—' }}</div>
+    {% if enc.consumidor_email %}<div style="font-size:.8rem;color:var(--pk-muted);margin-top:3px">{{ enc.consumidor_email }}</div>{% endif %}
+    {% if enc.consumidor_telefone %}<div style="font-size:.8rem;color:var(--pk-muted)">{{ enc.consumidor_telefone }}</div>{% endif %}
+  </div>
+  <div class="info-item">
+    <div class="lbl">Data</div>
+    <div class="val">{{ enc.criado_em.strftime('%d/%m/%Y %H:%M') if enc.criado_em else '—' }}</div>
+  </div>
+  <div class="info-item">
+    <div class="lbl">Última atualização</div>
+    <div class="val">{{ enc.atualizado_em.strftime('%d/%m/%Y %H:%M') if enc.atualizado_em else '—' }}</div>
+  </div>
+</div>
+
+<div class="chat-box">
+  <div class="chat-head">
+    <i class="fa fa-comments" style="color:var(--pk-yellow)"></i>Conversa com o cliente
+  </div>
+  <div class="chat-msgs" id="chat-msgs">
+    {% for msg in msgs %}
+    <div class="msg msg-{{ msg.autor }}">
+      <div class="msg-bubble">{{ msg.mensagem }}</div>
+      <div class="msg-meta">
+        {{ 'Você (farmácia)' if msg.autor == 'loja' else enc.consumidor_nome or 'Cliente' }} ·
+        {{ msg.enviada_em.strftime('%d/%m %H:%M') if msg.enviada_em else '' }}
+      </div>
+    </div>
+    {% endfor %}
+    {% if not msgs %}
+    <div style="text-align:center;color:var(--pk-muted);font-size:.85rem;padding:20px">Nenhuma mensagem ainda.</div>
+    {% endif %}
+  </div>
+  {% if enc.status != 'finalizada' %}
+  <form method="post" action="{{ url_for('painel_encomenda_mensagem', encomenda_id=enc.id) }}" class="chat-input">
+    <textarea name="mensagem" rows="2" placeholder="Responda ao cliente…" required></textarea>
+    <button class="btn-send" type="submit"><i class="fa fa-paper-plane"></i></button>
+  </form>
+  {% else %}
+  <div style="padding:12px 16px;border-top:1px solid var(--pk-line);font-size:.82rem;color:var(--pk-muted);text-align:center">
+    <i class="fa fa-lock me-1"></i>Encomenda finalizada.
+  </div>
+  {% endif %}
+</div>
+
+{% if enc.status != 'finalizada' %}
+<div class="pk-card">
+  <div class="pk-card-title"><i class="fa fa-pen-to-square"></i>Atualizar status</div>
+  <div style="font-size:.82rem;color:var(--pk-muted);margin-bottom:12px">
+    Use <strong style="color:#22c55e">Produto disponível</strong> quando tiver o produto em estoque para o cliente.<br>
+    Use <strong style="color:#9ca3af">Finalizar</strong> para encerrar a conversa.
+  </div>
+  <div class="status-action-row">
+    <form method="post" action="{{ url_for('painel_encomenda_status', encomenda_id=enc.id) }}" style="display:inline">
+      <button type="submit" name="status" value="disponivel" class="status-btn s-disp"
+              onclick="return confirm('Marcar como produto disponível?')">
+        <i class="fa fa-circle-check me-1"></i>Produto disponível
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('painel_encomenda_status', encomenda_id=enc.id) }}" style="display:inline">
+      <button type="submit" name="status" value="finalizada" class="status-btn s-final"
+              onclick="return confirm('Finalizar esta encomenda?')">
+        <i class="fa fa-lock me-1"></i>Finalizar
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const msgs = document.getElementById('chat-msgs');
+if (msgs) msgs.scrollTop = msgs.scrollHeight;
+</script>
+{% endblock %}
