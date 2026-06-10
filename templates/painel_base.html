@@ -27,7 +27,7 @@
     * { box-sizing: border-box; }
     body { margin: 0; font-family: 'Nunito', sans-serif; background: var(--pk-bg); color: var(--pk-txt); }
 
-    /* â”€â”€ TOPBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── TOPBAR ──────────────────────── */
     .pk-topbar {
       background: var(--pk-card);
       border-bottom: 1px solid var(--pk-line);
@@ -35,23 +35,32 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 20px;
+      padding: 0 16px;
       position: sticky;
       top: 0;
-      z-index: 100;
+      z-index: 200;
     }
-    .pk-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 900; font-size: 1.2rem; color: var(--pk-yellow); }
-    .pk-brand-logo { width: 32px; height: 32px; border-radius: 10px; background: #fff; object-fit: contain; flex: 0 0 auto; }
+    .pk-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 900; font-size: 1.1rem; color: var(--pk-yellow); flex-shrink: 0; text-decoration: none; }
+    .pk-brand-logo { width: 30px; height: 30px; border-radius: 10px; background: #fff; object-fit: contain; flex: 0 0 auto; }
     .pk-brand-text { color: var(--pk-yellow); }
     .pk-brand-highlight { color: #fff; }
-    .pk-brand-panel { color: #fff; font-size:.7rem; opacity:.5; font-weight:400; }
-    .pk-nav { display: flex; align-items: center; gap: 2px; }
+    .pk-brand-panel { color: #fff; font-size:.65rem; opacity:.5; font-weight:400; }
+
+    /* nav inline (desktop) */
+    .pk-nav {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      flex: 1;
+      justify-content: center;
+      overflow: hidden;
+    }
     .pk-nav a, .pk-nav-drop {
       color: var(--pk-muted);
       text-decoration: none;
-      padding: 6px 10px;
+      padding: 6px 8px;
       border-radius: 8px;
-      font-size: .82rem;
+      font-size: .78rem;
       font-weight: 700;
       transition: background .15s, color .15s;
       white-space: nowrap;
@@ -66,11 +75,12 @@
     }
     .pk-nav a:hover, .pk-nav a.active,
     .pk-nav-drop:hover, .pk-nav-drop.active { background: var(--pk-line); color: var(--pk-txt); }
-    .pk-nav-sep { width: 1px; height: 20px; background: var(--pk-line); margin: 0 4px; flex-shrink: 0; }
+    .pk-nav-sep { width: 1px; height: 20px; background: var(--pk-line); margin: 0 3px; flex-shrink: 0; }
     .dropdown-menu { min-width: 170px; }
     .dropdown-item { font-size: .85rem; font-weight: 600; }
-    .pk-user { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: var(--pk-muted); flex-shrink: 0; }
-    .pk-user strong { color: var(--pk-yellow); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .pk-user { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--pk-muted); flex-shrink: 0; }
+    .pk-user strong { color: var(--pk-yellow); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pk-user-link, .pk-user-sair {
       color: var(--pk-muted);
       text-decoration: none;
@@ -83,6 +93,68 @@
     }
     .pk-user-link:hover { background: var(--pk-line); color: var(--pk-txt); }
     .pk-user-sair:hover { background: #2a0810; color: #f08090; }
+
+    /* hamburger — oculto no desktop */
+    .pk-hamburger {
+      display: none;
+      background: none;
+      border: 1px solid var(--pk-line);
+      border-radius: 8px;
+      color: var(--pk-txt);
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 5px 9px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    /* ── RESPONSIVO ───────────────────── */
+    @media (max-width: 1080px) {
+      .pk-hamburger { display: inline-flex; align-items: center; }
+      .pk-nav {
+        display: none;
+        position: fixed;
+        top: 56px;
+        left: 0;
+        right: 0;
+        background: var(--pk-card);
+        border-bottom: 2px solid var(--pk-yellow);
+        flex-direction: column;
+        align-items: stretch;
+        padding: 8px 12px 12px;
+        z-index: 199;
+        max-height: calc(100vh - 56px);
+        overflow-y: auto;
+        gap: 2px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.5);
+      }
+      .pk-nav.pk-open { display: flex; }
+      .pk-nav a, .pk-nav-drop {
+        padding: 10px 14px;
+        font-size: .9rem;
+        border-radius: 8px;
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .pk-nav-sep { width: 100%; height: 1px; margin: 4px 0; }
+      .pk-user strong { display: none; }
+      #pk-som-label { display: none; }
+      /* dropdowns dentro do menu mobile ficam abertos */
+      .pk-nav .dropdown-menu {
+        position: static !important;
+        transform: none !important;
+        background: #0d1016;
+        border-color: var(--pk-line);
+        margin: 4px 0 0 12px;
+        display: none;
+      }
+      .pk-nav .dropdown.show .dropdown-menu { display: block; }
+    }
+
+    @media (max-width: 480px) {
+      .pk-topbar { padding: 0 12px; }
+      .pk-brand-panel { display: none; }
+    }
 
     /* â”€â”€ LAYOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .pk-main { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }
@@ -136,11 +208,14 @@
 <body>
 
 <header class="pk-topbar">
-  <div class="pk-brand">
+  <a class="pk-brand" href="{{ url_for('painel_pedidos') }}">
     <img class="pk-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
     <span class="pk-brand-text">Poupaqu<span class="pk-brand-highlight">i</span> <span class="pk-brand-panel">painel</span></span>
-  </div>
-  <nav class="pk-nav">
+  </a>
+  <button class="pk-hamburger" id="pk-menu-btn" aria-label="Menu" aria-expanded="false" aria-controls="pk-nav-menu">
+    <i class="fa fa-bars" id="pk-menu-icon"></i>
+  </button>
+  <nav class="pk-nav" id="pk-nav-menu">
     <a href="{{ url_for('precificador') }}" {% if request.endpoint == 'precificador' %}class="active"{% endif %}>
       <i class="fa fa-tags me-1"></i>Precificador
     </a>
@@ -237,6 +312,10 @@
   </nav>
 
   <div class="pk-user">
+    <button id="pk-som-btn" onclick="pkSomAtivar()" title="Ativar alertas sonoros"
+      style="background:none;border:1px solid var(--pk-line);border-radius:8px;padding:4px 10px;color:var(--pk-muted);font-family:inherit;font-size:.75rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .2s;flex-shrink:0">
+      <i class="fa fa-bell-slash"></i><span id="pk-som-label">Som</span>
+    </button>
     <a href="{{ url_for('index') }}" target="_blank" class="pk-user-link" title="Ver site">
       <i class="fa fa-globe"></i>
     </a>
@@ -263,5 +342,270 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% block extra_js %}{% endblock %}
+
+<!-- ─── MENU HAMBURGER ─── -->
+<script>
+(function(){
+  var btn  = document.getElementById("pk-menu-btn");
+  var nav  = document.getElementById("pk-nav-menu");
+  var icon = document.getElementById("pk-menu-icon");
+  if (!btn) return;
+  btn.addEventListener("click", function(e){
+    e.stopPropagation();
+    var open = nav.classList.toggle("pk-open");
+    icon.className = open ? "fa fa-xmark" : "fa fa-bars";
+    btn.setAttribute("aria-expanded", open);
+  });
+  /* fecha ao clicar fora */
+  document.addEventListener("click", function(e){
+    if (nav.classList.contains("pk-open") && !nav.contains(e.target) && e.target !== btn) {
+      nav.classList.remove("pk-open");
+      icon.className = "fa fa-bars";
+      btn.setAttribute("aria-expanded", false);
+    }
+  });
+  /* fecha ao navegar */
+  nav.querySelectorAll("a").forEach(function(a){
+    a.addEventListener("click", function(){
+      nav.classList.remove("pk-open");
+      icon.className = "fa fa-bars";
+    });
+  });
+})();
+</script>
+
+<!-- ─── SUPABASE REALTIME CLIENT ─── -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+<!-- ─── ALERTAS SONOROS POUPAQUI ─── -->
+<style>
+#pk-toast-alerta {
+  position:fixed; bottom:24px; right:24px; z-index:9999;
+  background:#181c26; border:1px solid var(--pk-yellow);
+  border-radius:14px; padding:16px 20px; min-width:280px; max-width:340px;
+  box-shadow:0 8px 32px rgba(0,0,0,.6);
+  display:none; animation:pkSlideIn .35s cubic-bezier(.22,1,.36,1);
+}
+@keyframes pkSlideIn {
+  from { transform:translateY(30px); opacity:0; }
+  to   { transform:translateY(0);    opacity:1; }
+}
+#pk-toast-alerta .pk-t-title { font-weight:900; font-size:1rem; color:var(--pk-yellow); margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+#pk-toast-alerta .pk-t-body  { font-size:.85rem; color:var(--pk-txt); line-height:1.5; }
+#pk-toast-alerta .pk-t-links { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+#pk-toast-alerta .pk-t-link  { background:var(--pk-yellow); color:#111; border-radius:8px; padding:5px 12px; font-size:.78rem; font-weight:800; text-decoration:none; }
+#pk-toast-alerta .pk-t-close { position:absolute; top:10px; right:12px; background:none; border:none; color:var(--pk-muted); font-size:1rem; cursor:pointer; padding:0; }
+#pk-toast-alerta .pk-t-close:hover { color:var(--pk-txt); }
+</style>
+
+<div id="pk-toast-alerta" role="alert" aria-live="assertive">
+  <button class="pk-t-close" onclick="pkToastFechar()"><i class="fa fa-xmark"></i></button>
+  <div class="pk-t-title"><i class="fa fa-bell"></i><span id="pk-t-titulo">Novo alerta</span></div>
+  <div class="pk-t-body" id="pk-t-corpo"></div>
+  <div class="pk-t-links" id="pk-t-links"></div>
+</div>
+
+<script>
+(function(){
+  const LS_SOM = "pk_som_ativo";
+  let somAtivo = localStorage.getItem(LS_SOM) === "1";
+  let audioCtx = null;
+
+  /* ── Botão de ativar/desativar ── */
+  const btn   = document.getElementById("pk-som-btn");
+  const label = document.getElementById("pk-som-label");
+
+  function atualizarBotao() {
+    if (somAtivo) {
+      btn.style.borderColor = "var(--pk-yellow)";
+      btn.style.color       = "var(--pk-yellow)";
+      btn.querySelector("i").className = "fa fa-bell";
+      label.textContent = "Som ativo";
+    } else {
+      btn.style.borderColor = "var(--pk-line)";
+      btn.style.color       = "var(--pk-muted)";
+      btn.querySelector("i").className = "fa fa-bell-slash";
+      label.textContent = "Som";
+    }
+  }
+
+  /* ── Web Audio API ── */
+  var _audioOk = false; /* true quando o contexto foi desbloqueado via gesto */
+
+  function _initCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") {
+      return audioCtx.resume().then(function(){ _audioOk = true; });
+    }
+    _audioOk = true;
+    return Promise.resolve();
+  }
+
+  /* Desbloqueia o AudioContext na primeira interação do usuário (clique/toque)
+     — necessário quando somAtivo já estava salvo no localStorage              */
+  function _tryUnlock() {
+    if (_audioOk) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume().then(function(){ _audioOk = true; });
+  }
+  document.addEventListener("click",      _tryUnlock);
+  document.addEventListener("touchstart", _tryUnlock, {passive: true});
+
+  window.pkSomAtivar = function() {
+    somAtivo = !somAtivo;
+    localStorage.setItem(LS_SOM, somAtivo ? "1" : "0");
+    atualizarBotao();
+    if (somAtivo) {
+      /* Cria e desbloqueia o AudioContext DENTRO do clique — garantia máxima */
+      _initCtx().then(function() {
+        _tocarNotas(0.5);
+        _falar("Alertas ativados, Poupaqui!");
+      });
+      conectarRealtime();
+    } else {
+      desconectarRealtime();
+    }
+  };
+
+  function _nota(freq, startT, durSeg, gain) {
+    const osc  = audioCtx.createOscillator();
+    const env  = audioCtx.createGain();
+    const osc2 = audioCtx.createOscillator();
+    const env2 = audioCtx.createGain();
+
+    osc.type  = "triangle";
+    osc.frequency.value = freq;
+    osc2.type = "sine";
+    osc2.frequency.value = freq * 2;
+
+    env.gain.setValueAtTime(0, startT);
+    env.gain.linearRampToValueAtTime(gain, startT + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.001, startT + durSeg);
+
+    env2.gain.setValueAtTime(0, startT);
+    env2.gain.linearRampToValueAtTime(gain * 0.25, startT + 0.01);
+    env2.gain.exponentialRampToValueAtTime(0.001, startT + durSeg);
+
+    osc.connect(env).connect(audioCtx.destination);
+    osc2.connect(env2).connect(audioCtx.destination);
+    osc.start(startT);  osc.stop(startT + durSeg + 0.05);
+    osc2.start(startT); osc2.stop(startT + durSeg + 0.05);
+  }
+
+  /* Toca as notas após garantir que o contexto está rodando */
+  function _tocarNotas(g) {
+    var t = audioCtx.currentTime + 0.05;
+    _nota(392, t + 0.00, 0.15, g);
+    _nota(523, t + 0.13, 0.15, g);
+    _nota(659, t + 0.26, 0.15, g);
+    _nota(784, t + 0.39, 0.45, g * 1.15);
+  }
+
+  /* Fala o texto em pt-BR logo após as notas terminarem */
+  function _falar(texto) {
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(texto);
+    u.lang   = "pt-BR";
+    u.rate   = 1.05;
+    u.pitch  = 1.15;
+    u.volume = 1.0;
+    /* aguarda as notas (~0.9s) antes de falar */
+    setTimeout(function(){ speechSynthesis.speak(u); }, 900);
+  }
+
+  function _tocarJingle(vol, texto) {
+    var g = vol === undefined ? 0.8 : vol;
+    _initCtx().then(function() {
+      _tocarNotas(g);
+      if (texto) _falar(texto);
+    });
+  }
+
+  /* ── Toast ── */
+  const toast = document.getElementById("pk-toast-alerta");
+  let toastTimer = null;
+
+  function pkToastMostrar(titulo, corpo, links) {
+    document.getElementById("pk-t-titulo").textContent = titulo;
+    document.getElementById("pk-t-corpo").textContent  = corpo;
+    const linksEl = document.getElementById("pk-t-links");
+    linksEl.innerHTML = "";
+    (links || []).forEach(function(l) {
+      const a = document.createElement("a");
+      a.href = l.url; a.className = "pk-t-link"; a.textContent = l.label;
+      linksEl.appendChild(a);
+    });
+    toast.style.display = "block";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(pkToastFechar, 12000);
+  }
+
+  window.pkToastFechar = function() {
+    toast.style.display = "none";
+  };
+
+  /* ── Supabase Realtime ── */
+  var _sbClient  = null;
+  var _sbChannel = null;
+  var SUPA_URL   = {{ SUPABASE_URL | tojson }};
+  var SUPA_ANON  = {{ SUPABASE_ANON | tojson }};
+  var CNPJLOJA   = {{ (session.cnpjloja or '') | tojson }};
+
+  function _alertar(tipo, textoVoz, labelBtn, urlBtn) {
+    pkToastMostrar("🛒 Poupaqui — novo aviso!", textoVoz, [{label: labelBtn, url: urlBtn}]);
+    if (somAtivo) _tocarJingle(0.8, textoVoz + ", Poupaqui!");
+  }
+
+  function conectarRealtime() {
+    if (!SUPA_URL || !SUPA_ANON || !CNPJLOJA) return;
+    if (_sbClient) return; /* já conectado */
+
+    _sbClient  = window.supabase.createClient(SUPA_URL, SUPA_ANON);
+    _sbChannel = _sbClient.channel("painel-alertas-" + CNPJLOJA)
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "ecommerce_pedidos",
+        filter: "cnpjloja=eq." + CNPJLOJA
+      }, function() {
+        _alertar("pedido", "Novo pedido", "Ver pedidos", "/painel/pedidos");
+      })
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "ecommerce_reclamacoes",
+        filter: "cnpjloja=eq." + CNPJLOJA
+      }, function() {
+        _alertar("reclamacao", "Nova reclamação", "Ver reclamações", "/painel/reclamacoes");
+      })
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "ecommerce_encomendas",
+        filter: "cnpjloja=eq." + CNPJLOJA
+      }, function() {
+        _alertar("encomenda", "Nova encomenda", "Ver encomendas", "/painel/encomendas");
+      })
+      .subscribe(function(status) {
+        /* reconecta se o canal cair */
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setTimeout(function() {
+            if (_sbChannel) _sbClient.removeChannel(_sbChannel);
+            _sbClient  = null;
+            _sbChannel = null;
+            conectarRealtime();
+          }, 5000);
+        }
+      });
+  }
+
+  function desconectarRealtime() {
+    if (_sbChannel && _sbClient) {
+      _sbClient.removeChannel(_sbChannel);
+      _sbChannel = null;
+      _sbClient  = null;
+    }
+  }
+
+  /* ── Init ── */
+  atualizarBotao();
+  if (somAtivo) conectarRealtime();
+})();
+</script>
 </body>
 </html>

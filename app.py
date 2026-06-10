@@ -378,6 +378,8 @@ def inject_globals():
         "consumidor_rec_abertas": consumidor_rec_abertas,
         "consumidor_notif_nao_lidas": consumidor_notif_nao_lidas,
         "consumidor_encomendas_abertas": consumidor_encomendas_abertas,
+        "SUPABASE_URL": SUPABASE_URL,
+        "SUPABASE_ANON": SUPABASE_ANON,
     }
 
 def _consumidor_from_session():
@@ -9575,6 +9577,49 @@ def pedido_confirmacao():
 
     cur.close()
     return render_template("pedido_confirmacao.html", pedidos=pedidos)
+
+
+# ─── PAINEL: ALERTAS SONOROS (polling) ───────────────────────────────────────
+
+@app.get("/api/painel/novos-alertas")
+@painel_required
+def api_painel_novos_alertas():
+    _ensure_encomenda_schema()
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    since_raw = request.args.get("since", "")
+    # Captura "now" ANTES das queries — evita race condition onde um pedido
+    # inserido durante o processamento cai no gap entre dois polls consecutivos
+    query_time = datetime.now(timezone.utc)
+    try:
+        since_dt = datetime.fromisoformat(since_raw.replace("Z", "+00:00"))
+    except Exception:
+        return jsonify({"pedidos": 0, "reclamacoes": 0, "encomendas": 0,
+                        "now": query_time.isoformat()})
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND criado_em > %s",
+        (cnpjloja, since_dt),
+    )
+    pedidos = cur.fetchone()["n"]
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM ecommerce_reclamacoes WHERE cnpjloja=%s AND aberta_em > %s",
+        (cnpjloja, since_dt),
+    )
+    reclamacoes = cur.fetchone()["n"]
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM ecommerce_encomendas WHERE cnpjloja=%s AND criado_em > %s",
+        (cnpjloja, since_dt),
+    )
+    encomendas = cur.fetchone()["n"]
+    cur.close()
+    return jsonify({
+        "pedidos": pedidos,
+        "reclamacoes": reclamacoes,
+        "encomendas": encomendas,
+        "now": query_time.isoformat(),
+    })
 
 
 # ─── PAINEL: PEDIDOS ─────────────────────────────────────────────────────────

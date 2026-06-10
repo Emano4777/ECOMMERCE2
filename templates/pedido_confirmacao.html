@@ -250,6 +250,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 function copiarPix(id) {
   const el = document.getElementById(id);
@@ -306,33 +307,58 @@ const pedidosPagamento = [
 
 function labelPagamento(status) {
   if (status === 'approved') return 'Pagamento confirmado';
-  if (['rejected','cancelled','refunded','charged_back'].includes(status)) return 'Pagamento nao aprovado';
+  if (['rejected','cancelled','refunded','charged_back'].includes(status)) return 'Pagamento não aprovado';
   return 'Aguardando pagamento';
+}
+
+function aplicarStatusUI(id, status) {
+  const el = document.getElementById('pay-status-' + id);
+  if (!el) return;
+  const bad = ['rejected','cancelled','refunded','charged_back'].includes(status);
+  el.classList.toggle('ok',   status === 'approved');
+  el.classList.toggle('bad',  bad);
+  el.classList.toggle('wait', status !== 'approved' && !bad);
+  el.innerHTML = '<i class="fa ' + (status === 'approved' ? 'fa-circle-check' : 'fa-clock') + '"></i>'
+               + '<span>' + labelPagamento(status) + '</span>';
+  if (status === 'approved' && !sessionStorage.getItem('pay-reloaded-' + id)) {
+    sessionStorage.setItem('pay-reloaded-' + id, '1');
+    window.location.reload();
+  }
 }
 
 async function consultarPagamento(id) {
   try {
-    const r = await fetch(`/api/pedido/${id}/pagamento-status`);
+    const r = await fetch('/api/pedido/' + id + '/pagamento-status');
     if (!r.ok) return;
     const data = await r.json();
-    const el = document.getElementById(`pay-status-${id}`);
-    if (!el) return;
-    const status = data.pagamento_status || 'pending';
-    const bad = ['rejected','cancelled','refunded','charged_back'].includes(status);
-    el.classList.toggle('ok', status === 'approved');
-    el.classList.toggle('bad', bad);
-    el.classList.toggle('wait', status !== 'approved' && !bad);
-    el.innerHTML = `<i class="fa ${status === 'approved' ? 'fa-circle-check' : 'fa-clock'}"></i><span>${labelPagamento(status)}</span>`;
-    if (status === 'approved' && !sessionStorage.getItem(`pay-reloaded-${id}`)) {
-      sessionStorage.setItem(`pay-reloaded-${id}`, '1');
-      window.location.reload();
-    }
+    aplicarStatusUI(id, data.pagamento_status || 'pending');
   } catch (e) {}
 }
 
 if (pedidosPagamento.length) {
+  /* verificação inicial imediata */
   pedidosPagamento.forEach(consultarPagamento);
-  setInterval(() => pedidosPagamento.forEach(consultarPagamento), 10000);
+
+  /* Supabase Realtime — zero polling, evento chega instantâneo quando o status muda */
+  var SUPA_URL  = {{ SUPABASE_URL | tojson }};
+  var SUPA_ANON = {{ SUPABASE_ANON | tojson }};
+  if (SUPA_URL && SUPA_ANON && window.supabase) {
+    var _sb = window.supabase.createClient(SUPA_URL, SUPA_ANON);
+    pedidosPagamento.forEach(function(pedidoId) {
+      _sb.channel('pay-status-' + pedidoId)
+        .on('postgres_changes', {
+          event: 'UPDATE', schema: 'public', table: 'ecommerce_pedidos',
+          filter: 'id=eq.' + pedidoId
+        }, function(payload) {
+          var status = (payload.new || {}).pagamento_status;
+          if (status) aplicarStatusUI(pedidoId, status);
+        })
+        .subscribe();
+    });
+  } else {
+    /* fallback: polling a cada 30s se Supabase indisponível */
+    setInterval(function() { pedidosPagamento.forEach(consultarPagamento); }, 30000);
+  }
 }
 </script>
 {% endblock %}

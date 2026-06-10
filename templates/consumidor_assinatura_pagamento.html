@@ -183,6 +183,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 {% if info.mp_public_key %}
 <script src="https://sdk.mercadopago.com/js/v2"></script>
 {% endif %}
@@ -363,13 +364,36 @@ function verificarPagamento(){
     .catch(()=>{ btn.innerHTML = '<i class="fa fa-rotate me-1"></i>Já paguei/autorizei — verificar'; btn.disabled=false; _checking=false; });
 }
 
-// Auto-polling a cada 6s
-const _autoCheck = setInterval(()=>{
-  fetch('/assinatura/pagamento/{{ info.cnpjloja }}/status')
-    .then(r=>r.json())
-    .then(d=>{ if(d.status==='ativo'){ clearInterval(_autoCheck); window.location.href='/minhas-assinaturas'; } })
-    .catch(()=>{});
-}, 6000);
+// Supabase Realtime — detecta aprovação instantaneamente, zero polling
+(function(){
+  var SUPA_URL  = {{ SUPABASE_URL | tojson }};
+  var SUPA_ANON = {{ SUPABASE_ANON | tojson }};
+  var ASSIN_ID  = {{ info.assinatura_id | tojson }};
+  if (!SUPA_URL || !SUPA_ANON || !ASSIN_ID || !window.supabase) {
+    // fallback: polling a cada 30s se Supabase indisponível
+    setInterval(()=>{
+      fetch('/assinatura/pagamento/{{ info.cnpjloja }}/status')
+        .then(r=>r.json())
+        .then(d=>{ if(d.status==='ativo') window.location.href='/minhas-assinaturas'; })
+        .catch(()=>{});
+    }, 30000);
+    return;
+  }
+  var _sb = window.supabase.createClient(SUPA_URL, SUPA_ANON);
+  _sb.channel('assin-pay-' + ASSIN_ID)
+    .on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'ecommerce_assinantes',
+      filter: 'id=eq.' + ASSIN_ID
+    }, function(payload) {
+      var st = (payload.new || {}).status;
+      if (st === 'ativo') {
+        var b = document.getElementById('pgto-status-banner');
+        if (b) { b.className = 'pgto-status-banner aprovado'; b.innerHTML = '<i class="fa fa-check-circle me-2"></i>Pagamento aprovado! Assinatura ativa.'; }
+        setTimeout(function(){ window.location.href = '/minhas-assinaturas'; }, 1500);
+      }
+    })
+    .subscribe();
+})();
 {% endif %}
 </script>
 {% endblock %}
