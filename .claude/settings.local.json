@@ -42,7 +42,11 @@
       "Bash(py scripts/limpar_imagens_branded_cloudinary.py --help)",
       "Bash(py scripts/_restaurar_imagens.py)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Public\\\\dns-ecommerce\" -Directory)",
-      "Bash(Select-Object Name)"
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Public\\\\dns-ecommerce\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Format-List FullName)",
+      "mcp__claude_ai_Vercel__get_runtime_logs"
     ]
   }
 }

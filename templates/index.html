@@ -9,6 +9,12 @@
            placeholder="Buscar produtos…"
            oninput="filtrar(this.value)"
            autocomplete="off"/>
+    <button class="idx-nb-camera-btn" type="button" onclick="abrirFotoBusca()" title="Buscar por foto da embalagem">
+      <i class="fa fa-camera" id="foto-busca-icon"></i>
+      <span class="idx-nb-camera-spinner" id="foto-busca-spinner" style="display:none"></span>
+    </button>
+    <input type="file" id="foto-busca-inp" accept="image/*" capture="environment"
+           style="display:none" onchange="processarFotoBusca(this)"/>
   </div>
   <select class="idx-nb-exibir" id="page-size" onchange="setPageSize(this.value)" title="Itens por página">
     <option value="25">25</option>
@@ -38,10 +44,39 @@
   flex: 1;
   min-width: 0;
 }
+.idx-nb-camera-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--pq-muted);
+  font-size: .9rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color .15s, background .15s;
+}
+.idx-nb-camera-btn:hover { color: var(--pq-red); background: rgba(200,16,46,.07); }
+.idx-nb-camera-btn:disabled { opacity: .5; cursor: default; }
+.idx-nb-camera-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--pq-border);
+  border-top-color: var(--pq-red);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .idx-nb-search input {
   width: 100%;
   height: 40px;
-  padding: 0 14px 0 40px;
+  padding: 0 38px 0 40px;
   border: 1.5px solid var(--pq-border);
   border-radius: 50px;
   font-size: .88rem;
@@ -1119,11 +1154,8 @@ function renderProdutos(lista) {
       return;
     }
     const termoBusca = (document.getElementById('search-inp')?.value || '').trim();
-    const lojasDisponiveis = _encomendaLojas.length
-      ? _encomendaLojas
-      : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj}));
+    const lojasDisponiveis = _encomendaLojas;
     const podeEncomendar = termoBusca.length >= 2 && lojasDisponiveis.length > 0;
-    if (podeEncomendar && !_encomendaLojas.length) _encomendaLojas = lojasDisponiveis;
     prodGrid.innerHTML = `<div class="idx-empty">
       <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
         <i class="fa fa-magnifying-glass" style="font-size:1.4rem;color:var(--pq-muted);opacity:.5"></i>
@@ -1206,10 +1238,18 @@ function filterAndRender(resetPage=false) {
   const pageSize = parseInt(pageSizeSel.value, 10) || 25;
   const precoMax = parseFloat(document.getElementById('filter-preco-max')?.value) || 0;
 
+  // Quando o servidor buscou exatamente este termo, os resultados já vêm filtrados pela IA
+  // (ex: "pressao alta" → losartana/enalapril retornados pelo backend). Não aplicar o filtro
+  // local por qTerms, senão produtos como "LOSARTANA" seriam removidos por não conterem
+  // a substring "pressao alta".
+  const isServerSearch = !!(_lastServerSearch && normTxt(_lastServerSearch) === q);
   filteredProdutos = allProdutos.filter(p => {
     const hay = normTxt([p.nome, p.razao, p.ean, p.laboratorio, p.marca, productCategory(p), p.sintomas, p.termos_busca, p.principio_ativo, p.classe_terapeutica].filter(Boolean).join(' '));
     const temOferta = !ONLY_OFFERS || !!melhorCupomParaProduto(p) || priceOf(p) <= 20;
-    return (!q || (!productExcludedForSymptomQuery(q, hay) && qTerms.some(term => hay.includes(term)))) &&
+    const passaTexto = !q || (isServerSearch
+      ? !productExcludedForSymptomQuery(q, hay)
+      : (!productExcludedForSymptomQuery(q, hay) && qTerms.some(term => hay.includes(term))));
+    return passaTexto &&
            (!store || p.cnpjloja === store) &&
            (!cat || productCategory(p) === cat) &&
            temOferta &&
@@ -1471,6 +1511,14 @@ function carregarProdutos(lat, lng, busca='') {
       _serverSearchLoading = false;
       allProdutos = data.produtos || [];
 
+      // Mantém lista de farmácias próximas para o modal de encomenda
+      if (allProdutos.length) {
+        const _seenEnc = new Set();
+        _encomendaLojas = allProdutos
+          .filter(p => p.cnpjloja && !_seenEnc.has(p.cnpjloja) && _seenEnc.add(p.cnpjloja))
+          .map(p => ({cnpjloja: p.cnpjloja, razao: p.razao || p.cnpjloja, distancia_km: p.distancia_km}));
+      }
+
       if (allProdutos.length) {
         if (data.sem_geocode) {
           titleEl.textContent    = 'Produtos da rede Poupaqui';
@@ -1720,9 +1768,7 @@ if (_lat && _lng) {
 function abrirModalEncomenda(nomeProduto) {
   document.getElementById('enc-produto-inp').value = nomeProduto || '';
   document.getElementById('enc-produto-label').textContent = nomeProduto || '';
-  const lojas = _encomendaLojas.length
-    ? _encomendaLojas
-    : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj}));
+  const lojas = _encomendaLojas;
   const sel = document.getElementById('enc-loja-sel');
   sel.innerHTML = '<option value="">Selecione a farmácia…</option>';
   lojas.forEach(l => {
@@ -1740,6 +1786,71 @@ function fecharModalEncomenda() {
   document.body.style.overflow = '';
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModalEncomenda(); });
+
+/* ── BUSCA POR FOTO ─────────────────────────────── */
+function abrirFotoBusca() {
+  document.getElementById('foto-busca-inp').click();
+}
+
+function processarFotoBusca(inp) {
+  const file = inp.files && inp.files[0];
+  inp.value = '';
+  if (!file) return;
+
+  const btn    = document.querySelector('.idx-nb-camera-btn');
+  const icon   = document.getElementById('foto-busca-icon');
+  const spin   = document.getElementById('foto-busca-spinner');
+  btn.disabled = true;
+  icon.style.display = 'none';
+  spin.style.display = '';
+
+  const fd = new FormData();
+  fd.append('imagem', file);
+  if (_currentLat) fd.append('lat', _currentLat);
+  if (_currentLng) fd.append('lng', _currentLng);
+
+  fetch('/api/busca/foto', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      icon.style.display = '';
+      spin.style.display = 'none';
+
+      if (!data.ok) {
+        alert(data.erro || 'Não foi possível identificar o medicamento.');
+        return;
+      }
+
+      const id = data.identificado || {};
+      const partes = [id.nome, id.dosagem].filter(Boolean);
+      const termoBusca = partes.join(' ');
+
+      const inp2 = document.getElementById('search-inp');
+      if (inp2) inp2.value = termoBusca;
+
+      if (data.aviso) {
+        alert(`Identificado: ${termoBusca}\n\n${data.aviso}`);
+        return;
+      }
+
+      allProdutos = data.produtos || [];
+      _lastServerSearch = termoBusca;
+      filterAndRender(true);
+
+      if (allProdutos.length) {
+        titleEl.textContent   = 'Resultado da busca por foto';
+        badgeOk.textContent   = `${allProdutos.length} produto(s) encontrado(s)`;
+        badgeOk.style.display = '';
+        badgeWrn.style.display = 'none';
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      icon.style.display = '';
+      spin.style.display = 'none';
+      alert('Erro ao enviar a imagem. Tente novamente.');
+    });
+}
 </script>
 
 <!-- Modal encomenda -->

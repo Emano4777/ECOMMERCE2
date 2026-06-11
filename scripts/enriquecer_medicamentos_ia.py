@@ -28,22 +28,49 @@ import os
 import re as _re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import psycopg2
+from dotenv import load_dotenv
+from psycopg2.extras import RealDictCursor
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app import db  # noqa: E402
+load_dotenv(ROOT / ".env")
 
 MODELO = "claude-haiku-4-5-20251001"
 COMMIT_A_CADA = 100
 DELAY_S = 0.5
 EXPORTS_DIR = ROOT / "exports"
+CONFIANCAS_VALIDAS = {"alta", "media", "baixa"}
+INDICADOS_VALIDOS = {"adultos", "crianças", "ambos", "gestantes com cautela"}
+CHAVES_OBRIGATORIAS = {
+    "inn_identificado",
+    "tarja",
+    "tarja_confianca",
+    "classificacao_farmacologica",
+    "para_que_serve",
+    "como_tomar",
+    "principais_cuidados",
+    "indicado_para",
+}
+
+
+def db():
+    database_url = (
+        os.getenv("DATABASE_URL", "").strip()
+        or os.getenv("DDATABASE_URL", "").strip()
+    )
+    if not database_url:
+        raise RuntimeError("DATABASE_URL não configurada.")
+    return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
 
 TARJAS_VALIDAS = {
     "Sem tarja",
@@ -99,27 +126,67 @@ Regras obrigatórias:
 1. Classifique a tarja com base EXCLUSIVAMENTE no princípio ativo (INN). Ignore sufixos de nome comercial (laboratório, forma farmacêutica, faixa etária) que não alteram o INN.
 2. Se o princípio ativo não estiver disponível, identifique-o pelo nome do produto antes de classificar.
 3. Retorne APENAS JSON válido — sem texto adicional, sem markdown, sem backticks.
-4. tarja_confianca = "alta" sempre que você reconhecer o INN e sua classificação ANVISA. Use "baixa" SOMENTE quando o INN for realmente desconhecido ou não registrado no Brasil.
+4. tarja_confianca:
+   - "alta": INN e regime de dispensação são inequívocos.
+   - "media": INN reconhecido, mas faltam apresentação, concentração, via ou outro dado que possa alterar a orientação.
+   - "baixa": INN desconhecido, ambíguo, insuficiente ou não registrado no Brasil.
 5. Linguagem simples para o paciente. Sem jargão médico.
 6. principais_cuidados: exatamente 3 bullets separados por \\n, cada um começando com "• ".
+7. Nunca invente dose, frequência, duração ou número de comprimidos. Em "como_tomar", dê somente orientação geral e mande seguir bula/prescrição.
+8. Não declare indicação por faixa etária sem segurança. Se apresentação ou concentração puder mudar a faixa etária, use confiança "media".
+9. A tarja atual e a categoria atual são apenas referências potencialmente erradas.
+10. "Tarja amarela" não é uma classe de dispensação inferível pelo princípio ativo. Não use essa opção apenas porque o produto é de prescrição.
 
-Classificação de tarja (RDC ANVISA vigente):
+Classificação operacional:
 - "Sem tarja": MIPs — paracetamol, dipirona, ibuprofeno OTC (≤400mg), antitérmicos, antiácidos, vitaminas, fitoterápicos OTC, mucolíticos OTC (acebrofilina, ambroxol, guaifenesina, carbocisteína), anti-histamínicos OTC (loratadina, cetirizina OTC), antifúngicos tópicos OTC (miconazol creme, clotrimazol creme).
-- "Tarja amarela": prescrição sem controle especial — antihipertensivos (atenolol, losartana, enalapril, anlodipina, valsartana, hidroclorotiazida), hipoglicemiantes (metformina, glibenclamida, glipizida), IBPs (omeprazol, pantoprazol, esomeprazol), estatinas (sinvastatina, atorvastatina), broncodilatadores (salbutamol, formoterol, salmeterol), corticoides sistêmicos (prednisona, dexametasona), anticoagulantes (varfarina, rivaroxabana), antidepressivos ISRS (sertralina, fluoxetina, escitalopram), antipsicóticos (haloperidol, risperidona), hormônios tireoidianos (levotiroxina).
-- "Tarja vermelha sem retenção": prescrição sem retenção — AINEs de prescrição (aceclofenaco, cetoprofeno, meloxicam, nimesulida, diclofenaco), relaxantes musculares (ciclobenzaprina, carisoprodol), opioides fracos em associação (codeína+paracetamol, tramadol+paracetamol), corticoides tópicos potentes (mometasona, betametasona tópica), antifúngicos sistêmicos de uso curto (fluconazol 150mg dose única).
+- "Tarja amarela": use somente quando houver evidência explícita na entrada de que esse é o rótulo operacional desejado; nunca infira pelo INN.
+- "Tarja vermelha sem retenção": medicamentos sob prescrição sem retenção, incluindo anti-hipertensivos, hipoglicemiantes, estatinas, hormônios tireoidianos e AINEs de prescrição.
 - "Tarja vermelha com retenção": antimicrobianos RDC 20/2011 — azitromicina, amoxicilina, amoxicilina+clavulanato, ampicilina, ciprofloxacino, levofloxacino, norfloxacino, cefalexina, cefadroxila, metronidazol, tinidazol, sulfametoxazol+trimetoprima, doxiciclina, tetraciclina, nitrofurantoína, claritromicina, eritromicina, clindamicina.
-- "Tarja preta": psicotrópicos A1/A2/A3/B1/B2 — clonazepam, diazepam, alprazolam, lorazepam, bromazepam, clobazam, nitrazepam, zolpidem, zopiclona, midazolam, metilfenidato, lisdexanfetamina, anfepramona, femproporex, mazindol, bupropiona (quando anorexígeno); entorpecentes C2 — morfina, oxicodona, codeína isolada, tramadol isolado, fentanil, metadona; precursores — efedrina isolada. Exige Notificação de Receita A ou B.
+- "Tarja preta": medicamentos sujeitos a notificação de receita A ou B. Não informe a lista regulatória específica se não tiver certeza.
 
 Retorne exatamente este JSON:
 {
   "inn_identificado": "<INN que você usou para classificar>",
-  "tarja": "<uma das 5 opções acima, exatamente>",
-  "tarja_confianca": "alta|baixa",
+  "tarja": "<escolha exatamente um valor: Sem tarja, Tarja amarela, Tarja vermelha sem retenção, Tarja vermelha com retenção ou Tarja preta>",
+  "tarja_confianca": "<escolha exatamente um valor: alta, media ou baixa>",
   "classificacao_farmacologica": "<grupo farmacológico, ex: AINE, IECA, benzodiazepínico>",
   "para_que_serve": "<máximo 3 linhas, linguagem simples>",
   "como_tomar": "<orientação geral, máximo 2 linhas>",
   "principais_cuidados": "• <cuidado 1>\\n• <cuidado 2>\\n• <cuidado 3>",
-  "indicado_para": "adultos|crianças|ambos|gestantes com cautela"
+  "indicado_para": "<escolha exatamente um valor: adultos, crianças, ambos ou gestantes com cautela>"
+}"""
+
+AUDITOR_PROMPT = """Você é o revisor farmacêutico de uma classificação gerada por outra IA.
+
+Revise de forma adversarial e retorne APENAS JSON válido, sem markdown.
+
+Reprove ou corrija quando houver:
+- tarja inferida pelo nome comercial em vez do princípio ativo;
+- "Tarja amarela" usada como sinônimo de prescrição simples;
+- dose, frequência, duração ou número de unidades inventados sem apresentação e concentração;
+- indicação, faixa etária ou cuidado incompatível com os dados;
+- afirmação regulatória específica duvidosa;
+- contradição entre princípio ativo, classificação e finalidade;
+- campos fora dos enums exigidos.
+
+Se faltarem apresentação, concentração ou via, "como_tomar" deve ser genérico:
+"Use somente conforme a bula e a orientação do médico ou farmacêutico."
+
+Retorne:
+{
+  "aprovado": true|false,
+  "confianca_final": "<escolha exatamente um valor: alta, media ou baixa>",
+  "motivos": ["motivo curto"],
+  "resposta_corrigida": {
+    "inn_identificado": "...",
+    "tarja": "<escolha exatamente um valor: Sem tarja, Tarja amarela, Tarja vermelha sem retenção, Tarja vermelha com retenção ou Tarja preta>",
+    "tarja_confianca": "<escolha exatamente um valor: alta, media ou baixa>",
+    "classificacao_farmacologica": "...",
+    "para_que_serve": "...",
+    "como_tomar": "...",
+    "principais_cuidados": "• ...\\n• ...\\n• ...",
+    "indicado_para": "<escolha exatamente um valor: adultos, crianças, ambos ou gestantes com cautela>"
+  }
 }"""
 
 
@@ -141,20 +208,13 @@ def _garantir_schema(conn):
     cur.close()
 
 
-def _chamar_claude(principio_ativo, nome_produto, laboratorio, tarja_atual, serve_para, api_key):
-    """Chama Claude Haiku. Retorna (dict_parsed, None) ou (None, str_erro)."""
-    inn_label = principio_ativo or "(não disponível — identifique pelo nome do produto)"
-    user_content = (
-        f"Princípio ativo: {inn_label}\n"
-        f"Nome do produto: {nome_produto or 'desconhecido'}\n"
-        f"Laboratório: {laboratorio or 'desconhecido'}\n"
-        f"Tarja atual no sistema: {tarja_atual or 'não classificada'}\n"
-        f"Informação atual (pode estar incompleta):\n{(serve_para or '')[:500]}"
-    )
+def _post_claude(system_prompt, user_content, api_key, max_tokens=700):
+    """Executa uma chamada JSON ao Claude."""
     body = json.dumps({
         "model": MODELO,
-        "max_tokens": 700,
-        "system": SYSTEM_PROMPT,
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "system": system_prompt,
         "messages": [{"role": "user", "content": user_content}],
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -187,14 +247,206 @@ def _chamar_claude(principio_ativo, nome_produto, laboratorio, tarja_atual, serv
         return None, f"error: {e}"
 
 
-def _validar(parsed):
+def _montar_entrada(principio_ativo, nome_produto, laboratorio, tarja_atual,
+                    serve_para, categoria_atual=None):
+    inn_label = principio_ativo or "(não disponível — identifique pelo nome do produto)"
+    return (
+        f"Princípio ativo: {inn_label}\n"
+        f"Nome do produto: {nome_produto or 'desconhecido'}\n"
+        f"Laboratório: {laboratorio or 'desconhecido'}\n"
+        f"Tarja atual no sistema: {tarja_atual or 'não classificada'}\n"
+        f"Categoria atual: {categoria_atual or 'não disponível'}\n"
+        f"Informação atual (pode estar incompleta):\n{(serve_para or '')[:500]}"
+    )
+
+
+def _chamar_claude(principio_ativo, nome_produto, laboratorio, tarja_atual,
+                   serve_para, api_key, categoria_atual=None):
+    """Chama Claude Haiku. Retorna (dict_parsed, None) ou (None, str_erro)."""
+    user_content = _montar_entrada(
+        principio_ativo, nome_produto, laboratorio, tarja_atual,
+        serve_para, categoria_atual,
+    )
+    return _post_claude(SYSTEM_PROMPT, user_content, api_key)
+
+
+def _auditar_com_claude(entrada, candidato, api_key):
+    """Segunda opinião independente; retorna resposta corrigida e motivos."""
+    user_content = (
+        f"ENTRADA ORIGINAL:\n{entrada}\n\n"
+        "RESPOSTA CANDIDATA:\n"
+        f"{json.dumps(candidato, ensure_ascii=False)}"
+    )
+    revisao, erro = _post_claude(AUDITOR_PROMPT, user_content, api_key, max_tokens=900)
+    if erro:
+        return None, [], erro
+    if not isinstance(revisao, dict):
+        return None, [], "auditoria_invalida"
+    corrigida = revisao.get("resposta_corrigida")
+    if not isinstance(corrigida, dict):
+        return None, revisao.get("motivos") or [], "auditoria_sem_resposta_corrigida"
+    corrigida["tarja_confianca"] = revisao.get("confianca_final", "baixa")
+    return corrigida, revisao.get("motivos") or [], None
+
+
+def _reparar_com_claude(entrada, resposta, erros, api_key):
+    prompt = """Corrija um JSON farmacêutico que falhou em regras formais.
+Retorne APENAS o JSON corrigido, sem markdown e sem explicações.
+Preserve a tarja quando ela não estiver entre os erros.
+Nunca inclua dose, frequência, duração ou número de unidades em como_tomar.
+principais_cuidados deve ser uma string com exatamente 3 linhas começando por "• ".
+Escolha exatamente UM valor de cada lista:
+- tarja: "Sem tarja", "Tarja amarela", "Tarja vermelha sem retenção", "Tarja vermelha com retenção", "Tarja preta".
+- tarja_confianca: "alta", "media", "baixa".
+- indicado_para: "adultos", "crianças", "ambos", "gestantes com cautela".
+Nunca devolva a lista inteira, opções separadas por |, explicações ou texto adicional no valor."""
+    user_content = (
+        f"ENTRADA ORIGINAL:\n{entrada}\n\n"
+        f"ERROS OBRIGATÓRIOS A CORRIGIR:\n- " + "\n- ".join(erros) + "\n\n"
+        f"JSON A CORRIGIR:\n{json.dumps(resposta, ensure_ascii=False)}"
+    )
+    return _post_claude(prompt, user_content, api_key, max_tokens=800)
+
+
+def _normalizar_valor_enum(valor):
+    if not isinstance(valor, str):
+        return valor
+    return " ".join(valor.strip().split()).casefold()
+
+
+def _normalizar_texto_comparacao(valor):
+    texto = unicodedata.normalize("NFD", str(valor or "").casefold())
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    return " ".join(_re.findall(r"[a-z0-9]+", texto))
+
+
+def _inn_sustentado_pelo_nome(inn, nome_produto):
+    """Evita aceitar INN inventado quando o princípio ativo não veio do banco."""
+    inn_tokens = {
+        token for token in _normalizar_texto_comparacao(inn).split()
+        if len(token) >= 5
+    }
+    nome_tokens = set(_normalizar_texto_comparacao(nome_produto).split())
+    return bool(inn_tokens & nome_tokens)
+
+
+def _canonicalizar_enums(parsed):
+    """Corrige somente diferenças inequívocas de caixa e espaços."""
     if not isinstance(parsed, dict):
-        return None
+        return parsed
+    resultado = dict(parsed)
+    mapas = {
+        "tarja": {_normalizar_valor_enum(v): v for v in TARJAS_VALIDAS},
+        "tarja_confianca": {
+            _normalizar_valor_enum(v): v for v in CONFIANCAS_VALIDAS
+        },
+        "indicado_para": {
+            _normalizar_valor_enum(v): v for v in INDICADOS_VALIDOS
+        },
+    }
+    for campo, mapa in mapas.items():
+        normalizado = _normalizar_valor_enum(resultado.get(campo))
+        if normalizado in mapa:
+            resultado[campo] = mapa[normalizado]
+    return resultado
+
+
+def _erros_validacao(parsed):
+    erros = []
+    if not isinstance(parsed, dict):
+        return ["resposta não é objeto JSON"]
+    if not CHAVES_OBRIGATORIAS.issubset(parsed):
+        ausentes = sorted(CHAVES_OBRIGATORIAS - set(parsed))
+        erros.append(f"campos ausentes: {', '.join(ausentes)}")
     if parsed.get("tarja") not in TARJAS_VALIDAS:
-        return None
-    if parsed.get("tarja_confianca") not in ("alta", "baixa"):
-        return None
-    return parsed
+        erros.append(f"tarja fora do enum: {parsed.get('tarja')!r}")
+    if parsed.get("tarja_confianca") not in CONFIANCAS_VALIDAS:
+        erros.append(
+            f"tarja_confianca fora do enum: {parsed.get('tarja_confianca')!r}"
+        )
+    if parsed.get("indicado_para") not in INDICADOS_VALIDOS:
+        erros.append(f"indicado_para fora do enum: {parsed.get('indicado_para')!r}")
+    for campo in CHAVES_OBRIGATORIAS:
+        if not isinstance(parsed.get(campo), str) or not parsed[campo].strip():
+            erros.append(f"{campo} vazio ou não textual")
+    cuidados = parsed.get("principais_cuidados")
+    if isinstance(cuidados, str):
+        linhas = cuidados.splitlines()
+        if len(linhas) != 3 or any(not item.startswith("• ") for item in linhas):
+            erros.append("principais_cuidados deve conter exatamente 3 bullets")
+    como_tomar = parsed.get("como_tomar") or ""
+    padrao_dose = _re.compile(
+        r"\b\d+(?:[.,]\d+)?\s*(?:mg|ml|comprimidos?|cápsulas?|gotas?)\b|"
+        r"\ba cada\s+\d+|\b\d+\s*(?:x|vezes)\s+(?:ao|por)\s+dia\b",
+        _re.IGNORECASE,
+    )
+    if padrao_dose.search(como_tomar):
+        erros.append("como_tomar contém dose ou frequência específica")
+    return erros
+
+
+def _validar(parsed):
+    return parsed if not _erros_validacao(parsed) else None
+
+
+def _classificar_e_auditar(principio_ativo, nome_produto, laboratorio,
+                           tarja_atual, serve_para, api_key,
+                           categoria_atual=None):
+    entrada = _montar_entrada(
+        principio_ativo, nome_produto, laboratorio, tarja_atual,
+        serve_para, categoria_atual,
+    )
+    candidato, erro = _chamar_claude(
+        principio_ativo, nome_produto, laboratorio, tarja_atual,
+        serve_para, api_key, categoria_atual,
+    )
+    if erro:
+        return None, [], erro
+    if not isinstance(candidato, dict):
+        return None, [], "classificacao_invalida"
+    candidato = _canonicalizar_enums(candidato)
+
+    time.sleep(DELAY_S)
+    revisado, motivos, erro = _auditar_com_claude(entrada, candidato, api_key)
+    if erro:
+        return None, motivos, erro
+    revisado = _canonicalizar_enums(revisado)
+    tarjas_divergentes = (
+        candidato.get("tarja") in TARJAS_VALIDAS
+        and revisado.get("tarja") in TARJAS_VALIDAS
+        and candidato["tarja"] != revisado["tarja"]
+    )
+    if tarjas_divergentes:
+        motivos = list(motivos) + [
+            f"Classificador sugeriu {candidato['tarja']} e auditor sugeriu "
+            f"{revisado['tarja']}; revisão manual obrigatória."
+        ]
+        revisado["tarja_confianca"] = "baixa"
+    erros_locais = _erros_validacao(revisado)
+    if erros_locais:
+        time.sleep(DELAY_S)
+        reparado, erro = _reparar_com_claude(
+            entrada, revisado, erros_locais, api_key,
+        )
+        if erro:
+            return None, motivos, f"falha_no_reparo: {erro}"
+        revisado = _canonicalizar_enums(reparado)
+        if tarjas_divergentes:
+            revisado["tarja_confianca"] = "baixa"
+        erros_locais = _erros_validacao(revisado)
+    validado = _validar(revisado)
+    if validado is None:
+        detalhes = "; ".join(erros_locais)
+        return None, motivos, f"resposta_reparada_reprovada: {detalhes}"
+    if not principio_ativo and not _inn_sustentado_pelo_nome(
+        validado.get("inn_identificado"), nome_produto,
+    ):
+        validado["tarja_confianca"] = "baixa"
+        motivos = list(motivos) + [
+            "Princípio ativo ausente no banco e INN inferido não aparece "
+            "claramente no nome do produto; revisão manual obrigatória."
+        ]
+    return validado, motivos, None
 
 
 def _gravar(cur, chaves, por_inn, validado, apply):
@@ -246,6 +498,23 @@ def _gravar(cur, chaves, por_inn, validado, apply):
         )
 
 
+def _escrever_csv(caminho, registros):
+    """Escreve registros com chaves diferentes sem perder colunas."""
+    if not registros:
+        return
+    campos = []
+    vistos = set()
+    for registro in registros:
+        for campo in registro:
+            if campo not in vistos:
+                vistos.add(campo)
+                campos.append(campo)
+    with open(caminho, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=campos, restval="")
+        writer.writeheader()
+        writer.writerows(registros)
+
+
 # ─── main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -254,7 +523,15 @@ def main():
     parser.add_argument("--force",  action="store_true", help="reprocessa já enriquecidos")
     parser.add_argument("--fase",   type=int, choices=[1, 2], help="1=só INN, 2=só sem INN")
     parser.add_argument("--inn",    help="filtra por princípio ativo (ex: DIPIRONA)")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="máximo de grupos/produtos por execução (padrão: 100; 0=todos)",
+    )
     args = parser.parse_args()
+    if args.limit < 0:
+        parser.error("--limit deve ser zero ou positivo")
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
@@ -262,10 +539,11 @@ def main():
         sys.exit(1)
 
     conn = db()
-    _garantir_schema(conn)
+    if args.apply:
+        _garantir_schema(conn)
     cur = conn.cursor()
 
-    stats   = {"alta": 0, "baixa": 0, "erro": 0, "gravados": 0}
+    stats   = {"alta": 0, "media": 0, "baixa": 0, "erro": 0, "gravados": 0}
     baixa_csv = []
     discrepancias = []
 
@@ -308,11 +586,14 @@ def main():
             grupos = {k: v for k, v in grupos.items()
                       if not all(r["ja_processado"] for r in v)}
 
-        total_grupos = len(grupos)
+        itens_grupo = sorted(grupos.items())
+        if args.limit:
+            itens_grupo = itens_grupo[:args.limit]
+        total_grupos = len(itens_grupo)
         print(f"\n=== FASE 1: {total_grupos} grupos de INN únicos "
               f"(de {len(brutos)} variações brutas) ===\n")
 
-        for i, (chave_norm, grupo) in enumerate(sorted(grupos.items()), 1):
+        for i, (chave_norm, grupo) in enumerate(itens_grupo, 1):
             # Representante: linha com mais conteúdo em serve_para
             rep = max(grupo, key=lambda r: len(r.get("serve_para") or ""))
             inns_originais = [r["principio_ativo"] for r in grupo]
@@ -320,27 +601,22 @@ def main():
             label = chave_norm[:50] if chave_norm else inns_originais[0][:50]
             print(f"[{i:>4}/{total_grupos}] {label:<52} ({n_prod} prod) ", end="", flush=True)
 
-            parsed, erro = _chamar_claude(
+            validado, motivos_auditoria, erro = _classificar_e_auditar(
                 chave_norm or rep["principio_ativo"],
                 rep["nome_anvisa"], rep["laboratorio"],
                 rep["tarja"], rep["serve_para"], api_key,
             )
-            if parsed is None:
-                print(f"ERRO: {erro}")
-                stats["erro"] += 1
-                time.sleep(DELAY_S)
-                continue
-
-            validado = _validar(parsed)
             if validado is None:
-                print(f"INVÁLIDO: {json.dumps(parsed, ensure_ascii=False)[:80]}")
+                print(f"ERRO: {erro}")
                 stats["erro"] += 1
                 time.sleep(DELAY_S)
                 continue
 
             confianca = validado["tarja_confianca"]
             inn_usado = validado.get("inn_identificado") or chave_norm
-            print(f"tarja={validado['tarja']!r:<38} confianca={confianca}")
+            motivo_log = "; ".join(str(m) for m in motivos_auditoria[:2])
+            print(f"tarja={validado['tarja']!r:<38} confianca={confianca}"
+                  f"{f'  auditoria={motivo_log}' if motivo_log else ''}")
             stats[confianca] += 1
 
             if confianca == "baixa":
@@ -352,6 +628,7 @@ def main():
                     "tarja_atual": rep.get("tarja") or "",
                     "tarja_ia_sugerida": validado["tarja"],
                     "classificacao": validado.get("classificacao_farmacologica") or "",
+                    "motivos_auditoria": "; ".join(str(m) for m in motivos_auditoria),
                     "n_produtos_afetados": n_prod,
                 })
             else:
@@ -401,6 +678,8 @@ def main():
             sem_inn_params,
         )
         sem_inn = [dict(r) for r in cur.fetchall()]
+        if args.limit:
+            sem_inn = sem_inn[:args.limit]
         total_sem = len(sem_inn)
         print(f"\n=== FASE 2: {total_sem} produtos sem princípio ativo preenchido ===\n")
 
@@ -409,26 +688,21 @@ def main():
             nome  = row.get("nome_anvisa") or chave
             print(f"[{i:>4}/{total_sem}] {chave:<45} ", end="", flush=True)
 
-            parsed, erro = _chamar_claude(
+            validado, motivos_auditoria, erro = _classificar_e_auditar(
                 None,  # principio_ativo desconhecido — Claude infere pelo nome
                 nome, row["laboratorio"], row["tarja"], row["serve_para"], api_key,
             )
-            if parsed is None:
-                print(f"ERRO: {erro}")
-                stats["erro"] += 1
-                time.sleep(DELAY_S)
-                continue
-
-            validado = _validar(parsed)
             if validado is None:
-                print(f"INVÁLIDO: {json.dumps(parsed, ensure_ascii=False)[:80]}")
+                print(f"ERRO: {erro}")
                 stats["erro"] += 1
                 time.sleep(DELAY_S)
                 continue
 
             confianca = validado["tarja_confianca"]
             inn_usado = validado.get("inn_identificado") or "?"
-            print(f"tarja={validado['tarja']!r:<38} confianca={confianca}  inn={inn_usado}")
+            motivo_log = "; ".join(str(m) for m in motivos_auditoria[:2])
+            print(f"tarja={validado['tarja']!r:<38} confianca={confianca}  inn={inn_usado}"
+                  f"{f'  auditoria={motivo_log}' if motivo_log else ''}")
             stats[confianca] += 1
 
             if confianca == "baixa":
@@ -439,6 +713,7 @@ def main():
                     "tarja_atual": row.get("tarja") or "",
                     "tarja_ia_sugerida": validado["tarja"],
                     "classificacao": validado.get("classificacao_farmacologica") or "",
+                    "motivos_auditoria": "; ".join(str(m) for m in motivos_auditoria),
                     "n_produtos_afetados": 1,
                 })
             else:
@@ -471,10 +746,7 @@ def main():
         EXPORTS_DIR.mkdir(exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M")
         csv_path = EXPORTS_DIR / f"tarja_baixa_confianca_{ts}.csv"
-        with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=list(baixa_csv[0].keys()))
-            writer.writeheader()
-            writer.writerows(baixa_csv)
+        _escrever_csv(csv_path, baixa_csv)
         print(f"\nCSV baixa confiança: {csv_path}  ({len(baixa_csv)} registros)")
 
     # ── CSV discrepâncias ───────────────────────────────────────────────────
@@ -482,15 +754,13 @@ def main():
         EXPORTS_DIR.mkdir(exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M")
         disc_path = EXPORTS_DIR / f"tarja_discrepancias_{ts}.csv"
-        with open(disc_path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=list(discrepancias[0].keys()))
-            writer.writeheader()
-            writer.writerows(discrepancias)
+        _escrever_csv(disc_path, discrepancias)
         print(f"CSV discrepâncias  : {disc_path}  ({len(discrepancias)} registros)")
 
     # ── Relatório final ─────────────────────────────────────────────────────
     print(f"\n{'='*58}")
     print(f"Alta confiança    : {stats['alta']}")
+    print(f"Média confiança   : {stats['media']}")
     print(f"Baixa confiança   : {stats['baixa']}  (ver CSV acima)")
     print(f"Erros             : {stats['erro']}")
     if args.apply:

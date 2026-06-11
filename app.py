@@ -22,6 +22,8 @@ from datetime import datetime, timezone, timedelta
 from functools import wraps
 import re
 import ssl
+import unicodedata
+import base64
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
@@ -2778,6 +2780,187 @@ def _symptom_index_eans_for_query(query, limit=250):
         return rows
     except Exception:
         return []
+
+
+def _norm_query_cache(query):
+    """Normaliza query para chave de cache: lowercase, sem acentos, espaços simples."""
+    value = (query or "").strip().lower()
+    value = unicodedata.normalize("NFD", value)
+    value = "".join(c for c in value if unicodedata.category(c) != "Mn")
+    value = re.sub(r"[^a-z0-9\s]", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+_busca_cache_schema_ok = False
+_busca_cache_schema_lock = threading.Lock()
+
+
+def _ensure_busca_cache_schema():
+    global _busca_cache_schema_ok
+    if _busca_cache_schema_ok:
+        return
+    with _busca_cache_schema_lock:
+        if _busca_cache_schema_ok:
+            return
+        try:
+            conn = db()
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS busca_cache (
+                    query_normalizada TEXT PRIMARY KEY,
+                    resultado_ia      JSONB NOT NULL,
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    expires_at        TIMESTAMPTZ NOT NULL
+                )
+            """)
+            conn.commit()
+            cur.close()
+            _busca_cache_schema_ok = True
+        except Exception:
+            pass
+
+
+def _busca_cache_get(query_norm):
+    """Retorna resultado_ia do cache se existir e não expirado."""
+    try:
+        _ensure_busca_cache_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT resultado_ia FROM busca_cache WHERE query_normalizada = %s AND expires_at > NOW()",
+            (query_norm,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        return row["resultado_ia"] if row else None
+    except Exception:
+        return None
+
+
+def _busca_cache_set(query_norm, resultado_ia):
+    """Salva resultado da IA no cache com TTL de 24 horas."""
+    try:
+        _ensure_busca_cache_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO busca_cache (query_normalizada, resultado_ia, created_at, expires_at)
+            VALUES (%s, %s::jsonb, NOW(), NOW() + INTERVAL '24 hours')
+            ON CONFLICT (query_normalizada) DO UPDATE
+                SET resultado_ia = EXCLUDED.resultado_ia,
+                    created_at   = NOW(),
+                    expires_at   = NOW() + INTERVAL '24 hours'
+            """,
+            (query_norm, json.dumps(resultado_ia)),
+        )
+        conn.commit()
+        cur.close()
+    except Exception:
+        pass
+
+
+_NL_SYMPTOM_WORDS = {
+    "dor", "febre", "tosse", "gripe", "resfriado", "nariz", "garganta",
+    "pressao", "diabetes", "colesterol", "ansiedade", "depressao", "insonia",
+    "gastrite", "azia", "refluxo", "alergia", "infeccao", "inflamacao",
+    "enjoo", "tontura", "enxaqueca", "sinusite", "bronquite", "asma",
+    "anemia", "tireoide", "reumatismo", "artrite", "artrose",
+    "hemorroida", "prisao", "diarreia", "nausea", "vomito", "hipertensao",
+}
+
+
+def _is_natural_language_query(query):
+    """True se a query tem 3+ palavras ou contém termos de sintoma/linguagem natural."""
+    q = _norm_query_cache(query)
+    words = q.split()
+    if len(words) >= 3:
+        return True
+    return any(w in _NL_SYMPTOM_WORDS for w in words)
+
+
+def _busca_fuzzy_pg_trgm(term, limit=60):
+    """Busca fuzzy via pg_trgm em medicamentos; retorna lista de EANs."""
+    norm = _norm_text(term)
+    if not norm or len(norm) < 3:
+        return []
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT barra_norm AS ean
+            FROM medicamentos
+            WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.2
+               OR LOWER(COALESCE(descricao, '')) LIKE %s
+            ORDER BY similarity(LOWER(COALESCE(descricao, '')), %s) DESC
+            LIMIT %s
+            """,
+            (norm, f"%{norm}%", norm, limit),
+        )
+        eans = [r["ean"] for r in cur.fetchall() if r.get("ean")]
+        cur.close()
+        return eans
+    except Exception:
+        return []
+
+
+def _claude_busca_interpret(query):
+    """
+    Interpreta query de linguagem natural via Claude Haiku.
+    Checa cache antes de chamar a API e salva resultado após chamada bem-sucedida.
+    Retorna dict {principios_ativos, nomes_tecnicos, categorias, termos_busca} ou None.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    query_norm = _norm_query_cache(query)
+    cached = _busca_cache_get(query_norm)
+    if cached is not None:
+        return cached
+    prompt = (
+        "Você é um assistente de busca para farmácia brasileira. "
+        "Dado um sintoma ou condição, retorne os medicamentos e substâncias ativas "
+        "que seriam encontrados em um catálogo de farmácia. "
+        "Retorne SOMENTE um JSON válido sem markdown:\n"
+        '{"principios_ativos":["losartana","enalapril"],"nomes_tecnicos":["captopril"],'
+        '"categorias":["anti hipertensivo"],"termos_busca":["losartana","pressao"]}\n'
+        "REGRAS:\n"
+        "- principios_ativos: nomes exatos das substâncias ativas que aparecem em bulas "
+        "(ex: losartana, enalapril, amlodipina, dipirona, paracetamol, ibuprofeno)\n"
+        "- nomes_tecnicos: outros princípios ativos ou nomes farmacológicos alternativos\n"
+        "- categorias: classe terapêutica sem hifens e sem acentos (ex: anti hipertensivo, analgesico)\n"
+        "- termos_busca: palavras curtas que aparecem literalmente em nomes de produtos no estoque\n"
+        "- Use somente termos em português SEM acentos e SEM hifens\n"
+        "- Prefira nomes de substâncias ativas a nomes de condições (losartana, não hipertensão)\n"
+        "- Se não souber, retorne listas vazias\n"
+        f"Sintoma/condição: {query}"
+    )
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        text = (data.get("content") or [{}])[0].get("text", "").strip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text.strip())
+        resultado = json.loads(text)
+        # Só cacheia se a IA retornou pelo menos um termo útil
+        if any(resultado.get(k) for k in ("principios_ativos", "nomes_tecnicos", "categorias", "termos_busca")):
+            _busca_cache_set(query_norm, resultado)
+        return resultado
+    except Exception:
+        return None
 
 
 def _catalog_product_key(nome):
@@ -5828,47 +6011,158 @@ def api_produtos_proximos():
     if not proximas:
         return jsonify({"produtos": [], "fora_raio": False, "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0})
 
-    cnpjs        = [l["cnpjloja"] for l in proximas]
-    search_terms = _search_terms_for_query(busca_q) if busca_q else []
-    # Busca mais EANs (300) para compensar IDs internos misturados no índice
-    index_eans = _symptom_index_eans_for_query(busca_q, limit=300) if busca_q else []
+    cnpjs = [l["cnpjloja"] for l in proximas]
     produtos_raw = []
+    ia_filter_terms = None  # preenchido pelo caminho NL; usado no filtro final
+
+    is_nl = _is_natural_language_query(busca_q) if busca_q else False
+
     if busca_q:
-        # Filtra apenas EANs brasileiros reais (13 dígitos, começa com 789)
-        # O índice mistura IDs internos com EANs reais
-        real_eans = [e for e in index_eans if re.match(r"^789\d{10}$", e)]
-        if real_eans:
-            produtos_raw = get_dns_products_batch_by_eans(cnpjs, real_eans[:120])
-        # Fallback: busca por nome diretamente no SQL — evita carregar catálogo inteiro
-        if not produtos_raw:
-            produtos_raw = get_dns_products_batch_by_name(cnpjs, search_terms or [busca_q])
+        if is_nl:
+            # --- Caminho NL: IA interpreta primeiro, catálogo filtrado pelos termos dela ---
+            ia_result = _claude_busca_interpret(busca_q)
+            if ia_result:
+                ia_terms = []
+                for _field in ("principios_ativos", "nomes_tecnicos", "categorias", "termos_busca"):
+                    for _t in (ia_result.get(_field) or []):
+                        _t = _norm_text(_t)
+                        if _t and len(_t) > 2 and _t not in ia_terms:
+                            ia_terms.append(_t)
+                if ia_terms:
+                    ia_filter_terms = ia_terms
+                    produtos_raw = get_dns_products_batch_by_name(cnpjs, ia_terms[:6])
+                    seen_ia = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+                    ia_eans = []
+                    seen_ia_eans = {p.get("ean") for p in produtos_raw}
+                    for _ia_term in ia_terms[:5]:
+                        for ean in _symptom_index_eans_for_query(_ia_term, limit=60):
+                            if re.match(r"^789\d{10}$", ean) and ean not in seen_ia_eans:
+                                ia_eans.append(ean)
+                                seen_ia_eans.add(ean)
+                    if ia_eans:
+                        for p in get_dns_products_batch_by_eans(cnpjs, ia_eans[:80]):
+                            key = (p.get("cnpjloja"), p.get("ean"))
+                            if key not in seen_ia:
+                                produtos_raw.append(p)
+                                seen_ia.add(key)
+            # Fallback: IA indisponível ou sem termos — busca direta sem filtro IA
+            if not produtos_raw:
+                _st = _search_terms_for_query(busca_q)
+                _ie = _symptom_index_eans_for_query(busca_q, limit=300)
+                _re = [e for e in _ie if re.match(r"^789\d{10}$", e)]
+                if _re:
+                    produtos_raw = get_dns_products_batch_by_eans(cnpjs, _re[:120])
+                if not produtos_raw:
+                    produtos_raw = get_dns_products_batch_by_name(cnpjs, _st or [busca_q])
+
+            # Complementa com índice de sintomas direto para o termo original —
+            # captura marcas comerciais indexadas pelo sintoma (ex: Anador está sob "febre")
+            # mas cujo nome não contém os termos químicos que a IA retornou.
+            _d_eans = [e for e in _symptom_index_eans_for_query(busca_q, limit=200)
+                       if re.match(r"^789\d{10}$", e)]
+            if _d_eans:
+                _seen_nl = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+                _seen_nl_eans = {p.get("ean") for p in produtos_raw}
+                _new_d = [e for e in _d_eans if e not in _seen_nl_eans]
+                if _new_d:
+                    for p in get_dns_products_batch_by_eans(cnpjs, _new_d[:100]):
+                        key = (p.get("cnpjloja"), p.get("ean"))
+                        if key not in _seen_nl:
+                            produtos_raw.append(p)
+                            _seen_nl.add(key)
+            # Estende ia_filter_terms com expansões diretas do banco de sintomas para
+            # que produtos do índice original também passem no filtro final
+            if ia_filter_terms:
+                for _ft in _search_terms_for_query(busca_q):
+                    if _ft not in ia_filter_terms:
+                        ia_filter_terms.append(_ft)
+
+            # Safety net: caminho NL sem resultado — tenta busca por nome direto da query
+            # (cobre casos onde IA retornou termos que não batem com nenhum produto no estoque)
+            if not produtos_raw:
+                ia_filter_terms = None  # libera filtro para o q_terms mais amplo
+                _fb_terms = _search_terms_for_query(busca_q) or [_norm_text(busca_q)]
+                produtos_raw = get_dns_products_batch_by_name(cnpjs, _fb_terms[:4])
+        else:
+            # --- Caminho direto: waterfall passo 1 → 2 → 3 ---
+            search_terms = _search_terms_for_query(busca_q)
+            index_eans = _symptom_index_eans_for_query(busca_q, limit=300)
+
+            # Passo 1: EAN index + nome
+            real_eans = [e for e in index_eans if re.match(r"^789\d{10}$", e)]
+            if real_eans:
+                produtos_raw = get_dns_products_batch_by_eans(cnpjs, real_eans[:120])
+            if not produtos_raw:
+                produtos_raw = get_dns_products_batch_by_name(cnpjs, search_terms or [busca_q])
+
+            # Passo 2: fuzzy pg_trgm se menos de 3 resultados
+            if len(produtos_raw) < 3:
+                fuzzy_eans = _busca_fuzzy_pg_trgm(busca_q)
+                real_fuzzy = [e for e in fuzzy_eans if re.match(r"^789\d{10}$", e)]
+                if real_fuzzy:
+                    seen_p2 = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+                    for p in get_dns_products_batch_by_eans(cnpjs, real_fuzzy[:80]):
+                        if (p.get("cnpjloja"), p.get("ean")) not in seen_p2:
+                            produtos_raw.append(p)
+
+            # Passo 3: IA apenas quando banco não encontrou nada suficiente
+            if len(produtos_raw) < 3:
+                ia_result = _claude_busca_interpret(busca_q)
+                if ia_result:
+                    ia_terms = []
+                    for _field in ("principios_ativos", "nomes_tecnicos", "categorias", "termos_busca"):
+                        for _t in (ia_result.get(_field) or []):
+                            _t = _norm_text(_t)
+                            if _t and len(_t) > 2 and _t not in ia_terms:
+                                ia_terms.append(_t)
+                    if ia_terms:
+                        seen_ia = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+                        for p in get_dns_products_batch_by_name(cnpjs, ia_terms[:6]):
+                            key = (p.get("cnpjloja"), p.get("ean"))
+                            if key not in seen_ia:
+                                produtos_raw.append(p)
+                                seen_ia.add(key)
+                        ia_eans = []
+                        seen_ia_eans = {p.get("ean") for p in produtos_raw}
+                        for _ia_term in ia_terms[:3]:
+                            for ean in _symptom_index_eans_for_query(_ia_term, limit=60):
+                                if re.match(r"^789\d{10}$", ean) and ean not in seen_ia_eans:
+                                    ia_eans.append(ean)
+                                    seen_ia_eans.add(ean)
+                        if ia_eans:
+                            for p in get_dns_products_batch_by_eans(cnpjs, ia_eans[:80]):
+                                key = (p.get("cnpjloja"), p.get("ean"))
+                                if key not in seen_ia:
+                                    produtos_raw.append(p)
+                                    seen_ia.add(key)
+
+            # Complementa busca direta nos estoques individuais das lojas
+            low_value_terms = {
+                "febre", "dor", "antitermico", "antitermica", "analgesico",
+                "gripe", "resfriado", "tosse", "nariz", "garganta",
+            }
+            extra_lookup_terms = search_terms[:1]
+            if len(search_terms) > 1:
+                extra_lookup_terms = [t for t in search_terms[1:] if t not in low_value_terms][:1]
+                if not extra_lookup_terms:
+                    extra_lookup_terms = search_terms[1:2]
+            seen_search = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+            # Sempre complementa com busca por nome — o índice de sintomas cobre sintomas/INN
+            # mas não cobre todos os nomes comerciais presentes no estoque de cada loja.
+            for cnpj in cnpjs[:8]:
+                for term in extra_lookup_terms:
+                    try:
+                        for p in get_dns_products(cnpj, term, skip_image_filter=True)[:80]:
+                            key = (p.get("cnpjloja") or cnpj, p.get("ean"))
+                            if key in seen_search:
+                                continue
+                            p = {**p, "cnpjloja": cnpj}
+                            produtos_raw.append(p)
+                            seen_search.add(key)
+                    except Exception:
+                        continue
     else:
         produtos_raw = get_dns_products_batch(cnpjs)
-    if busca_q:
-        low_value_terms = {
-            "febre", "dor", "antitermico", "antitermica", "analgesico",
-            "gripe", "resfriado", "tosse", "nariz", "garganta",
-        }
-        extra_lookup_terms = search_terms[:1]
-        if len(search_terms) > 1:
-            extra_lookup_terms = [t for t in search_terms[1:] if t not in low_value_terms][:1]
-            if not extra_lookup_terms:
-                extra_lookup_terms = search_terms[1:2]
-        seen_search = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
-        # Sempre complementa com busca por nome — o índice de sintomas cobre sintomas/INN
-        # mas não cobre todos os nomes comerciais presentes no estoque de cada loja.
-        for cnpj in cnpjs[:8]:
-            for term in extra_lookup_terms:
-                try:
-                    for p in get_dns_products(cnpj, term, skip_image_filter=True)[:80]:
-                        key = (p.get("cnpjloja") or cnpj, p.get("ean"))
-                        if key in seen_search:
-                            continue
-                        p = {**p, "cnpjloja": cnpj}
-                        produtos_raw.append(p)
-                        seen_search.add(key)
-                except Exception:
-                    continue
 
     # Filtro server-side de categoria (mesmos aliases que o JS usa)
     if cat_filter:
@@ -5882,7 +6176,6 @@ def api_produtos_proximos():
             return _CAT_ALIAS_SRV.get(c, c) == cat_filter
         produtos_raw = [p for p in produtos_raw if _cat_ok(p)]
 
-    # Deduplica por EAN: mantém da farmácia mais próxima
     produtos_view = []
     for p in produtos_raw:
         if not _has_catalog_image(p):
@@ -5916,7 +6209,9 @@ def api_produtos_proximos():
     _attach_product_promos(produtos_view)
 
     if busca_q:
-        q_terms = _search_terms_for_query(busca_q)
+        # NL: usa termos da IA (específicos — evita substring "dor" bater em "removedor")
+        # Direto: usa q_terms expandidos do banco de sintomas
+        filter_terms = ia_filter_terms if ia_filter_terms else _search_terms_for_query(busca_q)
         filtrados = []
         for p in produtos_view:
             hay_raw = " ".join([
@@ -5934,7 +6229,7 @@ def api_produtos_proximos():
             hay = _norm_text(hay_raw)
             if _product_excluded_for_symptom_query(busca_q, hay_raw):
                 continue
-            if any(term in hay for term in q_terms):
+            if any(term in hay for term in filter_terms):
                 filtrados.append(p)
         produtos_view = filtrados
 
@@ -6653,6 +6948,59 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
         return None
 
 
+def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
+    """Identifica medicamento a partir de foto de embalagem. Retorna dict com
+    nome/laboratorio/dosagem/ean, ou {"erro":"imagem_invalida"}, ou None se falhar."""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    prompt = (
+        "Analise a imagem de embalagem de medicamento e extraia as informacoes visiveis. "
+        "Retorne SOMENTE um JSON valido sem markdown:\n"
+        '{"nome":"Nome do medicamento","laboratorio":"Laboratorio ou null","dosagem":"ex:500mg ou null","ean":"13 digitos ou null"}\n'
+        "REGRAS:\n"
+        "- nome: nome comercial OU principio ativo que aparece na caixa (obrigatorio)\n"
+        "- laboratorio: fabricante se visivel, null caso contrario\n"
+        "- dosagem: concentracao/dosagem visivel ex '500mg' '10mg/ml', null se ausente\n"
+        "- ean: somente os 13 digitos do codigo de barras se claramente legivel, null caso contrario\n"
+        "- Valores sem acentos e sem caracteres especiais para facilitar a busca\n"
+        "- Se a imagem NAO for embalagem de medicamento retorne: {\"erro\":\"imagem_invalida\"}"
+    )
+    payload = json.dumps({
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 200,
+        "messages": [{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+            {"type": "text", "text": prompt},
+        ]}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            resp_data = json.loads(r.read().decode("utf-8"))
+        text = (resp_data.get("content") or [{}])[0].get("text", "").strip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text.strip())
+        return json.loads(text)
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        app.logger.error("_claude_vision_caixa HTTPError %s: %s", e.code, body)
+        return None
+    except Exception as e:
+        app.logger.error("_claude_vision_caixa error: %s", e)
+        return None
+
+
 def _ocr_receita_b64(image_b64: str, media_type: str = "image/jpeg"):
     api_key = _ocr_space_api_key()
     if not api_key:
@@ -6866,6 +7214,156 @@ def api_receita_buscar():
                 resultados[med.get("nome", "") or ""] = []
 
     return jsonify({"ok": True, "resultados": resultados})
+
+
+@app.post("/api/busca/foto")
+@_rate_limited_api(max_calls=10, window_secs=60)
+def api_busca_foto():
+    imagem_file = request.files.get("imagem")
+    if not imagem_file:
+        return jsonify({"ok": False, "erro": "Nenhuma imagem enviada"}), 400
+
+    raw = imagem_file.read()
+    if not raw:
+        return jsonify({"ok": False, "erro": "Imagem vazia"}), 400
+
+    # Detecta tipo real pelos magic bytes — ignora content_type do browser
+    if raw[:3] == b'\xff\xd8\xff':
+        media_type = "image/jpeg"
+    elif raw[:4] == b'\x89PNG':
+        media_type = "image/png"
+    elif raw[:4] in (b'GIF8', b'GIF9'):
+        media_type = "image/gif"
+    elif raw[:4] == b'RIFF' and raw[8:12] == b'WEBP':
+        media_type = "image/webp"
+    else:
+        media_type = "image/jpeg"
+
+    cache_key = "foto_" + hashlib.md5(raw).hexdigest()
+    identificado = _busca_cache_get(cache_key)
+
+    if not identificado:
+        img_b64 = base64.b64encode(raw).decode("utf-8")
+        identificado = _claude_vision_caixa(img_b64, media_type)
+        if not identificado:
+            return jsonify({"ok": False, "erro": "Não foi possível processar a imagem"}), 503
+        if identificado.get("erro") == "imagem_invalida":
+            return jsonify({"ok": False, "erro": "A imagem não parece ser uma embalagem de remédio"}), 422
+        if identificado.get("nome"):
+            _busca_cache_set(cache_key, identificado)
+
+    nome    = (identificado.get("nome") or "").strip()
+    dosagem = (identificado.get("dosagem") or "").strip()
+    ean     = (identificado.get("ean") or "").strip()
+
+    if not nome:
+        return jsonify({"ok": False, "erro": "Não foi possível identificar o medicamento na imagem"}), 422
+
+    lat_raw = request.form.get("lat")
+    lng_raw = request.form.get("lng")
+    lat_f = lng_f = None
+    if lat_raw and lng_raw:
+        try:
+            lat_f, lng_f = float(lat_raw), float(lng_raw)
+        except (TypeError, ValueError):
+            pass
+
+    if not (lat_f and lng_f):
+        return jsonify({
+            "ok": True,
+            "identificado": identificado,
+            "produtos": [],
+            "aviso": "Ative a localização para ver as farmácias próximas.",
+        })
+
+    conn = db()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT u.cnpjloja, u.razao, u.endereco, u.uf,
+                   g.lat AS glat, g.lng AS glng,
+                   COALESCE(c.aceita_entrega, FALSE) AS aceita_entrega,
+                   COALESCE(c.raio_entrega_km, 0)   AS raio_entrega_km
+            FROM users u
+            JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE
+              AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+              AND g.lat IS NOT NULL
+        """)
+        lojas_raw = cur.fetchall()
+    finally:
+        cur.close()
+
+    lojas_dist = sorted(
+        [{**dict(l), "distancia_km": round(haversine(lat_f, lng_f, float(l["glat"]), float(l["glng"])), 2)}
+         for l in lojas_raw],
+        key=lambda x: x["distancia_km"],
+    )
+    proximas = [l for l in lojas_dist if l["distancia_km"] <= 30]
+    if not proximas:
+        proximas = [l for l in lojas_dist if l["distancia_km"] <= 60][:3]
+    if not proximas:
+        proximas = lojas_dist[:3]
+
+    cnpjs     = [l["cnpjloja"] for l in proximas]
+    loja_info = {l["cnpjloja"]: l for l in proximas}
+
+    def _enrich(prods):
+        enriched = []
+        for p in prods:
+            info  = loja_info.get(p.get("cnpjloja"), {})
+            dist  = info.get("distancia_km")
+            razao = _public_store_name(info) if info else ""
+            placeholder = _generic_placeholder_for(p.get("nome") or "", med={})
+            imagem = p.get("imagem") or placeholder
+            if imagem and _looks_like_other_pharmacy_brand(imagem):
+                imagem = placeholder
+            enriched.append({
+                "ean":          p.get("ean") or "",
+                "nome":         p.get("nome") or "",
+                "laboratorio":  p.get("laboratorio") or "",
+                "preco":        p.get("preco"),
+                "qty":          p.get("qty"),
+                "imagem":       imagem,
+                "cnpjloja":     p.get("cnpjloja") or "",
+                "razao":        razao,
+                "distancia_km": dist,
+            })
+        enriched.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 0))
+        return enriched
+
+    produtos = []
+
+    if ean:
+        prods_ean = get_dns_products_batch_by_eans(cnpjs, [ean])
+        produtos = _enrich(prods_ean)
+
+    if len(produtos) < 5:
+        # Extrai palavras-chave do nome identificado (sem palavras curtas/genéricas)
+        _stop = {'de','da','do','das','dos','e','com','para','em','a','o','as','os',
+                 'por','um','uma','mg','ml','mcg','un','cp','comp','cap','cps','comprimido',
+                 'capsula','solucao','xarope','gotas','pomada','creme','gel','spray'}
+        palavras = [w for w in re.split(r'\s+', nome.lower())
+                    if len(w) >= 4 and w not in _stop and not re.match(r'^\d', w)]
+        if dosagem:
+            palavras.append(dosagem.lower())
+        # Usa no máximo 3 palavras mais longas (mais distintivas)
+        kw_termos = sorted(set(palavras), key=len, reverse=True)[:3]
+        if not kw_termos:
+            kw_termos = [nome]
+        prods_nome = get_dns_products_batch_by_name(cnpjs, kw_termos)
+        seen_eans = {p["ean"] for p in produtos if p["ean"]}
+        for p in _enrich(prods_nome):
+            if p["ean"] not in seen_eans:
+                produtos.append(p)
+                seen_eans.add(p["ean"])
+
+    return jsonify({
+        "ok": True,
+        "identificado": identificado,
+        "produtos": produtos[:30],
+    })
 
 
 @app.get("/carrinho")
@@ -13015,6 +13513,31 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             if ch in rows_by_chave:
                 for idx in indices:
                     _aplicar(idx, rows_by_chave[ch])
+
+        # Fallback: chaves de uma única palavra (ex: "LOSARTANA") que não encontraram
+        # resultado — tenta prefixo "LOSARTANA %" para herdar tarja de variantes conhecidas.
+        missing_single = [ch for ch in chaves_map if ch not in rows_by_chave and " " not in ch]
+        if missing_single:
+            try:
+                cur.execute(
+                    "SELECT DISTINCT ON (SPLIT_PART(chave, ' ', 1)) "
+                    "SPLIT_PART(chave, ' ', 1) AS first_word, "
+                    "chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
+                    "receita_retida, venda_online_permitida, "
+                    "exibir_imagem_publica, dizeres_receita, dizeres_imagem "
+                    "FROM anvisa_cache "
+                    "WHERE SPLIT_PART(chave, ' ', 1) = ANY(%s) AND encontrado = TRUE "
+                    "  AND STRPOS(chave, ' ') > 0 "
+                    "ORDER BY SPLIT_PART(chave, ' ', 1), chave",
+                    (missing_single,),
+                )
+                prefix_by_word = {r["first_word"]: r for r in cur.fetchall()}
+                for ch, indices in chaves_map.items():
+                    if ch in prefix_by_word:
+                        for idx in indices:
+                            _aplicar(idx, prefix_by_word[ch])
+            except Exception:
+                pass
 
     except Exception:
         pass
