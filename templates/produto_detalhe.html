@@ -156,6 +156,13 @@
   font-size:.68rem; color:var(--pq-muted);
   margin-top:6px; text-align:right;
 }
+.badge-ia {
+  display:inline-flex; align-items:center; gap:3px;
+  font-size:.58rem; font-weight:600; letter-spacing:.02em;
+  padding:1px 6px; border-radius:10px;
+  background:#e8f5e9; color:#2e7d32; border:1px solid #a5d6a7;
+  vertical-align:middle; margin-left:6px;
+}
 
 /* TARJA / PRESCRIÇÃO */
 .tarja-badge {
@@ -302,9 +309,11 @@
 {# Para cosméticos e suplementos, info médica da Vitnatu (serve_para/como_usar/alertas)
    não se aplica — só usa fallback Vitnatu para medicamentos confirmados. #}
 {% set e_medicamento = (tipo_produto == 'medicamento') or (anvisa and anvisa.encontrado) %}
-{% set d_serve  = anvisa.serve_para  or (vitnatu.serve_para  if e_medicamento else None) %}
-{% set d_usar   = anvisa.como_usar   or (vitnatu.como_usar   if e_medicamento else None) %}
-{% set d_alerta = anvisa.alertas     or (vitnatu.alertas     if e_medicamento else None) %}
+{% set d_serve_ia = anvisa.para_que_serve_ia if anvisa.para_que_serve_ia else None %}
+{% set d_usar_ia  = anvisa.como_tomar_ia    if anvisa.como_tomar_ia    else None %}
+{% set d_serve  = d_serve_ia or anvisa.serve_para  or (vitnatu.serve_para  if e_medicamento else None) %}
+{% set d_usar   = d_usar_ia  or anvisa.como_usar   or (vitnatu.como_usar   if e_medicamento else None) %}
+{% set d_alerta = anvisa.alertas             or (vitnatu.alertas          if e_medicamento else None) %}
 {% set d_comprar = vitnatu.porque_comprar if e_medicamento else None %}
 {% set tem_anvisa = anvisa and anvisa.encontrado and (anvisa.serve_para or anvisa.como_usar or anvisa.alertas or anvisa.url_bula) %}
 {% set anvisa_ativo = 'ativ' in (anvisa.situacao or '')|lower %}
@@ -595,7 +604,7 @@
     {% if d_serve %}
     <div class="pd-section open">
       <div class="pd-section-hd" onclick="toggleSec(this)">
-        <i class="fa fa-circle-check icon"></i>Para que serve
+        <i class="fa fa-circle-check icon"></i>Para que serve{% if d_serve_ia %}<span class="badge-ia"><i class="fa fa-check-circle"></i> Informação validada</span>{% endif %}
         <i class="fa fa-chevron-down arrow"></i>
       </div>
       <div class="pd-section-body">
@@ -609,7 +618,7 @@
     {% if d_usar %}
     <div class="pd-section">
       <div class="pd-section-hd" onclick="toggleSec(this)">
-        <i class="fa fa-droplet icon"></i>Como usar
+        <i class="fa fa-droplet icon"></i>Como usar{% if d_usar_ia %}<span class="badge-ia"><i class="fa fa-check-circle"></i> Informação validada</span>{% endif %}
         <i class="fa fa-chevron-down arrow"></i>
       </div>
       <div class="pd-section-body">
