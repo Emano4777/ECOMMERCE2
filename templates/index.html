@@ -6,7 +6,7 @@
   <div class="idx-nb-search">
     <i class="fa fa-magnifying-glass idx-nb-icon"></i>
     <input type="text" id="search-inp"
-           placeholder="Buscar produtos…"
+           placeholder="Busque produto, remédio ou o que está sentindo…"
            oninput="filtrar(this.value)"
            autocomplete="off"/>
     <button class="idx-nb-voice-btn" type="button" id="cat-voice-btn"
@@ -841,6 +841,19 @@
   {% for _ in range(8) %}<div class="skeleton skel-prod"></div>{% endfor %}
 </div>
 
+<!-- Poupinha: mensagem assistente para buscas em linguagem natural -->
+<div id="poupinha-bubble" style="display:none;max-width:680px;margin:0 auto 18px;padding:0 4px">
+  <div style="display:flex;align-items:flex-start;gap:12px;background:#fff;border:1.5px solid #ffe4e4;border-radius:18px;padding:16px 18px;box-shadow:0 2px 12px rgba(220,38,38,.07)">
+    <div style="flex-shrink:0;width:44px;height:44px;border-radius:50%;background:#fff;border:2px solid #fee2e2;overflow:hidden;display:flex;align-items:center;justify-content:center">
+      <img src="/static/poupaqui-logo.png" alt="Poupinha" style="width:38px;height:38px;object-fit:contain">
+    </div>
+    <div style="min-width:0">
+      <div style="font-weight:800;font-size:.82rem;color:#dc2626;margin-bottom:3px;letter-spacing:.03em">POUPINHA</div>
+      <div id="poupinha-msg" style="font-size:.9rem;color:#334155;line-height:1.6"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Grade de produtos -->
 <div class="prod-grid" id="prod-grid" style="display:none"></div>
 <div class="idx-pager" id="idx-pager" style="display:none"></div>
@@ -1447,6 +1460,26 @@ function updateFiltroCount() {
   if (btn) btn.classList.toggle('active', count > 0);
 }
 
+function _poupinhaFallback(query) {
+  const q = (query || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/vomit|enjoo|nausea|mal estar/.test(q))      return 'Que desconforto sentir enjoo! Separei alguns produtos que podem te ajudar a melhorar:';
+  if (/zonzo|tontur|vertig|girand/.test(q))         return 'Tontura é muito chato, né? Olha o que encontrei pra você:';
+  if (/colica|barrig|estomago|camb/.test(q))        return 'Cólica dói demais! Veja o que temos que pode aliviar esse desconforto:';
+  if (/dor.*cabec|enxaquec|cefalei|cabeca/.test(q)) return 'Dor de cabeça tira o pique de qualquer um. Separei o que pode ajudar:';
+  if (/febre|temperat/.test(q))                     return 'Febre é preocupante, cuide-se! Aqui estão os produtos que podem ajudar:';
+  if (/gripe|resfri|coriza|espirr/.test(q))         return 'Gripe é chato demais! Preparei uma seleção pra você melhorar logo:';
+  if (/tosse|catarro|gargantat/.test(q))            return 'Tosse persistente incomoda muito. Veja o que encontrei pra você:';
+  if (/alergi|coceira|urticaria/.test(q))           return 'Alergia incomoda demais! Separei o que pode te dar alívio:';
+  if (/pressao|hipertens/.test(q))                  return 'Cuide bem da sua pressão! Separei os produtos certos pra você:';
+  if (/diabete|glicose|insulina/.test(q))           return 'O controle do diabetes é fundamental. Veja o que temos:';
+  if (/dor|dores|doi/.test(q))                      return 'Que pena que você está sentindo dor! Aqui estão alguns produtos que podem ajudar:';
+  if (/ansios|nervos|estress/.test(q))              return 'Ansiedade é difícil de lidar. Separei algumas opções que podem ajudar:';
+  if (/insoni|sono|dormir/.test(q))                 return 'Dificuldade pra dormir é frustrante. Veja o que pode te ajudar:';
+  if (/azia|refluxo|queimacao/.test(q))             return 'Azia e refluxo são bem desconfortáveis! Separei o que pode aliviar:';
+  if (/diarreia|intestin/.test(q))                  return 'Intestino desregulado é muito incômodo. Aqui estão os produtos que podem ajudar:';
+  return `Encontrei produtos para "${query}". Dá uma olhada no que separei pra você:`;
+}
+
 function syncPrecoMaxInp(val) {
   const inp = document.getElementById('filter-preco-max');
   if (inp) {
@@ -1564,6 +1597,19 @@ function carregarProdutos(lat, lng, busca='') {
       if (!requestedSearch && (currentSearch.length >= 3 || /^\d{8,}$/.test(currentSearch.replace(/\D/g, '')))) return;
       _serverSearchLoading = false;
       allProdutos = data.produtos || [];
+
+      // Poupinha: mostra saudação quando busca NL retorna resultado
+      const poupinhaBubble = document.getElementById('poupinha-bubble');
+      const poupinhaMsg    = document.getElementById('poupinha-msg');
+      if (poupinhaBubble && poupinhaMsg) {
+        const isNlQuery = requestedSearch && requestedSearch.trim().split(/\s+/).length >= 2;
+        if (isNlQuery && allProdutos.length) {
+          poupinhaMsg.textContent    = data.saudacao || _poupinhaFallback(requestedSearch);
+          poupinhaBubble.style.display = '';
+        } else {
+          poupinhaBubble.style.display = 'none';
+        }
+      }
 
       // Mantém lista de farmácias próximas para o modal de encomenda
       if (allProdutos.length) {

@@ -2950,26 +2950,30 @@ def _claude_busca_interpret(query):
     if cached is not None:
         return cached
     prompt = (
-        "Você é um assistente de busca para farmácia brasileira. "
-        "Dado um sintoma ou condição, retorne os medicamentos e substâncias ativas "
-        "que seriam encontrados em um catálogo de farmácia. "
+        "Você é Poupinha, assistente simpática da Drogarias Poupaqui. "
+        "Dado um sintoma ou condição em linguagem natural, retorne um JSON com:\n"
+        "1. Uma saudação amigável e empática (campo 'saudacao') — 1 frase curta, "
+        "reconhece o que o cliente está sentindo e diz que vai mostrar o que pode ajudar. "
+        "Use linguagem natural e calorosa, sem emojis.\n"
+        "2. Os medicamentos/substâncias para buscar no catálogo.\n"
         "Retorne SOMENTE um JSON válido sem markdown:\n"
-        '{"principios_ativos":["losartana","enalapril"],"nomes_tecnicos":["captopril"],'
-        '"categorias":["anti hipertensivo"],"termos_busca":["losartana","pressao"]}\n'
+        '{"saudacao":"Entendi, parece que você está com cólica. Veja o que separei para você:",'
+        '"principios_ativos":["escopolamina","simeticona"],"nomes_tecnicos":["butilescopolamina"],'
+        '"categorias":["antiespasmódico"],"termos_busca":["buscopan","colica"]}\n'
         "REGRAS:\n"
-        "- principios_ativos: nomes exatos das substâncias ativas que aparecem em bulas "
-        "(ex: losartana, enalapril, amlodipina, dipirona, paracetamol, ibuprofeno)\n"
+        "- saudacao: 1 frase em português, tom amigável, sem medicamentos na saudacao\n"
+        "- principios_ativos: nomes exatos das substâncias ativas que aparecem em bulas\n"
         "- nomes_tecnicos: outros princípios ativos ou nomes farmacológicos alternativos\n"
         "- categorias: classe terapêutica sem hifens e sem acentos (ex: anti hipertensivo, analgesico)\n"
         "- termos_busca: palavras curtas que aparecem literalmente em nomes de produtos no estoque\n"
-        "- Use somente termos em português SEM acentos e SEM hifens\n"
+        "- Use somente termos em português SEM acentos e SEM hifens (exceto na saudacao)\n"
         "- Prefira nomes de substâncias ativas a nomes de condições (losartana, não hipertensão)\n"
         "- Se não souber, retorne listas vazias\n"
         f"Sintoma/condição: {query}"
     )
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 300,
+        "max_tokens": 400,
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -6175,7 +6179,7 @@ def api_produtos_proximos():
                     produtos_raw = get_dns_products_batch_by_name(cnpjs, _st_parallel[:4])
 
                 # Aguarda IA no máximo 2 s (já temos resultados do DB enquanto isso)
-                _ia_thread.join(timeout=2.0)
+                _ia_thread.join(timeout=1.0)
                 ia_result = _ia_holder[0]
 
             if ia_result:
@@ -6233,12 +6237,8 @@ def api_produtos_proximos():
                         if key not in _seen_nl:
                             produtos_raw.append(p)
                             _seen_nl.add(key)
-            # Estende ia_filter_terms com expansões diretas do banco de sintomas para
-            # que produtos do índice original também passem no filtro final
-            if ia_filter_terms:
-                for _ft in _search_terms_for_query(busca_q):
-                    if _ft not in ia_filter_terms:
-                        ia_filter_terms.append(_ft)
+            # Não estende ia_filter_terms com termos genéricos do dicionário —
+            # "dor" bateria em "condor", "cortador" etc por substring.
 
             # Safety net: caminho NL sem resultado — tenta busca por nome direto da query
             # (cobre casos onde IA retornou termos que não batem com nenhum produto no estoque)
@@ -6372,9 +6372,16 @@ def api_produtos_proximos():
     _attach_product_promos(produtos_view)
 
     if busca_q:
-        # NL: usa termos da IA (específicos — evita substring "dor" bater em "removedor")
-        # Direto: usa q_terms expandidos do banco de sintomas
+        # NL: usa termos da IA (específicos); Direto: usa q_terms expandidos
         filter_terms = ia_filter_terms if ia_filter_terms else _search_terms_for_query(busca_q)
+        # Pré-compila padrões: termos curtos (≤4 chars) usam word boundary para não
+        # bater em "condor"/"cortador" com "dor", "cor" etc.
+        _ft_patterns = []
+        for t in filter_terms:
+            if len(t) <= 4:
+                _ft_patterns.append(re.compile(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])'))
+            else:
+                _ft_patterns.append(t)  # string → substring simples
         filtrados = []
         for p in produtos_view:
             hay_raw = " ".join([
@@ -6392,11 +6399,17 @@ def api_produtos_proximos():
             hay = _norm_text(hay_raw)
             if _product_excluded_for_symptom_query(busca_q, hay_raw):
                 continue
-            if any(term in hay for term in filter_terms):
+            if any(
+                (pat.search(hay) if hasattr(pat, 'search') else pat in hay)
+                for pat in _ft_patterns
+            ):
                 filtrados.append(p)
         produtos_view = filtrados
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+    saudacao = None
+    if is_nl and ia_result:
+        saudacao = (ia_result.get("saudacao") or "").strip() or None
     return jsonify({
         "produtos":       result[:500],
         "cnpjs_proximos": [l["cnpjloja"] for l in proximas],
@@ -6406,6 +6419,7 @@ def api_produtos_proximos():
         "raio_km":        raio,
         "raio_fallback_km": raio_fallback,
         "n_lojas":        len(proximas),
+        "saudacao":       saudacao,
     })
 
 
