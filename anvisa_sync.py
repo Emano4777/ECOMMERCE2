@@ -416,9 +416,13 @@ def _ignorar_catalogo_anvisa(nome: str) -> bool:
     return bool(_NAO_ANVISA_RE.search(nome or ""))
 
 
-def _catalogo_sql(recorte_antigo=False):
+def _catalogo_sql(recorte_antigo=False, cnpj=None, min_estoque=0):
     filtro_recorte_dns = ""
     filtro_recorte_auto = ""
+    filtro_loja_dns = "AND e.cnpj = %(cnpj)s" if cnpj else ""
+    filtro_loja_auto = "AND ae.cnpj_loja = %(cnpj)s" if cnpj else ""
+    filtro_estoque_dns = "AND e.estoque > %(min_estoque)s"
+    filtro_estoque_auto = "AND ae.quantidade_estoque > %(min_estoque)s"
     if recorte_antigo:
         filtro_recorte_dns = """
           AND (dns.ean_norm IS NOT NULL
@@ -461,6 +465,8 @@ def _catalogo_sql(recorte_antigo=False):
             LEFT JOIN ecommerce_classificacao_ean cls ON cls.ean = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
             WHERE e.estoque > 0
+              {filtro_estoque_dns}
+              {filtro_loja_dns}
               AND COALESCE(e.barras, e.barras_norm, '') <> ''
               AND COALESCE(m.descricao, e.descricao) IS NOT NULL
               AND NOT EXISTS (
@@ -483,6 +489,8 @@ def _catalogo_sql(recorte_antigo=False):
             LEFT JOIN ecommerce_classificacao_ean cls ON cls.ean = LTRIM(COALESCE(ae.ean, ''), '0')
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
             WHERE ae.quantidade_estoque > 0
+              {filtro_estoque_auto}
+              {filtro_loja_auto}
               AND COALESCE(ae.ean, '') <> ''
               AND COALESCE(m.descricao, ae.descricao_produto) IS NOT NULL
               AND NOT EXISTS (
@@ -636,6 +644,10 @@ def main():
                     help="Nao grava placeholders no catalogo ao final")
     ap.add_argument("--preencher-nulos", action="store_true",
                     help="Preenche tarja NULL usando campos de texto do anvisa_cache (sem consulta externa)")
+    ap.add_argument("--cnpj",
+                    help="Restringe a sincronizacao aos produtos desta loja")
+    ap.add_argument("--min-estoque", type=int, default=0,
+                    help="Exige estoque estritamente maior que este valor")
     args = ap.parse_args()
     db_batch = max(1, min(int(args.db_batch or 40), 200))
 
@@ -681,7 +693,17 @@ def main():
     conn.commit()
 
     # Produtos DNS/Vitnatu visíveis + extras adicionados manualmente pelas lojas
-    cur.execute(_catalogo_sql(recorte_antigo=args.recorte_antigo))
+    cur.execute(
+        _catalogo_sql(
+            recorte_antigo=args.recorte_antigo,
+            cnpj=args.cnpj,
+            min_estoque=max(0, int(args.min_estoque or 0)),
+        ),
+        {
+            "cnpj": args.cnpj,
+            "min_estoque": max(0, int(args.min_estoque or 0)),
+        },
+    )
     catalogo_rows = [dict(r) for r in cur.fetchall() if r.get("ean") and r.get("nome")]
 
     # Chaves ja em cache dentro do TTL configurado.

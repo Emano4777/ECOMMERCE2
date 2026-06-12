@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -91,10 +92,29 @@ def _claude_review(row):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=45) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    text = "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
-    return json.loads(text.strip())
+    last_error = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                raw = resp.read().decode("utf-8", "replace").strip()
+            if not raw:
+                raise RuntimeError("Anthropic retornou corpo vazio")
+            data = json.loads(raw)
+            text = "".join(
+                part.get("text", "")
+                for part in data.get("content", [])
+                if part.get("type") == "text"
+            ).strip()
+            if text.startswith("```"):
+                text = text.split("```", 2)[1].removeprefix("json").strip()
+            if not text:
+                raise RuntimeError("Claude retornou resposta sem texto")
+            return json.loads(text)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+    raise RuntimeError(f"falha apos 3 tentativas: {last_error}")
 
 
 def _normalize_review(review):

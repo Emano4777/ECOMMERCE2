@@ -48,11 +48,10 @@ load_dotenv(ROOT / ".env")
 
 from app import (
     db,
-    _fetch_cosmos_api_image_url,
-    _fetch_serper_image_result_url,
     _looks_like_other_pharmacy_brand,
     _image_has_other_pharmacy_text,
     _image_looks_non_product,
+    _ocr_image_text,
 )
 from scripts.revalidar_tarja_vtex import (
     _vtex_fetch,
@@ -499,6 +498,50 @@ def _buscar_eans(cur, categoria: str | None, limite: int, ean_filtro: str | None
     return [dict(r) for r in cur.fetchall()]
 
 
+def _buscar_eans_loja(cur, cnpj: str, min_estoque: int, limite: int) -> list[dict]:
+    """EANs da loja sem nenhuma imagem publicável nas fontes usadas pelo catálogo."""
+    cur.execute("""
+        SELECT DISTINCT ON (ean) ean, nome
+        FROM (
+            SELECT
+                COALESCE(e.barras_norm, e.barras) AS ean,
+                e.descricao AS nome
+            FROM estoque e
+            WHERE e.cnpj = %s
+              AND CAST(e.estoque AS INTEGER) > %s
+              AND COALESCE(e.barras_norm, e.barras) ~ '^[0-9]{12,13}$'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM medicamentos m
+                  LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                  WHERE LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') =
+                        LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                    AND COALESCE(
+                        NULLIF(TRIM(mi.cloudinary_url), ''),
+                        NULLIF(TRIM(m.imagem), '')
+                    ) IS NOT NULL
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM produto_canon pc
+                  WHERE LTRIM(COALESCE(pc.ean, ''), '0') =
+                        LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                    AND NULLIF(TRIM(pc.imagem_cosmos), '') IS NOT NULL
+                    AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM ecommerce_produto_imagens epi
+                  WHERE epi.cnpjloja = e.cnpj
+                    AND LTRIM(COALESCE(epi.ean, ''), '0') =
+                        LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                    AND NULLIF(TRIM(epi.imagem_url), '') IS NOT NULL
+              )
+        ) t
+        ORDER BY ean
+        LIMIT %s
+    """, (cnpj, min_estoque, limite * 3))
+    return [dict(r) for r in cur.fetchall() if _ean_comercial(r["ean"])][:limite]
+
+
 def _med_imagens_fetch(ean: str, cur) -> str | None:
     """Busca imagem já indexada em medicamentos_imagens pelo EAN (ex: Vitnatu, Principia)."""
     ean_stripped = re.sub(r"\D", "", ean).lstrip("0")
@@ -582,6 +625,11 @@ def main():
                         help="Filtra por categoria (padrão: todas)")
     parser.add_argument("--todos",       action="store_true",
                         help="Busca TODOS os EANs do ecommerce sem imagem (sem filtro de categoria)")
+    parser.add_argument("--cnpj",         help="Restringe aos produtos sem imagem desta loja")
+    parser.add_argument("--min-estoque",  type=int, default=0,
+                        help="Com --cnpj, exige estoque estritamente maior que este valor")
+    parser.add_argument("--sem-serper",   action="store_true",
+                        help="Não consulta Google Images/Serper")
     parser.add_argument("--delay",       type=float, default=0.5, metavar="S")
     parser.add_argument("--commit-cada", type=int, default=30, metavar="N")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -589,7 +637,7 @@ def main():
 
     if args.todos:
         print("Modo: TODOS os EANs sem imagem (--todos)")
-    print("Fontes: medicamentos_imagens → DSP (VTEX) → Droga Raia (VTEX) | OCR ativo")
+    print("Fontes: medicamentos_imagens > Cosmos > DSP > Raia > Beleza > Serper | OCR ativo")
     print()
 
     def _nova_conn():
@@ -628,8 +676,7 @@ def main():
         """Chama _salvar com reconexão automática em caso de queda SSL."""
         for tentativa in range(2):
             try:
-                _salvar(cur_ref[0], ean, nome, img, fonte, apply, verbose)
-                return
+                return _salvar(cur_ref[0], ean, nome, img, fonte, apply, verbose)
             except Exception as exc:
                 if tentativa == 0 and (
                     "SSL" in str(exc) or "connection" in str(exc).lower() or "abort" in str(exc).lower()
@@ -637,6 +684,7 @@ def main():
                     _reconectar(conn_ref, cur_ref)
                 else:
                     raise
+        return False
 
     conn_ref = [_nova_conn()]
     cur_ref  = [conn_ref[0].cursor()]
@@ -645,8 +693,12 @@ def main():
     conn = conn_ref[0]
     cur  = cur_ref[0]
 
-    registros = _buscar_eans(cur, args.categoria, args.limite, args.ean, todos=args.todos)
-    cat_label = "todos" if args.todos else (args.categoria or "cosméticos+higiene+puericultura")
+    if args.cnpj:
+        registros = _buscar_eans_loja(cur, args.cnpj, args.min_estoque, args.limite)
+        cat_label = f"loja {args.cnpj}, estoque > {args.min_estoque}"
+    else:
+        registros = _buscar_eans(cur, args.categoria, args.limite, args.ean, todos=args.todos)
+        cat_label = "todos" if args.todos else (args.categoria or "cosméticos+higiene+puericultura")
     print(f"EANs a processar [{cat_label}]: {len(registros)}")
     if not registros:
         print("Nenhum EAN encontrado sem imagem.")
@@ -668,7 +720,10 @@ def main():
     _log(f"Inicio — {total_r} EANs | apply={args.apply} | limite={args.limite}")
     _log(f"Log salvo em: {log_path}")
 
-    n_med = n_dsp = n_raia = n_sem = n_branded = 0
+    cosmos_tokens = _cosmos_tokens()
+    serper_keys = _serper_keys()
+    serper_esgotadas: set[str] = set()
+    n_med = n_cosmos = n_dsp = n_raia = n_beleza = n_serper = n_sem = n_branded = 0
     pendentes = 0
 
     for i, reg in enumerate(registros, 1):
@@ -686,11 +741,20 @@ def main():
             img = _med_imagens_fetch(ean, cur_ref[0])
             if img:
                 _log(f"  -> MED_IMG  {img[:80]}")
-                _salvar_retry(conn_ref, cur_ref, ean, nome, img, "medicamentos_imagens", args.apply, args.verbose)
-                n_med += 1
-                achou = True
+                if _salvar_retry(conn_ref, cur_ref, ean, nome, img, "medicamentos_imagens", args.apply, args.verbose):
+                    n_med += 1
+                    achou = True
 
-        # ── Fonte 2: DSP (Drogaria São Paulo) via VTEX ───────────────────
+        # ── Fonte 2: Cosmos/Bluesoft pelo EAN exato ──────────────────────
+        if not achou and cosmos_tokens:
+            img = _cosmos_fetch_rotating(ean, cosmos_tokens, verbose=args.verbose)
+            if img and not _looks_like_other_pharmacy_brand(img):
+                _log(f"  -> COSMOS   {img[:80]}")
+                if _salvar_retry(conn_ref, cur_ref, ean, nome, img, "cosmos_api", args.apply, args.verbose):
+                    n_cosmos += 1
+                    achou = True
+
+        # ── Fonte 3: DSP (Drogaria São Paulo) via VTEX ───────────────────
         if not achou:
             p = _vtex_fetch(ean, verbose=args.verbose)
             d = _extrair_dados_vtex(p, verbose=args.verbose) if p else None
@@ -709,13 +773,13 @@ def main():
                     n_branded += 1
                 else:
                     _log(f"  -> DSP      {img[:80]}")
-                    _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_dsp", args.apply, args.verbose)
-                    n_dsp += 1
-                    achou = True
+                    if _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_dsp", args.apply, args.verbose):
+                        n_dsp += 1
+                        achou = True
             elif (d or {}).get("exibir_imagem") is False:
                 n_branded += 1
 
-        # ── Fonte 3: Droga Raia via VTEX ──────────────────────────────────
+        # ── Fonte 4: Droga Raia via VTEX ─────────────────────────────────
         if not achou:
             time.sleep(args.delay * 0.3)
             d = _raia_fetch(ean, verbose=args.verbose)
@@ -732,8 +796,28 @@ def main():
                     n_branded += 1
                 else:
                     _log(f"  -> RAIA     {img[:80]}")
-                    _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_raia", args.apply, args.verbose)
-                    n_raia += 1
+                    if _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_raia", args.apply, args.verbose):
+                        n_raia += 1
+                        achou = True
+
+        # ── Fonte 5: Beleza na Web via EAN exato ─────────────────────────
+        if not achou:
+            img = _beleza_fetch(ean, verbose=args.verbose)
+            if img and not _image_has_other_pharmacy_text(img) and not _image_looks_non_product(img):
+                _log(f"  -> BELEZA   {img[:80]}")
+                if _salvar_retry(conn_ref, cur_ref, ean, nome, img, "vtex_beleza", args.apply, args.verbose):
+                    n_beleza += 1
+                    achou = True
+
+        # ── Fonte 6: Google Images, com filtros rigorosos ─────────────────
+        if not achou and not args.sem_serper and serper_keys:
+            img = _serper_fetch_rotating(
+                ean, nome, serper_keys, serper_esgotadas, verbose=args.verbose
+            )
+            if img and not _image_has_other_pharmacy_text(img) and not _image_looks_non_product(img):
+                _log(f"  -> SERPER   {img[:80]}")
+                if _salvar_retry(conn_ref, cur_ref, ean, nome, img, "serper_validado", args.apply, args.verbose):
+                    n_serper += 1
                     achou = True
 
         if not achou:
@@ -745,13 +829,16 @@ def main():
             pendentes += 1
             if pendentes >= args.commit_cada:
                 _commit_seguro(conn_ref, cur_ref)
-                _log(f"  [commit parcial] {pendentes} gravadas | med={n_med} dsp={n_dsp} raia={n_raia} sem={n_sem}")
+                _log(
+                    f"  [commit parcial] {pendentes} gravadas | med={n_med} cosmos={n_cosmos} "
+                    f"dsp={n_dsp} raia={n_raia} beleza={n_beleza} serper={n_serper} sem={n_sem}"
+                )
                 pendentes = 0
 
         time.sleep(args.delay)
 
     # Commit final com reconexão automática
-    total = n_med + n_dsp + n_raia
+    total = n_med + n_cosmos + n_dsp + n_raia + n_beleza + n_serper
     if args.apply:
         if pendentes > 0:
             _commit_seguro(conn_ref, cur_ref)
@@ -766,7 +853,8 @@ def main():
 
     resumo = (
         f"\nTotal: {len(registros)} | Sem imagem: {n_sem} | Rejeitadas (OCR): {n_branded}"
-        f"\nMed_Imagens: {n_med} | DSP: {n_dsp} | Raia: {n_raia}"
+        f"\nMed_Imagens: {n_med} | Cosmos: {n_cosmos} | DSP: {n_dsp} | Raia: {n_raia}"
+        f" | Beleza: {n_beleza} | Serper: {n_serper}"
         f"\nLog completo: {log_path}"
     )
     _log(resumo)

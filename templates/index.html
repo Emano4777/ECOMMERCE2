@@ -9,6 +9,11 @@
            placeholder="Buscar produtos…"
            oninput="filtrar(this.value)"
            autocomplete="off"/>
+    <button class="idx-nb-voice-btn" type="button" id="cat-voice-btn"
+            onclick="startVoiceInput('search-inp',{button:this})"
+            title="Buscar por voz" aria-label="Buscar por voz">
+      <i class="fa fa-microphone"></i>
+    </button>
     <button class="idx-nb-camera-btn" type="button" onclick="abrirFotoBusca()" title="Buscar por foto da embalagem">
       <i class="fa fa-camera" id="foto-busca-icon"></i>
       <span class="idx-nb-camera-spinner" id="foto-busca-spinner" style="display:none"></span>
@@ -64,6 +69,32 @@
 }
 .idx-nb-camera-btn:hover { color: var(--pq-red); background: rgba(200,16,46,.07); }
 .idx-nb-camera-btn:disabled { opacity: .5; cursor: default; }
+.idx-nb-voice-btn {
+  position: absolute;
+  right: 42px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--pq-muted);
+  font-size: .9rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color .15s, background .15s;
+}
+.idx-nb-voice-btn:hover { color: var(--pq-red); background: rgba(200,16,46,.07); }
+.idx-nb-voice-btn.listening { color: var(--pq-red); animation: voice-pulse .8s ease-in-out infinite; }
+/* voice status toast — compartilhado com home */
+.voice-status { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(24px); background:#1a1a1a; color:#fff; border-radius:20px; padding:10px 18px; font-size:.85rem; font-weight:600; display:flex; align-items:center; flex-wrap:wrap; justify-content:center; gap:8px; opacity:0; transition:opacity .22s, transform .22s; z-index:9999; pointer-events:none; max-width:90vw; text-align:center; }
+.voice-status.show { opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+.voice-status-cancel { background:none; border:1px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; padding:4px 12px; cursor:pointer; font-size:.76rem; transition:background .15s; }
+.voice-status-cancel:hover { background:rgba(255,255,255,.12); }
+@keyframes voice-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 .idx-nb-camera-spinner {
   width: 14px;
   height: 14px;
@@ -76,7 +107,7 @@
 .idx-nb-search input {
   width: 100%;
   height: 40px;
-  padding: 0 38px 0 40px;
+  padding: 0 72px 0 40px;
   border: 1.5px solid var(--pq-border);
   border-radius: 50px;
   font-size: .88rem;
@@ -594,6 +625,29 @@
   transition: background .15s, color .15s;
 }
 .er-cidade-chip:hover .er-chip-uf { background: #fde8e8; color: var(--pq-red); }
+.er-lojas-fisicas {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  max-width: 500px; margin: 0 auto 22px; padding: 15px 17px;
+  background: #fff8ec; border: 1.5px solid #f6d79b;
+  border-radius: 12px; text-align: left;
+}
+.er-lojas-fisicas-texto {
+  display: flex; align-items: flex-start; gap: 10px;
+  color: #704b00; font-size: .82rem; line-height: 1.45;
+}
+.er-lojas-fisicas-texto i { color: #d88a00; margin-top: 3px; }
+.er-btn-lojas {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 10px 16px; border-radius: 9px;
+  background: var(--pq-red); color: #fff; text-decoration: none;
+  font-size: .82rem; font-weight: 800; white-space: nowrap;
+  transition: background .15s;
+}
+.er-btn-lojas:hover { background: var(--pq-red-dk); color: #fff; }
+@media(max-width:520px) {
+  .er-lojas-fisicas { flex-direction: column; align-items: stretch; }
+  .er-btn-lojas { width: 100%; }
+}
 .idx-empty-region .er-actions {
   display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
 }
@@ -1611,11 +1665,20 @@ function carregarProdutos(lat, lng, busca='') {
               <i class="fa fa-check-circle me-1"></i>Sugestão enviada! Obrigado.
             </div>
           </div>
-          <div class="er-cidades-label">Cidades disponíveis</div>
+          <div class="er-cidades-label">Lojas disponíveis no e-commerce</div>
           <div class="er-cidades" id="er-cidades-list">
             <span style="font-size:.82rem;color:var(--pq-muted)">
               <i class="fa fa-spinner fa-spin me-1"></i>Carregando…
             </span>
+          </div>
+          <div class="er-lojas-fisicas">
+            <div class="er-lojas-fisicas-texto">
+              <i class="fa fa-store"></i>
+              <span>Temos outras lojas físicas onde você pode comprar presencialmente.</span>
+            </div>
+            <a class="er-btn-lojas" href="{{ url_for('lojas_vitrine') }}">
+              <i class="fa fa-location-dot"></i>Ver nossas lojas
+            </a>
           </div>
           <div class="er-actions">
             <button class="er-btn-loc" onclick="abrirModalLoc()">
@@ -1690,18 +1753,21 @@ async function carregarCidadesDisponiveis() {
   const el = document.getElementById('er-cidades-list');
   if (!el) return [];
   try {
-    const lojas = await fetch('/api/lojas/mapa').then(r => r.json());
+    const data = await fetch('/api/lojas/ativas').then(r => r.json());
+    const lojas = data.lojas || [];
     const seen = new Set();
     const cidades = [];
     for (const l of lojas) {
       if (!l.lat || !l.lng || !l.cidade) continue;
-      const key = l.cidade;
+      const key = `${l.cidade}|${l.uf || ''}`.toLocaleLowerCase('pt-BR');
       if (seen.has(key)) continue;
       seen.add(key);
-      const partes = l.cidade.split('/');
-      const nome = partes[0].trim();
-      const uf   = (partes[1] || '').split(' ')[0].trim();
-      cidades.push({ nome, uf, lat: l.lat, lng: l.lng });
+      cidades.push({
+        nome: l.cidade.trim(),
+        uf: (l.uf || '').trim(),
+        lat: l.lat,
+        lng: l.lng
+      });
     }
     cidades.sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
     if (!cidades.length) {
@@ -1768,18 +1834,39 @@ if (_lat && _lng) {
 function abrirModalEncomenda(nomeProduto) {
   document.getElementById('enc-produto-inp').value = nomeProduto || '';
   document.getElementById('enc-produto-label').textContent = nomeProduto || '';
-  const lojas = _encomendaLojas;
   const sel = document.getElementById('enc-loja-sel');
-  sel.innerHTML = '<option value="">Selecione a farmácia…</option>';
-  lojas.forEach(l => {
-    const opt = document.createElement('option');
-    opt.value = l.cnpjloja;
-    opt.textContent = l.razao;
-    sel.appendChild(opt);
-  });
-  if (lojas.length === 1) sel.value = lojas[0].cnpjloja;
+  const avisoEl = document.getElementById('enc-aviso-distancia');
+  sel.innerHTML = '<option value="">Carregando farmácias…</option>';
+  sel.disabled = true;
+  if (avisoEl) avisoEl.style.display = 'none';
   document.getElementById('enc-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
+
+  const lat = localStorage.getItem('pq_lat') || 0;
+  const lng = localStorage.getItem('pq_lng') || 0;
+  const qs = (lat && lng) ? `?lat=${lat}&lng=${lng}` : '';
+  fetch('/api/lojas/ativas' + qs)
+    .then(r => r.json())
+    .then(data => {
+      const lojas = data.lojas || [];
+      sel.innerHTML = '<option value="">Selecione a farmácia…</option>';
+      lojas.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.cnpjloja;
+        const dist = l.distancia_km != null ? ` (${l.distancia_km} km)` : '';
+        opt.textContent = l.razao + dist;
+        sel.appendChild(opt);
+      });
+      if (lojas.length === 1) sel.value = lojas[0].cnpjloja;
+      sel.disabled = false;
+      if (data.sem_farmacia_proxima && avisoEl) {
+        avisoEl.style.display = 'flex';
+      }
+    })
+    .catch(() => {
+      sel.innerHTML = '<option value="">Erro ao carregar farmácias</option>';
+      sel.disabled = false;
+    });
 }
 function fecharModalEncomenda() {
   document.getElementById('enc-modal-overlay').style.display = 'none';
@@ -1851,6 +1938,93 @@ function processarFotoBusca(inp) {
       alert('Erro ao enviar a imagem. Tente novamente.');
     });
 }
+
+/* ── BUSCA POR VOZ ───────────────────────────────────── */
+let _voiceRecog = null, _voiceBtn = null, _voiceHideTimer = null;
+
+function _voiceGetCtor() { return window.SpeechRecognition || window.webkitSpeechRecognition || null; }
+
+function _voiceBtnState(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle('listening', !!on);
+  btn.title = on ? 'Ouvindo...' : (btn.getAttribute('aria-label') || 'Buscar por voz');
+}
+
+function _ensureVoiceToast() {
+  let el = document.getElementById('_voiceToast');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = '_voiceToast';
+  el.className = 'voice-status';
+  el.innerHTML = '<i class="fa fa-microphone"></i>'
+    + '<span id="_voiceToastTxt">Ouvindo...</span>'
+    + '<button type="button" class="voice-status-cancel" onclick="_cancelVoice()">Cancelar</button>';
+  document.body.appendChild(el);
+  return el;
+}
+
+function _showVoiceToast(msg, ms) {
+  _ensureVoiceToast();
+  document.getElementById('_voiceToastTxt').textContent = msg || 'Ouvindo...';
+  _ensureVoiceToast().classList.add('show');
+  clearTimeout(_voiceHideTimer);
+  if (ms) _voiceHideTimer = setTimeout(() => _ensureVoiceToast().classList.remove('show'), ms);
+}
+
+function _cancelVoice() {
+  if (_voiceRecog) { try { _voiceRecog.abort(); } catch(e){} }
+  _voiceBtnState(_voiceBtn, false);
+  _voiceRecog = _voiceBtn = null;
+  _showVoiceToast('Pesquisa por voz cancelada.', 1500);
+}
+
+function startVoiceInput(targetId, opts) {
+  opts = opts || {};
+  const Ctor = _voiceGetCtor();
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  if (!Ctor) {
+    alert('Pesquisa por voz não suportada. Use Chrome ou Edge e permita o acesso ao microfone.');
+    return;
+  }
+  if (_voiceRecog) {
+    const same = opts.button && opts.button === _voiceBtn;
+    _cancelVoice();
+    if (same) return;
+  }
+  const recog = new Ctor();
+  _voiceRecog = recog; _voiceBtn = opts.button || null;
+  recog.lang = 'pt-BR';
+  recog.continuous = false;
+  recog.interimResults = false;
+  recog.maxAlternatives = 1;
+  recog.onstart  = () => { _voiceBtnState(_voiceBtn, true); _showVoiceToast('Ouvindo... fale o nome do produto ou sintoma.'); };
+  recog.onresult = (e) => {
+    const txt = Array.from(e.results || []).map(r => r[0]?.transcript || '').join(' ').trim();
+    if (!txt) return;
+    target.value = txt;
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    _showVoiceToast('Entendido. Pesquisando...', 2000);
+    if (opts.onsubmit) setTimeout(() => opts.onsubmit(), 200);
+  };
+  recog.onerror = (e) => {
+    const err = e?.error || '';
+    if (err === 'not-allowed' || err === 'service-not-allowed') {
+      _ensureVoiceToast().classList.remove('show');
+      alert('Permita o acesso ao microfone para usar a pesquisa por voz.');
+    } else if (err === 'no-speech') {
+      _showVoiceToast('Não ouvi nada. Tente novamente.', 2200);
+    } else if (err !== 'aborted') {
+      _showVoiceToast('Não consegui entender. Tente novamente.', 2200);
+    }
+  };
+  recog.onend = () => {
+    _voiceBtnState(_voiceBtn, false);
+    _voiceRecog = _voiceBtn = null;
+    if (!_voiceHideTimer) _ensureVoiceToast().classList.remove('show');
+  };
+  recog.start();
+}
 </script>
 
 <!-- Modal encomenda -->
@@ -1876,6 +2050,12 @@ function processarFotoBusca(inp) {
 
       <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#0369a1">
         <i class="fa fa-magnifying-glass me-1"></i>Produto buscado: <strong id="enc-produto-label"></strong>
+      </div>
+
+      <!-- Aviso sem farmácia próxima -->
+      <div id="enc-aviso-distancia" style="display:none;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:#92400e;display:flex;gap:8px;align-items:flex-start">
+        <i class="fa fa-map-pin" style="margin-top:2px;flex-shrink:0;color:#ea580c"></i>
+        <span>Ainda não temos farmácia na sua cidade, mas você já pode fazer sua solicitação e aguardar nossa chegada por aí!</span>
       </div>
 
       <div style="margin-bottom:14px">

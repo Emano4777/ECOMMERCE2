@@ -397,10 +397,50 @@
 </div>
 <style>.hidden{display:none!important}</style>
 </div>
+
+{# ── Cross-sell IA ── #}
+<section id="det-crosssell" class="pq-recs-section" style="display:none;margin-top:24px">
+  <div class="pq-recs-header">
+    <div class="pq-recs-title-block">
+      <div class="pq-recs-title"><i class="fa fa-wand-magic-sparkles"></i>Você também pode precisar de</div>
+      <div class="pq-recs-sub">Produtos que combinam com o que você já comprou</div>
+    </div>
+    <div class="pq-recs-nav">
+      <button class="pq-nav-btn" id="det-crosssell-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <button class="pq-nav-btn" id="det-crosssell-next" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+    </div>
+  </div>
+  <div class="pq-recs-track-wrap">
+    <div class="pq-recs-track" id="det-crosssell-track"></div>
+  </div>
+</section>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+/* ── Cross-sell IA no detalhe do pedido ─────────────────── */
+let _detRecItems = [];
+function addDetRec(idx, btn) {
+  const p = _detRecItems[idx];
+  if (!p) return;
+  addToCart({ ean:p.ean||'', nome:p.nome||'', preco:parseFloat(p.preco)||0,
+               imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'',
+               qty:1, requer_receita:false, receita_retida:false, tarja:null });
+  if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>Adicionado'; }
+}
+(async function carregarCrossSellDetalhe() {
+  try {
+    const data = await fetch('/api/home/insights').then(r => r.json());
+    const produtos = (data.cross_sell || []).filter(p => p.imagem && parseFloat(p.preco) > 0);
+    if (!produtos.length) return;
+    _detRecItems = produtos;
+    document.getElementById('det-crosssell-track').innerHTML =
+      produtos.map((p, i) => pqRecCardHtml({...p, motivo:'Sugestão IA'}, i, 'addDetRec')).join('');
+    document.getElementById('det-crosssell').style.display = '';
+    pqInitCarouselNav('det-crosssell');
+  } catch(e) {}
+})();
+
 (function(){
   const labels = document.querySelectorAll('#stars-container label');
   const btn    = document.getElementById('btn-avaliar');

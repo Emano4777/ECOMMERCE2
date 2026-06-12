@@ -2820,8 +2820,21 @@ def _ensure_busca_cache_schema():
             pass
 
 
+_BUSCA_IA_MEM_CACHE: dict = {}   # {query_norm: (resultado, expires_ts)}
+_BUSCA_IA_MEM_MAX  = 300
+_BUSCA_IA_MEM_TTL  = 1800        # 30 min — Vercel pode reiniciar workers a qualquer hora
+
+
 def _busca_cache_get(query_norm):
-    """Retorna resultado_ia do cache se existir e não expirado."""
+    """Retorna resultado_ia do cache (memória primeiro, depois DB)."""
+    # 1. Memória
+    entry = _BUSCA_IA_MEM_CACHE.get(query_norm)
+    if entry:
+        resultado, exp = entry
+        if time.time() < exp:
+            return resultado
+        _BUSCA_IA_MEM_CACHE.pop(query_norm, None)
+    # 2. Banco
     try:
         _ensure_busca_cache_schema()
         conn = db()
@@ -2832,32 +2845,49 @@ def _busca_cache_get(query_norm):
         )
         row = cur.fetchone()
         cur.close()
-        return row["resultado_ia"] if row else None
+        if row:
+            resultado = row["resultado_ia"]
+            # Promove para memória para evitar roundtrip na próxima vez
+            _BUSCA_IA_MEM_CACHE[query_norm] = (resultado, time.time() + _BUSCA_IA_MEM_TTL)
+            return resultado
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _busca_cache_set(query_norm, resultado_ia):
-    """Salva resultado da IA no cache com TTL de 24 horas."""
-    try:
-        _ensure_busca_cache_schema()
-        conn = db()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO busca_cache (query_normalizada, resultado_ia, created_at, expires_at)
-            VALUES (%s, %s::jsonb, NOW(), NOW() + INTERVAL '24 hours')
-            ON CONFLICT (query_normalizada) DO UPDATE
-                SET resultado_ia = EXCLUDED.resultado_ia,
-                    created_at   = NOW(),
-                    expires_at   = NOW() + INTERVAL '24 hours'
-            """,
-            (query_norm, json.dumps(resultado_ia)),
-        )
-        conn.commit()
-        cur.close()
-    except Exception:
-        pass
+    """Salva resultado da IA no cache (memória + DB, TTL 24 h)."""
+    # Memória imediata
+    if len(_BUSCA_IA_MEM_CACHE) >= _BUSCA_IA_MEM_MAX:
+        try:
+            oldest = min(_BUSCA_IA_MEM_CACHE, key=lambda k: _BUSCA_IA_MEM_CACHE[k][1])
+            _BUSCA_IA_MEM_CACHE.pop(oldest, None)
+        except Exception:
+            pass
+    _BUSCA_IA_MEM_CACHE[query_norm] = (resultado_ia, time.time() + _BUSCA_IA_MEM_TTL)
+    # Banco em background para persistir entre restarts
+    def _persist():
+        try:
+            _ensure_busca_cache_schema()
+            conn2 = _new_conn()
+            cur2 = conn2.cursor()
+            cur2.execute(
+                """
+                INSERT INTO busca_cache (query_normalizada, resultado_ia, created_at, expires_at)
+                VALUES (%s, %s::jsonb, NOW(), NOW() + INTERVAL '24 hours')
+                ON CONFLICT (query_normalizada) DO UPDATE
+                    SET resultado_ia = EXCLUDED.resultado_ia,
+                        created_at   = NOW(),
+                        expires_at   = NOW() + INTERVAL '24 hours'
+                """,
+                (query_norm, json.dumps(resultado_ia)),
+            )
+            conn2.commit()
+            cur2.close()
+            conn2.close()
+        except Exception:
+            pass
+    threading.Thread(target=_persist, daemon=True).start()
 
 
 _NL_SYMPTOM_WORDS = {
@@ -2867,16 +2897,17 @@ _NL_SYMPTOM_WORDS = {
     "enjoo", "tontura", "enxaqueca", "sinusite", "bronquite", "asma",
     "anemia", "tireoide", "reumatismo", "artrite", "artrose",
     "hemorroida", "prisao", "diarreia", "nausea", "vomito", "hipertensao",
+    "colica", "gases", "catarro", "rinite", "queimacao", "constipacao",
+    "acne", "assadura", "ferimento", "queimadura", "machucado",
+    "intestino", "estomago", "figado", "rim", "coracao", "pulmao",
+    "cabeca", "costas", "perna", "joelho", "ombro", "pescoco",
 }
 
 
 def _is_natural_language_query(query):
-    """True se a query tem 3+ palavras ou contém termos de sintoma/linguagem natural."""
+    """True para qualquer query com 2+ palavras — a IA decide o contexto."""
     q = _norm_query_cache(query)
-    words = q.split()
-    if len(words) >= 3:
-        return True
-    return any(w in _NL_SYMPTOM_WORDS for w in words)
+    return len(q.split()) >= 2
 
 
 def _busca_fuzzy_pg_trgm(term, limit=60):
@@ -3767,6 +3798,11 @@ _IMAGEM_FILTER_ALPHA = """AND (
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
+            OR EXISTS (
+                SELECT 1 FROM medicamentos5 m5x
+                WHERE m5x.barra = e.barras
+                  AND NULLIF(TRIM(m5x.imagem), '') IS NOT NULL
+            )
           )"""
 
 _SQL_ALPHA = """
@@ -3795,7 +3831,7 @@ _SQL_ALPHA = """
         ep.preco_customizado                                                                        AS preco_custom,
         COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, el.preco_referencial) AS preco,
         el.custo_medio                                                                              AS custo,
-        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
         SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -3819,6 +3855,7 @@ _SQL_ALPHA = """
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.barras
 """
 
 _IMAGEM_FILTER_AUTO = """AND (
@@ -3843,6 +3880,11 @@ _IMAGEM_FILTER_AUTO = """AND (
                   AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(ae.ean, ''), '0')
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
+            )
+            OR EXISTS (
+                SELECT 1 FROM medicamentos5 m5x
+                WHERE m5x.barra = ae.ean
+                  AND NULLIF(TRIM(m5x.imagem), '') IS NOT NULL
             )
           )"""
 
@@ -3871,7 +3913,7 @@ _SQL_AUTO = """
         ep.preco_customizado                                                       AS preco_custom,
         COALESCE(ep.preco_customizado, av.preco_venda, el.valor_final_produto)    AS preco,
         el.custo,
-        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url)  AS imagem
+        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), ''))  AS imagem
     FROM eligible el
     LEFT JOIN LATERAL (
         SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -3887,6 +3929,7 @@ _SQL_AUTO = """
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.ean
 """
 
 _SQL_ALPHA_FAST = """
@@ -3915,7 +3958,7 @@ _SQL_ALPHA_FAST = """
         ep.preco_customizado                                                  AS preco_custom,
         COALESCE(ep.preco_customizado, el.preco_referencial)                 AS preco,
         el.custo_medio                                                        AS custo,
-        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
+        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
         'alpha'                                                               AS fonte_estoque
     FROM eligible el
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
@@ -3924,6 +3967,7 @@ _SQL_ALPHA_FAST = """
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean_join, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.barras
 """
 
 _SQL_AUTO_FAST = """
@@ -3951,7 +3995,7 @@ _SQL_AUTO_FAST = """
         ep.preco_customizado                                                       AS preco_custom,
         COALESCE(ep.preco_customizado, el.valor_final_produto)                    AS preco,
         el.custo,
-        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
+        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
         'auto'                                                                     AS fonte_estoque
     FROM eligible el
     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
@@ -3960,6 +4004,7 @@ _SQL_AUTO_FAST = """
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.ean
 """
 
 
@@ -4048,6 +4093,7 @@ def get_dns_products(
     ensure_anvisa_schema=True,
     ensure_precificador_schema=True,
     batch_sales_prices=False,
+    dedupe_display=True,
 ):
     conn = db()
     cur = conn.cursor()
@@ -4114,7 +4160,7 @@ def get_dns_products(
                    e.custo_medio AS custo,
                    COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                    m.marca AS marca,
-                   COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+                   COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
             FROM estoque e
             LEFT JOIN LATERAL (
                 SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -4135,6 +4181,7 @@ def get_dns_products(
             LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
             LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
+            LEFT JOIN medicamentos5 m5 ON m5.barra = e.barras
             WHERE e.cnpj = %s AND e.barras = ANY(%s)
         """, (cnpjloja, extra_eans))
         for row in cur.fetchall():
@@ -4157,7 +4204,7 @@ def get_dns_products(
                        ae.custo AS custo,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
-                       COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+                       COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
                 FROM automatiza_estoque ae
                 LEFT JOIN LATERAL (
                     SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -4171,6 +4218,7 @@ def get_dns_products(
                 LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
+                LEFT JOIN medicamentos5 m5 ON m5.barra = ae.ean
                 WHERE ae.cnpj_loja = %s AND ae.ean = ANY(%s)
             """, (cnpjloja, remaining))
             for row in cur.fetchall():
@@ -4191,7 +4239,11 @@ def get_dns_products(
             _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
             _p["imagem_padrao_poupaqui"] = True
             _p["imagem_bloqueada_anvisa"] = True
-    combined = _dedupe_products_for_display(combined)
+    combined = (
+        _dedupe_products_for_display(combined)
+        if dedupe_display
+        else _dedupe_products_by_store_ean(combined)
+    )
     cur.close()
     if schedule_fill:
         _schedule_fill_images(combined, cnpjloja=cnpjloja)
@@ -4210,7 +4262,9 @@ _SQL_ALPHA_BATCH = """
             CAST(e.estoque AS INTEGER)        AS qty,
             e.preco_referencial
         FROM estoque e
-        WHERE e.cnpj = ANY(%s) AND e.estoque > 0
+        LEFT JOIN ecommerce_config_loja cfg_e ON cfg_e.cnpjloja = e.cnpj
+        WHERE e.cnpj = ANY(%s)
+          AND CAST(e.estoque AS INTEGER) >= COALESCE(cfg_e.estoque_min_publicacao, 1)
           AND (
             COALESCE(e.barras_norm, e.barras) IN (
                 SELECT barra_norm FROM medicamentos
@@ -4234,6 +4288,11 @@ _SQL_ALPHA_BATCH = """
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
+            OR EXISTS (
+                SELECT 1 FROM medicamentos5 m5x
+                WHERE m5x.barra = e.barras
+                  AND NULLIF(TRIM(m5x.imagem), '') IS NOT NULL
+            )
           )
         ORDER BY e.descricao
         LIMIT 9999
@@ -4255,7 +4314,7 @@ _SQL_ALPHA_BATCH = """
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)  AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial) AS preco,
-        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
     FROM eligible el
     LEFT JOIN vg_precos vg             ON vg.cnpj = el.cnpjloja AND vg.ean = el.barras
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean_join
@@ -4264,6 +4323,7 @@ _SQL_ALPHA_BATCH = """
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean_join,''),'0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.barras
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.barras
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.barras
 """
 
 _SQL_AUTO_BATCH = """
@@ -4275,7 +4335,9 @@ _SQL_AUTO_BATCH = """
             CAST(ae.quantidade_estoque AS INTEGER) AS qty,
             ae.valor_final_produto
         FROM automatiza_estoque ae
-        WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
+        LEFT JOIN ecommerce_config_loja cfg_ae ON cfg_ae.cnpjloja = ae.cnpj_loja
+        WHERE ae.cnpj_loja = ANY(%s)
+          AND CAST(ae.quantidade_estoque AS INTEGER) >= COALESCE(cfg_ae.estoque_min_publicacao, 1)
           AND (
             ae.ean IN (
                 SELECT barra_norm FROM medicamentos
@@ -4299,6 +4361,11 @@ _SQL_AUTO_BATCH = """
                   AND epi0.imagem_url IS NOT NULL
                   AND TRIM(epi0.imagem_url) <> ''
             )
+            OR EXISTS (
+                SELECT 1 FROM medicamentos5 m5x
+                WHERE m5x.barra = ae.ean
+                  AND NULLIF(TRIM(m5x.imagem), '') IS NOT NULL
+            )
           )
         ORDER BY ae.descricao_produto
         LIMIT 9999
@@ -4312,7 +4379,7 @@ _SQL_AUTO_BATCH = """
         COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)        AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, el.valor_final_produto)                    AS preco,
-        COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url)  AS imagem
+        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), ''))  AS imagem
     FROM eligible el
     LEFT JOIN medicamentos m          ON m.barra_norm = el.ean
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
@@ -4320,6 +4387,7 @@ _SQL_AUTO_BATCH = """
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean,''),'0')
     LEFT JOIN ecommerce_precos ep     ON ep.cnpjloja = el.cnpjloja AND ep.ean = el.ean
     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND epi.ean = el.ean
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.ean
 """
 
 
@@ -4392,7 +4460,7 @@ def get_dns_products_batch(cnpjs):
                        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
-                       COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+                       COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
                 FROM estoque e
                 LEFT JOIN LATERAL (
                     SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
@@ -4413,6 +4481,7 @@ def get_dns_products_batch(cnpjs):
                 LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
+                LEFT JOIN medicamentos5 m5 ON m5.barra = e.barras
                 WHERE e.cnpj = ANY(%s) AND e.barras = ANY(%s) AND e.estoque > 0
             """, (cnpjs, all_extra_eans))
             for row in cur.fetchall():
@@ -4431,7 +4500,7 @@ def get_dns_products_batch(cnpjs):
                        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
-                       COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+                       COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
                 FROM automatiza_estoque ae
                 LEFT JOIN LATERAL (
                     SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida, 0), 2) AS preco_venda
@@ -4445,6 +4514,7 @@ def get_dns_products_batch(cnpjs):
                 LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
                 LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
+                LEFT JOIN medicamentos5 m5 ON m5.barra = ae.ean
                 WHERE ae.cnpj_loja = ANY(%s) AND ae.ean = ANY(%s) AND ae.quantidade_estoque > 0
             """, (cnpjs, all_extra_eans))
             for row in cur.fetchall():
@@ -4523,13 +4593,14 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
             COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) AS preco,
-            COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
         FROM base b
         LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
         LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
+        LEFT JOIN medicamentos5 m5 ON m5.barra = b.ean
         LEFT JOIN LATERAL (
             SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
             FROM vendageral
@@ -4663,7 +4734,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
             COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) AS preco,
-            COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
         FROM base b
         LEFT JOIN medicamentos m           ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
@@ -4671,6 +4742,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
                                           AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
+        LEFT JOIN medicamentos5 m5 ON m5.barra = b.ean
         LEFT JOIN LATERAL (
             SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
             FROM vendageral
@@ -4941,8 +5013,10 @@ def catalogo_publico():
         SELECT u.cnpjloja, u.razao, u.endereco, u.uf, u.telefone,
                g.lat, g.lng
         FROM users u
+        JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
         LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
         WHERE u.is_admin = FALSE
+          AND c.catalogo_publico = TRUE
         ORDER BY u.razao
         """
     )
@@ -5924,6 +5998,64 @@ def api_lojas_proximas():
     return jsonify(com_geo[:10] + sem_geo[:20])
 
 
+@app.get("/api/lojas/ativas")
+@_rate_limited_api(max_calls=60, window_secs=60)
+def api_lojas_ativas():
+    """Lojas com catalogo_publico=true, opcionalmente ordenadas por proximidade.
+    Retorna sem_farmacia_proxima=true quando nenhuma está dentro de 60km."""
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat = lng = 0.0
+
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT u.cnpjloja, u.razao, u.endereco, u.endereco2, u.uf, u.telefone,
+               g.lat, g.lng
+        FROM users u
+        JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+        LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+        WHERE u.is_admin = FALSE
+          AND c.catalogo_publico = TRUE
+        ORDER BY u.razao
+    """)
+    rows = cur.fetchall()
+    cur.close()
+
+    lojas = []
+    tem_proxima = False
+    for r in rows:
+        cidade = re.sub(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b", "", r["endereco"] or "")
+        cidade = re.sub(r"\b\d{14}\b", "", cidade)
+        cidade = re.split(r"\s+-\s+|\s+-\s*$|-\s*$", cidade, maxsplit=1)[0]
+        cidade = re.sub(r"\s+", " ", cidade).strip(" -,.")
+        dist = None
+        if lat != 0.0 or lng != 0.0:
+            if r["lat"] and r["lng"]:
+                dist = round(haversine(lat, lng, float(r["lat"]), float(r["lng"])), 1)
+                if dist <= 60:
+                    tem_proxima = True
+        lojas.append({
+            "cnpjloja":    r["cnpjloja"],
+            "razao":       _public_store_name(r),
+            "cidade":      cidade or _public_store_name(r),
+            "uf":          (r["uf"] or "").strip().upper(),
+            "endereco":    r["endereco2"] or "",
+            "lat":         float(r["lat"]) if r["lat"] is not None else None,
+            "lng":         float(r["lng"]) if r["lng"] is not None else None,
+            "distancia_km": dist,
+        })
+
+    if lat != 0.0 or lng != 0.0:
+        lojas.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 9999))
+
+    return jsonify({
+        "lojas": lojas,
+        "sem_farmacia_proxima": bool((lat != 0.0 or lng != 0.0) and not tem_proxima and lojas),
+    })
+
+
 @app.get("/api/produtos-proximos")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_produtos_proximos():
@@ -6019,8 +6151,33 @@ def api_produtos_proximos():
 
     if busca_q:
         if is_nl:
-            # --- Caminho NL: IA interpreta primeiro, catálogo filtrado pelos termos dela ---
-            ia_result = _claude_busca_interpret(busca_q)
+            # --- Caminho NL: IA + busca direta em paralelo ---
+            query_norm_nl = _norm_query_cache(busca_q)
+            cached_ia = _busca_cache_get(query_norm_nl)
+
+            if cached_ia:
+                ia_result = cached_ia
+            else:
+                # Dispara chamada IA em thread paralela enquanto busca direta já roda
+                _ia_holder = [None]
+                def _run_ia():
+                    _ia_holder[0] = _claude_busca_interpret(busca_q)
+                _ia_thread = threading.Thread(target=_run_ia, daemon=True)
+                _ia_thread.start()
+
+                # Busca direta simultânea (não espera a IA)
+                _st_parallel = _search_terms_for_query(busca_q) or [_norm_text(busca_q)]
+                _ie_parallel  = [e for e in _symptom_index_eans_for_query(busca_q, limit=200)
+                                  if re.match(r"^789\d{10}$", e)]
+                if _ie_parallel:
+                    produtos_raw = get_dns_products_batch_by_eans(cnpjs, _ie_parallel[:100])
+                if not produtos_raw:
+                    produtos_raw = get_dns_products_batch_by_name(cnpjs, _st_parallel[:4])
+
+                # Aguarda IA no máximo 2 s (já temos resultados do DB enquanto isso)
+                _ia_thread.join(timeout=2.0)
+                ia_result = _ia_holder[0]
+
             if ia_result:
                 ia_terms = []
                 for _field in ("principios_ativos", "nomes_tecnicos", "categorias", "termos_busca"):
@@ -6030,8 +6187,13 @@ def api_produtos_proximos():
                             ia_terms.append(_t)
                 if ia_terms:
                     ia_filter_terms = ia_terms
-                    produtos_raw = get_dns_products_batch_by_name(cnpjs, ia_terms[:6])
-                    seen_ia = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+                    # Complementa com produtos por nome via termos IA (merge com busca direta)
+                    _ia_seen = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+                    for p in get_dns_products_batch_by_name(cnpjs, ia_terms[:6]):
+                        key = (p.get("cnpjloja"), p.get("ean"))
+                        if key not in _ia_seen:
+                            produtos_raw.append(p)
+                            _ia_seen.add(key)
                     ia_eans = []
                     seen_ia_eans = {p.get("ean") for p in produtos_raw}
                     for _ia_term in ia_terms[:5]:
@@ -6040,12 +6202,13 @@ def api_produtos_proximos():
                                 ia_eans.append(ean)
                                 seen_ia_eans.add(ean)
                     if ia_eans:
+                        _ia_seen2 = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
                         for p in get_dns_products_batch_by_eans(cnpjs, ia_eans[:80]):
                             key = (p.get("cnpjloja"), p.get("ean"))
-                            if key not in seen_ia:
+                            if key not in _ia_seen2:
                                 produtos_raw.append(p)
-                                seen_ia.add(key)
-            # Fallback: IA indisponível ou sem termos — busca direta sem filtro IA
+                                _ia_seen2.add(key)
+            # Fallback: sem resultado nenhum
             if not produtos_raw:
                 _st = _search_terms_for_query(busca_q)
                 _ie = _symptom_index_eans_for_query(busca_q, limit=300)
@@ -6304,6 +6467,661 @@ def api_mais_comprados():
     produtos = [dict(r) for r in cur.fetchall()]
     cur.close()
     return jsonify({"produtos": produtos})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Home personalizada: lembretes + para você + cross-sell + trending físico
+# ─────────────────────────────────────────────────────────────────────────────
+
+_HOME_INSIGHTS_SCHEMA_READY = False
+
+def _ensure_home_insights_schema():
+    global _HOME_INSIGHTS_SCHEMA_READY
+    if _HOME_INSIGHTS_SCHEMA_READY:
+        return
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_home_insights (
+                id            SERIAL PRIMARY KEY,
+                consumidor_id TEXT NOT NULL,
+                tipo          TEXT NOT NULL,
+                payload       JSONB NOT NULL DEFAULT '{}',
+                criado_em     TIMESTAMPTZ DEFAULT NOW(),
+                expira_em     TIMESTAMPTZ
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_hins_consumidor_tipo
+            ON ecommerce_home_insights(consumidor_id, tipo)
+        """)
+        conn.commit(); cur.close()
+        _HOME_INSIGHTS_SCHEMA_READY = True
+    except Exception:
+        pass
+
+# Mapeamento de classe farmacológica → lembrete
+import re as _med_re
+
+_DRUG_REMINDERS = [
+    # (tipo, pattern, dias_lembrete, titulo, msg_template)
+    ("anticoncepcional", _med_re.compile(
+        r"levonorgestrel|etinilestradiol|desogestrel|gestodeno|dienogeste|drospirenona|"
+        r"noretisterona|nogestimato|etonogestrel|acetato de ciproterona",
+        _med_re.IGNORECASE,
+    ), 26, "Hora de reabastecer 💊",
+       "Sua cartela de {produto} pode estar chegando ao fim. Garanta a continuidade do tratamento!"),
+
+    ("antibiotico", _med_re.compile(
+        r"amoxicilina|azitromicina|ciprofloxacino|cefalexina|metronidazol|doxiciclina|"
+        r"claritromicina|levofloxacino|norfloxacino|ampicilina|sulfametoxazol|nitrofurantoina|"
+        r"cefadroxila|tetraciclina|clindamicina|ceftriaxona|moxifloxacino",
+        _med_re.IGNORECASE,
+    ), 7, "Como foi seu tratamento?",
+       "Você usou {produto} há {dias} dias. Completou o ciclo completo? Dúvidas? Fale com um farmacêutico."),
+
+    ("anti_hipertensivo", _med_re.compile(
+        r"losartana|enalapril|anlodipina|amlodipina|atenolol|metoprolol|valsartana|olmesartana|"
+        r"hidroclorotiazida|ramipril|lisinopril|carvedilol|bisoprolol|captopril|irbesartana",
+        _med_re.IGNORECASE,
+    ), 25, "Hora de reabastecer",
+       "Seu medicamento para pressão arterial {produto} pode estar acabando. Evite interrupções!"),
+
+    ("hipoglicemiante", _med_re.compile(
+        r"metformina|glibenclamida|glipizida|glicazida|sitagliptina|empagliflozina|"
+        r"dapagliflozina|glimepirida|saxagliptina|canagliflozina",
+        _med_re.IGNORECASE,
+    ), 25, "Hora de reabastecer",
+       "Seu medicamento para diabetes {produto} pode estar acabando."),
+
+    ("ibp", _med_re.compile(
+        r"omeprazol|pantoprazol|esomeprazol|lansoprazol|rabeprazol",
+        _med_re.IGNORECASE,
+    ), 28, "Hora de reabastecer",
+       "Seu protetor gástrico {produto} pode estar chegando ao fim."),
+
+    ("estatina", _med_re.compile(
+        r"sinvastatina|atorvastatina|rosuvastatina|pravastatina|fluvastatina|pitavastatina",
+        _med_re.IGNORECASE,
+    ), 28, "Hora de reabastecer",
+       "Seu medicamento para colesterol {produto} pode estar acabando."),
+
+    ("tireoide", _med_re.compile(
+        r"levotiroxina|levothyroxine",
+        _med_re.IGNORECASE,
+    ), 28, "Hora de reabastecer",
+       "Seu hormônio para tireoide {produto} pode estar acabando. Não interrompa o uso!"),
+
+    ("vermifugo", _med_re.compile(
+        r"albendazol|mebendazol|tiabendazol",
+        _med_re.IGNORECASE,
+    ), 180, "Prevenção periódica",
+       "Já faz 6 meses desde o uso de {produto}. Que tal uma dose preventiva?"),
+]
+
+
+def _detectar_tipo_med(nome, principio_ativo):
+    texto = f"{nome or ''} {principio_ativo or ''}"
+    for tipo, pattern, *_ in _DRUG_REMINDERS:
+        if pattern.search(texto):
+            return tipo
+    return None
+
+
+def _calcular_lembretes(consumidor_id, conn):
+    from datetime import datetime, timezone
+    cur = conn.cursor()
+    # Busca compras + principio_ativo via anvisa_cache (por chave derivada do nome)
+    cur.execute("""
+        SELECT DISTINCT ON (pi.ean)
+            pi.ean, pi.nome, pi.imagem, pi.preco_unitario AS preco,
+            p.criado_em, p.cnpjloja,
+            ac.principio_ativo AS pa
+        FROM ecommerce_pedido_itens pi
+        JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
+        LEFT JOIN anvisa_cache ac ON ac.chave = UPPER(REGEXP_REPLACE(
+            SPLIT_PART(pi.nome, ' ', 1), '[^A-Za-z]', '', 'g'))
+        WHERE p.consumidor_id = %s
+          AND p.status NOT IN ('cancelado')
+          AND p.criado_em >= NOW() - INTERVAL '7 months'
+        ORDER BY pi.ean, p.criado_em DESC
+    """, (consumidor_id,))
+    compras = [dict(r) for r in cur.fetchall()]
+    cur.close()
+
+    agora = datetime.now(timezone.utc)
+    lembretes = []
+    for compra in compras:
+        nome = compra["nome"] or ""
+        pa = compra.get("pa") or ""
+        tipo = _detectar_tipo_med(nome, pa)
+        if not tipo:
+            continue
+        cfg = next((c for c in _DRUG_REMINDERS if c[0] == tipo), None)
+        if not cfg:
+            continue
+        _, _, dias_lembrete, titulo, msg_tmpl = cfg
+        data_compra = compra["criado_em"]
+        if data_compra.tzinfo is None:
+            data_compra = data_compra.replace(tzinfo=timezone.utc)
+        dias = (agora - data_compra).days
+        janela_min = int(dias_lembrete * 0.75)
+        janela_max = int(dias_lembrete * 2.8)
+        if janela_min <= dias <= janela_max:
+            nome_curto = " ".join(nome.split()[:4])
+            lembretes.append({
+                "tipo": tipo,
+                "titulo": titulo,
+                "mensagem": msg_tmpl.format(produto=nome_curto, dias=dias),
+                "ean": compra["ean"],
+                "nome": nome,
+                "imagem": compra.get("imagem") or "",
+                "preco": float(compra.get("preco") or 0),
+                "cnpjloja": compra.get("cnpjloja") or "",
+                "dias": dias,
+            })
+    return lembretes[:3]
+
+
+def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
+    """EANs mais comprados pelo consumidor que ainda estão no catálogo das lojas próximas."""
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT pi.ean,
+               MAX(pi.nome)     AS nome,
+               MAX(pi.imagem)   AS imagem,
+               p.cnpjloja,
+               MAX(u.razao)     AS razao,
+               AVG(pi.preco_unitario) AS preco,
+               COUNT(*)         AS vezes
+        FROM ecommerce_pedido_itens pi
+        JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        WHERE p.consumidor_id = %s
+          AND p.status NOT IN ('cancelado')
+        GROUP BY pi.ean, p.cnpjloja
+        ORDER BY vezes DESC, MAX(p.criado_em) DESC
+        LIMIT 20
+    """, (consumidor_id,))
+    historico = [dict(r) for r in cur.fetchall()]
+
+    if not historico:
+        cur.close()
+        return []
+
+    eans_norm = list({(r["ean"] or "").lstrip("0") for r in historico if r.get("ean")})
+    # Verifica quais estão no estoque atual (prefere registros com imagem)
+    cur.execute(f"""
+        SELECT DISTINCT ON (LTRIM(e.barras,'0'))
+               e.barras AS ean,
+               COALESCE(m.descricao, e.descricao) AS nome,
+               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+               e.cnpj AS cnpjloja, u.razao,
+               COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
+        FROM estoque e
+        LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
+            AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+        LEFT JOIN users u ON u.cnpjloja = e.cnpj
+        LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+        WHERE LTRIM(e.barras,'0') = ANY(%s)
+          AND e.estoque > 0 AND u.is_admin = FALSE
+          {'AND e.cnpj = ANY(%s)' if cnpjs_proximos else ''}
+        ORDER BY LTRIM(e.barras,'0'),
+                 (COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) IS NOT NULL) DESC,
+                 e.estoque DESC
+    """, [eans_norm] + ([cnpjs_proximos] if cnpjs_proximos else []))
+    em_catalogo = {dict(r)["ean"].lstrip("0"): dict(r) for r in cur.fetchall()}
+
+    # Também checa automatiza_estoque
+    faltam = [e for e in eans_norm if e not in em_catalogo]
+    if faltam:
+        cur.execute(f"""
+            SELECT DISTINCT ON (LTRIM(ae.ean,'0'))
+                   ae.ean AS ean,
+                   COALESCE(m.descricao, ae.descricao_produto) AS nome,
+                   COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                   ae.cnpj_loja AS cnpjloja, u.razao,
+                   COALESCE(ep.preco_customizado, ae.valor_final_produto) AS preco
+            FROM automatiza_estoque ae
+            LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(ae.ean,'0')
+            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            LEFT JOIN users u ON u.cnpjloja = ae.cnpj_loja
+            LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
+            WHERE LTRIM(ae.ean,'0') = ANY(%s)
+              AND ae.quantidade_estoque > 0 AND u.is_admin = FALSE
+              {'AND ae.cnpj_loja = ANY(%s)' if cnpjs_proximos else ''}
+            ORDER BY LTRIM(ae.ean,'0'),
+                     (COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem),'')) IS NOT NULL) DESC,
+                     ae.quantidade_estoque DESC
+        """, [faltam] + ([cnpjs_proximos] if cnpjs_proximos else []))
+        for r in cur.fetchall():
+            r = dict(r)
+            ean_k = r["ean"].lstrip("0")
+            if ean_k not in em_catalogo:
+                em_catalogo[ean_k] = r
+    cur.close()
+
+    resultado = []
+    for item in historico:
+        ean_n = (item["ean"] or "").lstrip("0")
+        if ean_n in em_catalogo:
+            prod = em_catalogo[ean_n].copy()
+            prod["vezes"] = item["vezes"]
+            resultado.append(prod)
+    return resultado[:10]
+
+
+def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos=None):
+    """Sugestões de cross-sell via Claude, cacheadas 24h."""
+    from datetime import datetime, timezone, timedelta
+    _ensure_home_insights_schema()
+    cur = conn.cursor()
+
+    # Verifica cache
+    cur.execute("""
+        SELECT payload FROM ecommerce_home_insights
+        WHERE consumidor_id = %s AND tipo = 'cross_sell' AND expira_em > NOW()
+        ORDER BY criado_em DESC LIMIT 1
+    """, (consumidor_id,))
+    row = cur.fetchone()
+    if row:
+        cur.close()
+        return row["payload"].get("produtos", [])
+
+    if not api_key or not historico_nomes:
+        cur.close()
+        return []
+
+    # Amostra de produtos do catálogo filtrada por lojas próximas
+    cnpj_cond = "AND e.cnpj = ANY(%s)" if cnpjs_proximos else ""
+    try:
+        cur.execute(f"""
+            SELECT COALESCE(m.descricao, e.descricao) AS nome
+            FROM estoque e
+            LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
+            WHERE e.estoque > 0 AND COALESCE(m.descricao, e.descricao) IS NOT NULL {cnpj_cond}
+            ORDER BY CAST(e.estoque AS INTEGER) DESC NULLS LAST
+            LIMIT 120
+        """, [cnpjs_proximos] if cnpjs_proximos else [])
+        catalogo_sample = [r["nome"] for r in cur.fetchall() if r["nome"]]
+    except Exception:
+        catalogo_sample = []
+
+    if not catalogo_sample:
+        cur.close()
+        return []
+
+    prompt = (
+        f"Histórico de compras do cliente: {', '.join(historico_nomes[:8])}\n\n"
+        f"Catálogo disponível:\n" + "\n".join(catalogo_sample[:80]) + "\n\n"
+        f"Sugira EXATAMENTE 5 produtos do catálogo acima mais relevantes para este cliente "
+        f"(complementos terapêuticos, uso contínuo relacionado, prevenção ou bem-estar associado). "
+        f"Responda APENAS com JSON: {{\"sugestoes\": [\"nome exato 1\", ...]}} "
+        f"Use nomes EXATAMENTE como no catálogo."
+    )
+    body = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={"content-type": "application/json",
+                 "x-api-key": api_key,
+                 "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    sugestoes_nomes = []
+    try:
+        with urllib.request.urlopen(req, timeout=9) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw = "".join(p.get("text","") for p in data.get("content",[]) if p.get("type")=="text").strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        sugestoes_nomes = json.loads(raw.strip()).get("sugestoes", [])[:5]
+    except Exception as exc:
+        app.logger.warning(f"cross_sell claude error: {exc}")
+        cur.close()
+        return []
+
+    # Busca produtos reais no catálogo pelos nomes sugeridos
+    produtos_cross = []
+    for nome_s in sugestoes_nomes:
+        palavras = [w for w in nome_s.upper().split() if len(w) >= 4][:3]
+        if not palavras:
+            continue
+        conds = " AND ".join([f"UPPER(COALESCE(m.descricao, e.descricao,'')) LIKE %s"] * len(palavras))
+        cnpj_filt = "AND e.cnpj = ANY(%s)" if cnpjs_proximos else ""
+        params = [f"%{w}%" for w in palavras] + ([cnpjs_proximos] if cnpjs_proximos else [])
+        try:
+            cur.execute(f"""
+                SELECT DISTINCT ON (LTRIM(e.barras,'0'))
+                    e.barras AS ean,
+                    COALESCE(m.descricao, e.descricao) AS nome,
+                    COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                    e.cnpj AS cnpjloja, u.razao,
+                    COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
+                FROM estoque e
+                LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
+                LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
+                    AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+                LEFT JOIN users u ON u.cnpjloja = e.cnpj
+                LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+                WHERE {conds} AND e.estoque > 0 AND u.is_admin = FALSE {cnpj_filt}
+                ORDER BY LTRIM(e.barras,'0') LIMIT 1
+            """, params)
+            r = cur.fetchone()
+            if r:
+                produtos_cross.append(dict(r))
+        except Exception:
+            pass
+
+    # Salva cache por 24h
+    try:
+        cur.execute("DELETE FROM ecommerce_home_insights WHERE consumidor_id=%s AND tipo='cross_sell'",
+                    (consumidor_id,))
+        expira = datetime.now(timezone.utc) + timedelta(hours=24)
+        cur.execute("""
+            INSERT INTO ecommerce_home_insights (consumidor_id, tipo, payload, expira_em)
+            VALUES (%s, 'cross_sell', %s, %s)
+        """, (consumidor_id, json.dumps({"produtos": [p.get("nome","") for p in produtos_cross]}), expira))
+        conn.commit()
+    except Exception:
+        pass
+    cur.close()
+    return produtos_cross
+
+
+def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=None):
+    """Top EANs das lojas físicas (vendageral + automatiza_vendas) que estão no catálogo das lojas próximas."""
+    cur = conn.cursor()
+
+    # Se não recebeu cnpjs_proximos pré-calculados, resolve aqui —
+    # sempre filtra por catalogo_publico=true; 60km quando tiver coord,
+    # fallback para todas as ativas se nenhuma estiver próxima.
+    if cnpjs_proximos is None:
+        try:
+            cur.execute("""
+                SELECT g.cnpjloja, g.lat, g.lng
+                FROM ecommerce_lojas_geo g
+                JOIN users u ON u.cnpjloja = g.cnpjloja
+                LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
+                WHERE u.is_admin = FALSE
+                  AND COALESCE(c.catalogo_publico, FALSE) = TRUE
+            """)
+            lojas_ativas = cur.fetchall()
+            todos_ativos = [r["cnpjloja"] for r in lojas_ativas]
+            if todos_ativos:
+                if lat != 0.0 or lng != 0.0:
+                    proximas = [r["cnpjloja"] for r in lojas_ativas
+                                if haversine(lat, lng,
+                                             float(r["lat"] or 0),
+                                             float(r["lng"] or 0)) <= 60]
+                    cnpjs_proximos = proximas if proximas else todos_ativos
+                else:
+                    cnpjs_proximos = todos_ativos
+        except Exception:
+            cnpjs_proximos = None
+
+    scores = {}
+    vg_filter  = "AND cnpj = ANY(%s)"      if cnpjs_proximos else ""
+    av_filter  = "AND cnpj_loja = ANY(%s)" if cnpjs_proximos else ""
+    vg_params  = [cnpjs_proximos] if cnpjs_proximos else []
+    av_params  = [cnpjs_proximos] if cnpjs_proximos else []
+
+    try:
+        cur.execute(f"""
+            SELECT ean, SUM(CAST(itens AS BIGINT)) AS total
+            FROM vendageral
+            WHERE ean IS NOT NULL AND ean <> '' AND itens IS NOT NULL {vg_filter}
+            GROUP BY ean ORDER BY total DESC LIMIT 600
+        """, vg_params)
+        for r in cur.fetchall():
+            scores[r["ean"]] = scores.get(r["ean"], 0) + int(r["total"] or 0)
+    except Exception:
+        pass
+
+    try:
+        cur.execute(f"""
+            SELECT ean, SUM(CAST(quantidade_vendida AS BIGINT)) AS total
+            FROM automatiza_vendas
+            WHERE ean IS NOT NULL AND ean <> '' AND quantidade_vendida IS NOT NULL {av_filter}
+            GROUP BY ean ORDER BY total DESC LIMIT 600
+        """, av_params)
+        for r in cur.fetchall():
+            scores[r["ean"]] = scores.get(r["ean"], 0) + int(r["total"] or 0)
+    except Exception:
+        pass
+
+    if not scores:
+        cur.close()
+        return []
+
+    top_eans_norm = [e.lstrip("0") for e in sorted(scores, key=scores.get, reverse=True)[:300]]
+
+    # Busca no catálogo apenas de lojas próximas (com imagem obrigatória)
+    cnpj_estoque_cond = "AND e.cnpj = ANY(%s)" if cnpjs_proximos else ""
+    estoque_params    = [top_eans_norm, cnpjs_proximos, limit * 4] if cnpjs_proximos else [top_eans_norm, limit * 4]
+    try:
+        cur.execute(f"""
+            SELECT DISTINCT ON (LTRIM(e.barras,'0'))
+                e.barras AS ean,
+                COALESCE(m.descricao, e.descricao) AS nome,
+                COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                e.cnpj AS cnpjloja, u.razao,
+                COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
+            FROM estoque e
+            LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
+            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
+                AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+            LEFT JOIN users u ON u.cnpjloja = e.cnpj
+            LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+            WHERE LTRIM(e.barras,'0') = ANY(%s)
+              AND e.estoque > 0 AND u.is_admin = FALSE {cnpj_estoque_cond}
+            ORDER BY LTRIM(e.barras,'0'),
+                     (COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) IS NOT NULL) DESC,
+                     e.estoque DESC
+            LIMIT %s
+        """, estoque_params)
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception:
+        cur.close()
+        return []
+
+    cur.close()
+    # Filtra apenas com imagem e reordena por score
+    rows = [r for r in rows if r.get("imagem")]
+    rows.sort(key=lambda r: scores.get(r["ean"], scores.get((r["ean"] or "").lstrip("0"), 0)), reverse=True)
+    return rows[:limit]
+
+
+@app.get("/api/home/insights")
+@_rate_limited_api(max_calls=20, window_secs=60)
+def api_home_insights():
+    """Lembretes de tratamento, recomendações pessoais, cross-sell IA e trending lojas físicas."""
+    consumidor_id = session.get("consumidor_id")
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat = lng = 0.0
+    resultado = {
+        "logado": bool(consumidor_id),
+        "lembretes": [],
+        "para_voce": [],
+        "cross_sell": [],
+        "trending_lojas": [],
+        "sem_farmacia_proxima": False,
+    }
+    conn = db()
+
+    # Resolve lojas ativas — sempre filtra por catalogo_publico=true.
+    # Com localização: prioriza lojas dentro de 60km; se nenhuma estiver
+    # próxima, usa todas as ativas como fallback e sinaliza ao frontend.
+    cnpjs_proximos = None
+    try:
+        _cur = conn.cursor()
+        _cur.execute("""
+            SELECT g.cnpjloja, g.lat, g.lng
+            FROM ecommerce_lojas_geo g
+            JOIN users u ON u.cnpjloja = g.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
+            WHERE u.is_admin = FALSE
+              AND COALESCE(c.catalogo_publico, FALSE) = TRUE
+        """)
+        lojas_ativas = _cur.fetchall()
+        _cur.close()
+        todos_ativos = [r["cnpjloja"] for r in lojas_ativas]
+        if todos_ativos:
+            if lat != 0.0 or lng != 0.0:
+                proximas = [r["cnpjloja"] for r in lojas_ativas
+                            if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 60]
+                if proximas:
+                    cnpjs_proximos = proximas
+                else:
+                    cnpjs_proximos = todos_ativos
+                    resultado["sem_farmacia_proxima"] = True
+            else:
+                cnpjs_proximos = todos_ativos
+    except Exception as e:
+        app.logger.warning(f"cnpjs_proximos: {e}")
+
+    try:
+        resultado["trending_lojas"] = _trending_lojas_fisicas(conn, lat, lng, cnpjs_proximos=cnpjs_proximos)
+    except Exception as e:
+        app.logger.warning(f"trending_lojas: {e}")
+
+    if consumidor_id:
+        try:
+            resultado["lembretes"] = _calcular_lembretes(consumidor_id, conn)
+        except Exception as e:
+            app.logger.warning(f"lembretes: {e}")
+
+        try:
+            resultado["para_voce"] = _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos)
+        except Exception as e:
+            app.logger.warning(f"para_voce: {e}")
+
+        try:
+            api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            if api_key and resultado["para_voce"]:
+                nomes = [p.get("nome", "") for p in resultado["para_voce"][:6] if p.get("nome")]
+                resultado["cross_sell"] = _cross_sell_ia(consumidor_id, nomes, conn, api_key, cnpjs_proximos)
+        except Exception as e:
+            app.logger.warning(f"cross_sell: {e}")
+
+    return jsonify(resultado)
+
+
+# ── Kits: mapeamento tema → regex de busca ─────────────────────────────────────
+_KITS_DEF = {
+    "gripe": {
+        "label": "Kit gripe e resfriado",
+        "icon": "fa-head-side-cough",
+        "regex": r"gripe|resfriado|antigripal|tosse|ambroxol|descongestionante|soro nasal|paracetamol|dipirona",
+    },
+    "bebe": {
+        "label": "Kit bebê",
+        "icon": "fa-baby",
+        "regex": r"fralda|lenco umedecid|pomada.*frald|frald.*pomada|termometro|alcool.*beb|beb.*alcool|talco.*beb|shampoo.*beb|sabonete.*beb",
+    },
+    "pele": {
+        "label": "Kit cuidados com a pele",
+        "icon": "fa-spa",
+        "regex": r"protetor solar|hidratante facial|vitamina e |colageno|sabonete facial|retinol|antissinais|acido.*hialur",
+    },
+}
+
+
+@app.get("/api/kit-produtos")
+@_rate_limited_api(max_calls=30, window_secs=60)
+def api_kit_produtos():
+    """Retorna produtos disponíveis nas lojas próximas para montagem de kit."""
+    tema = request.args.get("tema", "").strip().lower()
+    kit = _KITS_DEF.get(tema)
+    if not kit:
+        return jsonify({"erro": "tema inválido", "produtos": []}), 400
+
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat = lng = 0.0
+
+    conn = db()
+    cur = conn.cursor()
+
+    # Resolve lojas ativas; 60km quando tiver coord, fallback para todas ativas
+    cnpjs_proximos = None
+    try:
+        cur.execute("""
+            SELECT g.cnpjloja, g.lat, g.lng
+            FROM ecommerce_lojas_geo g
+            JOIN users u ON u.cnpjloja = g.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
+            WHERE u.is_admin = FALSE
+              AND COALESCE(c.catalogo_publico, FALSE) = TRUE
+        """)
+        lojas_ativas = cur.fetchall()
+        todos_ativos = [r["cnpjloja"] for r in lojas_ativas]
+        if todos_ativos:
+            if lat != 0.0 or lng != 0.0:
+                proximas = [r["cnpjloja"] for r in lojas_ativas
+                            if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 60]
+                cnpjs_proximos = proximas if proximas else todos_ativos
+            else:
+                cnpjs_proximos = todos_ativos
+    except Exception as e:
+        app.logger.warning(f"kit_produtos cnpjs: {e}")
+
+    cnpj_cond   = "AND e.cnpj = ANY(%s)" if cnpjs_proximos else ""
+    params_list = [kit["regex"]]
+    if cnpjs_proximos:
+        params_list.append(cnpjs_proximos)
+    params_list.append(40)
+
+    try:
+        cur.execute(f"""
+            SELECT DISTINCT ON (LTRIM(e.barras,'0'))
+                e.barras AS ean,
+                COALESCE(m.descricao, e.descricao) AS nome,
+                COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                e.cnpj AS cnpjloja,
+                u.razao,
+                COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
+            FROM estoque e
+            LEFT JOIN medicamentos m
+                ON LTRIM(COALESCE(m.barra_norm, m.barra,''),'0') = LTRIM(e.barras,'0')
+            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            LEFT JOIN produto_canon pc
+                ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
+               AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+            LEFT JOIN users u ON u.cnpjloja = e.cnpj
+            LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+            WHERE LOWER(COALESCE(m.descricao, e.descricao)) ~ %s
+              AND e.estoque > 0 AND u.is_admin = FALSE
+              AND COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) IS NOT NULL
+              {cnpj_cond}
+            ORDER BY LTRIM(e.barras,'0'),
+                     e.estoque DESC
+            LIMIT %s
+        """, params_list)
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        app.logger.warning(f"kit_produtos query: {e}")
+        cur.close()
+        return jsonify({"label": kit["label"], "icon": kit["icon"], "produtos": []})
+
+    cur.close()
+    rows = [r for r in rows if r.get("imagem") and float(r.get("preco") or 0) > 0]
+    return jsonify({"label": kit["label"], "icon": kit["icon"], "produtos": rows[:10]})
 
 
 @app.get("/api/comprar-novamente")
@@ -6641,7 +7459,7 @@ def produto_detalhe(ean):
     cur.execute(
         """
         SELECT m.descricao, m.marca, m.laboratorio, m.classe,
-               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+               COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
         FROM medicamentos m
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
         LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0')
@@ -6654,6 +7472,7 @@ def produto_detalhe(ean):
             ORDER BY updated_at DESC NULLS LAST
             LIMIT 1
         ) epi ON TRUE
+        LEFT JOIN medicamentos5 m5 ON m5.barra = COALESCE(m.barra_norm, m.barra)
         WHERE LTRIM(COALESCE(m.barra_norm,''),'0') = LTRIM(%s,'0')
            OR LTRIM(COALESCE(m.barra,''),'0')      = LTRIM(%s,'0')
         ORDER BY (m.barra_norm IS NOT NULL) DESC, m.id
@@ -11483,8 +12302,13 @@ def painel_notificacoes_enviar():
 @app.post("/painel/produto/<ean>/imagem")
 @painel_required
 def painel_produto_imagem(ean):
+    is_ajax = (request.headers.get("X-Requested-With") == "XMLHttpRequest"
+               or request.accept_mimetypes.best == "application/json")
     cnpjloja = session.get("cnpjloja")
+
     if "imagem" not in request.files or not request.files["imagem"].filename:
+        if is_ajax:
+            return jsonify({"ok": False, "erro": "Selecione uma imagem."}), 400
         flash("Selecione uma imagem.", "error")
         return redirect(url_for("precificador"))
 
@@ -11497,6 +12321,8 @@ def painel_produto_imagem(ean):
 
     img_url = upload_to_supabase_storage(raw, path, ct)
     if not img_url:
+        if is_ajax:
+            return jsonify({"ok": False, "erro": "Erro no upload. Verifique o arquivo e tente novamente."}), 500
         flash("Erro no upload da imagem. Verifique o arquivo e tente novamente.", "error")
         return redirect(url_for("precificador"))
 
@@ -11514,6 +12340,9 @@ def painel_produto_imagem(ean):
     conn.commit()
     cur.close()
     _batch_cache_clear()
+
+    if is_ajax:
+        return jsonify({"ok": True, "imagem_url": img_url})
     flash("Imagem do produto atualizada.", "success")
     return redirect(url_for("precificador"))
 
@@ -11667,7 +12496,12 @@ def precificador():
     _ensure_competitor_schema()
     cnpjloja = session.get("cnpjloja")
     q = (request.args.get("q") or "").strip()
-    produtos = get_dns_products(cnpjloja, q or None, skip_image_filter=True)
+    produtos = get_dns_products(
+        cnpjloja,
+        q or None,
+        skip_image_filter=True,
+        dedupe_display=False,
+    )
     _publicados, bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
     # Carrega preços concorrentes cacheados no banco
@@ -11996,7 +12830,7 @@ def api_painel_buscar_estoque():
     conn = db()
     cur = conn.cursor()
 
-    # EANs já visíveis (DNS/Vitnatu) para excluir da busca
+    # EANs já visíveis no catálogo para excluir da busca
     cur.execute("SELECT ean FROM ecommerce_catalogo_extra WHERE cnpjloja = %s", (cnpjloja,))
     ja_extras = {r["ean"] for r in cur.fetchall()}
 
@@ -12391,12 +13225,13 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         SELECT e.barras AS ean,
                COALESCE(m.descricao, e.descricao) AS nome,
                CAST(e.estoque AS INTEGER) AS qty,
-               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+               COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
         FROM estoque e
         LEFT JOIN medicamentos m ON m.barra_norm = COALESCE(e.barras_norm, e.barras)
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
         LEFT JOIN produto_canon pc ON pc.ean = COALESCE(e.barras_norm, e.barras) AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND epi.ean = e.barras
+        LEFT JOIN medicamentos5 m5 ON m5.barra = e.barras
         WHERE e.cnpj=%s AND e.estoque > %s
           AND COALESCE(e.barras, e.barras_norm, '') <> ''
 
@@ -12405,12 +13240,13 @@ def _sync_catalogo_loja_admin(cnpjloja, min_estoque, categorias_raw):
         SELECT ae.ean,
                COALESCE(m.descricao, ae.descricao_produto) AS nome,
                CAST(ae.quantidade_estoque AS INTEGER) AS qty,
-               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+               COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
         FROM automatiza_estoque ae
         LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
         LEFT JOIN produto_canon pc ON pc.ean = ae.ean AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND epi.ean = ae.ean
+        LEFT JOIN medicamentos5 m5 ON m5.barra = ae.ean
         WHERE ae.cnpj_loja=%s AND ae.quantidade_estoque > %s
           AND COALESCE(ae.ean, '') <> ''
     """, (cnpjloja, min_estoque, cnpjloja, min_estoque))

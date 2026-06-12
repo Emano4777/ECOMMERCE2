@@ -299,7 +299,7 @@
 {% block content %}
 <div class="pf-header">
   <div class="pf-title">
-    <i class="fa fa-tags me-2" style="color:var(--pk-yellow)"></i>Precificador DNS/Vitnatu
+    <i class="fa fa-tags me-2" style="color:var(--pk-yellow)"></i>Precificador
     <small>{{ razao }}</small>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -436,14 +436,13 @@
 
 {% if produtos %}
 
-{# Forms de imagem fora de qualquer outro form para evitar aninhamento inválido #}
+{# Inputs de imagem — upload via AJAX sem recarregar a página #}
 <div style="display:none">
   {% for p in produtos %}
-  <form method="post" action="{{ url_for('painel_produto_imagem', ean=p.ean) }}"
-        enctype="multipart/form-data" id="img-form-{{ p.ean }}">
-    <input type="file" name="imagem" accept="image/*" id="img-inp-{{ p.ean }}"
-           onchange="this.form.submit()"/>
-  </form>
+  <input type="file" name="imagem" accept="image/*" id="img-inp-{{ p.ean }}"
+         data-ean="{{ p.ean }}"
+         data-action="{{ url_for('painel_produto_imagem', ean=p.ean) }}"
+         onchange="uploadImagemAjax(this)"/>
   {% endfor %}
 </div>
 
@@ -821,6 +820,69 @@
 
 {% block extra_js %}
 <script>
+// ── Upload de imagem via AJAX (sem recarregar a página) ───────────────────────
+function uploadImagemAjax(input) {
+  const ean    = input.dataset.ean;
+  const action = input.dataset.action;
+  if (!input.files || !input.files[0]) return;
+
+  // Elementos de thumb — desktop (row) e mobile (card)
+  const thumbSelectors = [`#row-${ean} .prod-thumb`, `#row-${ean} .prod-thumb-ph`,
+                          `#card-${ean} .prod-thumb`, `#card-${ean} .prod-thumb-ph`];
+  // Mostra spinner em todos os thumbs
+  thumbSelectors.forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) el.style.opacity = '.35';
+  });
+
+  const fd = new FormData();
+  fd.append('imagem', input.files[0]);
+  input.value = '';
+
+  fetch(action, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd,
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.ok) { _pfToast(data.erro || 'Erro no upload.', 'error'); return; }
+    const url = data.imagem_url + '?v=' + Date.now();
+    // Atualiza thumb desktop
+    ['row', 'card'].forEach(prefix => {
+      const cell = document.getElementById(`${prefix}-${ean}`);
+      if (!cell) return;
+      // Substitui placeholder ou atualiza img existente
+      const ph = cell.querySelector('.prod-thumb-ph');
+      const img = cell.querySelector('.prod-thumb');
+      const semImg = cell.querySelector('[style*="fora do catálogo"],[style*="fora do cat"]');
+      if (semImg) semImg.remove();
+      if (ph) {
+        const newImg = document.createElement('img');
+        newImg.src = url; newImg.className = 'prod-thumb'; newImg.loading = 'lazy';
+        newImg.onerror = function(){ this.outerHTML='<div class="prod-thumb-ph"><i class="fa fa-pills"></i></div>'; };
+        ph.replaceWith(newImg);
+      } else if (img) {
+        img.src = url;
+        img.style.opacity = '1';
+      }
+    });
+    _pfToast('Imagem atualizada!', 'success');
+  })
+  .catch(() => {
+    thumbSelectors.forEach(sel => { const el = document.querySelector(sel); if (el) el.style.opacity = '1'; });
+    _pfToast('Falha na conexão. Tente novamente.', 'error');
+  });
+}
+
+function _pfToast(msg, tipo) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;padding:12px 18px;border-radius:10px;font-size:.88rem;font-weight:700;color:#fff;background:${tipo==='success'?'#16a34a':'#dc2626'};box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .4s`;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 3000);
+}
+
 // ── Ocultar / Restaurar ──────────────────────────────────────────────────────
 function ocultarProduto(ean, btn) {
   if (!confirm('Ocultar este produto do ecommerce?')) return;

@@ -18,8 +18,22 @@
 .home-hero h1 { font-size:2rem; line-height:1.08; font-weight:900; margin:0 0 10px; }
 .home-hero p { margin:0; opacity:.9; font-size:.98rem; line-height:1.55; max-width:560px; }
 .home-search { margin-top:20px; display:flex; gap:8px; }
-.home-search input { flex:1; height:48px; border:0; border-radius:12px; padding:0 16px; font-family:inherit; font-weight:800; outline:none; }
-.home-search button { width:52px; border:0; border-radius:12px; background:var(--pq-yellow); color:#1a1a1a; font-weight:900; cursor:pointer; }
+.home-search-wrap { flex:1; position:relative; }
+.home-search-wrap input { width:100%; height:48px; border:0; border-radius:12px; padding:0 72px 0 16px; font-family:inherit; font-weight:800; outline:none; box-sizing:border-box; }
+.home-search button[type=submit] { width:52px; flex-shrink:0; border:0; border-radius:12px; background:var(--pq-yellow); color:#1a1a1a; font-weight:900; cursor:pointer; }
+.home-search-icons { position:absolute; right:8px; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:2px; }
+.home-ico-btn { width:30px; height:30px; border:0; background:transparent; cursor:pointer; border-radius:50%; color:rgba(0,0,0,.38); display:flex; align-items:center; justify-content:center; font-size:.88rem; transition:color .15s, background .15s; }
+.home-ico-btn:hover { color:var(--pq-red); background:rgba(200,16,46,.07); }
+.home-ico-btn:disabled { opacity:.45; cursor:default; }
+.home-ico-btn.listening { color:var(--pq-red) !important; animation:voice-pulse .8s ease-in-out infinite; }
+.home-foto-spinner { width:13px; height:13px; border:2px solid #bbb; border-top-color:var(--pq-red); border-radius:50%; animation:home-spin .7s linear infinite; display:inline-block; }
+@keyframes home-spin { to { transform:rotate(360deg); } }
+/* voice status toast */
+.voice-status { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(24px); background:#1a1a1a; color:#fff; border-radius:20px; padding:10px 18px; font-size:.85rem; font-weight:600; display:flex; align-items:center; flex-wrap:wrap; justify-content:center; gap:8px; opacity:0; transition:opacity .22s, transform .22s; z-index:9999; pointer-events:none; max-width:90vw; text-align:center; }
+.voice-status.show { opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+.voice-status-cancel { background:none; border:1px solid rgba(255,255,255,.35); color:#fff; border-radius:999px; padding:4px 12px; cursor:pointer; font-size:.76rem; transition:background .15s; }
+.voice-status-cancel:hover { background:rgba(255,255,255,.12); }
+@keyframes voice-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 .home-quick { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
 .home-quick a { color:#fff; text-decoration:none; border:1px solid rgba(255,255,255,.28); border-radius:999px; padding:7px 11px; font-size:.8rem; font-weight:900; }
 .home-savings {
@@ -107,7 +121,29 @@
 .kit-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:16px; min-width:260px; flex:0 0 300px; }
 .kit-card h3 { font-size:.98rem; font-weight:900; margin:0 0 8px; }
 .kit-card ul { margin:0; padding-left:18px; color:var(--pq-muted); font-size:.82rem; line-height:1.65; }
-.kit-card a { margin-top:12px; display:inline-flex; background:var(--pq-red); color:#fff; border-radius:9px; padding:8px 12px; text-decoration:none; font-weight:900; font-size:.8rem; }
+.kit-card-btn { margin-top:12px; display:inline-flex; align-items:center; gap:6px; background:var(--pq-red); color:#fff; border:none; border-radius:9px; padding:8px 14px; font-weight:900; font-size:.8rem; cursor:pointer; }
+.kit-card-btn:hover { opacity:.88; }
+/* ── Kit drawer ────────────────────────────────────────────────── */
+.kit-drawer-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1100; display:none; align-items:flex-end; justify-content:center; }
+.kit-drawer-overlay.open { display:flex; }
+.kit-drawer { background:#fff; border-radius:22px 22px 0 0; width:100%; max-width:520px; max-height:85dvh; display:flex; flex-direction:column; overflow:hidden; animation:kitSlideUp .28s cubic-bezier(.34,1.56,.64,1); }
+@keyframes kitSlideUp { from{ transform:translateY(100%); opacity:0; } to{ transform:translateY(0); opacity:1; } }
+.kit-drawer-head { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 14px; border-bottom:1px solid var(--pq-border); }
+.kit-drawer-head h3 { margin:0; font-size:1.05rem; font-weight:900; }
+.kit-drawer-close { background:none; border:none; font-size:1.2rem; cursor:pointer; color:var(--pq-muted); padding:4px 8px; }
+.kit-drawer-body { overflow-y:auto; flex:1; padding:12px 16px; }
+.kit-item { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid #f0f0f0; }
+.kit-item:last-child { border-bottom:none; }
+.kit-item-img { width:60px; height:60px; object-fit:contain; border-radius:10px; flex-shrink:0; border:1px solid #f0f0f0; }
+.kit-item-info { flex:1; min-width:0; }
+.kit-item-name { font-size:.82rem; font-weight:700; line-height:1.28; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.kit-item-store { font-size:.72rem; color:var(--pq-muted); margin-top:2px; }
+.kit-item-price { font-size:.92rem; font-weight:900; color:var(--pq-red); white-space:nowrap; }
+.kit-item-check { width:22px; height:22px; accent-color:var(--pq-red); flex-shrink:0; cursor:pointer; }
+.kit-drawer-foot { padding:14px 16px; border-top:1px solid var(--pq-border); display:flex; gap:10px; }
+.kit-add-btn { flex:1; background:var(--pq-red); color:#fff; border:none; border-radius:12px; padding:13px; font-weight:900; font-size:.95rem; cursor:pointer; }
+.kit-add-btn:disabled { opacity:.4; cursor:not-allowed; }
+.kit-drawer-loading { padding:32px; text-align:center; color:var(--pq-muted); font-size:.9rem; }
 .home-empty { background:#fff; border:1px solid var(--pq-border); border-radius:14px; padding:22px; color:var(--pq-muted); text-align:center; }
 /* ── DEPARTAMENTOS (strip acima do hero) ─────────────────────────── */
 .dept-strip-wrap { position:relative; margin-bottom:20px; }
@@ -153,7 +189,8 @@
   .need-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
   .coupon-grid,.compare-grid { grid-template-columns:1fr; }
   .home-search { flex-direction:column; }
-  .home-search button { width:100%; height:44px; }
+  .home-search-wrap { width:100%; }
+  .home-search button[type=submit] { width:100%; height:44px; }
   .need-ico-hd { padding:18px 16px 14px; }
   .need-body { padding:12px 14px 16px; }
   /* chips menores no mobile */
@@ -204,6 +241,38 @@
 .bnr-dot { width:8px; height:8px; border-radius:50%; background:#d1d5db; cursor:pointer; transition:.2s; border:none; padding:0; }
 .bnr-dot.active { background:var(--pq-red); width:20px; border-radius:4px; }
 @media(max-width:560px){ .bnr-slide img { height:155px; } }
+
+/* ── Home Personalizada ──────────────────────────────────── */
+.lembrete-card { background:#fff; border-radius:16px; border-left:5px solid var(--pq-red); box-shadow:0 4px 18px rgba(200,16,46,.1); padding:16px 18px; display:flex; align-items:flex-start; gap:14px; margin-bottom:10px; }
+.lembrete-card + .lembrete-card { margin-top:10px; }
+.lembrete-ico { width:44px; height:44px; flex-shrink:0; border-radius:12px; background:#fff0f2; display:flex; align-items:center; justify-content:center; font-size:1.25rem; color:var(--pq-red); }
+.lembrete-ico--green { background:#f0fdf4; color:#16a34a; }
+.lembrete-ico--blue  { background:#eff6ff; color:#1d4ed8; }
+.lembrete-body { flex:1; min-width:0; }
+.lembrete-titulo { font-weight:900; font-size:.94rem; line-height:1.25; margin-bottom:4px; }
+.lembrete-msg { font-size:.8rem; color:#555; line-height:1.45; }
+.lembrete-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+.lembrete-btn { display:inline-flex; align-items:center; gap:5px; padding:7px 14px; border-radius:9px; font-size:.78rem; font-weight:900; text-decoration:none; cursor:pointer; border:0; }
+.lembrete-btn--primary { background:var(--pq-red); color:#fff; }
+.lembrete-btn--secondary { background:#f4f6f9; color:#444; }
+.lembrete-btn--green { background:#16a34a; color:#fff; }
+.insights-row { display:flex; gap:12px; overflow-x:auto; scrollbar-width:none; padding-bottom:4px; }
+.insights-row::-webkit-scrollbar { display:none; }
+.cross-sell-tag { position:absolute; top:8px; left:8px; background:#7c3aed; color:#fff; font-size:.6rem; font-weight:900; padding:2px 7px; border-radius:6px; display:flex; align-items:center; gap:3px; }
+@media(max-width:560px){ .lembrete-card { padding:12px 14px; gap:10px; } .lembrete-ico { width:36px; height:36px; font-size:1rem; } }
+/* ── Carrossel das home-rows ─────────────────────────────── */
+.home-row-wrap { position:relative; }
+.home-row-cnav { position:absolute; top:50%; transform:translateY(-50%); z-index:4; width:34px; height:34px; border-radius:50%; background:#fff; border:1.5px solid #e2e8f0; box-shadow:0 2px 10px rgba(0,0,0,.12); cursor:pointer; display:flex; align-items:center; justify-content:center; color:#555; font-size:.8rem; transition:.15s; }
+.home-row-cnav:hover { border-color:var(--pq-red); background:var(--pq-red); color:#fff; }
+.home-row-cnav:disabled { opacity:0; pointer-events:none; }
+.home-row-cnav--prev { left:-14px; }
+.home-row-cnav--next { right:-14px; }
+@media(max-width:640px){ .home-row-cnav { display:none; } }
+/* ── Banner sem farmácia próxima ─────────────────────────────── */
+.sfp-banner { display:flex; gap:14px; align-items:flex-start; background:linear-gradient(135deg,#fff7ed,#fff); border:1.5px solid #fed7aa; border-radius:16px; padding:16px 18px; box-shadow:0 2px 10px rgba(234,88,12,.08); }
+.sfp-ico { width:42px; height:42px; border-radius:12px; background:#fff7ed; border:1.5px solid #fed7aa; display:flex; align-items:center; justify-content:center; font-size:1.2rem; color:#ea580c; flex-shrink:0; }
+.sfp-titulo { font-size:.95rem; font-weight:900; color:#c2410c; margin-bottom:4px; }
+.sfp-msg { font-size:.82rem; color:#78350f; line-height:1.5; }
 </style>
 {% endblock %}
 
@@ -261,8 +330,24 @@
       <h1>Compare preços e economize em saúde</h1>
       <p>Medicamentos, suplementos, dermocosméticos e mais. Compare preços nas farmácias mais próximas de você e economize de verdade.</p>
       <form class="home-search" action="{{ url_for('catalogo_publico') }}" method="get">
-        <input name="q" placeholder="Busque por produto, sintoma ou EAN" autocomplete="off">
-        <button title="Buscar"><i class="fa fa-magnifying-glass"></i></button>
+        <div class="home-search-wrap">
+          <input id="home-q" name="q" placeholder="Busque por produto, sintoma ou EAN" autocomplete="off">
+          <div class="home-search-icons">
+            <button type="button" class="home-ico-btn" id="home-voice-btn"
+                    onclick="startVoiceInput('home-q',{button:this,onsubmit:function(){document.querySelector('.home-search').submit();}})"
+                    title="Buscar por voz" aria-label="Buscar por voz">
+              <i class="fa fa-microphone"></i>
+            </button>
+            <button type="button" class="home-ico-btn" id="home-camera-btn"
+                    onclick="abrirFotoBuscaHome()" title="Buscar por foto da embalagem">
+              <i class="fa fa-camera" id="home-foto-icon"></i>
+              <span class="home-foto-spinner" id="home-foto-spinner" style="display:none"></span>
+            </button>
+          </div>
+          <input type="file" id="home-foto-inp" accept="image/*" capture="environment"
+                 style="display:none" onchange="processarFotoBuscaHome(this)">
+        </div>
+        <button type="submit" title="Buscar"><i class="fa fa-magnifying-glass"></i></button>
       </form>
       <div class="home-quick">
         <a href="{{ url_for('receita_medica') }}"><i class="fa fa-file-medical me-1"></i>Buscar por receita</a>
@@ -333,6 +418,49 @@
     </div>
   </section>
 
+  {# ── Aviso sem farmácia próxima ── #}
+  <div id="sec-sem-farmacia" style="display:none;margin-bottom:18px">
+    <div class="sfp-banner">
+      <div class="sfp-ico"><i class="fa fa-map-pin"></i></div>
+      <div class="sfp-body">
+        <div class="sfp-titulo">Ainda não chegamos na sua cidade!</div>
+        <div class="sfp-msg">Estamos expandindo e em breve estaremos por aí. Enquanto isso, confira nossos produtos e prepare sua lista.</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Lembretes de tratamento ── #}
+  <section class="home-section" id="sec-lembretes" style="display:none">
+    <div class="home-section-head" style="margin-bottom:14px">
+      <div><h2 class="home-title"><i class="fa fa-bell" style="color:#d97706"></i>Lembretes de tratamento</h2><div class="home-sub">Baseado nas suas últimas compras</div></div>
+    </div>
+    <div id="home-lembretes"></div>
+  </section>
+
+  {# ── Para você: produtos personalizados ── #}
+  <section class="home-section" id="sec-para-voce" style="display:none">
+    <div class="home-section-head">
+      <div><h2 class="home-title"><i class="fa fa-heart" style="color:var(--pq-red)"></i>Para você</h2><div class="home-sub">Baseado no seu histórico de compras</div></div>
+    </div>
+    <div id="home-para-voce" class="insights-row"><div class="home-empty">Carregando...</div></div>
+  </section>
+
+  {# ── Cross-sell IA ── #}
+  <section class="home-section" id="sec-cross-sell" style="display:none">
+    <div class="home-section-head">
+      <div><h2 class="home-title"><i class="fa fa-wand-magic-sparkles" style="color:#7c3aed"></i>Você também pode precisar de</h2><div class="home-sub">Produtos que combinam com o que você já comprou</div></div>
+    </div>
+    <div id="home-cross-sell" class="insights-row"><div class="home-empty">Carregando sugestões...</div></div>
+  </section>
+
+  {# ── Trending lojas físicas ── #}
+  <section class="home-section" id="sec-trending-lojas">
+    <div class="home-section-head">
+      <div><h2 class="home-title"><i class="fa fa-fire" style="color:#ea580c"></i>Mais vendidos nas farmácias</h2><div class="home-sub">Produtos mais procurados nas lojas físicas da região</div></div>
+    </div>
+    <div id="home-trending-lojas" class="home-row"><div class="home-empty">Carregando produtos populares...</div></div>
+  </section>
+
   <section class="home-section">
     <div class="home-section-head">
       <div><h2 class="home-title"><i class="fa fa-bolt" style="color:var(--pq-red)"></i>Ofertas relâmpago</h2><div class="home-sub">Produtos com cupom, bom preço ou estoque pronto para vender.</div></div>
@@ -373,15 +501,34 @@
 
   <section class="home-section">
     <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-basket-shopping" style="color:var(--pq-red)"></i>Kits automáticos</h2><div class="home-sub">Atalhos prontos para montar carrinhos por ocasião.</div></div>
+      <div><h2 class="home-title"><i class="fa fa-basket-shopping" style="color:var(--pq-red)"></i>Kits prontos</h2><div class="home-sub">Selecione os produtos que precisa e adicione tudo de uma vez ao carrinho.</div></div>
     </div>
     <div class="home-row">
-      <div class="kit-card"><h3>Kit gripe e resfriado</h3><ul><li>Analgésicos e antitérmicos</li><li>Soro nasal e pastilhas</li><li>Vitaminas e hidratação</li></ul><a href="{{ url_for('catalogo_publico', q='gripe') }}">Montar kit</a></div>
-      <div class="kit-card"><h3>Kit bebê</h3><ul><li>Fraldas e lenços</li><li>Pomadas e higiene</li><li>Termômetro e cuidados básicos</li></ul><a href="{{ url_for('catalogo_publico', q='bebê') }}">Montar kit</a></div>
-      <div class="kit-card"><h3>Kit cuidados com a pele</h3><ul><li>Protetor solar</li><li>Hidratantes</li><li>Limpeza facial</li></ul><a href="{{ url_for('catalogo_publico', cat='dermocosmetico') }}">Montar kit</a></div>
+      <div class="kit-card"><h3>Kit gripe e resfriado</h3><ul><li>Analgésicos e antitérmicos</li><li>Soro nasal e pastilhas</li><li>Vitaminas e hidratação</li></ul><button class="kit-card-btn" onclick="abrirKitDrawer('gripe')"><i class="fa fa-basket-shopping"></i>Montar kit</button></div>
+      <div class="kit-card"><h3>Kit bebê</h3><ul><li>Fraldas e lenços</li><li>Pomadas e higiene</li><li>Termômetro e cuidados básicos</li></ul><button class="kit-card-btn" onclick="abrirKitDrawer('bebe')"><i class="fa fa-basket-shopping"></i>Montar kit</button></div>
+      <div class="kit-card"><h3>Kit cuidados com a pele</h3><ul><li>Protetor solar</li><li>Hidratantes</li><li>Limpeza facial</li></ul><button class="kit-card-btn" onclick="abrirKitDrawer('pele')"><i class="fa fa-basket-shopping"></i>Montar kit</button></div>
     </div>
   </section>
 </div>
+
+<!-- ── Drawer de montagem de kit ──────────────────────────────────────────── -->
+<div class="kit-drawer-overlay" id="kitDrawerOverlay" onclick="if(event.target===this)fecharKitDrawer()">
+  <div class="kit-drawer">
+    <div class="kit-drawer-head">
+      <h3 id="kitDrawerTitle">Montando kit...</h3>
+      <button class="kit-drawer-close" onclick="fecharKitDrawer()" aria-label="Fechar"><i class="fa fa-xmark"></i></button>
+    </div>
+    <div class="kit-drawer-body" id="kitDrawerBody">
+      <div class="kit-drawer-loading"><i class="fa fa-spinner fa-spin"></i> Buscando produtos disponíveis...</div>
+    </div>
+    <div class="kit-drawer-foot">
+      <button class="kit-add-btn" id="kitAddBtn" disabled onclick="adicionarKitSelecionado()">
+        Adicionar ao carrinho
+      </button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -390,6 +537,30 @@ const CAT_LABELS_HOME = {medicamento:'Medicamentos', perfumaria:'Perfumaria', de
 const cuponsHome = {};
 const planosAssinatura = {};
 let _bnrSlides=[], _bnrCur=0, _bnrTimer=null, _bnrTs=0;
+
+// ── Carrossel das home-rows ────────────────────────────────────────────────────
+function _homeCarousel(rowId) {
+  const row = document.getElementById(rowId);
+  if (!row || (row.parentElement && row.parentElement.classList.contains('home-row-wrap'))) return;
+  if (row.scrollWidth <= row.clientWidth + 8) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'home-row-wrap';
+  row.parentNode.insertBefore(wrap, row);
+  wrap.appendChild(row);
+  const prev = document.createElement('button');
+  prev.type = 'button'; prev.className = 'home-row-cnav home-row-cnav--prev';
+  prev.innerHTML = '<i class="fa fa-chevron-left"></i>'; prev.setAttribute('aria-label','Anterior');
+  const next = document.createElement('button');
+  next.type = 'button'; next.className = 'home-row-cnav home-row-cnav--next';
+  next.innerHTML = '<i class="fa fa-chevron-right"></i>'; next.setAttribute('aria-label','Próximo');
+  wrap.appendChild(prev); wrap.appendChild(next);
+  const amt = () => { const c = row.querySelector('.home-prod'); return c ? (c.offsetWidth + 12) * 3 : row.clientWidth * 0.75; };
+  prev.onclick = () => row.scrollBy({ left: -amt(), behavior:'smooth' });
+  next.onclick = () => row.scrollBy({ left:  amt(), behavior:'smooth' });
+  const upd = () => { prev.disabled = row.scrollLeft < 4; next.disabled = row.scrollLeft + row.clientWidth >= row.scrollWidth - 4; };
+  row.addEventListener('scroll', upd, { passive:true });
+  setTimeout(upd, 180);
+}
 
 // ── Cache localStorage ─────────────────────────────────────────────────────────
 const _PQC = { prod:600e3, bnr:900e3, mais:1200e3, cupom:300e3, clube:600e3 };
@@ -445,6 +616,7 @@ function renderHomeProdutos(produtos){
     .sort((a,b)=>(parseFloat(a.preco)||0)-(parseFloat(b.preco)||0))
     .slice(0,12);
   document.getElementById('home-ofertas').innerHTML = ofertas.map(p => prodCard(p, `<i class="fa fa-bolt"></i>Oferta`)).join('') || '<div class="home-empty">Nenhuma oferta encontrada agora.</div>';
+  setTimeout(() => _homeCarousel('home-ofertas'), 50);
   renderComparador(produtos);
 }
 function renderComparador(produtos){
@@ -556,6 +728,7 @@ function carregarMaisComprados(){
           <div class="home-prod-badge"><i class="fa fa-fire"></i>${p.total_vendas} vendas</div>
         </a>`;
       }).join('');
+      setTimeout(() => _homeCarousel('home-mais-comprados'), 50);
     }).catch(()=>{});
 }
 carregarMaisComprados();
@@ -627,6 +800,298 @@ fetch('/api/comprar-novamente')
         <div class="home-prod-badge"><i class="fa fa-rotate-right"></i>Comprado antes</div>
       </a>`;
     }).join('');
+    setTimeout(() => _homeCarousel('home-comprar-novamente'), 50);
   }).catch(()=>{});
+
+/* ── HOME INSIGHTS (lembretes + para você + cross-sell + trending) ── */
+const _LEMBRETE_ICOS = {
+  anticoncepcional: {ico:'fa-circle-dot',cls:'lembrete-ico--rose'},
+  antibiotico: {ico:'fa-capsules',cls:''},
+  anti_hipertensivo: {ico:'fa-heart-pulse',cls:'lembrete-ico--blue'},
+  hipoglicemiante: {ico:'fa-droplet',cls:'lembrete-ico--blue'},
+  ibp: {ico:'fa-stomach',cls:'lembrete-ico--green'},
+  estatina: {ico:'fa-heart',cls:'lembrete-ico--red'},
+  tireoide: {ico:'fa-shield-halved',cls:'lembrete-ico--green'},
+  vermifugo: {ico:'fa-leaf',cls:'lembrete-ico--green'},
+};
+
+function renderLembrete(l) {
+  const cfg = _LEMBRETE_ICOS[l.tipo] || {ico:'fa-bell',cls:''};
+  const urlProd = l.ean ? `/produto/${encodeURIComponent(l.ean)}?cnpj=${encodeURIComponent(l.cnpjloja||'')}` : '#';
+  return `<div class="lembrete-card">
+    <div class="lembrete-ico ${cfg.cls}"><i class="fa ${cfg.ico}"></i></div>
+    <div class="lembrete-body">
+      <div class="lembrete-titulo">${hEsc(l.titulo)}</div>
+      <div class="lembrete-msg">${hEsc(l.mensagem)}</div>
+      <div class="lembrete-actions">
+        ${l.ean ? `<a class="lembrete-btn lembrete-btn--primary" href="${urlProd}"><i class="fa fa-cart-shopping"></i>Comprar novamente</a>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderInsightCard(p, tag) {
+  const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
+  const precoNum = parseFloat(p.preco)||0;
+  return `<a class="home-prod" href="${url}" style="position:relative">
+    ${tag ? `<div class="cross-sell-tag"><i class="fa fa-wand-magic-sparkles" style="font-size:.5rem"></i>${hEsc(tag)}</div>` : ''}
+    ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
+    <div class="home-prod-name">${hEsc(p.nome)}</div>
+    <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia Poupaqui')}</div>
+    ${precoNum > 0 ? `<div class="home-prod-price">${hBrl(precoNum)}</div>` : ''}
+  </a>`;
+}
+
+function carregarInsights() {
+  const _lat = localStorage.getItem('pq_lat') || 0;
+  const _lng = localStorage.getItem('pq_lng') || 0;
+  const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
+  fetch('/api/home/insights' + qs)
+    .then(r => r.json())
+    .then(d => {
+      // Aviso sem farmácia próxima
+      if (d.sem_farmacia_proxima) {
+        document.getElementById('sec-sem-farmacia').style.display = '';
+      }
+
+      // Lembretes
+      const lembretes = d.lembretes || [];
+      if (lembretes.length) {
+        document.getElementById('sec-lembretes').style.display = '';
+        document.getElementById('home-lembretes').innerHTML = lembretes.map(renderLembrete).join('');
+      }
+
+      // Para você (só com imagem e preço)
+      const paraVoce = (d.para_voce || []).filter(p => p.imagem && parseFloat(p.preco) > 0);
+      if (paraVoce.length) {
+        document.getElementById('sec-para-voce').style.display = '';
+        document.getElementById('home-para-voce').innerHTML = paraVoce.map(p => renderInsightCard(p, null)).join('');
+        setTimeout(() => _homeCarousel('home-para-voce'), 50);
+      }
+
+      // Cross-sell IA (só com imagem e preço)
+      const crossSell = (d.cross_sell || []).filter(p => p.imagem && parseFloat(p.preco) > 0);
+      if (crossSell.length) {
+        document.getElementById('sec-cross-sell').style.display = '';
+        document.getElementById('home-cross-sell').innerHTML = crossSell.map(p => renderInsightCard(p, null)).join('');
+        setTimeout(() => _homeCarousel('home-cross-sell'), 50);
+      }
+
+      // Trending lojas físicas (só com imagem)
+      const trending = (d.trending_lojas || []).filter(p => p.nome && p.imagem);
+      const trendingEl = document.getElementById('home-trending-lojas');
+      if (trending.length) {
+        trendingEl.innerHTML = trending.map(p => `<a class="home-prod" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}">
+          ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
+          <div class="home-prod-name">${hEsc(p.nome)}</div>
+          <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia')}</div>
+          ${parseFloat(p.preco) > 0 ? `<div class="home-prod-price">${hBrl(p.preco)}</div>` : ''}
+          <div class="home-prod-badge"><i class="fa fa-fire"></i>Mais vendido</div>
+        </a>`).join('');
+        setTimeout(() => _homeCarousel('home-trending-lojas'), 50);
+      } else {
+        trendingEl.innerHTML = '<div class="home-empty">Carregando produtos das lojas físicas...</div>';
+      }
+    })
+    .catch(() => {
+      document.getElementById('home-trending-lojas').innerHTML = '<div class="home-empty">Não foi possível carregar os produtos populares agora.</div>';
+    });
+}
+carregarInsights();
+
+/* ── BUSCA POR VOZ ───────────────────────────────────── */
+let _voiceRecog = null, _voiceBtn = null, _voiceHideTimer = null;
+
+function _voiceGetCtor() { return window.SpeechRecognition || window.webkitSpeechRecognition || null; }
+
+function _voiceBtnState(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle('listening', !!on);
+  btn.title = on ? 'Ouvindo...' : (btn.getAttribute('aria-label') || 'Buscar por voz');
+}
+
+function _ensureVoiceToast() {
+  let el = document.getElementById('_voiceToast');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = '_voiceToast';
+  el.className = 'voice-status';
+  el.innerHTML = '<i class="fa fa-microphone"></i>'
+    + '<span id="_voiceToastTxt">Ouvindo...</span>'
+    + '<button type="button" class="voice-status-cancel" onclick="_cancelVoice()">Cancelar</button>';
+  document.body.appendChild(el);
+  return el;
+}
+
+function _showVoiceToast(msg, ms) {
+  _ensureVoiceToast();
+  document.getElementById('_voiceToastTxt').textContent = msg || 'Ouvindo...';
+  _ensureVoiceToast().classList.add('show');
+  clearTimeout(_voiceHideTimer);
+  if (ms) _voiceHideTimer = setTimeout(() => _ensureVoiceToast().classList.remove('show'), ms);
+}
+
+function _cancelVoice() {
+  if (_voiceRecog) { try { _voiceRecog.abort(); } catch(e){} }
+  _voiceBtnState(_voiceBtn, false);
+  _voiceRecog = _voiceBtn = null;
+  _showVoiceToast('Pesquisa por voz cancelada.', 1500);
+}
+
+function startVoiceInput(targetId, opts) {
+  opts = opts || {};
+  const Ctor = _voiceGetCtor();
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  if (!Ctor) {
+    alert('Pesquisa por voz não suportada. Use Chrome ou Edge e permita o acesso ao microfone.');
+    return;
+  }
+  if (_voiceRecog) {
+    const same = opts.button && opts.button === _voiceBtn;
+    _cancelVoice();
+    if (same) return;
+  }
+  const recog = new Ctor();
+  _voiceRecog = recog; _voiceBtn = opts.button || null;
+  recog.lang = 'pt-BR';
+  recog.continuous = false;
+  recog.interimResults = false;
+  recog.maxAlternatives = 1;
+  recog.onstart  = () => { _voiceBtnState(_voiceBtn, true); _showVoiceToast('Ouvindo... fale o nome do produto ou sintoma.'); };
+  recog.onresult = (e) => {
+    const txt = Array.from(e.results || []).map(r => r[0]?.transcript || '').join(' ').trim();
+    if (!txt) return;
+    target.value = txt;
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    _showVoiceToast('Entendido. Pesquisando...', 2000);
+    if (opts.onsubmit) setTimeout(() => opts.onsubmit(), 200);
+  };
+  recog.onerror = (e) => {
+    const err = e?.error || '';
+    if (err === 'not-allowed' || err === 'service-not-allowed') {
+      _ensureVoiceToast().classList.remove('show');
+      alert('Permita o acesso ao microfone para usar a pesquisa por voz.');
+    } else if (err === 'no-speech') {
+      _showVoiceToast('Não ouvi nada. Tente novamente.', 2200);
+    } else if (err !== 'aborted') {
+      _showVoiceToast('Não consegui entender. Tente novamente.', 2200);
+    }
+  };
+  recog.onend = () => {
+    _voiceBtnState(_voiceBtn, false);
+    _voiceRecog = _voiceBtn = null;
+    if (!_voiceHideTimer) _ensureVoiceToast().classList.remove('show');
+  };
+  recog.start();
+}
+
+/* ── BUSCA POR FOTO (home) ───────────────────────────── */
+function abrirFotoBuscaHome() { document.getElementById('home-foto-inp').click(); }
+
+function processarFotoBuscaHome(inp) {
+  const file = inp.files && inp.files[0];
+  inp.value = '';
+  if (!file) return;
+  const btn  = document.getElementById('home-camera-btn');
+  const icon = document.getElementById('home-foto-icon');
+  const spin = document.getElementById('home-foto-spinner');
+  btn.disabled = true;
+  icon.style.display = 'none';
+  spin.style.display = '';
+  const fd = new FormData();
+  fd.append('imagem', file);
+  fetch('/api/busca/foto', { method:'POST', body:fd })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false; icon.style.display = ''; spin.style.display = 'none';
+      if (!data.ok) { alert(data.erro || 'Não foi possível identificar o medicamento.'); return; }
+      const id = data.identificado || {};
+      const termo = [id.nome, id.dosagem].filter(Boolean).join(' ');
+      document.getElementById('home-q').value = termo;
+      document.querySelector('.home-search').submit();
+    })
+    .catch(() => {
+      btn.disabled = false; icon.style.display = ''; spin.style.display = 'none';
+      alert('Erro ao enviar a imagem. Tente novamente.');
+    });
+}
+
+// ── Kit drawer ────────────────────────────────────────────────────────────────
+let _kitItems = [];
+
+function abrirKitDrawer(tema) {
+  _kitItems = [];
+  document.getElementById('kitDrawerTitle').textContent = 'Montando kit...';
+  document.getElementById('kitDrawerBody').innerHTML =
+    '<div class="kit-drawer-loading"><i class="fa fa-spinner fa-spin"></i> Buscando produtos disponíveis...</div>';
+  document.getElementById('kitAddBtn').disabled = true;
+  document.getElementById('kitAddBtn').textContent = 'Adicionar ao carrinho';
+  document.getElementById('kitDrawerOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  const lat = localStorage.getItem('pq_lat') || 0;
+  const lng = localStorage.getItem('pq_lng') || 0;
+  fetch(`/api/kit-produtos?tema=${encodeURIComponent(tema)}&lat=${lat}&lng=${lng}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('kitDrawerTitle').textContent = data.label || 'Kit de produtos';
+      _kitItems = (data.produtos || []);
+      if (!_kitItems.length) {
+        document.getElementById('kitDrawerBody').innerHTML =
+          '<div class="kit-drawer-loading">Nenhum produto disponível nas farmácias próximas agora.</div>';
+        return;
+      }
+      document.getElementById('kitDrawerBody').innerHTML = _kitItems.map((p, i) => `
+        <label class="kit-item" style="cursor:pointer">
+          <input type="checkbox" class="kit-item-check" data-idx="${i}" checked onchange="_kitUpdateBtn()">
+          <img class="kit-item-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
+          <div class="kit-item-info">
+            <div class="kit-item-name">${hEsc(p.nome)}</div>
+            <div class="kit-item-store"><i class="fa fa-store"></i> ${hEsc(p.razao || 'Farmácia')}</div>
+          </div>
+          <div class="kit-item-price">${hBrl(p.preco)}</div>
+        </label>`).join('');
+      _kitUpdateBtn();
+    })
+    .catch(() => {
+      document.getElementById('kitDrawerBody').innerHTML =
+        '<div class="kit-drawer-loading">Erro ao carregar produtos. Tente novamente.</div>';
+    });
+}
+
+function fecharKitDrawer() {
+  document.getElementById('kitDrawerOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function _kitUpdateBtn() {
+  const checks = document.querySelectorAll('.kit-item-check:checked');
+  const btn = document.getElementById('kitAddBtn');
+  btn.disabled = checks.length === 0;
+  btn.textContent = checks.length
+    ? `Adicionar ${checks.length} produto${checks.length > 1 ? 's' : ''} ao carrinho`
+    : 'Adicionar ao carrinho';
+}
+
+function adicionarKitSelecionado() {
+  const checks = document.querySelectorAll('.kit-item-check:checked');
+  if (!checks.length) return;
+  checks.forEach(ch => {
+    const idx = parseInt(ch.dataset.idx);
+    const p = _kitItems[idx];
+    if (!p) return;
+    addToCart({
+      ean: p.ean,
+      nome: p.nome,
+      imagem: p.imagem,
+      preco: parseFloat(p.preco) || 0,
+      cnpjloja: p.cnpjloja,
+      razao: p.razao,
+      qty: 1,
+    });
+  });
+  fecharKitDrawer();
+}
 </script>
 {% endblock %}
