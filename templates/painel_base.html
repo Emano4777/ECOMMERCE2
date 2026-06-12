@@ -53,8 +53,10 @@
       gap: 1px;
       flex: 1;
       justify-content: center;
-      overflow: hidden;
+      overflow: visible;
+      min-width: 0;
     }
+    .pk-nav > .dropdown { flex-shrink: 0; }
     .pk-nav a, .pk-nav-drop {
       color: var(--pk-muted);
       text-decoration: none;
@@ -239,7 +241,7 @@
     </a>
 
     <div class="dropdown">
-      <button class="pk-nav-drop {% if request.endpoint in ('painel_promocoes','painel_cupons','painel_notificacoes','painel_ml','painel_banners') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <button type="button" class="pk-nav-drop {% if request.endpoint in ('painel_promocoes','painel_cupons','painel_notificacoes','painel_ml','painel_banners') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fa fa-puzzle-piece me-1"></i>Extras <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
       </button>
       <ul class="dropdown-menu dropdown-menu-dark">
@@ -281,7 +283,7 @@
     {% if session.is_admin %}
     <span class="pk-nav-sep"></span>
     <div class="dropdown">
-      <button class="pk-nav-drop {% if request.endpoint in ('admin_lojas','admin_lojas_vitrine','admin_lojas_vitrine_edit','admin_produto_canon','admin_sugestoes_regiao') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <button type="button" class="pk-nav-drop {% if request.endpoint in ('admin_lojas','admin_lojas_vitrine','admin_lojas_vitrine_edit','admin_produto_canon','admin_sugestoes_regiao') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fa fa-shield-halved me-1"></i>Admin <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
       </button>
       <ul class="dropdown-menu dropdown-menu-dark">
@@ -369,6 +371,39 @@
     a.addEventListener("click", function(){
       nav.classList.remove("pk-open");
       icon.className = "fa fa-bars";
+    });
+  });
+})();
+
+/* Contingência para os dropdowns caso o JS do Bootstrap não carregue. */
+(function(){
+  if (window.bootstrap && window.bootstrap.Dropdown) return;
+
+  document.querySelectorAll(".pk-nav .dropdown").forEach(function(dropdown){
+    var toggle = dropdown.querySelector(".pk-nav-drop");
+    if (!toggle) return;
+
+    toggle.addEventListener("click", function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      var abrir = !dropdown.classList.contains("show");
+
+      document.querySelectorAll(".pk-nav .dropdown.show").forEach(function(aberto){
+        aberto.classList.remove("show");
+        var botao = aberto.querySelector(".pk-nav-drop");
+        if (botao) botao.setAttribute("aria-expanded", "false");
+      });
+
+      dropdown.classList.toggle("show", abrir);
+      toggle.setAttribute("aria-expanded", abrir ? "true" : "false");
+    });
+  });
+
+  document.addEventListener("click", function(){
+    document.querySelectorAll(".pk-nav .dropdown.show").forEach(function(dropdown){
+      dropdown.classList.remove("show");
+      var toggle = dropdown.querySelector(".pk-nav-drop");
+      if (toggle) toggle.setAttribute("aria-expanded", "false");
     });
   });
 })();
