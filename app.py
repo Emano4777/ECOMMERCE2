@@ -2905,9 +2905,15 @@ _NL_SYMPTOM_WORDS = {
 
 
 def _is_natural_language_query(query):
-    """True para qualquer query com 2+ palavras — a IA decide o contexto."""
+    """True para qualquer busca textual — a IA interpreta sintomas, marcas e princípios ativos.
+    Exceção: EANs puros (8-14 dígitos) vão direto para busca por código."""
     q = _norm_query_cache(query)
-    return len(q.split()) >= 2
+    if not q:
+        return False
+    # EAN puro → busca direta
+    if re.match(r'^\d{8,14}$', q.replace(' ', '')):
+        return False
+    return True
 
 
 def _busca_fuzzy_pg_trgm(term, limit=60):
@@ -6178,7 +6184,7 @@ def api_produtos_proximos():
                 if not produtos_raw:
                     produtos_raw = get_dns_products_batch_by_name(cnpjs, _st_parallel[:4])
 
-                # Aguarda IA no máximo 2 s (já temos resultados do DB enquanto isso)
+                # Aguarda IA no máximo 1s (já temos resultados do DB enquanto isso)
                 _ia_thread.join(timeout=1.0)
                 ia_result = _ia_holder[0]
 
