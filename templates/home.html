@@ -327,6 +327,74 @@
 /* ── Linha decorativa antes do título de seção ───────────────── */
 .home-title-accent { display:flex; align-items:center; gap:8px; }
 .home-title-accent::before { content:''; display:block; width:4px; height:22px; border-radius:3px; background:currentColor; opacity:.7; flex-shrink:0; }
+
+/* ═══ DEPT TILES: override completo para grid visual ═══════════ */
+.dept-strip-wrap::after { display:none !important; }
+.dept-strip {
+  display:grid !important;
+  grid-template-columns:repeat(6,1fr) !important;
+  gap:14px !important;
+  overflow-x:unset !important;
+  flex-wrap:unset !important;
+  padding-bottom:0 !important;
+}
+.dept-chip {
+  flex:unset !important;
+  min-width:0 !important;
+  min-height:168px;
+  padding:26px 14px 22px !important;
+  border-radius:24px;
+  gap:14px !important;
+  box-shadow:0 4px 24px rgba(0,0,0,.09) !important;
+  justify-content:center;
+  border-width:1.5px !important;
+}
+.dept-chip-ico { width:68px !important; height:68px !important; font-size:1.7rem !important; border-radius:20px !important; box-shadow:0 8px 24px rgba(0,0,0,.22) !important; }
+.dept-chip-name { font-size:.83rem !important; font-weight:900 !important; }
+.dept-chip-sub   { display:block !important; font-size:.69rem !important; }
+/* Fundos com gradiente por categoria */
+.dept-chip--med  { background:linear-gradient(160deg,#fff0f1 0%,#ffd6da 100%) !important; border-color:#fecdd3 !important; }
+.dept-chip--sup  { background:linear-gradient(160deg,#f0fdf4 0%,#c4f0d1 100%) !important; border-color:#bbf7d0 !important; }
+.dept-chip--derm { background:linear-gradient(160deg,#fdf2f8 0%,#f7cde9 100%) !important; border-color:#f9a8d4 !important; }
+.dept-chip--perf { background:linear-gradient(160deg,#faf5ff 0%,#ddd6fe 100%) !important; border-color:#c4b5fd !important; }
+.dept-chip--nut  { background:linear-gradient(160deg,#fff7ed 0%,#ffe0b2 100%) !important; border-color:#fed7aa !important; }
+.dept-chip--var  { background:linear-gradient(160deg,#eff6ff 0%,#c4d8f9 100%) !important; border-color:#bfdbfe !important; }
+/* Tablet: 3 colunas */
+@media(min-width:560px) and (max-width:1023px) {
+  .dept-strip { grid-template-columns:repeat(3,1fr) !important; }
+  .dept-chip { min-height:152px; }
+}
+/* Mobile: 3 colunas menores */
+@media(max-width:559px) {
+  .dept-strip { grid-template-columns:repeat(3,1fr) !important; gap:8px !important; }
+  .dept-chip { min-height:118px !important; padding:18px 8px 14px !important; }
+  .dept-chip-ico { width:52px !important; height:52px !important; font-size:1.3rem !important; }
+  .dept-chip-sub { display:none !important; }
+  .dept-chip-name { font-size:.74rem !important; }
+}
+
+/* ═══ POPUP PROMOCIONAL ════════════════════════════════════════ */
+.promo-pop-overlay { position:fixed; inset:0; background:rgba(0,0,0,.58); z-index:9800; display:flex; align-items:center; justify-content:center; padding:16px; animation:fadeIn .25s ease; }
+.promo-pop-card { background:#fff; border-radius:26px; width:100%; max-width:420px; overflow:hidden; box-shadow:0 32px 80px rgba(0,0,0,.38); animation:popSlideUp .38s cubic-bezier(.34,1.56,.64,1); }
+@keyframes popSlideUp { from{opacity:0;transform:translateY(32px) scale(.92)} to{opacity:1;transform:translateY(0) scale(1)} }
+@keyframes popFadeOut { from{opacity:1} to{opacity:0} }
+.promo-pop-head { background:linear-gradient(155deg,#d6112e 0%,#870015 100%); padding:30px 24px 26px; position:relative; text-align:center; }
+.promo-pop-close { position:absolute; top:12px; right:12px; background:rgba(255,255,255,.18); border:1.5px solid rgba(255,255,255,.25); color:#fff; border-radius:50%; width:34px; height:34px; cursor:pointer; font-size:.85rem; display:flex; align-items:center; justify-content:center; transition:background .15s; }
+.promo-pop-close:hover { background:rgba(255,255,255,.34); }
+.promo-pop-logo { height:32px; margin:0 auto 14px; display:block; filter:brightness(0) invert(1); }
+.promo-pop-eyebrow { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.28); border-radius:999px; padding:5px 14px; font-size:.73rem; font-weight:900; color:#fff; margin-bottom:12px; }
+.promo-pop-title { font-size:1.55rem; font-weight:900; color:#fff; line-height:1.12; text-shadow:0 2px 12px rgba(0,0,0,.22); }
+.promo-pop-yellow { color:#ffd700; }
+.promo-pop-body { padding:22px 24px 18px; text-align:center; }
+.promo-pop-emoji { font-size:2.8rem; line-height:1; margin-bottom:10px; display:block; animation:pq-bounce 2s ease-in-out infinite; }
+.promo-pop-desc { color:#475569; font-size:.91rem; line-height:1.6; }
+.promo-pop-features { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; justify-content:center; }
+.promo-pop-feat { display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:999px; padding:5px 12px; font-size:.74rem; font-weight:700; color:#334155; }
+.promo-pop-feat i { color:var(--pq-red); }
+.promo-pop-foot { padding:0 24px 24px; display:flex; flex-direction:column; gap:10px; }
+.promo-pop-btn { display:block; background:linear-gradient(135deg,#d6112e,#870015); color:#fff; text-align:center; padding:14px; border-radius:14px; font-weight:900; font-size:.98rem; text-decoration:none; transition:opacity .15s; border:none; cursor:pointer; }
+.promo-pop-btn:hover { opacity:.88; color:#fff; }
+.promo-pop-skip { background:none; border:none; color:#94a3b8; font-size:.8rem; cursor:pointer; text-decoration:underline; padding:2px; }
 </style>
 {% endblock %}
 
@@ -1072,22 +1140,50 @@ function processarFotoBuscaHome(inp) {
   btn.disabled = true;
   icon.style.display = 'none';
   spin.style.display = '';
-  const fd = new FormData();
-  fd.append('imagem', file);
-  fetch('/api/busca/foto', { method:'POST', body:fd })
+  const _done = () => { btn.disabled = false; icon.style.display = ''; spin.style.display = 'none'; };
+  _pqComprimirFoto(file, 1100, 0.82)
+    .then(blob => {
+      const fd = new FormData();
+      fd.append('imagem', blob, 'foto.jpg');
+      const lat = localStorage.getItem('pq_lat') || '';
+      const lng = localStorage.getItem('pq_lng') || '';
+      if (lat && lng) { fd.append('lat', lat); fd.append('lng', lng); }
+      return fetch('/api/busca/foto', { method:'POST', body:fd });
+    })
     .then(r => r.json())
     .then(data => {
-      btn.disabled = false; icon.style.display = ''; spin.style.display = 'none';
-      if (!data.ok) { alert(data.erro || 'Não foi possível identificar o medicamento.'); return; }
+      _done();
+      if (!data.ok) { alert(data.erro || 'Não foi possível identificar o medicamento na embalagem.'); return; }
       const id = data.identificado || {};
       const termo = [id.nome, id.dosagem].filter(Boolean).join(' ');
       document.getElementById('home-q').value = termo;
       document.querySelector('.home-search').submit();
     })
     .catch(() => {
-      btn.disabled = false; icon.style.display = ''; spin.style.display = 'none';
-      alert('Erro ao enviar a imagem. Tente novamente.');
+      _done();
+      alert('Erro ao processar a imagem. Tente tirar uma foto mais nítida da embalagem.');
     });
+}
+
+function _pqComprimirFoto(file, maxPx, quality) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = function() {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > maxPx || h > maxPx) {
+        if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+        else        { w = Math.round(w * maxPx / h); h = maxPx; }
+      }
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      cv.toBlob(b => resolve(b || file), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
 }
 
 // ── Kit drawer ────────────────────────────────────────────────────────────────
@@ -1133,6 +1229,68 @@ function abrirKitDrawer(tema) {
     });
 }
 
+// ── Popup promocional ────────────────────────────────────────────────────────
+(function(){
+  var K = 'pq_promo_v3';
+  var last = localStorage.getItem(K);
+  if (!last || Date.now() - parseInt(last) > 7 * 86400000) {
+    setTimeout(function(){
+      var el = document.getElementById('promo-pop');
+      if (el) el.style.display = 'flex';
+    }, 2200);
+  }
+})();
+function fecharPromoPop() {
+  localStorage.setItem('pq_promo_v3', Date.now());
+  var el = document.getElementById('promo-pop');
+  if (!el) return;
+  el.style.animation = 'popFadeOut .22s ease forwards';
+  setTimeout(function(){ el.style.display = 'none'; el.style.animation = ''; }, 230);
+}
+
+{# POPUP PROMOCIONAL — injetado fora do script para evitar escape de template #}
+</script>
+
+{# ── Popup promocional ── #}
+<div id="promo-pop" class="promo-pop-overlay" style="display:none"
+     onclick="if(event.target===this)fecharPromoPop()">
+  <div class="promo-pop-card">
+    <div class="promo-pop-head">
+      <button class="promo-pop-close" onclick="fecharPromoPop()" aria-label="Fechar">
+        <i class="fa fa-times"></i>
+      </button>
+      <img src="/static/poupaqui-logo.png" alt="Poupaqui" class="promo-pop-logo">
+      <div class="promo-pop-eyebrow">
+        <i class="fa fa-location-dot"></i>&nbsp;Farmácias próximas de você
+      </div>
+      <div class="promo-pop-title">
+        Compare preços e <span class="promo-pop-yellow">economize</span> em saúde
+      </div>
+    </div>
+    <div class="promo-pop-body">
+      <span class="promo-pop-emoji">💊</span>
+      <p class="promo-pop-desc">
+        Encontre medicamentos, suplementos e cosméticos com os
+        <strong>melhores preços da sua região</strong>.
+        Busque por nome, sintoma ou até pela foto da embalagem!
+      </p>
+      <div class="promo-pop-features">
+        <span class="promo-pop-feat"><i class="fa fa-magnifying-glass"></i>Busca por sintoma</span>
+        <span class="promo-pop-feat"><i class="fa fa-camera"></i>Foto da embalagem</span>
+        <span class="promo-pop-feat"><i class="fa fa-microphone"></i>Busca por voz</span>
+      </div>
+    </div>
+    <div class="promo-pop-foot">
+      <a href="{{ url_for('catalogo_publico', ofertas='1') }}"
+         class="promo-pop-btn" onclick="fecharPromoPop()">
+        <i class="fa fa-bolt me-2"></i>Ver ofertas agora
+      </a>
+      <button class="promo-pop-skip" onclick="fecharPromoPop()">Já conheço, obrigado</button>
+    </div>
+  </div>
+</div>
+
+<script>
 function fecharKitDrawer() {
   document.getElementById('kitDrawerOverlay').classList.remove('open');
   document.body.style.overflow = '';

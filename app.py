@@ -6156,6 +6156,7 @@ def api_produtos_proximos():
     cnpjs = [l["cnpjloja"] for l in proximas]
     produtos_raw = []
     ia_filter_terms = None  # preenchido pelo caminho NL; usado no filtro final
+    _nl_ean_src = set()    # EANs do índice de sintomas; base limpa para fallback NL sem IA
 
     is_nl = _is_natural_language_query(busca_q) if busca_q else False
 
@@ -6181,6 +6182,7 @@ def api_produtos_proximos():
                                   if re.match(r"^789\d{10}$", e)]
                 if _ie_parallel:
                     produtos_raw = get_dns_products_batch_by_eans(cnpjs, _ie_parallel[:100])
+                    _nl_ean_src.update(_ie_parallel)
                 if not produtos_raw:
                     produtos_raw = get_dns_products_batch_by_name(cnpjs, _st_parallel[:4])
 
@@ -6234,6 +6236,7 @@ def api_produtos_proximos():
             _d_eans = [e for e in _symptom_index_eans_for_query(busca_q, limit=200)
                        if re.match(r"^789\d{10}$", e)]
             if _d_eans:
+                _nl_ean_src.update(_d_eans)
                 _seen_nl = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
                 _seen_nl_eans = {p.get("ean") for p in produtos_raw}
                 _new_d = [e for e in _d_eans if e not in _seen_nl_eans]
@@ -6378,39 +6381,44 @@ def api_produtos_proximos():
     _attach_product_promos(produtos_view)
 
     if busca_q:
-        # NL: usa termos da IA (específicos); Direto: usa q_terms expandidos
-        filter_terms = ia_filter_terms if ia_filter_terms else _search_terms_for_query(busca_q)
-        # Pré-compila padrões: termos curtos (≤4 chars) usam word boundary para não
-        # bater em "condor"/"cortador" com "dor", "cor" etc.
-        _ft_patterns = []
-        for t in filter_terms:
-            if len(t) <= 4:
-                _ft_patterns.append(re.compile(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])'))
-            else:
-                _ft_patterns.append(t)  # string → substring simples
-        filtrados = []
-        for p in produtos_view:
-            hay_raw = " ".join([
-                p.get("ean") or "",
-                p.get("nome") or "",
-                p.get("razao") or "",
-                p.get("laboratorio") or "",
-                p.get("marca") or "",
-                p.get("categoria") or "",
-                p.get("sintomas") or "",
-                p.get("termos_busca") or "",
-                p.get("principio_ativo") or "",
-                p.get("classe_terapeutica") or "",
-            ])
-            hay = _norm_text(hay_raw)
-            if _product_excluded_for_symptom_query(busca_q, hay_raw):
-                continue
-            if any(
-                (pat.search(hay) if hasattr(pat, 'search') else pat in hay)
-                for pat in _ft_patterns
-            ):
-                filtrados.append(p)
-        produtos_view = filtrados
+        if is_nl and not ia_filter_terms:
+            # IA não retornou a tempo: exibe apenas produtos vindos do índice de sintomas.
+            # Evita que a busca ampla por texto mostre produtos irrelevantes (ex: sabonetes para "pressão alta").
+            produtos_view = [p for p in produtos_view if p.get("ean") in _nl_ean_src]
+        else:
+            # NL: usa termos da IA (específicos); Direto: usa q_terms expandidos
+            filter_terms = ia_filter_terms if ia_filter_terms else _search_terms_for_query(busca_q)
+            # Pré-compila padrões: termos curtos (≤4 chars) usam word boundary para não
+            # bater em "condor"/"cortador" com "dor", "cor" etc.
+            _ft_patterns = []
+            for t in filter_terms:
+                if len(t) <= 4:
+                    _ft_patterns.append(re.compile(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])'))
+                else:
+                    _ft_patterns.append(t)  # string → substring simples
+            filtrados = []
+            for p in produtos_view:
+                hay_raw = " ".join([
+                    p.get("ean") or "",
+                    p.get("nome") or "",
+                    p.get("razao") or "",
+                    p.get("laboratorio") or "",
+                    p.get("marca") or "",
+                    p.get("categoria") or "",
+                    p.get("sintomas") or "",
+                    p.get("termos_busca") or "",
+                    p.get("principio_ativo") or "",
+                    p.get("classe_terapeutica") or "",
+                ])
+                hay = _norm_text(hay_raw)
+                if _product_excluded_for_symptom_query(busca_q, hay_raw):
+                    continue
+                if any(
+                    (pat.search(hay) if hasattr(pat, 'search') else pat in hay)
+                    for pat in _ft_patterns
+                ):
+                    filtrados.append(p)
+            produtos_view = filtrados
 
     # Busca NL (sintomas): remove medicamentos tarjados — eles só aparecem em busca direta por nome
     if is_nl and busca_q:
