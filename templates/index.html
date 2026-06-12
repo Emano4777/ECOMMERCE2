@@ -2062,8 +2062,10 @@ function startVoiceInput(targetId, opts) {
     const txt = Array.from(e.results || []).map(r => r[0]?.transcript || '').join(' ').trim();
     if (!txt) return;
     target.value = txt;
-    target.dispatchEvent(new Event('input', { bubbles: true }));
     _showVoiceToast('Entendido. Pesquisando...', 2000);
+    // Chama filtrar diretamente (não depende do dispatchEvent)
+    if (typeof filtrar === 'function') filtrar(txt);
+    else target.dispatchEvent(new Event('input', { bubbles: true }));
     if (opts.onsubmit) setTimeout(() => opts.onsubmit(), 200);
   };
   recog.onerror = (e) => {

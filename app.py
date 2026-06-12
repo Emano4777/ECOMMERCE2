@@ -6412,6 +6412,13 @@ def api_produtos_proximos():
                 filtrados.append(p)
         produtos_view = filtrados
 
+    # Busca NL (sintomas): remove medicamentos tarjados — eles só aparecem em busca direta por nome
+    if is_nl and busca_q:
+        produtos_view = [
+            p for p in produtos_view
+            if (p.get("tarja") or "").lower() not in ("vermelha", "preta")
+        ]
+
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
     saudacao = None
     if is_nl and ia_result:
