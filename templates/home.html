@@ -591,6 +591,14 @@
 
 /* ── Achados: seção standalone ───────────────────────────────────── */
 #sec-achados .home-row { min-height:180px; }
+/* ── Autocomplete home ── */
+.h-sug-item { width:100%; text-align:left; background:none; border:none; padding:10px 14px; display:flex; align-items:center; gap:10px; cursor:pointer; font-size:.88rem; color:#1a1a1a; border-bottom:1px solid #f0f0f4; }
+.h-sug-item:last-child { border-bottom:none; }
+.h-sug-item:hover, .h-sug-item.active { background:#f5f5f8; }
+.h-sug-item i { color:#aaa; font-size:.78rem; flex-shrink:0; }
+.h-sug-item mark { background:none; color:var(--pq-red); font-weight:900; padding:0; }
+.h-sug-item-qsd { background:#fff9f0; color:#c2410c; }
+.h-sug-item-qsd i { color:#f59e0b; }
 </style>
 {% endblock %}
 
@@ -680,7 +688,12 @@
       <p style="font-size:1.02rem;margin-top:10px">Medicamentos, suplementos, dermocosméticos e mais.<br>Compare preços nas farmácias da sua região.</p>
       <form class="home-search" action="{{ url_for('catalogo_publico') }}" method="get">
         <div class="home-search-wrap">
-          <input id="home-q" name="q" placeholder="Busque produto, remédio ou o que está sentindo…" autocomplete="off">
+          <input id="home-q" name="q" placeholder="Busque produto, remédio ou o que está sentindo…" autocomplete="off"
+                 oninput="_homeSugDebounce(this.value)"
+                 onkeydown="_homeSugKeyNav(event)"
+                 onblur="_homeSugHide()">
+          <div id="home-suggestions" onmousedown="event.preventDefault()"
+               style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.14);z-index:9999;overflow:hidden;max-height:300px;overflow-y:auto"></div>
           <div class="home-search-icons">
             <button type="button" class="home-ico-btn" id="home-voice-btn"
                     onclick="startVoiceInput('home-q',{button:this,onsubmit:function(){document.querySelector('.home-search').submit();}})"
@@ -1730,6 +1743,98 @@ function adicionarKitSelecionado() {
     });
   });
   fecharKitDrawer();
+}
+
+// ── Autocomplete busca home ───────────────────────────────────────────────────
+let _hSugTimer = null, _hSugActive = -1, _hSugCtrl = null, _hSugHideTimer = null;
+
+function _homeSugDebounce(val) {
+  clearTimeout(_hSugTimer);
+  const q = (val || '').trim();
+  if (q.length < 2) { _homeSugHide(); return; }
+  _hSugTimer = setTimeout(() => _homeSugFetch(q), 160);
+}
+
+async function _homeSugFetch(q) {
+  if (_hSugCtrl) { try { _hSugCtrl.abort(); } catch(_){} }
+  _hSugCtrl = new AbortController();
+  try {
+    const params = new URLSearchParams({q});
+    const lat = localStorage.getItem('pq_lat') || '';
+    const lng = localStorage.getItem('pq_lng') || '';
+    if (lat) params.set('lat', lat);
+    if (lng) params.set('lng', lng);
+    const r = await fetch('https://wosjlqxbfajctoeztrug.supabase.co/functions/v1/busca-sugestoes?' + params, {signal: _hSugCtrl.signal});
+    if (!r.ok) return;
+    const d = await r.json();
+    _homeSugRender(q, d.sugestoes || [], d.voce_quis_dizer || null);
+  } catch (_e) { if (_e && _e.name === 'AbortError') return; }
+}
+
+function _homeSugRender(q, items, vqd) {
+  const box = document.getElementById('home-suggestions');
+  if (!box) return;
+  _hSugActive = -1;
+  const _e = s => String(s||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  let html = '';
+  const ql = q.toLowerCase();
+  if (vqd) {
+    html += `<button type="button" class="h-sug-item h-sug-item-qsd" onclick="_homeSugSelect('${_e(vqd)}')">
+      <i class="fa fa-spell-check"></i><span>Você quis dizer: <strong>${_e(vqd)}</strong>?</span></button>`;
+  }
+  items.forEach(nome => {
+    const idx = nome.toLowerCase().indexOf(ql);
+    let label = idx >= 0
+      ? _e(nome.slice(0, idx)) + '<mark>' + _e(nome.slice(idx, idx + q.length)) + '</mark>' + _e(nome.slice(idx + q.length))
+      : _e(nome);
+    html += `<button type="button" class="h-sug-item" data-val="${_e(nome)}" onclick="_homeSugSelect('${_e(nome)}')">
+      <i class="fa fa-magnifying-glass"></i><span>${label}</span></button>`;
+  });
+  if (!html) { _homeSugHide(); return; }
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+function _homeSugSelect(val) {
+  const inp = document.getElementById('home-q');
+  if (inp) inp.value = val;
+  _homeSugHide(true);
+  document.querySelector('.home-search').submit();
+}
+
+function _homeSugHide(immediate) {
+  clearTimeout(_hSugHideTimer);
+  const hide = () => {
+    const box = document.getElementById('home-suggestions');
+    if (box) box.style.display = 'none';
+    _hSugActive = -1;
+  };
+  if (immediate) hide();
+  else _hSugHideTimer = setTimeout(hide, 180);
+}
+
+function _homeSugKeyNav(e) {
+  const box = document.getElementById('home-suggestions');
+  if (!box || box.style.display === 'none') return;
+  const btns = box.querySelectorAll('.h-sug-item');
+  if (!btns.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _hSugActive = Math.min(_hSugActive + 1, btns.length - 1);
+    btns.forEach((b, i) => b.classList.toggle('active', i === _hSugActive));
+    btns[_hSugActive]?.scrollIntoView({block:'nearest'});
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _hSugActive = Math.max(_hSugActive - 1, -1);
+    btns.forEach((b, i) => b.classList.toggle('active', i === _hSugActive));
+    if (_hSugActive >= 0) btns[_hSugActive]?.scrollIntoView({block:'nearest'});
+  } else if (e.key === 'Enter' && _hSugActive >= 0) {
+    e.preventDefault();
+    const val = btns[_hSugActive]?.dataset?.val;
+    if (val) _homeSugSelect(val);
+  } else if (e.key === 'Escape') {
+    _homeSugHide(true);
+  }
 }
 </script>
 {% endblock %}

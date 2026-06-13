@@ -3,11 +3,13 @@
 
 {% block topbar_search %}
 <div class="idx-nb-wrap">
-  <div class="idx-nb-search">
+  <div class="idx-nb-search" style="position:relative">
     <i class="fa fa-magnifying-glass idx-nb-icon"></i>
     <input type="text" id="search-inp"
            placeholder="Busque produto, remédio ou o que está sentindo…"
-           oninput="filtrar(this.value)"
+           oninput="filtrar(this.value);_sugestoesDebounce(this.value)"
+           onkeydown="_sugestoesKeyNav(event)"
+           onblur="_sugestoesHide()"
            autocomplete="off"/>
     <button class="idx-nb-voice-btn" type="button" id="cat-voice-btn"
             onclick="startVoiceInput('search-inp',{button:this})"
@@ -20,6 +22,8 @@
     </button>
     <input type="file" id="foto-busca-inp" accept="image/*" capture="environment"
            style="display:none" onchange="processarFotoBusca(this)"/>
+    <!-- Dropdown de sugestões — onmousedown.preventDefault evita blur antes do click -->
+    <div id="search-suggestions" onmousedown="event.preventDefault()" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1.5px solid var(--pq-border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.14);z-index:9999;overflow:hidden;max-height:340px;overflow-y:auto"></div>
   </div>
   <select class="idx-nb-exibir" id="page-size" onchange="setPageSize(this.value)" title="Itens por página">
     <option value="25">25</option>
@@ -189,6 +193,33 @@
     padding: 4px 0 6px;
   }
 }
+
+/* ── SEARCH SUGGESTIONS DROPDOWN ───────────────── */
+.sug-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: .87rem;
+  font-weight: 700;
+  color: var(--pq-text);
+  border-bottom: 1px solid #f3f3f3;
+  transition: background .1s;
+  text-align: left;
+  width: 100%;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  font-family: inherit;
+}
+.sug-item:last-child { border-bottom: none; }
+.sug-item:hover, .sug-item.active { background: #fff7d6; }
+.sug-item i { color: var(--pq-muted); font-size: .82rem; flex-shrink: 0; width: 16px; text-align: center; }
+.sug-item-qsd { color: var(--pq-red); font-style: italic; }
+.sug-item-qsd i { color: var(--pq-red); }
+.sug-item mark { background: none; color: var(--pq-red); font-weight: 900; padding: 0; }
 
 /* ── FILTER DRAWER ──────────────────────────────── */
 .idx-fd-overlay {
@@ -902,6 +933,7 @@ let _cards = {};
 let _encomendaLojas = [];
 let _currentLat = null;
 let _currentLng = null;
+let _cnpjsProximos = [];   // CNPJs de farmácias próximas — usado para sugestões
 let _serverSearchTimer = null;
 let _lastServerSearch = '';
 let _serverSearchLoading = false;
@@ -1426,6 +1458,7 @@ function renderSortList() {
 
 function clearFilters() {
   document.getElementById('search-inp').value = '';
+  _sugestoesHide(true);
   storeSel.value = '';
   catSel.value = '';
   selectedSorts = ['distance_asc'];
@@ -1612,6 +1645,7 @@ function carregarProdutos(lat, lng, busca='') {
       if (!requestedSearch && (currentSearch.length >= 3 || /^\d{8,}$/.test(currentSearch.replace(/\D/g, '')))) return;
       _serverSearchLoading = false;
       allProdutos = data.produtos || [];
+      if (data.cnpjs_proximos && data.cnpjs_proximos.length) _cnpjsProximos = data.cnpjs_proximos;
 
       // Poupinha: mostra saudação quando busca NL retorna resultado OU quando encontrou genérico
       const poupinhaBubble = document.getElementById('poupinha-bubble');
@@ -1925,6 +1959,126 @@ if (_lat && _lng) {
   }, 3000);
 }
 
+/* ─── Autocomplete / Sugestões ─── */
+let _sugTimer = null;
+let _sugActive = -1;
+let _sugItems = [];
+let _sugHideTimer = null;
+let _sugAbortCtrl = null;
+
+function _sugestoesDebounce(val) {
+  clearTimeout(_sugTimer);
+  const q = (val || '').trim();
+  if (q.length < 2) { _sugestoesHide(); return; }
+  _sugTimer = setTimeout(() => _sugestoesFetch(q), 160);
+}
+
+async function _sugestoesFetch(q) {
+  // Aborta requisição anterior (evita race condition)
+  if (_sugAbortCtrl) { try { _sugAbortCtrl.abort(); } catch(_){} }
+  _sugAbortCtrl = new AbortController();
+  const signal = _sugAbortCtrl.signal;
+  try {
+    const params = new URLSearchParams({q});
+    if (_cnpjsProximos.length) {
+      params.set('cnpjs', _cnpjsProximos.join(','));
+    } else {
+      const lat = _currentLat || localStorage.getItem('pq_lat') || '';
+      const lng = _currentLng || localStorage.getItem('pq_lng') || '';
+      if (lat) params.set('lat', lat);
+      if (lng) params.set('lng', lng);
+    }
+    const r = await fetch(`https://wosjlqxbfajctoeztrug.supabase.co/functions/v1/busca-sugestoes?${params}`, {signal});
+    if (!r.ok) return;
+    const d = await r.json();
+    _sugestoesRender(q, d.sugestoes || [], d.voce_quis_dizer || null);
+  } catch (_e) {
+    if (_e && _e.name === 'AbortError') return; // request cancelada, normal
+  }
+}
+
+function _sugestoesRender(q, items, vqd) {
+  const box = document.getElementById('search-suggestions');
+  if (!box) return;
+  _sugActive = -1;
+  _sugItems = [];
+
+  const ql = q.toLowerCase();
+  let html = '';
+
+  // "Você quis dizer?" no topo quando há correção
+  if (vqd) {
+    html += `<button type="button" class="sug-item sug-item-qsd" data-sug="${esc(vqd)}" onclick="_sugestoesSelect('${esc(vqd)}')">
+      <i class="fa fa-spell-check"></i>
+      <span>Você quis dizer: <mark>${esc(vqd)}</mark>?</span>
+    </button>`;
+    _sugItems.push(vqd);
+  }
+
+  // Itens normais com parte digitada destacada
+  items.forEach(nome => {
+    const idx = nome.toLowerCase().indexOf(ql);
+    let label;
+    if (idx >= 0) {
+      label = esc(nome.slice(0, idx))
+            + '<mark>' + esc(nome.slice(idx, idx + q.length)) + '</mark>'
+            + esc(nome.slice(idx + q.length));
+    } else {
+      label = esc(nome);
+    }
+    html += `<button type="button" class="sug-item" data-sug="${esc(nome)}" onclick="_sugestoesSelect('${esc(nome)}')">
+      <i class="fa fa-magnifying-glass"></i>
+      <span>${label}</span>
+    </button>`;
+    _sugItems.push(nome);
+  });
+
+  if (!html) { _sugestoesHide(); return; }
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+function _sugestoesSelect(val) {
+  const inp = document.getElementById('search-inp');
+  if (inp) { inp.value = val; filtrar(val); }
+  _sugestoesHide(true);
+}
+
+function _sugestoesHide(immediate) {
+  clearTimeout(_sugHideTimer);
+  const hide = () => {
+    const box = document.getElementById('search-suggestions');
+    if (box) box.style.display = 'none';
+    _sugActive = -1;
+  };
+  if (immediate) hide();
+  else _sugHideTimer = setTimeout(hide, 180);
+}
+
+function _sugestoesKeyNav(e) {
+  const box = document.getElementById('search-suggestions');
+  if (!box || box.style.display === 'none') return;
+  const btns = box.querySelectorAll('.sug-item');
+  if (!btns.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _sugActive = Math.min(_sugActive + 1, btns.length - 1);
+    btns.forEach((b, i) => b.classList.toggle('active', i === _sugActive));
+    btns[_sugActive]?.scrollIntoView({block:'nearest'});
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _sugActive = Math.max(_sugActive - 1, -1);
+    btns.forEach((b, i) => b.classList.toggle('active', i === _sugActive));
+    if (_sugActive >= 0) btns[_sugActive]?.scrollIntoView({block:'nearest'});
+  } else if (e.key === 'Enter' && _sugActive >= 0) {
+    e.preventDefault();
+    const val = btns[_sugActive]?.dataset?.sug;
+    if (val) _sugestoesSelect(val);
+  } else if (e.key === 'Escape') {
+    _sugestoesHide(true);
+  }
+}
+
 /* ─── Encomenda modal ─── */
 function abrirModalEncomenda(nomeProduto) {
   document.getElementById('enc-produto-inp').value = nomeProduto || '';
@@ -2016,6 +2170,7 @@ function processarFotoBusca(inp) {
       }
 
       allProdutos = data.produtos || [];
+      if (data.cnpjs_proximos && data.cnpjs_proximos.length) _cnpjsProximos = data.cnpjs_proximos;
       _lastServerSearch = termoBusca;
       filterAndRender(true);
 

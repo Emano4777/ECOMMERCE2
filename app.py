@@ -8661,6 +8661,148 @@ def api_receita_buscar():
     return jsonify({"ok": True, "resultados": resultados})
 
 
+@app.get("/api/busca/sugestoes")
+@_rate_limited_api(max_calls=120, window_secs=60)
+def api_busca_sugestoes():
+    """Autocomplete leve: retorna nomes de produtos + 'você quis dizer?' para typos."""
+    q = (request.args.get("q") or "").strip()
+    cnpjs_param = (request.args.get("cnpjs") or "").strip()
+    if len(q) < 2:
+        return jsonify({"sugestoes": [], "voce_quis_dizer": None})
+
+    cnpjs = [c.strip() for c in cnpjs_param.split(",") if c.strip()]
+
+    # Se não há CNPJs, resolve pelo lat/lng ou usa todas as farmácias
+    if not cnpjs:
+        try:
+            lat_usr = float(request.args.get("lat") or 0)
+            lng_usr = float(request.args.get("lng") or 0)
+            _conn = db()
+            _cur = _conn.cursor()
+            _cur.execute(
+                "SELECT u.cnpjloja, g.lat, g.lng FROM users u "
+                "LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja "
+                "WHERE u.is_admin = FALSE"
+            )
+            for _r in _cur.fetchall():
+                if lat_usr and lng_usr and _r["lat"] and _r["lng"]:
+                    if haversine(lat_usr, lng_usr, float(_r["lat"]), float(_r["lng"])) <= 60:
+                        cnpjs.append(_r["cnpjloja"])
+                else:
+                    # sem geo → inclui todas
+                    cnpjs.append(_r["cnpjloja"])
+            _cur.close()
+            _conn.close()
+        except Exception:
+            pass
+
+    if not cnpjs:
+        return jsonify({"sugestoes": [], "voce_quis_dizer": None})
+
+    q_norm = _norm_text(q)
+    tokens = [t for t in q_norm.split() if len(t) >= 2]
+    if not tokens:
+        return jsonify({"sugestoes": [], "voce_quis_dizer": None})
+
+    patterns = [f"%{t}%" for t in tokens[:3]]
+    token_cond_e  = " AND ".join("LOWER(e.descricao) LIKE %s"              for _ in patterns)
+    token_cond_ae = " AND ".join("LOWER(ae.descricao_produto) LIKE %s"     for _ in patterns)
+
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+
+        # ── busca direta ────────────────────────────────────────
+        cur.execute(
+            f"""
+            SELECT nome FROM (
+                (SELECT UPPER(TRIM(e.descricao)) AS nome FROM estoque e
+                WHERE e.cnpj = ANY(%s) AND e.estoque > 0 AND {token_cond_e}
+                LIMIT 30)
+                UNION ALL
+                (SELECT UPPER(TRIM(ae.descricao_produto)) AS nome FROM automatiza_estoque ae
+                WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0 AND {token_cond_ae}
+                LIMIT 30)
+            ) sub
+            WHERE nome IS NOT NULL AND nome <> ''
+            GROUP BY nome ORDER BY MIN(LENGTH(nome))
+            LIMIT 8
+            """,
+            [cnpjs] + patterns + [cnpjs] + patterns,
+        )
+        rows = [r["nome"] for r in cur.fetchall() if r.get("nome")]
+
+        voce_quis_dizer = None
+
+        # ── "você quis dizer?" quando direto retorna vazio ──────
+        if not rows and len(q_norm) >= 4:
+            # tenta prefixos progressivamente mais curtos (remove até 3 letras)
+            # ex: "dipirina" → "dipirin" → "dipiri" → "dipir" que bate em "dipirona"
+            sugestoes_fuzzy = []
+            prefixos = []
+            cond_f_e  = "LOWER(e.descricao) LIKE %s"
+            cond_f_ae = "LOWER(ae.descricao_produto) LIKE %s"
+            for token in tokens[:2]:
+                max_remove = min(3, len(token) - 5)  # mantém ao menos 5 chars
+                if max_remove < 1:
+                    continue
+                prefixos = [token[: len(token) - i] for i in range(1, max_remove + 1)
+                            if len(token) - i >= 5]
+                for prefixo in prefixos:
+                    pat_f = f"%{prefixo}%"
+                    cur.execute(
+                        f"""
+                        SELECT nome FROM (
+                            (SELECT UPPER(TRIM(e.descricao)) AS nome FROM estoque e
+                            WHERE e.cnpj = ANY(%s) AND e.estoque > 0 AND {cond_f_e}
+                            LIMIT 10)
+                            UNION ALL
+                            (SELECT UPPER(TRIM(ae.descricao_produto)) AS nome FROM automatiza_estoque ae
+                            WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0 AND {cond_f_ae}
+                            LIMIT 10)
+                        ) sub
+                        WHERE nome IS NOT NULL
+                        GROUP BY nome ORDER BY MIN(LENGTH(nome))
+                        LIMIT 4
+                        """,
+                        [cnpjs, pat_f, cnpjs, pat_f],
+                    )
+                    for r in cur.fetchall():
+                        n = r.get("nome")
+                        if n and n not in sugestoes_fuzzy:
+                            sugestoes_fuzzy.append(n)
+                    if sugestoes_fuzzy:
+                        break
+                if sugestoes_fuzzy:
+                    break
+
+            if sugestoes_fuzzy:
+                rows = sugestoes_fuzzy[:8]
+                # encontra a palavra do resultado que contém o prefixo (ex: "FRANCIS" não "SABONETE")
+                corrigido = None
+                for resultado_nome in sugestoes_fuzzy[:1]:
+                    for palavra in resultado_nome.split():
+                        p_norm = _norm_text(palavra)
+                        if any(p_norm.startswith(pref) or pref in p_norm
+                               for pref in prefixos):
+                            corrigido = palavra.title()
+                            break
+                    if corrigido:
+                        break
+                if corrigido and _norm_text(corrigido) != tokens[0]:
+                    voce_quis_dizer = " ".join(
+                        [corrigido] + [t.title() for t in tokens[1:]]
+                    )
+
+        cur.close()
+        conn.close()
+        return jsonify({"sugestoes": rows, "voce_quis_dizer": voce_quis_dizer})
+
+    except Exception as _e:
+        import traceback; traceback.print_exc()
+        return jsonify({"sugestoes": [], "voce_quis_dizer": None})
+
+
 @app.post("/api/busca/foto")
 @_rate_limited_api(max_calls=10, window_secs=60)
 def api_busca_foto():
