@@ -7564,9 +7564,10 @@ def _recommendation_reason(base_names, product_name, co_purchase=False):
     return "Relacionado ao que voce esta vendo"
 
 
-def _build_recommendations(itens, cnpjlojas, limit=8):
+def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
     _ensure_catalog_admin_schema()
-    limit = max(1, min(int(limit or 8), 12))
+    limit = max(1, min(int(limit or 8), 20))
+    offset = max(0, int(offset or 0))
     itens = [i for i in (itens or []) if isinstance(i, dict)]
     base_names = [(i.get("nome") or "").strip() for i in itens if (i.get("nome") or "").strip()]
     exclude_eans = {(i.get("ean") or "").strip() for i in itens if (i.get("ean") or "").strip()}
@@ -7640,11 +7641,15 @@ def _build_recommendations(itens, cnpjlojas, limit=8):
     ranked.sort(key=lambda x: (-x[0], (x[2].get("nome") or "").lower()))
     result = []
     seen = set()
+    skipped = 0
     for _, from_history, p in ranked:
         ean = p.get("ean")
         if ean in seen:
             continue
         seen.add(ean)
+        if skipped < offset:
+            skipped += 1
+            continue
         item = dict(p)
         item["razao"] = loja_info.get(item.get("cnpjloja"), item.get("razao") or "Drogaria Poupaqui")
         item["categoria"] = item.get("categoria") or _classificar_produto(item.get("nome") or "")
@@ -7838,6 +7843,7 @@ def api_produto_quem_viu():
         itens=[{"ean": ean, "nome": nome, "cnpjloja": cnpj}],
         cnpjlojas=[cnpj],
         limit=8,
+        offset=8,  # pula os primeiros 8 (já exibidos em "combinam com sua compra")
     )
     produtos = recs.get("produtos") or []
     if not produtos:
