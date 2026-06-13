@@ -223,6 +223,71 @@
 .btn-retirada:hover { background:#ea6a08; }
 .pd-recs-wrap { margin-top:24px; }
 
+/* ── "Quem viu isso também viu" ─────────────────────────── */
+.pd-qvtv-wrap { margin-top:22px; }
+.pd-qvtv-section {
+  background:linear-gradient(135deg,#0f1117 0%,#1a1a2e 100%);
+  border-radius:20px; padding:20px;
+  border:1.5px solid rgba(124,58,237,.28);
+  box-shadow:0 6px 28px rgba(0,0,0,.18);
+}
+.pd-qvtv-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.pd-qvtv-left { display:flex; align-items:center; gap:12px; }
+.pd-qvtv-avatar {
+  width:40px; height:40px; flex-shrink:0;
+  background:linear-gradient(135deg,#7c3aed,#a855f7);
+  border-radius:13px; display:flex; align-items:center; justify-content:center;
+  color:#fff; font-size:1rem;
+  box-shadow:0 3px 14px rgba(124,58,237,.45);
+}
+.pd-qvtv-title { font-size:.92rem; font-weight:900; color:#e2e8f0; line-height:1.25; }
+.pd-qvtv-sub { font-size:.74rem; color:rgba(255,255,255,.45); margin-top:2px; }
+.pd-qvtv-nav { display:flex; gap:6px; flex-shrink:0; align-self:center; }
+.pd-qvtv-nav-btn {
+  width:32px; height:32px; border-radius:50%;
+  border:1.5px solid rgba(255,255,255,.15); background:rgba(255,255,255,.06);
+  display:flex; align-items:center; justify-content:center;
+  color:rgba(255,255,255,.6); font-size:.78rem; cursor:pointer;
+  transition:border-color .15s, background .15s, color .15s;
+}
+.pd-qvtv-nav-btn:hover:not(:disabled) { border-color:#a78bfa; background:rgba(124,58,237,.25); color:#fff; }
+.pd-qvtv-nav-btn:disabled { opacity:.25; cursor:default; pointer-events:none; }
+.pd-qvtv-track-wrap { overflow:hidden; }
+.pd-qvtv-track {
+  display:flex; gap:10px; overflow-x:auto;
+  scroll-snap-type:x mandatory; scrollbar-width:none;
+  scroll-behavior:smooth; padding-bottom:2px;
+}
+.pd-qvtv-track::-webkit-scrollbar { display:none; }
+.pd-qvtv-card {
+  flex:0 0 160px; scroll-snap-align:start;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+  border-radius:14px; padding:10px; text-decoration:none; color:inherit;
+  display:flex; flex-direction:column; gap:6px;
+  transition:transform .18s, background .15s;
+}
+.pd-qvtv-card:hover { transform:translateY(-3px); background:rgba(255,255,255,.1); }
+@media(max-width:520px){ .pd-qvtv-card { flex:0 0 calc(50vw - 28px); } }
+.pd-qvtv-img-wrap {
+  width:100%; aspect-ratio:1;
+  background:rgba(255,255,255,.08); border-radius:10px;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+.pd-qvtv-img-wrap img { width:100%; height:100%; object-fit:contain; padding:6px; }
+.pd-qvtv-img-ph { color:rgba(255,255,255,.25); font-size:2rem; }
+.pd-qvtv-name { font-size:.74rem; font-weight:800; color:#e2e8f0; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.3em; }
+.pd-qvtv-lab { font-size:.64rem; color:rgba(255,255,255,.4); font-weight:700; margin-top:-2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pd-qvtv-price { font-size:.92rem; font-weight:900; color:var(--pq-yellow); }
+.pd-qvtv-btn-add {
+  width:100%; min-height:32px; border:none; border-radius:8px;
+  background:rgba(124,58,237,.5); color:#fff;
+  font-size:.72rem; font-weight:900; cursor:pointer; font-family:inherit;
+  display:flex; align-items:center; justify-content:center; gap:4px;
+  transition:background .15s; margin-top:auto;
+}
+.pd-qvtv-btn-add:hover { background:rgba(124,58,237,.75); }
+.pd-qvtv-btn-add.added { background:rgba(34,197,94,.45); cursor:default; }
+
 /* ZOOM BUTTON */
 .pd-img-side:not(.pd-img-nozoom) { cursor:zoom-in; }
 .pd-img-nozoom { cursor:default; }
@@ -319,7 +384,9 @@
 {% set anvisa_ativo = 'ativ' in (anvisa.situacao or '')|lower %}
 {% set med_classe_norm = (med.classe or '')|lower %}
 {% set nome_norm = (nome or '')|lower %}
-{% set e_generico = 'generic' in med_classe_norm or 'genéric' in med_classe_norm or 'generico' in nome_norm or 'genérico' in nome_norm %}
+{% set _tipos_nao_med = ['suplemento','perfumaria','dermocosmetico','nutricao','varejo'] %}
+{% set _eh_medicamento = tipo_produto not in _tipos_nao_med %}
+{% set e_generico = _eh_medicamento and ('generic' in med_classe_norm or 'genéric' in med_classe_norm or 'generico' in nome_norm or 'genérico' in nome_norm) %}
 
 <div class="pd-wrap">
 
@@ -571,7 +638,7 @@
       {% endif %}
 
       <!-- Botão baixar bula -->
-      {% if anvisa and anvisa.url_bula %}
+      {% if anvisa and (anvisa.url_bula_fabricante or anvisa.url_bula) %}
       <a href="{{ url_for('bula_download', chave=anvisa.chave) }}"
          target="_blank" rel="noopener noreferrer"
          style="display:flex;align-items:center;justify-content:center;gap:8px;
@@ -579,7 +646,8 @@
                 background:#f0f8f0;border:1.5px solid #a5d6a7;color:#2e7d32;
                 font-weight:700;font-size:.85rem;text-decoration:none;transition:background .15s"
          onmouseover="this.style.background='#e0f2e0'" onmouseout="this.style.background='#f0f8f0'">
-        <i class="fa fa-file-arrow-down"></i>Baixar Bula (ANVISA)
+        <i class="fa fa-file-arrow-down"></i>
+        {% if anvisa.url_bula_fabricante %}Bula oficial do fabricante{% else %}Baixar Bula (ANVISA){% endif %}
       </a>
       {% endif %}
     </div>
@@ -602,6 +670,28 @@
         <div class="pq-recs-track" id="pd-recs-track"></div>
       </div>
     </section>
+  </div>
+
+  <!-- QUEM VIU ISSO TAMBÉM VIU -->
+  <div class="pd-qvtv-wrap" id="pd-qvtv-wrap" style="display:none">
+    <div class="pd-qvtv-section">
+      <div class="pd-qvtv-header">
+        <div class="pd-qvtv-left">
+          <div class="pd-qvtv-avatar"><i class="fa fa-eye"></i></div>
+          <div>
+            <div class="pd-qvtv-title" id="pd-qvtv-title">Quem viu isso também viu</div>
+            <div class="pd-qvtv-sub" id="pd-qvtv-sub">Produtos relacionados vistos por outros clientes</div>
+          </div>
+        </div>
+        <div class="pd-qvtv-nav">
+          <button class="pd-qvtv-nav-btn" id="pd-qvtv-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+          <button class="pd-qvtv-nav-btn" id="pd-qvtv-next" aria-label="Próximo"></i><i class="fa fa-chevron-right"></i></button>
+        </div>
+      </div>
+      <div class="pd-qvtv-track-wrap">
+        <div class="pd-qvtv-track" id="pd-qvtv-track"></div>
+      </div>
+    </div>
   </div>
 
   {% if d_serve or d_usar or d_alerta or d_comprar %}
@@ -787,6 +877,57 @@ async function carregarRecomendacoesProduto() {
 }
 
 carregarRecomendacoesProduto();
+
+// ── Quem viu isso também viu ──────────────────────────────────────────────────
+let _qvtvItems = [];
+function addQvtv(idx, btn) {
+  const p = _qvtvItems[idx];
+  if (!p) return;
+  const preco = parseFloat(p.preco)||0;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco, preco_original:preco, promo:null, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.requer_receita), tarja:p.tarja||null});
+  if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i> OK'; }
+}
+
+async function carregarQuemViu() {
+  if (!_pdCnpj || !_pdEan) return;
+  try {
+    const r = await fetch(`/api/produto/quem-viu?ean=${encodeURIComponent(_pdEan)}&cnpj=${encodeURIComponent(_pdCnpj)}&nome=${encodeURIComponent(_pdNome)}`, {signal: AbortSignal.timeout(8000)});
+    if (!r.ok) return;
+    const d = await r.json();
+    const produtos = d.produtos || [];
+    if (!produtos.length) return;
+    _qvtvItems = produtos;
+    const titleEl = document.getElementById('pd-qvtv-title');
+    const subEl   = document.getElementById('pd-qvtv-sub');
+    if (titleEl) titleEl.textContent = d.titulo_ia || 'Quem viu isso também viu';
+    if (subEl)   subEl.textContent   = d.subtitulo_ia || 'Produtos relacionados vistos por outros clientes';
+    const brl = v => 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+    document.getElementById('pd-qvtv-track').innerHTML = produtos.map((p,i) => `
+      <a class="pd-qvtv-card" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}">
+        <div class="pd-qvtv-img-wrap">
+          ${p.imagem ? `<img src="${p.imagem.replace(/"/g,'&quot;')}" alt="" onerror="this.parentElement.innerHTML='<i class=\\'fa fa-pills pd-qvtv-img-ph\\'></i>'">` : '<i class="fa fa-pills pd-qvtv-img-ph"></i>'}
+        </div>
+        <div class="pd-qvtv-name">${(p.nome||'').replace(/</g,'&lt;')}</div>
+        <div class="pd-qvtv-lab">${(p.razao||'Farmácia').replace(/</g,'&lt;')}</div>
+        <div class="pd-qvtv-price">${brl(p.preco)}</div>
+        <button class="pd-qvtv-btn-add" onclick="event.preventDefault();addQvtv(${i},this)"><i class="fa fa-cart-plus"></i> Adicionar</button>
+      </a>`).join('');
+    document.getElementById('pd-qvtv-wrap').style.display = '';
+    // Navegação por setas
+    const track = document.getElementById('pd-qvtv-track');
+    const prev  = document.getElementById('pd-qvtv-prev');
+    const next  = document.getElementById('pd-qvtv-next');
+    function qvtvUpdateNav(){
+      if(prev) prev.disabled = track.scrollLeft <= 4;
+      if(next) next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 4;
+    }
+    if(prev) prev.addEventListener('click', () => { track.scrollBy({left: -340, behavior:'smooth'}); setTimeout(qvtvUpdateNav,350); });
+    if(next) next.addEventListener('click', () => { track.scrollBy({left: 340, behavior:'smooth'}); setTimeout(qvtvUpdateNav,350); });
+    track.addEventListener('scroll', qvtvUpdateNav, {passive:true});
+    qvtvUpdateNav();
+  } catch {}
+}
+carregarQuemViu();
 
 {% if consumidor and loja and loja.cnpjloja %}
 (async () => {

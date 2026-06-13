@@ -383,31 +383,37 @@
     }
 
     /* ── RESPONSIVE ─────────────────────────────────────── */
-    @media(max-width:960px) and (min-width:901px) {
-      .pq-store-label, .pq-lojas-label { display: none; }
+
+    /* monitores amplos ≤ 1600px: esconde só o rótulo "SUA LOCALIZAÇÃO" */
+    @media(max-width:1600px) {
       .pq-loc-label { display: none; }
-      .pq-loc-btn { max-width: 200px; padding: 6px 10px; }
-      .pq-topbar-right { gap: 6px; }
-      .pq-topbar-link { padding: 6px 10px; }
     }
-    /* tablet: recolhe links de nav no drawer, dá espaço à busca */
-    @media(max-width:900px) and (min-width:681px) {
+
+    /* laptop/tablet ≤ 1440px: hamburger substitui nav links — libera espaço para busca */
+    @media(max-width:1440px) {
       .pq-hamburger { display: flex; }
       .pq-desktop-only { display: none !important; }
-      .pq-loc-label { display: none; }
+      .pq-loc-btn { max-width: 220px; }
+      .pq-topbar-right { gap: 6px; }
+    }
+
+    /* tablet portrait ≤ 900px */
+    @media(max-width:900px) {
+      .pq-topbar { padding: 6px 12px; gap: 0 8px; }
       .pq-loc-btn { max-width: 160px; padding: 6px 10px; }
-      .pq-topbar-right { gap: 6px; }
     }
-    @media(max-width:680px){
-      .pq-topbar { padding:6px 12px; gap:0 8px; }
-      .pq-loc-label { display:none; }
+
+    /* mobile ≤ 680px: localização ocupa espaço flexível, busca vai para linha 2 */
+    @media(max-width:680px) {
       .pq-loc-btn { flex: 1; max-width: none; min-width: 0; padding: 7px 10px; }
-      .pq-desktop-only { display: none !important; }
-      .pq-hamburger { display: flex; }
       .pq-brand-text { display: none; }
     }
-    @media(max-width:380px){
-      .pq-loc-btn { padding: 6px 8px; }
+
+    /* tela muito pequena ≤ 400px: localização vira só ícone */
+    @media(max-width:400px) {
+      .pq-loc-btn { padding: 6px 8px; flex: 0 0 auto; }
+      .pq-loc-texts { display: none; }
+      .pq-loc-arrow { display: none; }
     }
 
     /* ── LOCATION MODAL ─────────────────────────────────── */
@@ -554,8 +560,47 @@
     .pq-alert-info    { background: var(--pq-yellow-lt); border-left: 4px solid var(--pq-yellow); color: #5a4a00; }
 
     /* ── FOOTER ─────────────────────────────────────────── */
-    .pq-footer { background: #1a1a1a; color: rgba(255,255,255,.45); text-align: center; padding: 20px; font-size: .78rem; }
-    .pq-footer strong { color: var(--pq-yellow); }
+    .pq-footer { background:#111827; color:rgba(255,255,255,.55); font-size:.82rem; margin-top:48px; }
+    .pq-footer-inner {
+      max-width:1200px; margin:0 auto;
+      padding:52px 24px 0;
+      display:grid; grid-template-columns:1.8fr 1fr 1fr 1.3fr; gap:36px;
+    }
+    .pq-footer-brand img { height:44px; filter:brightness(0) invert(1); opacity:.88; }
+    .pq-footer-brand p { margin:14px 0 0; font-size:.81rem; line-height:1.65; color:rgba(255,255,255,.52); max-width:270px; }
+    .pq-footer-col-title { font-weight:900; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--pq-yellow); margin-bottom:16px; }
+    .pq-footer-link { display:flex; align-items:center; gap:8px; color:rgba(255,255,255,.55); text-decoration:none; padding:5px 0; font-size:.83rem; font-weight:600; transition:color .15s; }
+    .pq-footer-link:hover { color:#fff; }
+    .pq-footer-link i { width:16px; text-align:center; opacity:.65; flex-shrink:0; }
+    .pq-footer-social { display:flex; gap:10px; margin-top:18px; }
+    .pq-footer-social-btn {
+      width:42px; height:42px; border-radius:13px;
+      background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1);
+      display:flex; align-items:center; justify-content:center;
+      color:rgba(255,255,255,.65); font-size:1.08rem; text-decoration:none;
+      transition:background .15s, color .15s, border-color .15s, transform .15s;
+    }
+    .pq-footer-social-btn:hover { transform:translateY(-2px); border-color:transparent; color:#fff; }
+    .pq-footer-social-btn.ig:hover  { background:linear-gradient(135deg,#f9ce34,#ee2a7b,#6228d7); }
+    .pq-footer-social-btn.wa:hover  { background:#25d366; }
+    .pq-footer-divider { border:none; border-top:1px solid rgba(255,255,255,.07); margin:0; }
+    .pq-footer-bottom {
+      max-width:1200px; margin:0 auto;
+      padding:20px 24px 24px;
+      display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+    }
+    .pq-footer-bottom p { margin:0; font-size:.74rem; line-height:1.65; color:rgba(255,255,255,.38); }
+    .pq-footer-bottom strong { color:var(--pq-yellow); font-weight:900; }
+    .pq-footer-badge {
+      display:inline-flex; align-items:center; gap:6px;
+      background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+      border-radius:8px; padding:6px 12px;
+      font-size:.7rem; font-weight:700; color:rgba(255,255,255,.4);
+      white-space:nowrap;
+    }
+    .pq-footer-badges { display:flex; gap:8px; flex-wrap:wrap; }
+    @media(max-width:900px){ .pq-footer-inner { grid-template-columns:1fr 1fr; gap:28px; } }
+    @media(max-width:560px){ .pq-footer-inner { grid-template-columns:1fr; gap:22px; padding-top:36px; } .pq-footer-bottom { flex-direction:column; text-align:center; } }
 
     /* ── PRODUCT DETAIL MODAL ───────────────────────────── */
     .pq-prod-overlay {
@@ -975,7 +1020,67 @@
 </div>
 
 <footer class="pq-footer">
-  <strong>Poupaqui</strong> — Produtos nas farmácias da rede
+  <div class="pq-footer-inner">
+
+    <!-- Marca -->
+    <div class="pq-footer-brand">
+      <img src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+      <p>Comparamos preços nas farmácias da rede para que você economize de verdade na sua saúde. Produtos com qualidade, preço justo e entrega rápida.</p>
+      <div class="pq-footer-social">
+        <a href="https://www.instagram.com/drogariaspoupaqui/" target="_blank" rel="noopener noreferrer" class="pq-footer-social-btn ig" title="Instagram Poupaqui" aria-label="Instagram">
+          <i class="fa-brands fa-instagram"></i>
+        </a>
+        <a href="https://wa.me/5511999999999" target="_blank" rel="noopener noreferrer" class="pq-footer-social-btn wa" title="WhatsApp SAC" aria-label="WhatsApp">
+          <i class="fa-brands fa-whatsapp"></i>
+        </a>
+      </div>
+    </div>
+
+    <!-- Navegação -->
+    <div>
+      <div class="pq-footer-col-title">Navegação</div>
+      <a class="pq-footer-link" href="{{ url_for('catalogo_publico') }}"><i class="fa fa-table-cells-large"></i>Catálogo de produtos</a>
+      <a class="pq-footer-link" href="{{ url_for('lojas_vitrine') }}"><i class="fa fa-store"></i>Nossas lojas</a>
+      <a class="pq-footer-link" href="{{ url_for('receita_medica') }}"><i class="fa fa-file-medical"></i>Busca por receita</a>
+      <a class="pq-footer-link" href="{{ url_for('vitnatu_page') }}"><i class="fa fa-leaf"></i>Marca própria</a>
+      <a class="pq-footer-link" href="{{ url_for('catalogo_publico', ofertas='1') }}"><i class="fa fa-bolt"></i>Ofertas relâmpago</a>
+    </div>
+
+    <!-- Minha conta -->
+    <div>
+      <div class="pq-footer-col-title">Minha conta</div>
+      <a class="pq-footer-link" href="{{ url_for('consumidor_login') }}"><i class="fa fa-right-to-bracket"></i>Entrar na conta</a>
+      <a class="pq-footer-link" href="{{ url_for('consumidor_criar_conta') }}"><i class="fa fa-user-plus"></i>Criar conta grátis</a>
+      <a class="pq-footer-link" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i>Meus pedidos</a>
+      <a class="pq-footer-link" href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i>Favoritos</a>
+      <a class="pq-footer-link" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i>Meus cupons</a>
+    </div>
+
+    <!-- Atendimento & Legal -->
+    <div>
+      <div class="pq-footer-col-title">Atendimento</div>
+      <a class="pq-footer-link" href="mailto:contato@poupaqui.com.br"><i class="fa fa-envelope"></i>contato@poupaqui.com.br</a>
+      <a class="pq-footer-link" href="{{ url_for('politica_privacidade') }}"><i class="fa fa-shield-halved"></i>Política de privacidade</a>
+      <a class="pq-footer-link" href="{{ url_for('minhas_reclamacoes') if consumidor else url_for('consumidor_login') }}"><i class="fa fa-comment-dots"></i>Reclamações / SAC</a>
+      <a class="pq-footer-link" href="https://consultas.anvisa.gov.br/#/bulario" target="_blank" rel="noopener noreferrer"><i class="fa fa-shield-heart"></i>Bulário ANVISA</a>
+      <a class="pq-footer-link" href="{{ url_for('minhas_assinaturas') if consumidor else url_for('consumidor_login') }}"><i class="fa fa-star"></i>Clube de assinatura</a>
+    </div>
+
+  </div>
+
+  <hr class="pq-footer-divider" style="margin-top:40px">
+
+  <div class="pq-footer-bottom">
+    <p>
+      <strong>Poupaqui</strong> — Marketplace de farmácias independentes.<br>
+      Os preços e a disponibilidade de produtos são de responsabilidade de cada farmácia participante da rede.
+    </p>
+    <div class="pq-footer-badges">
+      <span class="pq-footer-badge"><i class="fa fa-shield-halved"></i>&nbsp;Produtos regulados pela ANVISA</span>
+      <span class="pq-footer-badge"><i class="fa fa-store"></i>&nbsp;Farmácias com CRF ativo</span>
+    </div>
+    <p>© 2026 Poupaqui. Todos os direitos reservados.</p>
+  </div>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

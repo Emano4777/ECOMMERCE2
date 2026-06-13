@@ -177,8 +177,8 @@
   padding: 1px 6px;
   min-width: 18px;
 }
-/* On screens below 960px hide EXIBIR and Filtros text — both still available in drawer */
-@media(max-width:960px) {
+/* abaixo de 900px: esconde select "25" e texto "Filtros" — fica só o ícone */
+@media(max-width:900px) {
   .idx-nb-exibir { display: none; }
   .idx-nb-filtro-label { display: none; }
 }
@@ -856,6 +856,17 @@
   </div>
 </div>
 
+<!-- Banner genérico/alternativa (visível quando busca retorna equivalente genérico) -->
+<div id="alt-banner-generico" style="display:none;margin:0 0 16px;padding:12px 18px;background:linear-gradient(90deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:14px;align-items:center;gap:12px;font-size:.88rem;color:#166534;flex-wrap:wrap">
+  <i class="fa fa-capsules" style="font-size:1.1rem;color:#16a34a;flex-shrink:0"></i>
+  <span id="alt-banner-generico-msg" style="flex:1;min-width:180px"></span>
+  <button id="alt-banner-encomendar" onclick=""
+    style="flex-shrink:0;background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:.82rem;font-weight:800;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:opacity .15s"
+    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+    <i class="fa fa-box-open"></i><span id="alt-banner-encomendar-label">Solicitar encomenda</span>
+  </button>
+</div>
+
 <!-- Grade de produtos -->
 <div class="prod-grid" id="prod-grid" style="display:none"></div>
 <div class="idx-pager" id="idx-pager" style="display:none"></div>
@@ -1424,6 +1435,8 @@ function clearFilters() {
   if (pm) pm.value = '';
   const pmr = document.getElementById('filter-preco-max-range');
   if (pmr) pmr.value = 500;
+  const _ab = document.getElementById('alt-banner-generico');
+  if (_ab) _ab.style.display = 'none';
   _serverSearchLoading = false;
   filterAndRender(true);
   updateFiltroCount();
@@ -1600,12 +1613,13 @@ function carregarProdutos(lat, lng, busca='') {
       _serverSearchLoading = false;
       allProdutos = data.produtos || [];
 
-      // Poupinha: mostra saudação quando busca NL retorna resultado
+      // Poupinha: mostra saudação quando busca NL retorna resultado OU quando encontrou genérico
       const poupinhaBubble = document.getElementById('poupinha-bubble');
       const poupinhaMsg    = document.getElementById('poupinha-msg');
       if (poupinhaBubble && poupinhaMsg) {
         const isNlQuery = requestedSearch && requestedSearch.trim().split(/\s+/).length >= 2;
-        if (isNlQuery && allProdutos.length) {
+        const temAlternativa = data.alternativa_para && allProdutos.length;
+        if ((isNlQuery || temAlternativa) && allProdutos.length) {
           poupinhaMsg.textContent    = data.saudacao || _poupinhaFallback(requestedSearch);
           poupinhaBubble.style.display = '';
         } else {
@@ -1619,6 +1633,28 @@ function carregarProdutos(lat, lng, busca='') {
         _encomendaLojas = allProdutos
           .filter(p => p.cnpjloja && !_seenEnc.has(p.cnpjloja) && _seenEnc.add(p.cnpjloja))
           .map(p => ({cnpjloja: p.cnpjloja, razao: p.razao || p.cnpjloja, distancia_km: p.distancia_km}));
+      }
+
+      // Banner genérico: aparece quando a IA encontrou equivalente em vez do produto original
+      const altBanner = document.getElementById('alt-banner-generico');
+      const altBannerMsg = document.getElementById('alt-banner-generico-msg');
+      if (altBanner && altBannerMsg) {
+        if (data.alternativa_para && allProdutos.length) {
+          const paLabel = (data.principio_ativo_ia || '').replace(/\b\w/g, c => c.toUpperCase());
+          altBannerMsg.innerHTML = `<strong>${esc(data.alternativa_para.toUpperCase())}</strong> não disponível agora. Exibindo o genérico equivalente: <strong>${esc(paLabel)}</strong>.`;
+          altBanner.style.display = 'flex';
+          // Botão de encomenda para o produto original
+          const encBtn = document.getElementById('alt-banner-encomendar');
+          const encLbl = document.getElementById('alt-banner-encomendar-label');
+          if (encBtn) {
+            const _altNome = data.alternativa_para;
+            encBtn.onclick = () => abrirModalEncomenda(_altNome);
+            encBtn.style.display = 'inline-flex';
+          }
+          if (encLbl) encLbl.textContent = `Encomendar ${data.alternativa_para}`;
+        } else {
+          altBanner.style.display = 'none';
+        }
       }
 
       if (allProdutos.length) {

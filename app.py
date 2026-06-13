@@ -2783,13 +2783,16 @@ def _symptom_index_eans_for_query(query, limit=250):
         return []
 
 
+_BUSCA_CACHE_VERSION = "v2"  # incrementar para invalidar cache quando o prompt do Claude mudar
+
 def _norm_query_cache(query):
     """Normaliza query para chave de cache: lowercase, sem acentos, espaços simples."""
     value = (query or "").strip().lower()
     value = unicodedata.normalize("NFD", value)
     value = "".join(c for c in value if unicodedata.category(c) != "Mn")
     value = re.sub(r"[^a-z0-9\s]", " ", value)
-    return re.sub(r"\s+", " ", value).strip()
+    norm = re.sub(r"\s+", " ", value).strip()
+    return f"{_BUSCA_CACHE_VERSION}:{norm}" if norm else norm
 
 
 _busca_cache_schema_ok = False
@@ -2958,25 +2961,25 @@ def _claude_busca_interpret(query):
         return cached
     prompt = (
         "Você é Poupinha, assistente simpática da Drogarias Poupaqui. "
-        "Dado um sintoma ou condição em linguagem natural, retorne um JSON com:\n"
-        "1. Uma saudação amigável e empática (campo 'saudacao') — 1 frase curta, "
-        "reconhece o que o cliente está sentindo e diz que vai mostrar o que pode ajudar. "
-        "Use linguagem natural e calorosa, sem emojis.\n"
+        "Dado uma busca de produto, retorne um JSON com:\n"
+        "1. Uma saudação curta e amigável (campo 'saudacao') — 1 frase NEUTRA, sem mencionar "
+        "sintomas, doenças, condições médicas ou indicações terapêuticas. "
+        "Diga apenas que vai mostrar o que está disponível. Sem emojis.\n"
         "2. Os medicamentos/substâncias para buscar no catálogo.\n"
         "Retorne SOMENTE um JSON válido sem markdown:\n"
-        '{"saudacao":"Entendi, parece que você está com cólica. Veja o que separei para você:",'
+        '{"saudacao":"Veja o que encontramos disponível nas farmácias próximas:",'
         '"principios_ativos":["escopolamina","simeticona"],"nomes_tecnicos":["butilescopolamina"],'
-        '"categorias":["antiespasmódico"],"termos_busca":["buscopan","colica"]}\n'
-        "REGRAS:\n"
-        "- saudacao: 1 frase em português, tom amigável, sem medicamentos na saudacao\n"
+        '"categorias":["antiesp"],"termos_busca":["buscopan"]}\n'
+        "REGRAS OBRIGATÓRIAS:\n"
+        "- saudacao: NUNCA mencione doenças, sintomas, condições ou indicações (ex: PROIBIDO dizer 'alergia', 'dor', 'pressão', 'diabetes' etc). Diga apenas 'Veja o que encontramos!' ou similar\n"
         "- principios_ativos: nomes exatos das substâncias ativas que aparecem em bulas\n"
         "- nomes_tecnicos: outros princípios ativos ou nomes farmacológicos alternativos\n"
-        "- categorias: classe terapêutica sem hifens e sem acentos (ex: anti hipertensivo, analgesico)\n"
+        "- categorias: classe terapêutica sem hifens e sem acentos\n"
         "- termos_busca: palavras curtas que aparecem literalmente em nomes de produtos no estoque\n"
         "- Use somente termos em português SEM acentos e SEM hifens (exceto na saudacao)\n"
         "- Prefira nomes de substâncias ativas a nomes de condições (losartana, não hipertensão)\n"
         "- Se não souber, retorne listas vazias\n"
-        f"Sintoma/condição: {query}"
+        f"Busca: {query}"
     )
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
@@ -3460,7 +3463,9 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             (ean_digits, ean_digits),
         )
         row = cur.fetchone()
-        placeholder = _generic_placeholder_for(nome or "", med=dict(row) if row else {})
+        _tipo_fill = _TIPO_ALIAS.get(_classificar_produto(nome or ""), _classificar_produto(nome or ""))
+        _is_med_fill = _tipo_fill not in _TIPOS_NAO_MEDICAMENTO
+        placeholder = _generic_placeholder_for(nome or "", med=dict(row) if row else {}) if _is_med_fill else None
         image_url = _first_valid_url(row["imagem"] if row else None)
         if image_url and _looks_like_other_pharmacy_brand(image_url):
             image_url = None
@@ -3687,8 +3692,13 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
         imagem_atual = produto.get("imagem") or ""
         _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _classificar_produto(produto.get("nome") or "")
         _tipo_p = _TIPO_ALIAS.get(_tipo_p_raw, _tipo_p_raw)
-        # Produto sem tarja/genérico OU classificado como não-medicamento não merece a caixinha
-        if imagem_atual in _MED_PLACEHOLDERS and (not placeholder or _tipo_p in _TIPOS_NAO_MEDICAMENTO):
+        _exibir_publicamente = produto.get("exibir_imagem_publica")
+        # Decisao explicita da fonte oficial prevalece sobre o fallback por tarja.
+        if imagem_atual in _MED_PLACEHOLDERS and (
+            _exibir_publicamente is True
+            or not placeholder
+            or _tipo_p in _TIPOS_NAO_MEDICAMENTO
+        ):
             produto["imagem"] = ""
             imagem_atual = ""
             cnpj_c = produto.get("cnpjloja")
@@ -3701,7 +3711,12 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
             if _cosmos_img:
                 produto["imagem"] = _cosmos_img
                 imagem_atual = _cosmos_img
-        if _tipo_p not in _TIPOS_NAO_MEDICAMENTO and placeholder and anvisa.get("tarja") in ("preta", "vermelha"):
+        if (
+            _tipo_p not in _TIPOS_NAO_MEDICAMENTO
+            and _exibir_publicamente is not True
+            and placeholder
+            and anvisa.get("tarja") in ("preta", "vermelha")
+        ):
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
             produto["imagem_bloqueada_anvisa"] = True
@@ -3709,7 +3724,7 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = bool(placeholder)
             produto["imagem_bloqueada_marca_farmacia"] = True
-        elif not imagem_atual and placeholder:
+        elif not imagem_atual and placeholder and _tipo_p not in _TIPOS_NAO_MEDICAMENTO:
             produto["imagem"] = placeholder
             produto["imagem_padrao_poupaqui"] = True
             cnpj = produto.get("cnpjloja")
@@ -6158,6 +6173,8 @@ def api_produtos_proximos():
     produtos_raw = []
     ia_filter_terms = None  # preenchido pelo caminho NL; usado no filtro final
     _nl_ean_src = set()    # EANs do índice de sintomas; base limpa para fallback NL sem IA
+    _alternativa_para   = None  # nome da marca buscada quando não encontrada diretamente
+    _principio_ativo_ia = None  # genérico/PA encontrado pela IA em substituição
 
     is_nl = _is_natural_language_query(busca_q) if busca_q else False
 
@@ -6190,6 +6207,11 @@ def api_produtos_proximos():
                 # Aguarda IA no máximo 1s (já temos resultados do DB enquanto isso)
                 _ia_thread.join(timeout=1.0)
                 ia_result = _ia_holder[0]
+                # Quando o banco não retornou nada ainda, vale esperar mais pelo Claude
+                # (cobre buscas de marca como "allegra" onde só a IA sabe o genérico)
+                if not produtos_raw and ia_result is None:
+                    _ia_thread.join(timeout=4.0)
+                    ia_result = _ia_holder[0]
 
             if ia_result:
                 ia_terms = []
@@ -6200,6 +6222,7 @@ def api_produtos_proximos():
                             ia_terms.append(_t)
                 if ia_terms:
                     ia_filter_terms = ia_terms
+                    _nl_antes_ia = len(produtos_raw)
                     # Complementa com produtos por nome via termos IA (merge com busca direta)
                     _ia_seen = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
                     for p in get_dns_products_batch_by_name(cnpjs, ia_terms[:6]):
@@ -6221,6 +6244,15 @@ def api_produtos_proximos():
                             if key not in _ia_seen2:
                                 produtos_raw.append(p)
                                 _ia_seen2.add(key)
+                    # Detecta busca de marca que retornou apenas genérico (sem produto original)
+                    if len(produtos_raw) > _nl_antes_ia and _nl_antes_ia == 0:
+                        _principio_ativo_ia = (ia_result.get("principios_ativos") or ia_terms)[:1]
+                        _principio_ativo_ia = _principio_ativo_ia[0] if _principio_ativo_ia else None
+                        _bq_norm = _norm_text(busca_q)
+                        # Só marca como "alternativa" se o nome buscado não aparece nos produtos encontrados
+                        _nomes_encontrados = " ".join(_norm_text(p.get("nome") or "") for p in produtos_raw)
+                        if _bq_norm not in _nomes_encontrados:
+                            _alternativa_para = busca_q
             # Fallback: sem resultado nenhum
             if not produtos_raw:
                 _st = _search_terms_for_query(busca_q)
@@ -6279,6 +6311,8 @@ def api_produtos_proximos():
                             produtos_raw.append(p)
 
             # Passo 3: IA apenas quando banco não encontrou nada suficiente
+            _alternativa_para  = None  # marca quando encontrou genérico/similar em vez do produto original
+            _principio_ativo_ia = None
             if len(produtos_raw) < 3:
                 ia_result = _claude_busca_interpret(busca_q)
                 if ia_result:
@@ -6289,6 +6323,7 @@ def api_produtos_proximos():
                             if _t and len(_t) > 2 and _t not in ia_terms:
                                 ia_terms.append(_t)
                     if ia_terms:
+                        _antes_ia = len(produtos_raw)
                         seen_ia = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
                         for p in get_dns_products_batch_by_name(cnpjs, ia_terms[:6]):
                             key = (p.get("cnpjloja"), p.get("ean"))
@@ -6308,6 +6343,15 @@ def api_produtos_proximos():
                                 if key not in seen_ia:
                                     produtos_raw.append(p)
                                     seen_ia.add(key)
+                        # Produtos adicionados via genérico/IA: filtro final deve aceitar esses termos
+                        if len(produtos_raw) > _antes_ia:
+                            orig_norm = _norm_text(busca_q)
+                            ia_filter_terms = ([orig_norm] if orig_norm not in ia_terms else []) + ia_terms
+                            # Sinaliza que exibimos alternativa genérica (não o produto exato buscado)
+                            _principio_ativo_ia = (ia_result.get("principios_ativos") or ia_terms)[:1]
+                            _principio_ativo_ia = _principio_ativo_ia[0] if _principio_ativo_ia else None
+                            if _antes_ia == 0:
+                                _alternativa_para = busca_q
 
             # Complementa busca direta nos estoques individuais das lojas
             low_value_terms = {
@@ -6421,27 +6465,43 @@ def api_produtos_proximos():
                     filtrados.append(p)
             produtos_view = filtrados
 
-    # Busca NL (sintomas): remove medicamentos tarjados — eles só aparecem em busca direta por nome
+    # Busca NL (sintomas): remove medicamentos tarjados — eles só aparecem em busca direta por nome.
+    # EXCEÇÃO: busca de marca/produto específico (palavra única ou sem palavras de sintoma)
+    # ex: "allegra", "dipirona", "losartana" → não remover; "dor de cabeça" → remover
     if is_nl and busca_q:
-        produtos_view = [
-            p for p in produtos_view
-            if (p.get("tarja") or "").lower() not in ("vermelha", "preta")
-        ]
+        _bq_words = _norm_text(busca_q).split()
+        _e_busca_sintoma = (
+            len(_bq_words) >= 3
+            or any(w in _NL_SYMPTOM_WORDS for w in _bq_words)
+        )
+        if _e_busca_sintoma:
+            produtos_view = [
+                p for p in produtos_view
+                if (p.get("tarja") or "").lower() not in ("vermelha", "preta")
+            ]
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
     saudacao = None
     if is_nl and ia_result:
         saudacao = (ia_result.get("saudacao") or "").strip() or None
+    # Quando encontrou alternativa genérica, substitui qualquer saudação do Claude por mensagem
+    # neutra — a saudação do Claude tende a mencionar condição médica ("alergia", "dor" etc.)
+    # o que caracteriza indicação terapêutica e não pode aparecer no e-commerce de farmácia.
+    if _alternativa_para and result:
+        _pa_label = (_principio_ativo_ia or "").title() or "genérico"
+        saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo o equivalente genérico encontrado nas farmácias próximas."
     return jsonify({
-        "produtos":       result[:500],
-        "cnpjs_proximos": [l["cnpjloja"] for l in proximas],
-        "lojas_proximas": [{"cnpjloja": l["cnpjloja"], "razao": _public_store_name(l)} for l in proximas],
-        "fora_raio":      fora_raio,
-        "sem_geocode":    sem_geocode,
-        "raio_km":        raio,
-        "raio_fallback_km": raio_fallback,
-        "n_lojas":        len(proximas),
-        "saudacao":       saudacao,
+        "produtos":          result[:500],
+        "cnpjs_proximos":    [l["cnpjloja"] for l in proximas],
+        "lojas_proximas":    [{"cnpjloja": l["cnpjloja"], "razao": _public_store_name(l)} for l in proximas],
+        "fora_raio":         fora_raio,
+        "sem_geocode":       sem_geocode,
+        "raio_km":           raio,
+        "raio_fallback_km":  raio_fallback,
+        "n_lojas":           len(proximas),
+        "saudacao":          saudacao,
+        "alternativa_para":  _alternativa_para,
+        "principio_ativo_ia": _principio_ativo_ia,
     })
 
 
@@ -7609,6 +7669,210 @@ def api_recomendacoes():
     return jsonify(recs)
 
 
+def _claude_haiku(prompt: str, max_tokens: int = 300, timeout: int = 5) -> str | None:
+    """Chama Claude Haiku e retorna o texto da resposta ou None em caso de erro."""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            data_resp = json.loads(r.read().decode("utf-8"))
+        return (data_resp.get("content") or [{}])[0].get("text", "").strip()
+    except Exception:
+        return None
+
+
+@app.get("/api/home/economia-ia")
+def api_home_economia_ia():
+    """Retorna insight gerado por Claude + top produtos com maior economia da região."""
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat, lng = 0.0, 0.0
+
+    conn = db()
+    cur = conn.cursor()
+    try:
+        if lat != 0.0 and lng != 0.0:
+            cur.execute(
+                """
+                SELECT u.cnpjloja FROM users u
+                JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+                LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+                WHERE u.is_admin = FALSE AND g.lat IS NOT NULL
+                  AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+                  AND (
+                    6371 * acos(LEAST(1.0, cos(radians(%s))*cos(radians(g.lat::float))*cos(radians(g.lng::float)-radians(%s))+sin(radians(%s))*sin(radians(g.lat::float))))
+                  ) <= 60
+                LIMIT 20
+                """,
+                (lat, lng, lat),
+            )
+        else:
+            cur.execute(
+                """SELECT u.cnpjloja FROM users u
+                   LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+                   WHERE u.is_admin = FALSE AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+                   LIMIT 10"""
+            )
+        cnpjs = [r["cnpjloja"] for r in cur.fetchall()]
+    except Exception:
+        cnpjs = []
+    finally:
+        cur.close()
+        conn.close()
+
+    if not cnpjs:
+        return jsonify({"insight_ia": "Compare preços e economize na sua saúde.", "produtos": [], "economia_total": 0})
+
+    todos = get_dns_products_batch(cnpjs)
+
+    _nomes_lixo = {"sem descr", "sem descrição", "sem nome", "produto", "item", ""}
+    validos = [
+        p for p in todos
+        if p.get("imagem")
+        and (float(p.get("preco") or 0)) > 0
+        and (float(p.get("preco") or 0)) <= 300       # filtra preços absurdos
+        and (p.get("nome") or "").strip().lower() not in _nomes_lixo
+        and len((p.get("nome") or "").strip()) >= 5
+    ]
+
+    # Agrupa por EAN para encontrar maior diferença de preço entre lojas
+    por_ean: dict = {}
+    for p in validos:
+        ean = str(p.get("ean") or "").strip()
+        if not ean:
+            continue
+        por_ean.setdefault(ean, []).append(p)
+
+    with_savings = []
+    for ean, lista in por_ean.items():
+        if len(lista) < 2:
+            continue
+        lista.sort(key=lambda x: float(x.get("preco") or 0))
+        melhor = lista[0]
+        pior   = lista[-1]
+        eco = float(pior.get("preco") or 0) - float(melhor.get("preco") or 0)
+        if eco > 0.5:
+            with_savings.append({**melhor, "economia": round(eco, 2)})
+
+    with_savings.sort(key=lambda x: -x["economia"])
+    top = with_savings[:3]
+
+    # Fallback: produtos populares (mais estoque) em faixa de preço razoável (R$ 10–150)
+    if len(top) < 3:
+        eans_top = {t.get("ean") for t in top}
+        resto = [
+            p for p in validos
+            if p.get("ean") not in eans_top
+            and 10 <= float(p.get("preco") or 0) <= 150
+        ]
+        resto.sort(key=lambda x: -(int(x.get("qty") or 0)))
+        for p in resto:
+            if len(top) >= 3:
+                break
+            top.append({**p, "economia": 0.0})
+
+    economia_total = sum(t.get("economia", 0) for t in top)
+
+    # Claude gera o insight
+    nomes_str = "; ".join(t.get("nome", "") for t in top[:3] if t.get("nome"))
+    insight_ia = None
+    if nomes_str:
+        prompt = (
+            "Você é Poupinha, a IA da rede de farmácias Poupaqui. "
+            f"Você encontrou estes produtos com bom preço na região do cliente: {nomes_str}. "
+            f"A economia potencial é de R$ {economia_total:.2f}. "
+            "Gere UMA frase curta e animada (máximo 120 caracteres) dizendo que o cliente pode economizar "
+            "comprando esses produtos no Poupaqui. Seja direto, simpático e em português. Sem emojis. "
+            "Retorne SOMENTE a frase, sem aspas nem explicações."
+        )
+        insight_ia = _claude_haiku(prompt, max_tokens=80, timeout=5)
+
+    if not insight_ia:
+        insight_ia = f"Compare preços e economize até {_format_brl(economia_total)} nos produtos mais procurados da sua região." if economia_total > 0 else "Confira os melhores preços nas farmácias perto de você."
+
+    result = [
+        {
+            "ean": t.get("ean"),
+            "nome": t.get("nome"),
+            "imagem": t.get("imagem"),
+            "preco": t.get("preco"),
+            "razao": t.get("razao") or "Drogaria Poupaqui",
+            "cnpjloja": t.get("cnpjloja"),
+            "economia": t.get("economia", 0),
+        }
+        for t in top
+    ]
+    return jsonify({"insight_ia": insight_ia, "produtos": result, "economia_total": round(economia_total, 2)})
+
+
+def _format_brl(valor: float) -> str:
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+@app.get("/api/produto/quem-viu")
+def api_produto_quem_viu():
+    """Retorna recomendações 'quem viu isso também viu' com título gerado por Claude."""
+    ean  = (request.args.get("ean") or "").strip()
+    cnpj = (request.args.get("cnpj") or "").strip()
+    nome = (request.args.get("nome") or "").strip()
+
+    if not ean or not cnpj:
+        return jsonify({"titulo_ia": "Quem viu isso também viu", "subtitulo_ia": "", "produtos": []})
+
+    recs = _build_recommendations(
+        itens=[{"ean": ean, "nome": nome, "cnpjloja": cnpj}],
+        cnpjlojas=[cnpj],
+        limit=8,
+    )
+    produtos = recs.get("produtos") or []
+    if not produtos:
+        return jsonify({"titulo_ia": "Quem viu isso também viu", "subtitulo_ia": "", "produtos": []})
+
+    # Claude gera título criativo
+    nomes_rec = "; ".join(p.get("nome", "") for p in produtos[:4] if p.get("nome"))
+    titulo_ia = None
+    subtitulo_ia = None
+    if nome and nomes_rec:
+        prompt = (
+            "Você é Poupinha, IA da Drogaria Poupaqui. "
+            f"Um cliente está vendo o produto '{nome}'. "
+            f"Outros clientes que viram esse produto também se interessaram por: {nomes_rec}. "
+            "Gere:\n"
+            "1. Um título criativo de até 50 caracteres para a seção (variação de 'Quem viu isso também viu'). "
+            "2. Uma frase de subtítulo de até 80 caracteres contextualizando a relação com o produto. "
+            "Retorne JSON: {\"titulo\": \"...\", \"subtitulo\": \"...\"} — sem markdown, sem explicações."
+        )
+        texto = _claude_haiku(prompt, max_tokens=120, timeout=5)
+        if texto:
+            try:
+                parsed = json.loads(texto)
+                titulo_ia   = parsed.get("titulo")
+                subtitulo_ia = parsed.get("subtitulo")
+            except Exception:
+                pass
+
+    return jsonify({
+        "titulo_ia":    titulo_ia    or "Quem viu isso também viu",
+        "subtitulo_ia": subtitulo_ia or "Produtos relacionados vistos por outros clientes",
+        "produtos": produtos,
+    })
+
+
 _BULA_GARBAGE_RE = re.compile(
     r"GENÉRICO\s*[–\-]\s*GENÉRICO|RDC\s+de\s+Bula|de\s+Bula\s*[–\-]\s*RDC|"
     r"\b\d{4,}\s*[–\-]\s*\d{4,}\b|Atualização\s+do\s+texto\s+de\s+bula|"
@@ -7996,9 +8260,13 @@ def produto_detalhe(ean):
         imagem = _fill_one_catalog_image(cnpjloja, ean, nome_busca)
     nome   = (med["descricao"] if med else None) or _descricao_canon or (produto["nome"] if produto else None) or nome_hint or "Produto"
     tipo_produto = _classificar_produto(nome)
-    tarja = _detectar_tarja(anvisa)
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
-    placeholder_generico = _generic_placeholder_for(nome, anvisa=anvisa, med=dict(med) if med else {})
+    tarja = _detectar_tarja(anvisa) if _is_med else None
+    placeholder_generico = _generic_placeholder_for(nome, anvisa=anvisa, med=dict(med) if med else {}) if _is_med else None
+    if not _is_med:
+        # Produto claramente não-medicamento: limpar dados farmacêuticos que poderiam vir
+        # de uma correspondência incorreta do EAN na base ANVISA
+        anvisa = {}
     # Mesma lógica do _marcar_tarja_batch usado no card:
     # substitui imagem de farmácia concorrente e aplica caixa genérica quando tarja ou exibir=False
     if imagem and _looks_like_other_pharmacy_brand(imagem):
@@ -8009,9 +8277,10 @@ def produto_detalhe(ean):
         _exibir = anvisa.get("exibir_imagem_publica")
         _nao_exibir = _exibir is False
         _exibir_confirmado = _exibir is True  # IA ou ANVISA confirmou explicitamente
-        # Tarja preta ou vermelha SEMPRE bloqueia a imagem, sem exceção
-        _bloquear_img = tarja in ("preta", "vermelha") or _nao_exibir
-        # exibir_confirmado só bypassa o check de marca concorrente (ex: Advil OTC sem tarja)
+        # Fonte oficial explicita prevalece; tarja e fallback apenas quando a regra e desconhecida.
+        _bloquear_img = _nao_exibir or (
+            _exibir is None and tarja in ("preta", "vermelha")
+        )
         if not _bloquear_img and not _exibir_confirmado and imagem and _looks_like_other_pharmacy_brand(imagem):
             _bloquear_img = True
         if _bloquear_img:
@@ -8669,7 +8938,7 @@ def api_carrinho_sync():
 @app.get("/entrar")
 def consumidor_login():
     if session.get("consumidor_id"):
-        return redirect(request.args.get("next") or url_for("meus_pedidos"))
+        return redirect(request.args.get("next") or url_for("index"))
     return render_template("consumidor_login.html", next_url=request.args.get("next") or "")
 
 
@@ -8678,7 +8947,7 @@ def consumidor_login_post():
     _ensure_consumidor_schema()
     email = _norm_email(request.form.get("email"))
     senha = request.form.get("senha") or ""
-    next_url = request.form.get("next") or url_for("meus_pedidos")
+    next_url = request.form.get("next") or url_for("index")
 
     conn = db()
     cur = conn.cursor()
@@ -8705,7 +8974,7 @@ def consumidor_login_post():
 @app.get("/criar-conta")
 def consumidor_criar_conta():
     if session.get("consumidor_id"):
-        return redirect(request.args.get("next") or url_for("meus_pedidos"))
+        return redirect(request.args.get("next") or url_for("index"))
     return render_template("consumidor_cadastro.html", next_url=request.args.get("next") or "")
 
 
@@ -8719,7 +8988,7 @@ def consumidor_criar_conta_post():
     endereco = (request.form.get("endereco") or "").strip()
     endereco_lat = _to_float_or_none(request.form.get("endereco_lat"))
     endereco_lng = _to_float_or_none(request.form.get("endereco_lng"))
-    next_url = request.form.get("next") or url_for("meus_pedidos")
+    next_url = request.form.get("next") or url_for("index")
 
     if not _valid_nome(nome):
         flash("Informe nome e sobrenome reais.", "error")
@@ -14173,7 +14442,7 @@ _TIPO_PERFUMARIA = re.compile(
     r"\b(sabonete|shampoo|condicionador|creme.capilar|mascara.capilar|oleo.capilar|anticaspa|"
     r"tintura.capilar|tinta.cabelo|coloracao.capilar|depilatorio|depilatório|cera.depilatoria|"
     r"pasta.dental|creme.dental|escova.dental|fio.dental|enxaguante|colutorio|antisseptico.bucal|"
-    r"desodorante|antitranspirante|fralda|absorvente|lenco.umedecido|protetor.diario|"
+    r"desodorante|antitranspirante|fralda|fraldas|absorvente|lenco.umedecido|lenco.umid\w*|toalha.umed\w*|toalha.umid\w*|toalha.beb|pano.umed\w*|protetor.diario|"
     r"algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|lubrificante.intimo|"
     r"talco|creme.assadura|oleo.corporal|creme.pes|lixa.pes|cuidado.pes|"
     r"espuma.barba|creme.barba|gel.barba|barbear|pos.barba|"
@@ -14302,6 +14571,11 @@ def _anvisa_schema():
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS principais_cuidados_ia TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS indicado_para_ia TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS ia_descricao_gerado_em TIMESTAMPTZ")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS url_bula_fabricante TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_url TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_dominio TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_confianca TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_consultada_em TIMESTAMPTZ")
     conn.commit()
     cur.close()
     _ANVISA_SCHEMA_READY = True
@@ -14688,9 +14962,12 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-            # Produto tarjado ou marcado como nao-exibivel recebe imagem Poupaqui
-            _nao_exibir = row.get("exibir_imagem_publica") is False
-            _bloquear = tarja in ("preta", "vermelha") or _nao_exibir
+            # Fonte oficial explicita prevalece; tarja e fallback quando a regra e desconhecida.
+            _exibir = row.get("exibir_imagem_publica")
+            _nao_exibir = _exibir is False
+            _bloquear = _nao_exibir or (
+                _exibir is None and tarja in ("preta", "vermelha")
+            )
             # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
             _imagem_atual = (produtos[idx].get("imagem") or "").strip()
             if not _bloquear and _imagem_atual and _looks_like_other_pharmacy_brand(_imagem_atual):
@@ -14988,11 +15265,15 @@ def _anvisa_fetch_jwt(chave, id_produto):
 
 @app.get("/bula/<chave>")
 def bula_download(chave):
-    """Download bula PDF direto da ANVISA (proxy) ou redireciona para página do produto."""
+    """Abre a bula oficial do fabricante; usa o fluxo ANVISA como fallback."""
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT url_bula, jwt_bula, id_produto FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
+        """
+        SELECT url_bula, url_bula_fabricante, jwt_bula, id_produto
+        FROM anvisa_cache
+        WHERE chave=%s AND encontrado=TRUE
+        """,
         (chave,),
     )
     row = cur.fetchone()
@@ -15002,6 +15283,9 @@ def bula_download(chave):
             "https://consultas.anvisa.gov.br/#/bulario?nomeProduto="
             + urllib.parse.quote(chave)
         )
+
+    if row["url_bula_fabricante"]:
+        return redirect(row["url_bula_fabricante"])
 
     jwt_bula = row["jwt_bula"]
 

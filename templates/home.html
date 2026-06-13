@@ -43,20 +43,59 @@
 .home-quick { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
 .home-quick a { color:#fff; text-decoration:none; border:1.5px solid rgba(255,255,255,.28); border-radius:999px; padding:7px 11px; font-size:.8rem; font-weight:900; transition:background .15s,border-color .15s; }
 .home-quick a:hover { background:rgba(255,255,255,.18); border-color:rgba(255,255,255,.55); color:#fff; }
-.home-savings {
-  background:#fff;
-  color:#1a1a1a;
-  border-radius:14px;
-  padding:16px;
-  box-shadow:0 16px 46px rgba(0,0,0,.18);
+/* ── Hero visual (lado direito ilustrativo) ─────────────────────────── */
+.home-hero-visual { display:flex; align-items:center; justify-content:center; }
+.hhv-card {
+  background:rgba(255,255,255,.12);
+  backdrop-filter:blur(10px);
+  border:1.5px solid rgba(255,255,255,.22);
+  border-radius:26px;
+  padding:26px 22px 22px;
+  width:100%;
+  max-width:290px;
+  text-align:center;
+  box-shadow:0 16px 48px rgba(0,0,0,.18);
 }
-.home-savings-title { font-weight:900; display:flex; align-items:center; gap:8px; margin-bottom:12px; }
-.home-mini-list { display:flex; flex-direction:column; gap:10px; }
-.home-mini { display:grid; grid-template-columns:48px 1fr auto; gap:10px; align-items:center; border:1px solid #eee; border-radius:10px; padding:8px; }
-.home-mini-img { width:48px; height:48px; border-radius:8px; background:#f5f5f5; object-fit:contain; padding:4px; }
-.home-mini-name { font-size:.78rem; font-weight:900; line-height:1.25; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.home-mini-store { color:var(--pq-muted); font-size:.68rem; font-weight:800; margin-top:2px; }
-.home-mini-price { color:var(--pq-red); font-weight:900; white-space:nowrap; }
+.hhv-badge {
+  display:inline-flex; align-items:center; gap:6px;
+  background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.28);
+  border-radius:999px; padding:5px 14px;
+  font-size:.7rem; font-weight:800; color:#fff; margin-bottom:20px;
+  letter-spacing:.02em;
+}
+.hhv-main {
+  position:relative; width:100px; height:100px; margin:0 auto 20px;
+}
+.hhv-cross {
+  width:78px; height:78px;
+  background:rgba(255,255,255,.16); border-radius:24px;
+  border:2px solid rgba(255,255,255,.28);
+  display:flex; align-items:center; justify-content:center;
+  font-size:2.3rem; color:rgba(255,255,255,.9);
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  animation:hhv-breathe 3.5s ease-in-out infinite;
+}
+@keyframes hhv-breathe { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.09)} }
+.hhv-pill {
+  position:absolute; width:36px; height:36px;
+  background:rgba(255,255,255,.14); border:1.5px solid rgba(255,255,255,.22);
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  color:rgba(255,255,255,.85); font-size:.82rem;
+}
+.hhv-pill--a { top:-4px; right:-4px; animation:hhv-fa 2.8s ease-in-out infinite; }
+.hhv-pill--b { bottom:-4px; left:-2px; animation:hhv-fb 3.2s ease-in-out infinite; }
+.hhv-pill--c { top:50%; right:-14px; transform:translateY(-50%); animation:hhv-fc 2.5s ease-in-out infinite; }
+@keyframes hhv-fa { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+@keyframes hhv-fb { 0%,100%{transform:translateY(0)} 50%{transform:translateY(6px)} }
+@keyframes hhv-fc { 0%,100%{transform:translate(0,-50%)} 50%{transform:translate(0,calc(-50% - 6px))} }
+.hhv-stats {
+  display:flex; border-top:1px solid rgba(255,255,255,.18); padding-top:16px;
+  justify-content:space-around; align-items:center;
+}
+.hhv-stat-div { width:1px; height:32px; background:rgba(255,255,255,.2); }
+.hhv-stat-val { font-size:1.25rem; font-weight:900; color:var(--pq-yellow); line-height:1; }
+.hhv-stat-lbl { font-size:.64rem; color:rgba(255,255,255,.72); font-weight:700; margin-top:4px; }
+@media(max-width:880px){ .home-hero-visual { display:none !important; } }
 .home-section { margin-top:26px; }
 .home-section-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:12px; }
 .home-title { font-size:1.15rem; font-weight:900; display:flex; align-items:center; gap:8px; margin:0; }
@@ -188,7 +227,7 @@
 @media(min-width:880px){
   .dept-chip { flex:1 1 0; min-width:100px; }
 }
-@media(max-width:880px){ .home-hero { grid-template-columns:1fr; } .home-savings { max-width:420px; margin:0 auto; } .need-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .coupon-grid,.compare-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:880px){ .home-hero { grid-template-columns:1fr; } .need-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .coupon-grid,.compare-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:560px){
   .home-hero { border-radius:0; margin-left:-16px; margin-right:-16px; padding:22px 16px; }
   .home-hero h1 { font-size:1.45rem; }
@@ -239,6 +278,21 @@
 .bnr-track { display:flex; transition:transform .45s cubic-bezier(.25,.8,.25,1); }
 .bnr-slide { flex:0 0 100%; position:relative; cursor:pointer; }
 .bnr-slide img { width:100%; height:240px; object-fit:cover; display:block; border-radius:16px; }
+.welcome-video-wrap {
+  margin-bottom:22px;
+  overflow:hidden;
+  border-radius:16px;
+  background:#fff9f3;
+  box-shadow:var(--pq-shadow);
+}
+.welcome-video {
+  width:100%;
+  height:240px;
+  display:block;
+  object-fit:contain;
+  object-position:center;
+  background:#fff9f3;
+}
 .bnr-store-tag { position:absolute; bottom:10px; left:12px; background:rgba(0,0,0,.62); color:#fff; font-size:.72rem; font-weight:800; padding:4px 10px; border-radius:20px; backdrop-filter:blur(4px); }
 .bnr-nav-btn { position:absolute; top:50%; transform:translateY(-50%); background:rgba(0,0,0,.45); color:#fff; border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2; transition:.2s; }
 .bnr-nav-btn:hover { background:rgba(0,0,0,.75); }
@@ -247,7 +301,10 @@
 .bnr-dots { display:flex; justify-content:center; gap:6px; margin-top:8px; }
 .bnr-dot { width:8px; height:8px; border-radius:50%; background:#d1d5db; cursor:pointer; transition:.2s; border:none; padding:0; }
 .bnr-dot.active { background:var(--pq-red); width:20px; border-radius:4px; }
-@media(max-width:560px){ .bnr-slide img { height:155px; } }
+@media(max-width:560px){
+  .bnr-slide img,
+  .welcome-video { height:155px; }
+}
 
 /* ── Home Personalizada ──────────────────────────────────── */
 @keyframes lembreteIn { from { opacity:0; transform:translateX(-16px); } to { opacity:1; transform:translateX(0); } }
@@ -475,6 +532,65 @@
 .cs-pop-cta:hover { opacity:.88; color:#fff; }
 .cs-pop-skip { background:none; border:none; color:#94a3b8; font-size:.78rem; cursor:pointer; text-decoration:underline; padding:2px; }
 @media(max-width:400px) { .cs-pop-prods { grid-template-columns:repeat(2,1fr); } }
+
+/* ── Social Proof strip ──────────────────────────────────────────── */
+.sp-strip {
+  display:flex; gap:0; background:#fff; border:1px solid var(--pq-border);
+  border-radius:16px; box-shadow:var(--pq-shadow);
+  overflow:hidden; margin-bottom:22px;
+}
+.sp-item {
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:14px 10px; text-align:center; position:relative;
+}
+.sp-item + .sp-item::before {
+  content:''; position:absolute; left:0; top:20%; height:60%; width:1px;
+  background:var(--pq-border);
+}
+.sp-val { font-size:1.5rem; font-weight:900; color:var(--pq-red); line-height:1; }
+.sp-lbl { font-size:.7rem; font-weight:700; color:var(--pq-muted); margin-top:4px; }
+.sp-ico { font-size:.85rem; color:var(--pq-red); margin-bottom:4px; }
+@media(max-width:460px){ .sp-val { font-size:1.2rem; } .sp-lbl { font-size:.62rem; } }
+
+/* ── Economia com IA ─────────────────────────────────────────────── */
+.home-economia-ia {
+  background:linear-gradient(135deg,#1a1a2e 0%,#0f1117 100%);
+  border-radius:22px; padding:22px 20px;
+  border:1.5px solid rgba(124,58,237,.3);
+  box-shadow:0 8px 32px rgba(0,0,0,.22);
+}
+.heia-header { display:flex; align-items:flex-start; gap:14px; margin-bottom:16px; }
+.heia-avatar {
+  width:46px; height:46px; flex-shrink:0;
+  background:linear-gradient(135deg,#7c3aed,#c026d3);
+  border-radius:15px; display:flex; align-items:center; justify-content:center;
+  color:#fff; font-size:1.1rem;
+  box-shadow:0 4px 18px rgba(124,58,237,.42);
+  animation:heia-pulse 2.8s ease-in-out infinite;
+}
+@keyframes heia-pulse { 0%,100%{box-shadow:0 4px 18px rgba(124,58,237,.42)} 50%{box-shadow:0 4px 28px rgba(124,58,237,.7)} }
+.heia-badge { font-size:.62rem; font-weight:900; color:#a78bfa; text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; display:flex; align-items:center; gap:5px; }
+.heia-msg { font-size:.92rem; font-weight:700; color:#e2e8f0; line-height:1.5; }
+.heia-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.heia-prod {
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+  border-radius:14px; padding:12px; text-decoration:none; color:inherit;
+  transition:background .15s,transform .18s;
+}
+.heia-prod:hover { background:rgba(255,255,255,.11); transform:translateY(-2px); }
+.heia-prod-img {
+  width:100%; aspect-ratio:1; object-fit:contain;
+  border-radius:10px; background:rgba(255,255,255,.07); padding:8px;
+  margin-bottom:8px;
+}
+.heia-prod-name { font-size:.74rem; font-weight:800; color:#e2e8f0; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.4em; }
+.heia-prod-store { font-size:.64rem; color:rgba(255,255,255,.42); font-weight:700; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.heia-prod-preco { font-size:.98rem; font-weight:900; color:var(--pq-yellow); margin-top:6px; }
+.heia-prod-eco { font-size:.64rem; color:#86efac; font-weight:800; margin-top:2px; display:flex; align-items:center; gap:3px; }
+@media(max-width:560px){ .heia-grid { grid-template-columns:repeat(2,1fr); } }
+
+/* ── Achados: seção standalone ───────────────────────────────────── */
+#sec-achados .home-row { min-height:180px; }
 </style>
 {% endblock %}
 
@@ -501,6 +617,17 @@
   </div>
 
   {# ── Banners das lojas (carrossel) — acima das categorias ── #}
+  <section class="welcome-video-wrap" aria-label="Conheça o PoupAqui">
+    <video class="welcome-video" autoplay muted loop playsinline controls
+           preload="metadata"
+           poster="https://res.cloudinary.com/dizfq460q/video/upload/so_0,q_auto,f_jpg/v1781328696/home/poupaqui_boas_vindas.jpg">
+      <source src="https://res.cloudinary.com/dizfq460q/video/upload/q_auto,vc_h264/v1781328696/home/poupaqui_boas_vindas.mp4"
+              type="video/mp4">
+      <source src="https://res.cloudinary.com/dizfq460q/video/upload/v1781328696/home/poupaqui_boas_vindas.webm"
+              type="video/webm">
+    </video>
+  </section>
+
   <section id="bnr-section" class="bnr-section" style="display:none">
     <div class="bnr-carousel" id="bnr-carousel">
       <div class="bnr-track" id="bnr-track"></div>
@@ -549,8 +676,8 @@
   <section class="home-hero">
     <div>
       <div id="hero-banner-ia"><i class="fa fa-wand-magic-sparkles"></i><span id="hero-banner-ia-txt"></span></div>
-      <h1>Compare preços e <span style="color:#ffd700;text-shadow:0 2px 10px rgba(0,0,0,.28)">economize</span> em saúde</h1>
-      <p>Medicamentos, suplementos, dermocosméticos e mais. Compare preços nas farmácias mais próximas de você e economize de verdade.</p>
+      <h1 style="font-size:2.4rem;line-height:1.06">Compare preços e <span style="color:#ffd700;text-shadow:0 2px 10px rgba(0,0,0,.28)">economize</span><br>em saúde</h1>
+      <p style="font-size:1.02rem;margin-top:10px">Medicamentos, suplementos, dermocosméticos e mais.<br>Compare preços nas farmácias da sua região.</p>
       <form class="home-search" action="{{ url_for('catalogo_publico') }}" method="get">
         <div class="home-search-wrap">
           <input id="home-q" name="q" placeholder="Busque produto, remédio ou o que está sentindo…" autocomplete="off">
@@ -577,10 +704,33 @@
         <a href="{{ url_for('lojas_vitrine') }}"><i class="fa fa-store me-1"></i>Lojas</a>
       </div>
     </div>
-    <aside class="home-savings">
-      <div class="home-savings-title"><i class="fa fa-ranking-star" style="color:var(--pq-red)"></i>Melhores achados <span class="badge-live"><span class="badge-live-dot"></span>ao vivo</span></div>
-      <div id="home-achados" class="home-mini-list">
-        <div class="home-empty"><i class="fa fa-spinner fa-spin me-1"></i>Carregando produtos próximos...</div>
+    <aside class="home-hero-visual" aria-hidden="true">
+      <div class="hhv-card">
+        <div class="hhv-badge">
+          <span style="width:22px;height:22px;border-radius:50%;overflow:hidden;flex-shrink:0;display:inline-flex;background:#fff8f8">
+            <video autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover">
+              <source src="https://res.cloudinary.com/dizfq460q/video/upload/v1770394811/Cute_3D_cartoon_boy_waving_his_hand_saying_hello__smooth_looping_animation__friendly__white_backgrou_seed3432330758_tvqhjc.mp4" type="video/mp4">
+            </video>
+          </span>
+          Poupinha IA
+        </div>
+        <div class="hhv-main">
+          <div class="hhv-cross"><i class="fa fa-plus"></i></div>
+          <div class="hhv-pill hhv-pill--a"><i class="fa fa-pills"></i></div>
+          <div class="hhv-pill hhv-pill--b"><i class="fa fa-heart-pulse"></i></div>
+          <div class="hhv-pill hhv-pill--c"><i class="fa fa-flask-vial"></i></div>
+        </div>
+        <div class="hhv-stats">
+          <div class="hhv-stat">
+            <div class="hhv-stat-val">R$&nbsp;<span id="hhv-ec-val">45</span></div>
+            <div class="hhv-stat-lbl">média de economia</div>
+          </div>
+          <div class="hhv-stat-div"></div>
+          <div class="hhv-stat">
+            <div class="hhv-stat-val"><span id="hhv-far-val">30</span>+</div>
+            <div class="hhv-stat-lbl">farmácias</div>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -593,6 +743,64 @@
         <a href="{{ url_for('lojas_vitrine') }}" style="font-size:.76rem;font-weight:800;color:rgba(255,255,255,.8);text-decoration:none">Ver lojas <i class="fa fa-chevron-right" style="font-size:.6rem"></i></a>
       </div>
       <div id="hero-clubes-row" style="display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px"></div>
+    </div>
+  </section>
+
+  {# ── Social proof strip ── #}
+  <div class="sp-strip">
+    <div class="sp-item">
+      <div class="sp-ico"><i class="fa fa-box-open"></i></div>
+      <div class="sp-val" id="sp-pedidos">12k+</div>
+      <div class="sp-lbl">pedidos processados</div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-ico"><i class="fa fa-store"></i></div>
+      <div class="sp-val" id="sp-farmacias">32+</div>
+      <div class="sp-lbl">farmácias parceiras</div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-ico"><i class="fa fa-pills"></i></div>
+      <div class="sp-val" id="sp-produtos">8.500+</div>
+      <div class="sp-lbl">produtos no catálogo</div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-ico"><i class="fa fa-star"></i></div>
+      <div class="sp-val">4,9</div>
+      <div class="sp-lbl">avaliação média</div>
+    </div>
+  </div>
+
+  {# ── Economia com IA Poupinha ── #}
+  <section class="home-section" id="sec-economia-ia" style="display:none">
+    <div class="home-economia-ia">
+      <div class="heia-header">
+        <div class="heia-avatar" style="background:none;padding:0;overflow:hidden">
+          <video autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover">
+            <source src="https://res.cloudinary.com/dizfq460q/video/upload/v1770394811/Cute_3D_cartoon_boy_waving_his_hand_saying_hello__smooth_looping_animation__friendly__white_backgrou_seed3432330758_tvqhjc.mp4" type="video/mp4">
+          </video>
+        </div>
+        <div>
+          <div class="heia-badge"><span class="badge-live-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#a78bfa;animation:live-blink 1.3s ease-in-out infinite"></span>Poupinha IA · Análise em tempo real</div>
+          <div class="heia-msg" id="heia-msg">Analisando os melhores preços para você...</div>
+        </div>
+      </div>
+      <div class="heia-grid" id="heia-grid"></div>
+    </div>
+  </section>
+
+  {# ── Melhores achados ── #}
+  <section class="home-section" id="sec-achados" style="display:none">
+    <div class="home-section-head">
+      <div>
+        <h2 class="home-title"><i class="fa fa-ranking-star" style="color:var(--pq-red)"></i>Melhores achados <span class="badge-live"><span class="badge-live-dot"></span>ao vivo</span></h2>
+        <div class="home-sub">Produtos próximos de você com ótimo preço</div>
+      </div>
+      <a class="home-link" href="{{ url_for('catalogo_publico') }}">Ver catálogo</a>
+    </div>
+    <div class="home-row-wrap">
+      <button class="home-row-cnav home-row-cnav--prev" id="cnav-achados-prev" onclick="_homeCarouselNav('home-achados',-1)" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="home-achados" class="home-row"></div>
+      <button class="home-row-cnav home-row-cnav--next" id="cnav-achados-next" onclick="_homeCarouselNav('home-achados',1)" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
     </div>
   </section>
 
@@ -827,12 +1035,24 @@ function prodCard(p, badge){
 }
 function renderHomeProdutos(produtos){
   const validos = produtos.filter(p => p.imagem && parseFloat(p.preco) > 0);
-  document.getElementById('home-achados').innerHTML = validos.slice(0,3).map(p => `
-    <a class="home-mini" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}" style="text-decoration:none;color:inherit">
-      <img class="home-mini-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}">
-      <div><div class="home-mini-name">${hEsc(p.nome)}</div><div class="home-mini-store">${hEsc(p.razao || '')}</div></div>
-      <div class="home-mini-price">${hBrl(p.preco)}</div>
-    </a>`).join('') || '<div class="home-empty">Escolha sua localização para ver achados próximos.</div>';
+  const achadosEl = document.getElementById('home-achados');
+  const secAchados = document.getElementById('sec-achados');
+  if (validos.length) {
+    achadosEl.innerHTML = validos.slice(0,10).map(p => prodCard(p, '')).join('');
+    if (secAchados) secAchados.style.display = '';
+    setTimeout(() => _homeCarousel('home-achados'), 50);
+    // Atualiza contador de farmácias no hero visual (pelo número de lojas com produtos)
+    const nFarmacias = [...new Set(validos.map(p=>p.cnpjloja).filter(Boolean))].length;
+    if (nFarmacias > 1) {
+      const farEl = document.getElementById('hhv-far-val');
+      if (farEl) farEl.textContent = nFarmacias;
+    }
+    // Aciona seção de economia IA
+    const lat = localStorage.getItem('pq_lat'), lng = localStorage.getItem('pq_lng');
+    if (lat && lng) carregarEconomiaIa(lat, lng, validos);
+  } else {
+    achadosEl.innerHTML = '<div class="home-empty">Escolha sua localização para ver achados próximos.</div>';
+  }
   const ofertas = validos
     .slice()
     .sort((a,b)=>(parseFloat(a.preco)||0)-(parseFloat(b.preco)||0))
@@ -927,6 +1147,38 @@ function renderCupons(produtos){
     </div>`).join('') || '<div class="home-empty">Nenhum cupom disponível para sua região agora.</div>';
 }
 function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); }
+
+// ── Economia com IA Poupinha ───────────────────────────────────────────────────
+async function carregarEconomiaIa(lat, lng, produtosProximos) {
+  const sec = document.getElementById('sec-economia-ia');
+  const msgEl = document.getElementById('heia-msg');
+  const gridEl = document.getElementById('heia-grid');
+  if (!sec || !msgEl || !gridEl) return;
+  try {
+    const r = await fetch(`/api/home/economia-ia?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`, {signal: AbortSignal.timeout(8000)});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.produtos || !d.produtos.length) return;
+    msgEl.textContent = d.insight_ia || 'Confira os melhores preços perto de você agora.';
+    const ecVal = document.getElementById('hhv-ec-val');
+    if (ecVal && d.economia_total > 0) {
+      // Formata como "47,50" sem o "R$ "
+      ecVal.textContent = parseFloat(d.economia_total).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+    }
+    gridEl.innerHTML = d.produtos.slice(0,3).map(p => {
+      const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
+      const ecoHtml = p.economia > 0.5 ? `<div class="heia-prod-eco"><i class="fa fa-circle-arrow-down"></i>Economia de ${hBrl(p.economia)}</div>` : '';
+      return `<a class="heia-prod" href="${url}">
+        <img class="heia-prod-img" src="${hEsc(p.imagem||'')}" alt="${hEsc(p.nome||'')}" onerror="this.style.display='none'">
+        <div class="heia-prod-name">${hEsc(p.nome||'')}</div>
+        <div class="heia-prod-store"><i class="fa fa-store"></i> ${hEsc(p.razao||'Farmácia')}</div>
+        <div class="heia-prod-preco">${hBrl(p.preco)}</div>
+        ${ecoHtml}
+      </a>`;
+    }).join('');
+    sec.style.display = '';
+  } catch {}
+}
 const lat = localStorage.getItem('pq_lat');
 const lng = localStorage.getItem('pq_lng');
 if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
