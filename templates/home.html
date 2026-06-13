@@ -18,6 +18,9 @@
   align-items:center;
   margin-bottom:22px;
 }
+#hero-banner-ia { display:none; align-items:center; gap:8px; margin-bottom:12px; font-size:.88rem; font-weight:700; color:rgba(255,255,255,.95); line-height:1.45; animation:bannerIaIn .5s ease forwards; }
+#hero-banner-ia i { font-size:.75rem; flex-shrink:0; opacity:.85; }
+@keyframes bannerIaIn { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
 .home-hero h1 { font-size:2rem; line-height:1.08; font-weight:900; margin:0 0 10px; text-shadow:0 2px 14px rgba(0,0,0,.25); }
 .home-hero p { margin:0; opacity:.9; font-size:.98rem; line-height:1.55; max-width:560px; }
 .home-search { margin-top:20px; display:flex; gap:8px; }
@@ -247,23 +250,76 @@
 @media(max-width:560px){ .bnr-slide img { height:155px; } }
 
 /* ── Home Personalizada ──────────────────────────────────── */
-.lembrete-card { background:#fff; border-radius:16px; border-left:5px solid var(--pq-red); box-shadow:0 4px 18px rgba(200,16,46,.1); padding:16px 18px; display:flex; align-items:flex-start; gap:14px; margin-bottom:10px; }
+@keyframes lembreteIn { from { opacity:0; transform:translateX(-16px); } to { opacity:1; transform:translateX(0); } }
+@keyframes icoPulse { 0%,100% { box-shadow:0 4px 14px rgba(200,16,46,.32); } 50% { box-shadow:0 4px 22px rgba(200,16,46,.58); } }
+@keyframes icoPulseBlue { 0%,100% { box-shadow:0 4px 14px rgba(29,78,216,.32); } 50% { box-shadow:0 4px 22px rgba(29,78,216,.55); } }
+@keyframes icoPulseGreen { 0%,100% { box-shadow:0 4px 14px rgba(22,163,74,.32); } 50% { box-shadow:0 4px 22px rgba(22,163,74,.5); } }
+
+.lembrete-card {
+  background:#fff;
+  border-radius:18px;
+  border:1.5px solid #ffe4e8;
+  box-shadow:0 3px 18px rgba(200,16,46,.08);
+  padding:14px 16px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  position:relative;
+  overflow:hidden;
+  opacity:0;
+  transition:transform .2s,box-shadow .2s,border-color .2s;
+  animation:lembreteIn .36s ease forwards;
+}
+.lembrete-card:nth-child(1){animation-delay:.0s}
+.lembrete-card:nth-child(2){animation-delay:.09s}
+.lembrete-card:nth-child(3){animation-delay:.18s}
+.lembrete-card:nth-child(4){animation-delay:.27s}
 .lembrete-card + .lembrete-card { margin-top:10px; }
-.lembrete-ico { width:44px; height:44px; flex-shrink:0; border-radius:12px; background:#fff0f2; display:flex; align-items:center; justify-content:center; font-size:1.25rem; color:var(--pq-red); }
-.lembrete-ico--green { background:#f0fdf4; color:#16a34a; }
-.lembrete-ico--blue  { background:#eff6ff; color:#1d4ed8; }
+.lembrete-card::before {
+  content:''; position:absolute; left:0; top:0; bottom:0; width:5px;
+  background:linear-gradient(180deg,#d6112e 0%,#ffc300 100%);
+  border-radius:18px 0 0 18px;
+}
+.lembrete-card:hover { transform:translateY(-2px); box-shadow:0 8px 28px rgba(200,16,46,.14); border-color:#ffc0c8; }
+
+.lembrete-ico {
+  width:52px; height:52px; flex-shrink:0;
+  border-radius:16px;
+  background:linear-gradient(135deg,#c8102e,#e86420);
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.35rem; color:#fff;
+  box-shadow:0 4px 14px rgba(200,16,46,.32);
+  animation:icoPulse 2.6s ease-in-out infinite;
+}
+.lembrete-ico--blue  { background:linear-gradient(135deg,#1d4ed8,#4f80f7); box-shadow:0 4px 14px rgba(29,78,216,.32); animation:icoPulseBlue 2.6s ease-in-out infinite; }
+.lembrete-ico--green { background:linear-gradient(135deg,#16a34a,#22c55e); box-shadow:0 4px 14px rgba(22,163,74,.32); animation:icoPulseGreen 2.6s ease-in-out infinite; }
+.lembrete-ico--rose  { background:linear-gradient(135deg,#be185d,#ec4899); box-shadow:0 4px 14px rgba(190,24,93,.32); animation:icoPulse 2.6s ease-in-out infinite; }
+.lembrete-ico--red   { background:linear-gradient(135deg,#b91c1c,#ef4444); }
+
 .lembrete-body { flex:1; min-width:0; }
-.lembrete-titulo { font-weight:900; font-size:.94rem; line-height:1.25; margin-bottom:4px; }
-.lembrete-msg { font-size:.8rem; color:#555; line-height:1.45; }
-.lembrete-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
-.lembrete-btn { display:inline-flex; align-items:center; gap:5px; padding:7px 14px; border-radius:9px; font-size:.78rem; font-weight:900; text-decoration:none; cursor:pointer; border:0; }
-.lembrete-btn--primary { background:var(--pq-red); color:#fff; }
-.lembrete-btn--secondary { background:#f4f6f9; color:#444; }
-.lembrete-btn--green { background:#16a34a; color:#fff; }
+.lembrete-tags { display:flex; gap:5px; margin-bottom:5px; flex-wrap:wrap; }
+.lembrete-tag { display:inline-flex; align-items:center; gap:3px; font-size:.62rem; font-weight:800; padding:2px 7px; border-radius:20px; text-transform:uppercase; letter-spacing:.02em; }
+.lembrete-tag--tipo    { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+.lembrete-tag--urgente { background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; }
+.lembrete-nome { font-weight:900; font-size:.93rem; line-height:1.25; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lembrete-msg-short { font-size:.74rem; color:#64748b; margin-top:2px; line-height:1.35; }
+
+.lembrete-cta { flex-shrink:0; }
+.lembrete-btn-repor {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:9px 15px; border-radius:12px;
+  font-size:.78rem; font-weight:900; text-decoration:none; cursor:pointer; border:0;
+  background:linear-gradient(135deg,#d6112e,#e86420);
+  color:#fff; white-space:nowrap;
+  box-shadow:0 3px 10px rgba(200,16,46,.28);
+  transition:opacity .15s,transform .1s;
+}
+.lembrete-btn-repor:hover { opacity:.88; transform:scale(.97); color:#fff; }
+
 .insights-row { display:flex; gap:12px; overflow-x:auto; scrollbar-width:none; padding-bottom:4px; }
 .insights-row::-webkit-scrollbar { display:none; }
 .cross-sell-tag { position:absolute; top:8px; left:8px; background:#7c3aed; color:#fff; font-size:.6rem; font-weight:900; padding:2px 7px; border-radius:6px; display:flex; align-items:center; gap:3px; }
-@media(max-width:560px){ .lembrete-card { padding:12px 14px; gap:10px; } .lembrete-ico { width:36px; height:36px; font-size:1rem; } }
+@media(max-width:560px){ .lembrete-card { padding:11px 12px; gap:10px; } .lembrete-ico { width:42px; height:42px; font-size:1.1rem; border-radius:12px; } .lembrete-btn-repor { padding:8px 12px; font-size:.72rem; } }
 /* ── Carrossel das home-rows ─────────────────────────────── */
 .home-row-wrap { position:relative; }
 .home-row-cnav { position:absolute; top:50%; transform:translateY(-50%); z-index:4; width:34px; height:34px; border-radius:50%; background:#fff; border:1.5px solid #e2e8f0; box-shadow:0 2px 10px rgba(0,0,0,.12); cursor:pointer; display:flex; align-items:center; justify-content:center; color:#555; font-size:.8rem; transition:.15s; }
@@ -395,6 +451,30 @@
 .promo-pop-btn { display:block; background:linear-gradient(135deg,#d6112e,#870015); color:#fff; text-align:center; padding:14px; border-radius:14px; font-weight:900; font-size:.98rem; text-decoration:none; transition:opacity .15s; border:none; cursor:pointer; }
 .promo-pop-btn:hover { opacity:.88; color:#fff; }
 .promo-pop-skip { background:none; border:none; color:#94a3b8; font-size:.8rem; cursor:pointer; text-decoration:underline; padding:2px; }
+
+/* ── CROSS-SELL POPUP (bottom-sheet) ───────────────────────── */
+.cs-pop-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.48); z-index:9900; backdrop-filter:blur(2px); align-items:flex-end; justify-content:center; }
+.cs-pop { width:100%; max-width:540px; background:#fff; border-radius:28px 28px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,.18); animation:csSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards; }
+@keyframes csSlideUp { from { transform:translateY(120%); } to { transform:translateY(0); } }
+@keyframes csSlideDown { from { transform:translateY(0); } to { transform:translateY(120%); } }
+.cs-pop-handle { display:flex; justify-content:center; padding:12px 0 0; }
+.cs-pop-handle span { width:40px; height:4px; border-radius:99px; background:#e2e8f0; }
+.cs-pop-head { display:flex; align-items:center; gap:10px; padding:14px 20px 10px; }
+.cs-pop-avatar { width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#d6112e,#870015); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.1rem; flex-shrink:0; }
+.cs-pop-title { font-weight:800; font-size:.96rem; color:#0f172a; line-height:1.25; }
+.cs-pop-title small { display:block; font-weight:400; font-size:.78rem; color:#64748b; margin-top:1px; }
+.cs-pop-msg { margin:4px 20px 14px; background:linear-gradient(135deg,#fff5f5,#fff0f1); border:1px solid #fecdd3; border-radius:14px; padding:11px 15px; font-size:.85rem; color:#881337; font-weight:600; line-height:1.45; }
+.cs-pop-prods { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:0 16px 16px; }
+.cs-pop-prod { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:16px; padding:10px 8px 12px; text-align:center; text-decoration:none; color:inherit; transition:box-shadow .15s,transform .15s; }
+.cs-pop-prod:hover { box-shadow:0 4px 18px rgba(214,17,46,.14); transform:translateY(-2px); border-color:#fecdd3; }
+.cs-pop-prod img { width:56px; height:56px; object-fit:contain; border-radius:10px; margin-bottom:6px; }
+.cs-pop-prod-name { font-size:.69rem; font-weight:700; color:#1e293b; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.cs-pop-prod-price { font-size:.78rem; font-weight:900; color:#d6112e; margin-top:4px; }
+.cs-pop-foot { padding:0 16px 20px; display:flex; flex-direction:column; gap:8px; }
+.cs-pop-cta { display:block; background:linear-gradient(135deg,#d6112e,#870015); color:#fff; text-align:center; padding:13px; border-radius:14px; font-weight:900; font-size:.92rem; text-decoration:none; border:none; cursor:pointer; transition:opacity .15s; }
+.cs-pop-cta:hover { opacity:.88; color:#fff; }
+.cs-pop-skip { background:none; border:none; color:#94a3b8; font-size:.78rem; cursor:pointer; text-decoration:underline; padding:2px; }
+@media(max-width:400px) { .cs-pop-prods { grid-template-columns:repeat(2,1fr); } }
 </style>
 {% endblock %}
 
@@ -468,6 +548,7 @@
 
   <section class="home-hero">
     <div>
+      <div id="hero-banner-ia"><i class="fa fa-wand-magic-sparkles"></i><span id="hero-banner-ia-txt"></span></div>
       <h1>Compare preços e <span style="color:#ffd700;text-shadow:0 2px 10px rgba(0,0,0,.28)">economize</span> em saúde</h1>
       <p>Medicamentos, suplementos, dermocosméticos e mais. Compare preços nas farmácias mais próximas de você e economize de verdade.</p>
       <form class="home-search" action="{{ url_for('catalogo_publico') }}" method="get">
@@ -956,18 +1037,27 @@ const _LEMBRETE_ICOS = {
   vermifugo: {ico:'fa-leaf',cls:'lembrete-ico--green'},
 };
 
+const _LEMBRETE_TIPO_LABEL = {
+  anticoncepcional:'Anticoncepcional', antibiotico:'Antibiótico',
+  anti_hipertensivo:'Hipertensão', hipoglicemiante:'Diabetes',
+  ibp:'Gástrico', estatina:'Colesterol', tireoide:'Tireoide', vermifugo:'Vermífugo'
+};
 function renderLembrete(l) {
   const cfg = _LEMBRETE_ICOS[l.tipo] || {ico:'fa-bell',cls:''};
   const urlProd = l.ean ? `/produto/${encodeURIComponent(l.ean)}?cnpj=${encodeURIComponent(l.cnpjloja||'')}` : '#';
+  const tipoLabel = _LEMBRETE_TIPO_LABEL[l.tipo] || l.tipo;
+  const urgente = (l.dias || 0) >= 25;
   return `<div class="lembrete-card">
     <div class="lembrete-ico ${cfg.cls}"><i class="fa ${cfg.ico}"></i></div>
     <div class="lembrete-body">
-      <div class="lembrete-titulo">${hEsc(l.titulo)}</div>
-      <div class="lembrete-msg">${hEsc(l.mensagem)}</div>
-      <div class="lembrete-actions">
-        ${l.ean ? `<a class="lembrete-btn lembrete-btn--primary" href="${urlProd}"><i class="fa fa-cart-shopping"></i>Comprar novamente</a>` : ''}
+      <div class="lembrete-tags">
+        <span class="lembrete-tag lembrete-tag--tipo"><i class="fa ${cfg.ico}" style="font-size:.5rem;margin-right:2px"></i>${hEsc(tipoLabel)}</span>
+        ${urgente ? '<span class="lembrete-tag lembrete-tag--urgente"><i class="fa fa-triangle-exclamation" style="font-size:.5rem;margin-right:2px"></i>Urgente</span>' : ''}
       </div>
+      <div class="lembrete-nome">${hEsc(l.nome || l.titulo)}</div>
+      <div class="lembrete-msg-short">${hEsc(l.mensagem)}</div>
     </div>
+    ${l.ean ? `<div class="lembrete-cta"><a class="lembrete-btn-repor" href="${urlProd}"><i class="fa fa-cart-shopping"></i>Repor agora</a></div>` : ''}
   </div>`;
 }
 
@@ -995,8 +1085,19 @@ function carregarInsights() {
         document.getElementById('sec-sem-farmacia').style.display = '';
       }
 
-      // Lembretes
-      const lembretes = d.lembretes || [];
+      // Banner IA personalizado no hero (só logado)
+      if (d.logado && d.banner_ia) {
+        const bEl = document.getElementById('hero-banner-ia');
+        const bTxt = document.getElementById('hero-banner-ia-txt');
+        if (bEl && bTxt) { bTxt.textContent = d.banner_ia; bEl.style.display = 'flex'; }
+      }
+
+      // Lembretes (deduplica por EAN)
+      const _lemSeen = new Set();
+      const lembretes = (d.lembretes || []).filter(l => {
+        if (!l.ean || _lemSeen.has(l.ean)) return false;
+        _lemSeen.add(l.ean); return true;
+      });
       if (lembretes.length) {
         document.getElementById('sec-lembretes').style.display = '';
         document.getElementById('home-lembretes').innerHTML = lembretes.map(renderLembrete).join('');
@@ -1010,12 +1111,16 @@ function carregarInsights() {
         setTimeout(() => _homeCarousel('home-para-voce'), 50);
       }
 
-      // Cross-sell IA (só com imagem e preço)
+      // Cross-sell IA (seção visível + popup personalizado)
       const crossSell = (d.cross_sell || []).filter(p => p.imagem && parseFloat(p.preco) > 0);
+      const csMensagem = d.cross_sell_mensagem || '';
       if (crossSell.length) {
         document.getElementById('sec-cross-sell').style.display = '';
         document.getElementById('home-cross-sell').innerHTML = crossSell.map(p => renderInsightCard(p, null)).join('');
         setTimeout(() => _homeCarousel('home-cross-sell'), 50);
+        if (d.logado && !sessionStorage.getItem('pq_cs_shown')) {
+          setTimeout(() => _abrirCsPopup(crossSell.slice(0, 4), csMensagem), 3800);
+        }
       }
 
       // Trending lojas físicas (só com imagem)
@@ -1240,6 +1345,33 @@ function abrirKitDrawer(tema) {
     }, 2200);
   }
 })();
+function fecharCsPop() {
+  sessionStorage.setItem('pq_cs_shown', '1');
+  var el = document.getElementById('cs-pop-wrap');
+  if (!el) return;
+  el.querySelector('.cs-pop').style.animation = 'csSlideDown .28s ease forwards';
+  setTimeout(function(){ el.style.display = 'none'; }, 290);
+}
+function _abrirCsPopup(prods, mensagem) {
+  var el = document.getElementById('cs-pop-wrap');
+  if (!el || sessionStorage.getItem('pq_cs_shown')) return;
+  var grid = document.getElementById('cs-pop-prods');
+  var msgEl = document.getElementById('cs-pop-msg');
+  if (msgEl && mensagem) msgEl.textContent = mensagem;
+  if (grid) {
+    grid.innerHTML = prods.slice(0,4).map(function(p){
+      var url = '/produto/'+encodeURIComponent(p.ean||'')+'?cnpj='+encodeURIComponent(p.cnpjloja||'')+'&nome='+encodeURIComponent(p.nome||'');
+      var pr = parseFloat(p.preco)||0;
+      return '<a class="cs-pop-prod" href="'+url+'" onclick="fecharCsPop()">'
+        +(p.imagem ? '<img src="'+p.imagem+'" alt="'+hEsc(p.nome)+'" onerror="this.style.display=\'none\'">' : '')
+        +'<div class="cs-pop-prod-name">'+hEsc(p.nome)+'</div>'
+        +(pr>0 ? '<div class="cs-pop-prod-price">'+hBrl(pr)+'</div>' : '')
+        +'</a>';
+    }).join('');
+  }
+  el.style.display = 'flex';
+  el.querySelector('.cs-pop').style.animation = 'csSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards';
+}
 function fecharPromoPop() {
   localStorage.setItem('pq_promo_v3', Date.now());
   var el = document.getElementById('promo-pop');
@@ -1286,6 +1418,29 @@ function fecharPromoPop() {
         <i class="fa fa-bolt me-2"></i>Ver ofertas agora
       </a>
       <button class="promo-pop-skip" onclick="fecharPromoPop()">Já conheço, obrigado</button>
+    </div>
+  </div>
+</div>
+
+{# ── Popup cross-sell IA (bottom-sheet) ── #}
+<div id="cs-pop-wrap" class="cs-pop-overlay" style="display:none"
+     onclick="if(event.target===this)fecharCsPop()">
+  <div class="cs-pop">
+    <div class="cs-pop-handle"><span></span></div>
+    <div class="cs-pop-head">
+      <div class="cs-pop-avatar"><i class="fa fa-wand-magic-sparkles"></i></div>
+      <div class="cs-pop-title">
+        Poupinha recomenda para você
+        <small>Com base no seu histórico de compras</small>
+      </div>
+    </div>
+    <div class="cs-pop-msg" id="cs-pop-msg">Separamos produtos especialmente para você!</div>
+    <div class="cs-pop-prods" id="cs-pop-prods"></div>
+    <div class="cs-pop-foot">
+      <a href="/meus-pedidos" class="cs-pop-cta" onclick="fecharCsPop()">
+        <i class="fa fa-cart-shopping me-2"></i>Ver todos para você
+      </a>
+      <button class="cs-pop-skip" onclick="fecharCsPop()">Não, obrigado</button>
     </div>
   </div>
 </div>

@@ -382,6 +382,7 @@ def inject_globals():
         "consumidor_encomendas_abertas": consumidor_encomendas_abertas,
         "SUPABASE_URL": SUPABASE_URL,
         "SUPABASE_ANON": SUPABASE_ANON,
+        "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),
     }
 
 def _consumidor_from_session():
@@ -6544,54 +6545,54 @@ _DRUG_REMINDERS = [
         r"levonorgestrel|etinilestradiol|desogestrel|gestodeno|dienogeste|drospirenona|"
         r"noretisterona|nogestimato|etonogestrel|acetato de ciproterona",
         _med_re.IGNORECASE,
-    ), 26, "Hora de reabastecer 💊",
-       "Sua cartela de {produto} pode estar chegando ao fim. Garanta a continuidade do tratamento!"),
+    ), 26, "Hora de reabastecer",
+       "Você comprou {produto} há {dias} dias. Confira se está na hora de repor!"),
 
     ("antibiotico", _med_re.compile(
         r"amoxicilina|azitromicina|ciprofloxacino|cefalexina|metronidazol|doxiciclina|"
         r"claritromicina|levofloxacino|norfloxacino|ampicilina|sulfametoxazol|nitrofurantoina|"
         r"cefadroxila|tetraciclina|clindamicina|ceftriaxona|moxifloxacino",
         _med_re.IGNORECASE,
-    ), 7, "Como foi seu tratamento?",
-       "Você usou {produto} há {dias} dias. Completou o ciclo completo? Dúvidas? Fale com um farmacêutico."),
+    ), 7, "Compra recente",
+       "Você comprou {produto} há {dias} dias. Precisando de mais alguma coisa?"),
 
     ("anti_hipertensivo", _med_re.compile(
         r"losartana|enalapril|anlodipina|amlodipina|atenolol|metoprolol|valsartana|olmesartana|"
         r"hidroclorotiazida|ramipril|lisinopril|carvedilol|bisoprolol|captopril|irbesartana",
         _med_re.IGNORECASE,
     ), 25, "Hora de reabastecer",
-       "Seu medicamento para pressão arterial {produto} pode estar acabando. Evite interrupções!"),
+       "Você comprou {produto} há {dias} dias. Verifique se está na hora de repor!"),
 
     ("hipoglicemiante", _med_re.compile(
         r"metformina|glibenclamida|glipizida|glicazida|sitagliptina|empagliflozina|"
         r"dapagliflozina|glimepirida|saxagliptina|canagliflozina",
         _med_re.IGNORECASE,
     ), 25, "Hora de reabastecer",
-       "Seu medicamento para diabetes {produto} pode estar acabando."),
+       "Você comprou {produto} há {dias} dias. Confira se precisa reabastecer!"),
 
     ("ibp", _med_re.compile(
         r"omeprazol|pantoprazol|esomeprazol|lansoprazol|rabeprazol",
         _med_re.IGNORECASE,
     ), 28, "Hora de reabastecer",
-       "Seu protetor gástrico {produto} pode estar chegando ao fim."),
+       "Você comprou {produto} há {dias} dias. Hora de verificar o estoque!"),
 
     ("estatina", _med_re.compile(
         r"sinvastatina|atorvastatina|rosuvastatina|pravastatina|fluvastatina|pitavastatina",
         _med_re.IGNORECASE,
     ), 28, "Hora de reabastecer",
-       "Seu medicamento para colesterol {produto} pode estar acabando."),
+       "Você comprou {produto} há {dias} dias. Confira se precisa repor!"),
 
     ("tireoide", _med_re.compile(
         r"levotiroxina|levothyroxine",
         _med_re.IGNORECASE,
     ), 28, "Hora de reabastecer",
-       "Seu hormônio para tireoide {produto} pode estar acabando. Não interrompa o uso!"),
+       "Você comprou {produto} há {dias} dias. Verifique se está na hora de reabastecer!"),
 
     ("vermifugo", _med_re.compile(
         r"albendazol|mebendazol|tiabendazol",
         _med_re.IGNORECASE,
-    ), 180, "Prevenção periódica",
-       "Já faz 6 meses desde o uso de {produto}. Que tal uma dose preventiva?"),
+    ), 180, "Hora de reabastecer",
+       "Você comprou {produto} há {dias} dias. Confira se precisa repor!"),
 ]
 
 
@@ -6655,7 +6656,14 @@ def _calcular_lembretes(consumidor_id, conn):
                 "cnpjloja": compra.get("cnpjloja") or "",
                 "dias": dias,
             })
-    return lembretes[:3]
+    # Um lembrete por tipo (evita duplicatas de genéricos diferentes do mesmo princípio ativo)
+    seen_tipo: set = set()
+    lembretes_dedup = []
+    for _l in lembretes:
+        if _l["tipo"] not in seen_tipo:
+            seen_tipo.add(_l["tipo"])
+            lembretes_dedup.append(_l)
+    return lembretes_dedup[:3]
 
 
 def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
@@ -6757,13 +6765,16 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
     # Verifica cache
     cur.execute("""
         SELECT payload FROM ecommerce_home_insights
-        WHERE consumidor_id = %s AND tipo = 'cross_sell' AND expira_em > NOW()
+        WHERE consumidor_id = %s AND tipo = 'cross_sell_v3' AND expira_em > NOW()
         ORDER BY criado_em DESC LIMIT 1
     """, (consumidor_id,))
     row = cur.fetchone()
     if row:
-        cur.close()
-        return row["payload"].get("produtos", [])
+        _pl = row["payload"]
+        if _pl.get("v") == 2:  # v2: objetos completos com imagem/preço
+            cur.close()
+            return {"mensagem": _pl.get("mensagem", ""), "produtos": _pl.get("produtos", [])}
+        # v1 (só nomes) — descarta e refaz para salvar v2
 
     if not api_key or not historico_nomes:
         cur.close()
@@ -6791,9 +6802,16 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
     prompt = (
         f"Histórico de compras do cliente: {', '.join(historico_nomes[:8])}\n\n"
         f"Catálogo disponível:\n" + "\n".join(catalogo_sample[:80]) + "\n\n"
-        f"Sugira EXATAMENTE 5 produtos do catálogo acima mais relevantes para este cliente "
-        f"(complementos terapêuticos, uso contínuo relacionado, prevenção ou bem-estar associado). "
-        f"Responda APENAS com JSON: {{\"sugestoes\": [\"nome exato 1\", ...]}} "
+        f"Sugira EXATAMENTE 4 produtos do catálogo mais relevantes para este cliente "
+        f"(itens que ele provavelmente compra com frequência ou pode precisar repor). "
+        f"Não sugira medicamentos tarjados, controlados ou que exijam receita médica.\n"
+        f"Crie também uma frase curta (máx 15 palavras) em português, amigável, sobre CONVENIÊNCIA "
+        f"(reposição, economia, praticidade) — NUNCA sobre saúde, tratamento, prevenção ou efeito terapêutico. "
+        f"Exemplos aceitos: 'Hora de reabastecer? Separamos o que você já conhece e confia!' "
+        f"ou 'Notamos que pode ser hora de repor esses itens do seu carrinho habitual.' "
+        f"Exemplos PROIBIDOS: qualquer frase com saúde, bem-estar, potencializar, tratar, prevenir.\n"
+        f"Responda APENAS com JSON sem markdown: "
+        f'{{\"mensagem\": \"frase aqui\", \"sugestoes\": [\"nome exato 1\", ...]}} '
         f"Use nomes EXATAMENTE como no catálogo."
     )
     body = json.dumps({
@@ -6809,6 +6827,7 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
                  "anthropic-version": "2023-06-01"},
         method="POST",
     )
+    mensagem_ia = ""
     sugestoes_nomes = []
     try:
         with urllib.request.urlopen(req, timeout=9) as resp:
@@ -6818,7 +6837,9 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        sugestoes_nomes = json.loads(raw.strip()).get("sugestoes", [])[:5]
+        _parsed = json.loads(raw.strip())
+        mensagem_ia = (_parsed.get("mensagem") or "").strip()
+        sugestoes_nomes = _parsed.get("sugestoes", [])[:4]
     except Exception as exc:
         app.logger.warning(f"cross_sell claude error: {exc}")
         cur.close()
@@ -6857,20 +6878,106 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
         except Exception:
             pass
 
-    # Salva cache por 24h
+    # Salva cache por 24h — v2: objetos completos com imagem e preço
     try:
-        cur.execute("DELETE FROM ecommerce_home_insights WHERE consumidor_id=%s AND tipo='cross_sell'",
+        cur.execute("DELETE FROM ecommerce_home_insights WHERE consumidor_id=%s AND tipo='cross_sell_v3'",
                     (consumidor_id,))
         expira = datetime.now(timezone.utc) + timedelta(hours=24)
+        _payload_v2 = {
+            "v": 2, "mensagem": mensagem_ia,
+            "produtos": [
+                {"ean": p.get("ean",""), "nome": p.get("nome",""), "imagem": p.get("imagem",""),
+                 "preco": float(p.get("preco") or 0), "cnpjloja": p.get("cnpjloja",""),
+                 "razao": p.get("razao","")}
+                for p in produtos_cross
+            ]
+        }
         cur.execute("""
             INSERT INTO ecommerce_home_insights (consumidor_id, tipo, payload, expira_em)
-            VALUES (%s, 'cross_sell', %s, %s)
-        """, (consumidor_id, json.dumps({"produtos": [p.get("nome","") for p in produtos_cross]}), expira))
+            VALUES (%s, 'cross_sell_v3', %s, %s)
+        """, (consumidor_id, json.dumps(_payload_v2), expira))
         conn.commit()
     except Exception:
         pass
     cur.close()
-    return produtos_cross
+    return {"mensagem": mensagem_ia, "produtos": produtos_cross}
+
+
+def _banner_semana_ia(consumidor_id, nome, historico_nomes, conn, api_key):
+    """Gera frase personalizada para o hero da home. Cache 7 dias por usuário."""
+    if not api_key or not consumidor_id:
+        return ""
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT payload FROM ecommerce_home_insights
+            WHERE consumidor_id = %s AND tipo = 'banner_semana_v1' AND expira_em > NOW()
+            ORDER BY criado_em DESC LIMIT 1
+        """, (consumidor_id,))
+        row = cur.fetchone()
+        if row:
+            cur.close()
+            return row["payload"].get("frase", "")
+    except Exception:
+        return ""
+
+    mes = datetime.now().month
+    estacoes = {12:"verão", 1:"verão", 2:"verão", 3:"outono", 4:"outono", 5:"outono",
+                6:"inverno", 7:"inverno", 8:"inverno", 9:"primavera", 10:"primavera", 11:"primavera"}
+    meses_nomes = {1:"janeiro",2:"fevereiro",3:"março",4:"abril",5:"maio",6:"junho",
+                   7:"julho",8:"agosto",9:"setembro",10:"outubro",11:"novembro",12:"dezembro"}
+    estacao = estacoes.get(mes, "")
+    mes_nome = meses_nomes.get(mes, "")
+    nome_curto = (nome or "").split()[0] if nome else "cliente"
+
+    historico_str = ", ".join(historico_nomes[:5]) if historico_nomes else ""
+    prompt = (
+        f"Crie UMA frase de saudação personalizada (máx 18 palavras) para o banner de uma farmácia online.\n"
+        f"Cliente: {nome_curto}. Estação: {estacao} ({mes_nome}).\n"
+        + (f"Categorias recentes do cliente: {historico_str}.\n" if historico_str else "")
+        + f"Fale APENAS sobre: conveniência, economia, praticidade, boas-vindas, ofertas, novidades.\n"
+        f"NUNCA mencione: saúde, medicamento, doença, tratamento, remédio, cura, prevenção, terapêutico.\n"
+        f"Exemplos aceitos: 'Olá {nome_curto}! Que bom ter você de volta — as melhores ofertas da semana estão aqui.' "
+        f"ou 'Bom ver você por aqui, {nome_curto}! Novidades chegaram perto de você nesse {estacao}.'\n"
+        f"Responda APENAS com a frase, sem aspas, sem explicação."
+    )
+    body = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 80,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={"content-type": "application/json",
+                 "x-api-key": api_key,
+                 "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    frase = ""
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        frase = "".join(p.get("text", "") for p in data.get("content", []) if p.get("type") == "text").strip()
+        frase = frase.strip('"').strip("'").strip()
+    except Exception as exc:
+        app.logger.warning(f"banner_ia error: {exc}")
+        cur.close()
+        return ""
+
+    try:
+        cur.execute("DELETE FROM ecommerce_home_insights WHERE consumidor_id=%s AND tipo='banner_semana_v1'",
+                    (consumidor_id,))
+        expira = datetime.now(timezone.utc) + timedelta(days=7)
+        cur.execute("""
+            INSERT INTO ecommerce_home_insights (consumidor_id, tipo, payload, expira_em)
+            VALUES (%s, 'banner_semana_v1', %s, %s)
+        """, (consumidor_id, json.dumps({"frase": frase}), expira))
+        conn.commit()
+    except Exception:
+        pass
+    cur.close()
+    return frase
 
 
 def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=None):
@@ -6992,6 +7099,8 @@ def api_home_insights():
         "lembretes": [],
         "para_voce": [],
         "cross_sell": [],
+        "cross_sell_mensagem": "",
+        "banner_ia": "",
         "trending_lojas": [],
         "sem_farmacia_proxima": False,
     }
@@ -7041,6 +7150,8 @@ def api_home_insights():
 
         try:
             resultado["para_voce"] = _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos)
+            if resultado["para_voce"]:
+                _marcar_tarja_batch(resultado["para_voce"], conn, ensure_schema=False)
         except Exception as e:
             app.logger.warning(f"para_voce: {e}")
 
@@ -7048,9 +7159,23 @@ def api_home_insights():
             api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
             if api_key and resultado["para_voce"]:
                 nomes = [p.get("nome", "") for p in resultado["para_voce"][:6] if p.get("nome")]
-                resultado["cross_sell"] = _cross_sell_ia(consumidor_id, nomes, conn, api_key, cnpjs_proximos)
+                _cs = _cross_sell_ia(consumidor_id, nomes, conn, api_key, cnpjs_proximos)
+                if isinstance(_cs, dict):
+                    resultado["cross_sell"] = _cs.get("produtos", [])
+                    resultado["cross_sell_mensagem"] = _cs.get("mensagem", "")
+                else:
+                    resultado["cross_sell"] = _cs or []
         except Exception as e:
             app.logger.warning(f"cross_sell: {e}")
+
+        try:
+            api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            if api_key:
+                nome_consumidor = session.get("consumidor_nome", "")
+                nomes_hist = [p.get("nome", "") for p in (resultado["para_voce"] or [])[:5] if p.get("nome")]
+                resultado["banner_ia"] = _banner_semana_ia(consumidor_id, nome_consumidor, nomes_hist, conn, api_key)
+        except Exception as e:
+            app.logger.warning(f"banner_ia: {e}")
 
     return jsonify(resultado)
 
@@ -7484,6 +7609,161 @@ def api_recomendacoes():
     return jsonify(recs)
 
 
+_BULA_GARBAGE_RE = re.compile(
+    r"GENÉRICO\s*[–\-]\s*GENÉRICO|RDC\s+de\s+Bula|de\s+Bula\s*[–\-]\s*RDC|"
+    r"\b\d{4,}\s*[–\-]\s*\d{4,}\b|Atualização\s+do\s+texto\s+de\s+bula|"
+    r"REAÇÕES\s+ADVERSAS\s+III|Instrução\s+Normativa\s+n",
+    re.IGNORECASE,
+)
+
+
+def _is_bula_garbage(text: str | None) -> bool:
+    if not text or len(text.strip()) < 20:
+        return True
+    return bool(_BULA_GARBAGE_RE.search(text))
+
+
+def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
+                              serve_para: str, como_usar: str, alertas: str,
+                              conn, api_key: str, anvisa_tarja: str = "") -> dict:
+    """Gera/atualiza para_que_serve_ia e como_tomar_ia no anvisa_cache. Cache 1 ano."""
+    from datetime import datetime, timezone, timedelta
+    import json as _json
+
+    # Verifica cache (1 ano)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT para_que_serve_ia, como_tomar_ia, ia_descricao_gerado_em, "
+        "tarja_ia, exibir_imagem_publica "
+        "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
+        (chave_anvisa,),
+    )
+    row = cur.fetchone()
+
+    _serve_ia        = row["para_que_serve_ia"]     if row else None
+    _usar_ia         = row["como_tomar_ia"]         if row else None
+    _gerado          = row["ia_descricao_gerado_em"] if row else None
+    _tarja_ia_cached = row["tarja_ia"]              if row else None
+    _exibir_cached   = row["exibir_imagem_publica"] if row else None
+
+    _tarja_validado  = _tarja_ia_cached is not None
+    _exibir_validado = _exibir_cached   is not None
+
+    # Se cache válido (menos de 1 ano) e TODOS os campos já estão preenchidos, retorna direto
+    if _serve_ia and _usar_ia and _tarja_validado and _exibir_validado and _gerado:
+        if _gerado.tzinfo is None:
+            _gerado = _gerado.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - _gerado) < timedelta(days=365):
+            cur.close()
+            return {
+                "para_que_serve_ia": _serve_ia,
+                "como_tomar_ia": _usar_ia,
+                "tarja_ia": _tarja_ia_cached,
+                "exibir_imagem_ia": _exibir_cached,
+            }
+
+    # Decide se as descrições precisam ser melhoradas
+    serve_ok  = not _is_bula_garbage(serve_para)
+    usar_ok   = not _is_bula_garbage(como_usar)
+
+    # Só pula IA se descrições boas E tarja/exibir já foram validados
+    if serve_ok and usar_ok and _tarja_validado and _exibir_validado:
+        cur.close()
+        return {}
+
+    # Tem IA já gerada e cache válido (só chegou aqui porque 1 campo ainda é garbage)
+    # retorna o que já existe para não perder dados de um campo que foi corrigido
+    if _serve_ia or _usar_ia:
+        serve_ainda_ruim = not serve_ok and not _serve_ia
+        usar_ainda_ruim  = not usar_ok  and not _usar_ia
+        if not serve_ainda_ruim and not usar_ainda_ruim:
+            cur.close()
+            return {"para_que_serve_ia": _serve_ia or "", "como_tomar_ia": _usar_ia or ""}
+
+    # Monta contexto para a IA
+    serve_ctx = serve_para if serve_ok else "(dado inválido no sistema)"
+    usar_ctx  = como_usar  if usar_ok  else "(dado inválido no sistema)"
+
+    tarja_anvisa = (anvisa_tarja or "").strip().lower()
+
+    prompt = (
+        f"Produto farmacêutico: {nome}\n"
+        f"Princípio ativo: {principio_ativo or 'não informado'}\n"
+        f"Tarja registrada no sistema: {tarja_anvisa or 'não informada'}\n\n"
+        f"Dados do sistema (podem estar incorretos):\n"
+        f"- Para que serve: {serve_ctx[:400]}\n"
+        f"- Como usar/tomar: {usar_ctx[:400]}\n\n"
+        f"Faça duas coisas:\n"
+        f"1. Escreva textos claros e precisos para o produto.\n"
+        f"2. Valide a classificação de tarja deste medicamento.\n\n"
+        f"Responda SOMENTE em JSON com as chaves:\n"
+        f"  \"para_que_serve\": texto de 2-3 frases descrevendo o produto\n"
+        f"  \"como_tomar\": texto de 2-3 frases sobre modo de uso geral\n"
+        f"  \"tarja\": classificação correta — apenas um destes valores: \"preta\", \"vermelha\", \"sem_tarja\"\n"
+        f"  \"tarja_confianca\": sua confiança — \"alta\", \"media\" ou \"baixa\"\n"
+        f"  \"exibir_imagem\": true se o produto tem imagem de marca conhecida que pode ser exibida "
+        f"publicamente (ex: Advil, Tylenol, Buscopan, Novalgina, marcas OTC amplamente conhecidas), "
+        f"false se deve usar placeholder genérico (medicamentos sem marca ou tarjados sem divulgação)\n"
+        f"Use linguagem simples. Baseie-se no princípio ativo e nome do produto. "
+        f"Não faça promessas de cura. Não mencione posologia exata."
+    )
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        # Extrai JSON mesmo se vier com markdown
+        _m = re.search(r"\{[\s\S]+\}", raw)
+        data = _json.loads(_m.group(0)) if _m else {}
+        novo_serve      = (data.get("para_que_serve") or "").strip() or None
+        novo_usar       = (data.get("como_tomar") or "").strip() or None
+        novo_tarja      = (data.get("tarja") or "").strip().lower() or None
+        novo_conf       = (data.get("tarja_confianca") or "").strip().lower() or None
+        _exibir_raw     = data.get("exibir_imagem")
+        novo_exibir     = bool(_exibir_raw) if isinstance(_exibir_raw, bool) else None
+        if novo_tarja not in ("preta", "vermelha", "sem_tarja"):
+            novo_tarja = None
+        if novo_conf not in ("alta", "media", "baixa"):
+            novo_conf = None
+    except Exception as e:
+        app.logger.warning(f"_enriquecer_descricao_ia: {e}")
+        cur.close()
+        return {}
+
+    if novo_serve or novo_usar or novo_tarja or novo_exibir is not None:
+        try:
+            cur.execute(
+                """UPDATE anvisa_cache
+                      SET para_que_serve_ia       = COALESCE(%s, para_que_serve_ia),
+                          como_tomar_ia           = COALESCE(%s, como_tomar_ia),
+                          tarja_ia                = COALESCE(%s, tarja_ia),
+                          tarja_ia_confianca      = COALESCE(%s, tarja_ia_confianca),
+                          exibir_imagem_publica   = COALESCE(exibir_imagem_publica, %s),
+                          ia_descricao_gerado_em  = NOW()
+                    WHERE chave = %s""",
+                (novo_serve, novo_usar, novo_tarja, novo_conf, novo_exibir, chave_anvisa),
+            )
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f"_enriquecer_descricao_ia save: {e}")
+            try: conn.rollback()
+            except Exception: pass
+
+    cur.close()
+    return {
+        "para_que_serve_ia": novo_serve,
+        "como_tomar_ia": novo_usar,
+        "tarja_ia": novo_tarja,
+        "tarja_ia_confianca": novo_conf,
+        "exibir_imagem_ia": novo_exibir,
+    }
+
+
 @app.get("/produto/<ean>")
 def produto_detalhe(ean):
     cnpjloja  = (request.args.get("cnpj")  or "").strip()
@@ -7659,6 +7939,34 @@ def produto_detalhe(ean):
 
     cur.close()
 
+    # Enriquece descrição com IA se ANVISA encontrado e dados com problema
+    if anvisa and anvisa.get("encontrado") and _chave_anvisa:
+        try:
+            _api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            if _api_key:
+                _ia_desc = _enriquecer_descricao_ia(
+                    _chave_anvisa, nome_busca,
+                    anvisa.get("principio_ativo") or "",
+                    anvisa.get("serve_para") or "",
+                    anvisa.get("como_usar") or "",
+                    anvisa.get("alertas") or "",
+                    conn, _api_key,
+                    anvisa_tarja=anvisa.get("tarja") or "",
+                )
+                if _ia_desc.get("para_que_serve_ia"):
+                    anvisa["para_que_serve_ia"] = _ia_desc["para_que_serve_ia"]
+                if _ia_desc.get("como_tomar_ia"):
+                    anvisa["como_tomar_ia"] = _ia_desc["como_tomar_ia"]
+                if _ia_desc.get("tarja_ia"):
+                    anvisa["tarja_ia"] = _ia_desc["tarja_ia"]
+                    anvisa["tarja_ia_confianca"] = _ia_desc.get("tarja_ia_confianca") or ""
+                if _ia_desc.get("exibir_imagem_ia") is not None:
+                    # Só preenche exibir_imagem_publica se ainda era None (não sobrescreve false explícito)
+                    if anvisa.get("exibir_imagem_publica") is None:
+                        anvisa["exibir_imagem_publica"] = _ia_desc["exibir_imagem_ia"]
+        except Exception as _e:
+            app.logger.warning(f"enriquecer_descricao_ia: {_e}")
+
     if not produto and not med and not nome_hint:
         flash("Produto não encontrado.", "error")
         return redirect(url_for("index"))
@@ -7698,8 +8006,11 @@ def produto_detalhe(ean):
     if _is_med:
         _exibir = anvisa.get("exibir_imagem_publica")
         _nao_exibir = _exibir is False
-        _bloquear_img = tarja in ("preta", "vermelha") or _nao_exibir
-        if not _bloquear_img and imagem and _looks_like_other_pharmacy_brand(imagem):
+        _exibir_confirmado = _exibir is True  # IA ou ANVISA confirmou explicitamente
+        # Tarja preta: sempre bloqueia. Tarja vermelha: só bloqueia se exibição não foi confirmada.
+        _bloquear_img = (tarja == "preta") or (tarja == "vermelha" and not _exibir_confirmado) or _nao_exibir
+        # Só checa marca concorrente quando a exibição não foi confirmada explicitamente
+        if not _bloquear_img and not _exibir_confirmado and imagem and _looks_like_other_pharmacy_brand(imagem):
             _bloquear_img = True
         if _bloquear_img:
             _tarja_box = tarja if tarja in ("preta", "vermelha") else "vermelha"
@@ -13985,6 +14296,7 @@ def _anvisa_schema():
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS como_tomar_ia TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS principais_cuidados_ia TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS indicado_para_ia TEXT")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS ia_descricao_gerado_em TIMESTAMPTZ")
     conn.commit()
     cur.close()
     _ANVISA_SCHEMA_READY = True
@@ -14282,9 +14594,16 @@ _NOME_RECEITA_RETIDA_RE = re.compile(
 
 
 def _detectar_tarja(anvisa: dict) -> str | None:
-    """Retorna somente a tarja explicita salva no anvisa_cache."""
+    """Retorna a tarja do produto. tarja_ia (validação IA) prevalece sobre dado bruto do ANVISA."""
     if not anvisa:
         return None
+    # IA validou — usa como fonte primária (corrige dados errados do ANVISA)
+    tarja_ia = (anvisa.get("tarja_ia") or "").strip().lower()
+    if tarja_ia == "sem_tarja":
+        return None
+    if tarja_ia in ("preta", "vermelha"):
+        return tarja_ia
+    # Fallback: dado bruto do ANVISA quando IA ainda não validou
     tarja_bd = (anvisa.get("tarja") or "").strip().lower()
     if tarja_bd in ("preta", "vermelha"):
         return tarja_bd

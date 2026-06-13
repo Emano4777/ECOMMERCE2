@@ -36,8 +36,8 @@
 
     /* ── TOPBAR iFood-style ─────────────────────────────── */
     .pq-topbar {
-      background: #fff;
-      border-bottom: 1px solid var(--pq-border);
+      background: linear-gradient(135deg, #c8102e 0%, #d6112e 30%, #e06018 65%, #ffc300 100%);
+      border-bottom: none;
       min-height: 64px;
       display: flex;
       align-items: center;
@@ -47,7 +47,7 @@
       position: sticky;
       top: 0;
       z-index: 200;
-      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+      box-shadow: 0 3px 16px rgba(180,8,28,.28);
     }
     .pq-brand {
       display: inline-flex;
@@ -77,25 +77,26 @@
       align-items: center;
       gap: 8px;
       padding: 8px 14px;
-      border: 1.5px solid var(--pq-border);
+      border: 1.5px solid rgba(255,255,255,.35);
       border-radius: 50px;
       cursor: pointer;
-      background: #fff;
-      transition: border-color .15s, box-shadow .15s;
+      background: rgba(255,255,255,.18);
+      backdrop-filter: blur(6px);
+      transition: background .15s, border-color .15s;
       min-width: 38px;
       flex: 0 1 360px;
       max-width: 360px;
     }
-    .pq-loc-btn:hover { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
-    .pq-loc-icon { color: var(--pq-red); font-size: 1rem; flex-shrink: 0; }
+    .pq-loc-btn:hover { background: rgba(255,255,255,.28); border-color: rgba(255,255,255,.6); }
+    .pq-loc-icon { color: #fff; font-size: 1rem; flex-shrink: 0; }
     .pq-loc-texts { min-width: 0; flex: 1; }
-    .pq-loc-label { font-size: .68rem; font-weight: 700; color: var(--pq-muted); text-transform: uppercase; letter-spacing: .3px; display: block; }
-    .pq-loc-addr  { font-size: .88rem; font-weight: 700; color: var(--pq-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-    .pq-loc-arrow { color: var(--pq-muted); font-size: .7rem; flex-shrink: 0; }
+    .pq-loc-label { font-size: .68rem; font-weight: 700; color: rgba(255,255,255,.75); text-transform: uppercase; letter-spacing: .3px; display: block; }
+    .pq-loc-addr  { font-size: .88rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .pq-loc-arrow { color: rgba(255,255,255,.7); font-size: .7rem; flex-shrink: 0; }
 
     .pq-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
     .pq-topbar-link {
-      color: var(--pq-muted);
+      color: rgba(255,255,255,.92);
       text-decoration: none;
       font-size: .82rem;
       font-weight: 700;
@@ -104,12 +105,12 @@
       white-space: nowrap;
       transition: background .15s, color .15s;
     }
-    .pq-topbar-link:hover { background: #f5f5f5; color: var(--pq-text); }
+    .pq-topbar-link:hover { background: rgba(255,255,255,.18); color: #fff; }
     .pq-user-link {
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      color: var(--pq-muted);
+      color: rgba(255,255,255,.92);
       text-decoration: none;
       font-size: .82rem;
       font-weight: 800;
@@ -117,7 +118,7 @@
       border-radius: 999px;
       white-space: nowrap;
     }
-    .pq-user-link:hover { background:#f5f5f5; color:var(--pq-text); }
+    .pq-user-link:hover { background: rgba(255,255,255,.18); color: #fff; }
     .pq-user-avatar {
       width: 30px;
       height: 30px;
@@ -739,7 +740,7 @@
     <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('catalogo_publico') }}">
       <i class="fa fa-table-cells-large me-1"></i><span class="pq-lojas-label">Catálogo</span>
     </a>
-    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}" style="color:#2e7d32;font-weight:800">
+    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}" style="font-weight:800">
       <i class="fa fa-leaf me-1"></i><span class="pq-lojas-label">Marca Própria</span>
     </a>
     <a class="pq-topbar-link pq-lojas-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
@@ -985,6 +986,53 @@ const LOC_KEY_LAT  = 'pq_lat';
 const LOC_KEY_LNG  = 'pq_lng';
 const LOC_KEY_NOME = 'pq_loc_nome';
 const LOC_KEY_RECENTS = 'pq_loc_recents';
+const LOC_KEY_TS   = 'pq_loc_ts';
+const LOC_CACHE_TTL = 24 * 3600 * 1000; // 24h
+
+const _GM_KEY = {{ GOOGLE_MAPS_KEY | tojson }};
+const _GM_ENABLED = false; // ← mude para true para ativar Google Maps
+let _gmQuotaHit = !!sessionStorage.getItem('pq_gm_quota');
+function _gmQuota() { _gmQuotaHit = true; sessionStorage.setItem('pq_gm_quota', '1'); }
+
+/* Detecta posição via Google Geolocation API (sem popup de permissão) */
+async function _geolocateGM() {
+  if (!_GM_KEY || !_GM_ENABLED || _gmQuotaHit) throw new Error('skip');
+  const r = await fetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${_GM_KEY}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'
+  });
+  const d = await r.json();
+  if (d.error) { if ([403,429].includes(d.error.code)) _gmQuota(); throw new Error('gm_err'); }
+  if (!d.location) throw new Error('no_loc');
+  return { lat: d.location.lat, lng: d.location.lng };
+}
+
+/* Converte coords em endereço via Google Maps */
+async function _reverseGeocodeGM(lat, lng) {
+  if (!_GM_KEY || !_GM_ENABLED || _gmQuotaHit) throw new Error('skip');
+  const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${_GM_KEY}&language=pt-BR&result_type=street_address|sublocality|locality`);
+  const d = await r.json();
+  if (d.status === 'OVER_QUERY_LIMIT' || d.status === 'REQUEST_DENIED') { _gmQuota(); throw new Error('quota'); }
+  if (d.status !== 'OK' || !d.results.length) throw new Error('no_result');
+  const comps = d.results[0].address_components || [];
+  const get  = t => (comps.find(c => c.types.includes(t)) || {}).long_name  || '';
+  const getS = t => (comps.find(c => c.types.includes(t)) || {}).short_name || '';
+  const route  = get('route'), num  = get('street_number');
+  const bairro = get('sublocality_level_1') || get('sublocality');
+  const cidade = get('administrative_area_level_2') || get('locality');
+  const uf     = getS('administrative_area_level_1');
+  return [route && (route + (num ? ', ' + num : '')), bairro, cidade, uf].filter(Boolean).join(', ') || 'Localização detectada';
+}
+
+/* Converte endereço/cidade em coords via Google Maps */
+async function _geocodeGM(query) {
+  if (!_GM_KEY || !_GM_ENABLED || _gmQuotaHit) throw new Error('skip');
+  const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query + ', Brasil')}&key=${_GM_KEY}&language=pt-BR&region=br&components=country:BR`);
+  const d = await r.json();
+  if (d.status === 'OVER_QUERY_LIMIT' || d.status === 'REQUEST_DENIED') { _gmQuota(); throw new Error('quota'); }
+  if (d.status !== 'OK' || !d.results.length) throw new Error('no_result');
+  const loc = d.results[0].geometry.location;
+  return { lat: loc.lat, lng: loc.lng, nome: d.results[0].formatted_address };
+}
 
 function abrirModalLoc()  { document.getElementById('loc-overlay').classList.add('show'); renderRecentLocs(); document.getElementById('modal-cidade-inp').focus(); }
 function fecharModalLoc() { document.getElementById('loc-overlay').classList.remove('show'); }
@@ -994,28 +1042,34 @@ function setLocNome(nome) {
   localStorage.setItem(LOC_KEY_NOME, nome);
 }
 
-function reverseGeocode(lat, lng) {
-  fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1`, {
+function _reverseGeocodeNominatim(lat, lng) {
+  return fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1`, {
     headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'poupaqui/1.0' }
   })
   .then(r => r.json())
   .then(d => {
     const a = d.address || {};
     const cidade = a.city || a.town || a.village || a.suburb || a.county || '';
-    const uf     = a.state_code || a.ISO3166_2_lvl4 || '';
-    const rua = a.road || '';
-    const numero = a.house_number || '';
-    const bairro = a.suburb || a.neighbourhood || '';
+    const uf     = (a.state_code || a.ISO3166_2_lvl4 || '').replace('BR-','');
+    const rua = a.road || '', numero = a.house_number || '', bairro = a.suburb || a.neighbourhood || '';
     const endereco = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade].filter(Boolean).join(', ');
-    const nome   = endereco || (cidade ? `${cidade}${uf ? ', '+uf.replace('BR-','') : ''}` : 'Localização detectada');
-    setLocNome(nome);
-  })
-  .catch(() => setLocNome('Localização detectada'));
+    return endereco || (cidade ? `${cidade}${uf ? ', '+uf : ''}` : 'Localização detectada');
+  });
+}
+
+function reverseGeocode(lat, lng) {
+  _reverseGeocodeGM(lat, lng)
+    .then(nome => setLocNome(nome))
+    .catch(() => _reverseGeocodeNominatim(lat, lng)
+      .then(nome => setLocNome(nome))
+      .catch(() => setLocNome('Localização detectada'))
+    );
 }
 
 function aplicarLocalizacao(lat, lng) {
   localStorage.setItem(LOC_KEY_LAT, lat);
   localStorage.setItem(LOC_KEY_LNG, lng);
+  localStorage.setItem(LOC_KEY_TS, Date.now());
   reverseGeocode(lat, lng);
   fecharModalLoc();
   if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
@@ -1023,50 +1077,47 @@ function aplicarLocalizacao(lat, lng) {
 
 let _gpsLat = null, _gpsLng = null, _gpsNome = null;
 
-function usarGPS() {
+async function usarGPS() {
   document.getElementById('modal-status').textContent = 'Obtendo posição…';
   document.getElementById('gps-preview').style.display = 'none';
-  if (!navigator.geolocation) {
-    document.getElementById('modal-status').textContent = 'GPS não disponível neste navegador.';
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      _gpsLat = pos.coords.latitude;
-      _gpsLng = pos.coords.longitude;
-      document.getElementById('modal-status').textContent = 'Localizando endereço…';
-      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${_gpsLat}&lon=${_gpsLng}&format=json&zoom=18&addressdetails=1`, {
-        headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'poupaqui/1.0' }
-      })
-      .then(r => r.json())
-      .then(d => {
-        const a = d.address || {};
-        const cidade = a.city || a.town || a.village || a.suburb || a.county || '';
-        const uf     = (a.state_code || a.ISO3166_2_lvl4 || '').replace('BR-','');
-        const rua    = a.road || '';
-        const numero = a.house_number || '';
-        const bairro = a.suburb || a.neighbourhood || '';
-        const endParts = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade, uf].filter(Boolean);
-        _gpsNome = endParts.join(', ') || 'Localização detectada';
-        document.getElementById('modal-status').textContent = '';
-        const preview = document.getElementById('gps-preview');
-        preview.querySelector('.gps-preview-nome').value = _gpsNome;
-        preview.style.display = 'block';
-      })
-      .catch(() => {
-        _gpsNome = 'Localização detectada';
-        document.getElementById('modal-status').textContent = '';
-        const preview = document.getElementById('gps-preview');
-        preview.querySelector('.gps-preview-nome').value = _gpsNome;
-        preview.style.display = 'block';
-      });
-    },
-    err => {
+  let lat = null, lng = null;
+
+  // 1º: Google Geolocation API (sem popup de permissão)
+  try {
+    const gm = await _geolocateGM();
+    lat = gm.lat; lng = gm.lng;
+  } catch(e) {
+    // 2º: GPS do navegador (fallback)
+    if (!navigator.geolocation) {
+      document.getElementById('modal-status').textContent = 'GPS não disponível neste navegador.';
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        pos => { lat = pos.coords.latitude; lng = pos.coords.longitude; resolve(); },
+        err => reject(err),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }).catch(err => {
       const msgs = {1:'Permissão negada.', 2:'Posição indisponível.', 3:'Tempo esgotado.'};
       document.getElementById('modal-status').textContent = msgs[err.code] || 'Erro ao obter posição.';
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-  );
+    });
+  }
+  if (lat === null) return;
+  _gpsLat = lat; _gpsLng = lng;
+  document.getElementById('modal-status').textContent = 'Localizando endereço…';
+
+  // Reverse geocode: Google Maps primeiro, Nominatim fallback
+  let nome = 'Localização detectada';
+  try { nome = await _reverseGeocodeGM(lat, lng); }
+  catch(e) {
+    try { nome = await _reverseGeocodeNominatim(lat, lng); } catch(e2) {}
+  }
+  _gpsNome = nome;
+  document.getElementById('modal-status').textContent = '';
+  const preview = document.getElementById('gps-preview');
+  preview.querySelector('.gps-preview-nome').value = nome;
+  preview.style.display = 'block';
 }
 
 async function confirmarGPS() {
@@ -1080,19 +1131,23 @@ async function confirmarGPS() {
     try {
       const btn = document.querySelector('#gps-preview button');
       if (btn) { btn.disabled = true; btn.textContent = 'Localizando…'; }
-      const r = await fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
-        q: nome + ', Brasil', format: 'json', limit: '1', countrycodes: 'br'
-      }), { headers: { 'Accept-Language': 'pt-BR' } });
-      const data = await r.json();
-      if (data && data[0]) {
-        lat = parseFloat(data[0].lat);
-        lng = parseFloat(data[0].lon);
+      try {
+        const gm = await _geocodeGM(nome);
+        lat = gm.lat; lng = gm.lng;
+      } catch(e) {
+        // Nominatim fallback
+        const r = await fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+          q: nome + ', Brasil', format: 'json', limit: '1', countrycodes: 'br'
+        }), { headers: { 'Accept-Language': 'pt-BR' } });
+        const data = await r.json();
+        if (data && data[0]) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); }
       }
     } catch(e) {}
   }
 
   localStorage.setItem(LOC_KEY_LAT, lat);
   localStorage.setItem(LOC_KEY_LNG, lng);
+  localStorage.setItem(LOC_KEY_TS, Date.now());
   setLocNome(nome);
   fecharModalLoc();
   if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
@@ -1282,6 +1337,37 @@ buscarCidade = function() {
 }
 
 async function fetchLocalizacao(termo, parsed) {
+  // Google Maps Geocoding — mais rápido e preciso
+  if (_GM_KEY && _GM_ENABLED && !_gmQuotaHit) {
+    try {
+      const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(termo + ', Brasil')}&key=${_GM_KEY}&language=pt-BR&region=br&components=country:BR`);
+      const d = await r.json();
+      if (d.status === 'OVER_QUERY_LIMIT' || d.status === 'REQUEST_DENIED') { _gmQuota(); }
+      else if (d.status === 'OK' && d.results.length) {
+        return d.results.map(res => {
+          const comps = res.address_components || [];
+          const get  = t => (comps.find(c => c.types.includes(t)) || {}).long_name  || '';
+          const getS = t => (comps.find(c => c.types.includes(t)) || {}).short_name || '';
+          const route  = get('route'), num  = get('street_number');
+          const bairro = get('sublocality_level_1') || get('sublocality');
+          const cidade = get('administrative_area_level_2') || get('locality');
+          const uf     = getS('administrative_area_level_1');
+          return {
+            lat: String(res.geometry.location.lat),
+            lon: String(res.geometry.location.lng),
+            display_name: res.formatted_address,
+            place_id: res.place_id,
+            address: {
+              road: route, house_number: num, suburb: bairro,
+              city: cidade, state_code: 'BR-' + uf, country: 'Brasil'
+            }
+          };
+        });
+      }
+    } catch(e) {}
+  }
+
+  // Fallback: backend conhecido + Nominatim
   try {
     const local = await fetch('/api/localizacao?' + new URLSearchParams({ q: termo }));
     const data = await local.json();
@@ -1338,27 +1424,39 @@ function buscarCidadeDebounced() {
 }
 
 (function init() {
-  // Restaura localização salva
   const savedNome = localStorage.getItem(LOC_KEY_NOME);
   const savedLat  = localStorage.getItem(LOC_KEY_LAT);
   const savedLng  = localStorage.getItem(LOC_KEY_LNG);
+  const savedTs   = parseInt(localStorage.getItem(LOC_KEY_TS) || '0');
 
-  if (savedNome) {
-    document.getElementById('loc-addr-text').textContent = savedNome;
-  }
+  if (savedNome) document.getElementById('loc-addr-text').textContent = savedNome;
 
   if (savedLat && savedLng) {
-    // Já tem localização salva — usa imediatamente
     if (typeof onLocationReady === 'function') onLocationReady(parseFloat(savedLat), parseFloat(savedLng));
-  } else {
-    // Pede permissão automaticamente
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
-        () => { document.getElementById('loc-addr-text').textContent = 'Clique para definir'; },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      );
+    // Cache expirado (>24h): atualiza silenciosamente em background
+    if (Date.now() - savedTs > LOC_CACHE_TTL) {
+      _geolocateGM()
+        .then(pos => {
+          localStorage.setItem(LOC_KEY_LAT, pos.lat);
+          localStorage.setItem(LOC_KEY_LNG, pos.lng);
+          localStorage.setItem(LOC_KEY_TS, Date.now());
+          _reverseGeocodeGM(pos.lat, pos.lng).then(n => setLocNome(n)).catch(() => {});
+        })
+        .catch(() => {});
     }
+  } else {
+    // Sem localização: tenta Google primeiro, depois navigator.geolocation
+    _geolocateGM()
+      .then(pos => aplicarLocalizacao(pos.lat, pos.lng))
+      .catch(() => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
+            () => { document.getElementById('loc-addr-text').textContent = 'Clique para definir'; },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+          );
+        }
+      });
   }
 })();
 </script>

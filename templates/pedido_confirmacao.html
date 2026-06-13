@@ -50,6 +50,29 @@
 .conf-footer { text-align:center; margin-top:24px; }
 .conf-recs-wrap { margin:18px 0; }
 @media(max-width:520px){ .conf-qr { width:132px; height:132px; } .conf-pay { margin-left:14px; margin-right:14px; } }
+/* cross-sell post-checkout popup */
+.csc-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.48); z-index:9900; backdrop-filter:blur(2px); align-items:flex-end; justify-content:center; }
+.csc-pop { width:100%; max-width:540px; background:#fff; border-radius:28px 28px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,.18); animation:cscSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards; }
+@keyframes cscSlideUp { from { transform:translateY(120%); } to { transform:translateY(0); } }
+@keyframes cscSlideDown { from { transform:translateY(0); } to { transform:translateY(120%); } }
+.csc-handle { display:flex; justify-content:center; padding:12px 0 0; }
+.csc-handle span { width:40px; height:4px; border-radius:99px; background:#e2e8f0; }
+.csc-head { display:flex; align-items:center; gap:10px; padding:14px 20px 10px; }
+.csc-avatar { width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#d6112e,#870015); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.1rem; flex-shrink:0; }
+.csc-title { font-weight:800; font-size:.96rem; color:#0f172a; line-height:1.25; }
+.csc-title small { display:block; font-weight:400; font-size:.78rem; color:#64748b; margin-top:1px; }
+.csc-msg { margin:4px 20px 14px; background:linear-gradient(135deg,#fff5f5,#fff0f1); border:1px solid #fecdd3; border-radius:14px; padding:11px 15px; font-size:.85rem; color:#881337; font-weight:600; line-height:1.45; }
+.csc-prods { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:0 16px 16px; }
+.csc-prod { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:16px; padding:10px 8px 12px; text-align:center; text-decoration:none; color:inherit; transition:box-shadow .15s,transform .15s; }
+.csc-prod:hover { box-shadow:0 4px 18px rgba(214,17,46,.14); transform:translateY(-2px); border-color:#fecdd3; }
+.csc-prod img { width:56px; height:56px; object-fit:contain; border-radius:10px; margin-bottom:6px; }
+.csc-prod-name { font-size:.69rem; font-weight:700; color:#1e293b; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.csc-prod-price { font-size:.78rem; font-weight:900; color:#d6112e; margin-top:4px; }
+.csc-foot { padding:0 16px 20px; display:flex; flex-direction:column; gap:8px; }
+.csc-cta { display:block; background:linear-gradient(135deg,#d6112e,#870015); color:#fff; text-align:center; padding:13px; border-radius:14px; font-weight:900; font-size:.92rem; text-decoration:none; border:none; cursor:pointer; transition:opacity .15s; }
+.csc-cta:hover { opacity:.88; color:#fff; }
+.csc-skip { background:none; border:none; color:#94a3b8; font-size:.78rem; cursor:pointer; text-decoration:underline; padding:2px; }
+@media(max-width:400px) { .csc-prods { grid-template-columns:repeat(2,1fr); } }
 </style>
 {% endblock %}
 
@@ -360,5 +383,69 @@ if (pedidosPagamento.length) {
     setInterval(function() { pedidosPagamento.forEach(consultarPagamento); }, 30000);
   }
 }
+
+/* ── Cross-sell pós-checkout ── */
+(function(){
+  var lat = localStorage.getItem('pq_lat') || 0;
+  var lng = localStorage.getItem('pq_lng') || 0;
+  var qs = (lat && lng) ? '?lat='+lat+'&lng='+lng : '';
+  fetch('/api/home/insights' + qs)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.logado) return;
+      var prods = (d.cross_sell || []).filter(function(p){ return p.imagem && parseFloat(p.preco) > 0; });
+      if (!prods.length) return;
+      var mensagem = d.cross_sell_mensagem || 'Que tal aproveitar para já garantir esses itens?';
+      var grid = document.getElementById('csc-prods');
+      if (grid) {
+        grid.innerHTML = prods.slice(0,4).map(function(p){
+          var url = '/produto/'+encodeURIComponent(p.ean||'')+'?cnpj='+encodeURIComponent(p.cnpjloja||'')+'&nome='+encodeURIComponent(p.nome||'');
+          var pr = parseFloat(p.preco)||0;
+          return '<a class="csc-prod" href="'+url+'">'
+            +(p.imagem ? '<img src="'+p.imagem+'" alt="" onerror="this.style.display=\'none\'">' : '')
+            +'<div class="csc-prod-name">'+p.nome+'</div>'
+            +(pr>0 ? '<div class="csc-prod-price">R$ '+pr.toFixed(2).replace('.',',')+'</div>' : '')
+            +'</a>';
+        }).join('');
+      }
+      var msgEl = document.getElementById('csc-msg');
+      if (msgEl) msgEl.textContent = mensagem;
+      setTimeout(function(){
+        var el = document.getElementById('csc-overlay');
+        if (el) el.style.display = 'flex';
+      }, 3000);
+    })
+    .catch(function(){});
+})();
+function fecharCscPop() {
+  var el = document.getElementById('csc-overlay');
+  if (!el) return;
+  el.querySelector('.csc-pop').style.animation = 'cscSlideDown .28s ease forwards';
+  setTimeout(function(){ el.style.display = 'none'; }, 290);
+}
 </script>
+
+{# ── Popup cross-sell pós-checkout ── #}
+<div id="csc-overlay" class="csc-overlay" style="display:none"
+     onclick="if(event.target===this)fecharCscPop()">
+  <div class="csc-pop">
+    <div class="csc-handle"><span></span></div>
+    <div class="csc-head">
+      <div class="csc-avatar"><i class="fa fa-wand-magic-sparkles"></i></div>
+      <div class="csc-title">
+        Poupinha recomenda
+        <small>Enquanto aguarda seu pedido, que tal isso?</small>
+      </div>
+    </div>
+    <div class="csc-msg" id="csc-msg">Que tal aproveitar para já garantir esses itens?</div>
+    <div class="csc-prods" id="csc-prods"></div>
+    <div class="csc-foot">
+      <a href="{{ url_for('meus_pedidos') }}" class="csc-cta" onclick="fecharCscPop()">
+        <i class="fa fa-bag-shopping me-2"></i>Ver meus pedidos
+      </a>
+      <button class="csc-skip" onclick="fecharCscPop()">Não, obrigado</button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}

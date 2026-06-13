@@ -378,10 +378,16 @@
           {% if tarja == 'preta' %}
           <span class="tarja-badge preta">
             <i class="fa fa-prescription"></i>Tarja Preta - Controle especial
+            {% if anvisa.tarja_ia == 'preta' %}<span style="font-size:.6rem;opacity:.75;margin-left:3px">✓</span>{% endif %}
           </span>
           {% elif tarja == 'vermelha' %}
           <span class="tarja-badge">
             <i class="fa fa-prescription"></i>{% if requer_receita %}Tarja Vermelha - Receita retida{% else %}Tarja Vermelha - Venda sob prescrição{% endif %}
+            {% if anvisa.tarja_ia == 'vermelha' %}<span style="font-size:.6rem;opacity:.75;margin-left:3px">✓</span>{% endif %}
+          </span>
+          {% elif anvisa.tarja_ia == 'sem_tarja' %}
+          <span class="anvisa-badge" style="background:#f0fdf4;color:#15803d;border:1px solid #86efac">
+            <i class="fa fa-check-circle"></i>Sem tarja <span style="font-size:.6rem;opacity:.75">✓</span>
           </span>
           {% endif %}
         {% elif tipo_produto == 'cosmetico' %}
