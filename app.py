@@ -7635,7 +7635,7 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
     cur.execute(
         "SELECT para_que_serve_ia, como_tomar_ia, ia_descricao_gerado_em, "
         "tarja_ia, exibir_imagem_publica "
-        "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
+        "FROM anvisa_cache WHERE chave=%s",
         (chave_anvisa,),
     )
     row = cur.fetchone()
@@ -7687,25 +7687,22 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
     tarja_anvisa = (anvisa_tarja or "").strip().lower()
 
     prompt = (
-        f"Produto farmacêutico: {nome}\n"
-        f"Princípio ativo: {principio_ativo or 'não informado'}\n"
+        f"Produto de farmácia: {nome}\n"
+        f"Princípio ativo / substância: {principio_ativo or 'não informado'}\n"
         f"Tarja registrada no sistema: {tarja_anvisa or 'não informada'}\n\n"
-        f"Dados do sistema (podem estar incorretos):\n"
+        f"Dados existentes (podem estar incorretos ou vazios):\n"
         f"- Para que serve: {serve_ctx[:400]}\n"
         f"- Como usar/tomar: {usar_ctx[:400]}\n\n"
-        f"Faça duas coisas:\n"
-        f"1. Escreva textos claros e precisos para o produto.\n"
-        f"2. Valide a classificação de tarja deste medicamento.\n\n"
+        f"Com base no nome e princípio ativo, gere descrições úteis para o consumidor.\n"
         f"Responda SOMENTE em JSON com as chaves:\n"
-        f"  \"para_que_serve\": texto de 2-3 frases descrevendo o produto\n"
-        f"  \"como_tomar\": texto de 2-3 frases sobre modo de uso geral\n"
-        f"  \"tarja\": classificação correta — apenas um destes valores: \"preta\", \"vermelha\", \"sem_tarja\"\n"
-        f"  \"tarja_confianca\": sua confiança — \"alta\", \"media\" ou \"baixa\"\n"
-        f"  \"exibir_imagem\": true se o produto tem imagem de marca conhecida que pode ser exibida "
-        f"publicamente (ex: Advil, Tylenol, Buscopan, Novalgina, marcas OTC amplamente conhecidas), "
-        f"false se deve usar placeholder genérico (medicamentos sem marca ou tarjados sem divulgação)\n"
-        f"Use linguagem simples. Baseie-se no princípio ativo e nome do produto. "
-        f"Não faça promessas de cura. Não mencione posologia exata."
+        f"  \"para_que_serve\": 2-3 frases objetivas sobre para que o produto é indicado\n"
+        f"  \"como_tomar\": 2-3 frases sobre modo de uso geral (sem posologia exata)\n"
+        f"  \"tarja\": \"preta\", \"vermelha\" ou \"sem_tarja\" (OTC/suplemento/isento)\n"
+        f"  \"tarja_confianca\": \"alta\", \"media\" ou \"baixa\"\n"
+        f"  \"exibir_imagem\": true se é marca amplamente conhecida com imagem pública "
+        f"(ex: Advil, Buscopan, Engov, Centrum, marcas OTC famosas), false caso contrário\n"
+        f"Use linguagem simples e direta para o consumidor final. "
+        f"Não faça promessas de cura ou diagnóstico."
     )
 
     try:
@@ -7725,7 +7722,8 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
         novo_tarja      = (data.get("tarja") or "").strip().lower() or None
         novo_conf       = (data.get("tarja_confianca") or "").strip().lower() or None
         _exibir_raw     = data.get("exibir_imagem")
-        novo_exibir     = bool(_exibir_raw) if isinstance(_exibir_raw, bool) else None
+        # IA só confirma que PODE exibir (true) — nunca usa false para bloquear imagem
+        novo_exibir     = True if _exibir_raw is True else None
         if novo_tarja not in ("preta", "vermelha", "sem_tarja"):
             novo_tarja = None
         if novo_conf not in ("alta", "media", "baixa"):
@@ -7738,15 +7736,18 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
     if novo_serve or novo_usar or novo_tarja or novo_exibir is not None:
         try:
             cur.execute(
-                """UPDATE anvisa_cache
-                      SET para_que_serve_ia       = COALESCE(%s, para_que_serve_ia),
-                          como_tomar_ia           = COALESCE(%s, como_tomar_ia),
-                          tarja_ia                = COALESCE(%s, tarja_ia),
-                          tarja_ia_confianca      = COALESCE(%s, tarja_ia_confianca),
-                          exibir_imagem_publica   = COALESCE(exibir_imagem_publica, %s),
-                          ia_descricao_gerado_em  = NOW()
-                    WHERE chave = %s""",
-                (novo_serve, novo_usar, novo_tarja, novo_conf, novo_exibir, chave_anvisa),
+                """INSERT INTO anvisa_cache (chave, encontrado, para_que_serve_ia, como_tomar_ia,
+                       tarja_ia, tarja_ia_confianca, exibir_imagem_publica, ia_descricao_gerado_em)
+                   VALUES (%s, FALSE, %s, %s, %s, %s, %s, NOW())
+                   ON CONFLICT (chave) DO UPDATE SET
+                       para_que_serve_ia      = COALESCE(%s, anvisa_cache.para_que_serve_ia),
+                       como_tomar_ia          = COALESCE(%s, anvisa_cache.como_tomar_ia),
+                       tarja_ia               = COALESCE(%s, anvisa_cache.tarja_ia),
+                       tarja_ia_confianca     = COALESCE(%s, anvisa_cache.tarja_ia_confianca),
+                       exibir_imagem_publica  = COALESCE(anvisa_cache.exibir_imagem_publica, %s),
+                       ia_descricao_gerado_em = NOW()""",
+                (chave_anvisa, novo_serve, novo_usar, novo_tarja, novo_conf, novo_exibir,
+                 novo_serve, novo_usar, novo_tarja, novo_conf, novo_exibir),
             )
             conn.commit()
         except Exception as e:
@@ -7939,8 +7940,9 @@ def produto_detalhe(ean):
 
     cur.close()
 
-    # Enriquece descrição com IA se ANVISA encontrado e dados com problema
-    if anvisa and anvisa.get("encontrado") and _chave_anvisa:
+    # Enriquece descrição com IA para qualquer produto com chave conhecida
+    # (funciona mesmo para OTC/suplementos sem entrada ANVISA)
+    if _chave_anvisa:
         try:
             _api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
             if _api_key:
@@ -7960,10 +7962,10 @@ def produto_detalhe(ean):
                 if _ia_desc.get("tarja_ia"):
                     anvisa["tarja_ia"] = _ia_desc["tarja_ia"]
                     anvisa["tarja_ia_confianca"] = _ia_desc.get("tarja_ia_confianca") or ""
-                if _ia_desc.get("exibir_imagem_ia") is not None:
-                    # Só preenche exibir_imagem_publica se ainda era None (não sobrescreve false explícito)
+                if _ia_desc.get("exibir_imagem_ia") is True:
+                    # IA só confirma exibição (true) — nunca bloqueia via false
                     if anvisa.get("exibir_imagem_publica") is None:
-                        anvisa["exibir_imagem_publica"] = _ia_desc["exibir_imagem_ia"]
+                        anvisa["exibir_imagem_publica"] = True
         except Exception as _e:
             app.logger.warning(f"enriquecer_descricao_ia: {_e}")
 
@@ -8007,14 +8009,17 @@ def produto_detalhe(ean):
         _exibir = anvisa.get("exibir_imagem_publica")
         _nao_exibir = _exibir is False
         _exibir_confirmado = _exibir is True  # IA ou ANVISA confirmou explicitamente
-        # Tarja preta: sempre bloqueia. Tarja vermelha: só bloqueia se exibição não foi confirmada.
-        _bloquear_img = (tarja == "preta") or (tarja == "vermelha" and not _exibir_confirmado) or _nao_exibir
-        # Só checa marca concorrente quando a exibição não foi confirmada explicitamente
+        # Tarja preta ou vermelha SEMPRE bloqueia a imagem, sem exceção
+        _bloquear_img = tarja in ("preta", "vermelha") or _nao_exibir
+        # exibir_confirmado só bypassa o check de marca concorrente (ex: Advil OTC sem tarja)
         if not _bloquear_img and not _exibir_confirmado and imagem and _looks_like_other_pharmacy_brand(imagem):
             _bloquear_img = True
         if _bloquear_img:
-            _tarja_box = tarja if tarja in ("preta", "vermelha") else "vermelha"
-            imagem = _placeholder_for_tarja(_tarja_box) or imagem
+            # Caixinha de tarja só para produtos realmente tarjados — OTC/suplemento sem imagem = sem imagem
+            if tarja in ("preta", "vermelha"):
+                imagem = _placeholder_for_tarja(tarja) or imagem
+            else:
+                imagem = None
     requer_receita = _exige_receita_digital_entrega(anvisa, nome)
     reputacao = _reputacao_loja(loja.get("cnpjloja")) if loja else None
 
