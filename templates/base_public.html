@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-title" content="Poupaqui"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
 
   <style>
     :root {
@@ -32,7 +32,8 @@
       --pq-shadow:   0 1px 6px rgba(0,0,0,.08), 0 2px 12px rgba(0,0,0,.04);
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: 'Nunito', system-ui, sans-serif; background: var(--pq-bg); color: var(--pq-text); }
+    body { margin: 0; font-family: 'Montserrat', system-ui, sans-serif; background: var(--pq-bg); color: var(--pq-text); }
+    .pq-custom-ico { filter: invert(1); mix-blend-mode: screen; display:inline-block; vertical-align:middle; }
 
     /* ── TOPBAR iFood-style ─────────────────────────────── */
     .pq-topbar {
@@ -84,9 +85,86 @@
       backdrop-filter: blur(6px);
       transition: background .15s, border-color .15s;
       min-width: 38px;
-      flex: 0 1 360px;
-      max-width: 360px;
+      flex: 0 0 auto;
+      max-width: 220px;
     }
+
+    /* ── SEARCH NA TOPBAR ────────────────────────────── */
+    .pq-topbar-search {
+      flex: 1;
+      min-width: 0;
+      max-width: 520px;
+      position: relative;
+      background: rgba(255,255,255,.97);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      height: 42px;
+    }
+    .pq-topbar-search input {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      padding: 0 16px;
+      font-family: inherit;
+      font-size: .86rem;
+      font-weight: 500;
+      outline: none;
+      height: 100%;
+      color: #333;
+      min-width: 0;
+      border-radius: 24px;
+    }
+    .pq-topbar-search input::placeholder { color: #aaa; }
+    .pq-topbar-search-btn {
+      background: none;
+      border: 0;
+      padding: 0 14px;
+      color: #aaa;
+      cursor: pointer;
+      height: 100%;
+      flex-shrink: 0;
+      font-size: .95rem;
+    }
+    .pq-topbar-sug {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.14);
+      z-index: 9999;
+      overflow: hidden;
+      max-height: 300px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    /* ── LINKS VERTICAIS (ícone + texto) ─────────────── */
+    .pq-nav-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      color: #fff;
+      text-decoration: none;
+      font-size: .58rem;
+      font-weight: 700;
+      padding: 5px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+      text-align: center;
+      line-height: 1.2;
+      transition: background .15s;
+      cursor: pointer;
+      border: 0;
+      background: transparent;
+      font-family: inherit;
+      position: relative;
+    }
+    .pq-nav-link:hover { background: rgba(255,255,255,.18); color: #fff; }
+    .pq-nav-link .pq-custom-ico { width: 22px; height: 22px; }
     .pq-loc-btn:hover { background: rgba(255,255,255,.28); border-color: rgba(255,255,255,.6); }
     .pq-loc-icon { color: #fff; font-size: 1rem; flex-shrink: 0; }
     .pq-loc-texts { min-width: 0; flex: 1; }
@@ -768,7 +846,7 @@
   <a class="pq-brand" href="{{ url_for('index') }}"><img class="pq-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt=""><span class="pq-brand-text">Poupaqu<span class="pq-brand-highlight">i</span></span></a>
 
   <div class="pq-loc-btn" id="loc-btn" onclick="abrirModalLoc()">
-    <i class="fa fa-location-dot pq-loc-icon"></i>
+    <img src="{{ url_for('static', filename='icons/location.png') }}" alt="" class="pq-custom-ico" style="width:18px;height:18px;flex-shrink:0">
     <div class="pq-loc-texts">
       <span class="pq-loc-label">sua localização</span>
       <span class="pq-loc-addr" id="loc-addr-text">Detectando…</span>
@@ -779,28 +857,28 @@
   {% block topbar_search %}{% endblock %}
 
   <div class="pq-topbar-right">
-    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('receita_medica') }}" title="Buscar por receita médica">
-      <i class="fa fa-file-medical me-1"></i><span class="pq-receita-label">Receita</span>
+    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('receita_medica') }}">
+      <img src="{{ url_for('static', filename='icons/medical-prescription.png') }}" alt="" class="pq-custom-ico">
+      <span>Busca rápida<br>com receita</span>
     </a>
-    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('catalogo_publico') }}">
-      <i class="fa fa-table-cells-large me-1"></i><span class="pq-lojas-label">Catálogo</span>
+    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}">
+      <img src="{{ url_for('static', filename='icons/search-interface-symbol.png') }}" alt="" class="pq-custom-ico">
+      <span>Marca<br>Própria</span>
     </a>
-    <a class="pq-topbar-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}" style="font-weight:800">
-      <i class="fa fa-leaf me-1"></i><span class="pq-lojas-label">Marca Própria</span>
+    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
+      <img src="{{ url_for('static', filename='icons/store.png') }}" alt="" class="pq-custom-ico">
+      <span>Farmácias<br>Próximas</span>
     </a>
-    <a class="pq-topbar-link pq-lojas-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
-      <i class="fa fa-store me-1"></i><span class="pq-lojas-label">Lojas</span>
-    </a>
-    <a class="pq-topbar-link" href="{{ url_for('carrinho') }}" style="position:relative;padding:6px 10px">
-      <i class="fa fa-cart-shopping"></i>
-      <span id="cart-badge" style="position:absolute;top:-3px;right:-3px;background:var(--pq-red);color:#fff;font-size:.58rem;font-weight:800;min-width:17px;height:17px;border-radius:9px;padding:0 3px;display:none;align-items:center;justify-content:center;line-height:1">0</span>
+    <a class="pq-nav-link" href="{{ url_for('carrinho') }}">
+      <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="" class="pq-custom-ico">
+      <span>Sua<br>Cesta</span>
+      <span id="cart-badge" style="position:absolute;top:-3px;right:-3px;background:#fff;color:var(--pq-red);font-size:.58rem;font-weight:800;min-width:17px;height:17px;border-radius:9px;padding:0 3px;display:none;align-items:center;justify-content:center;line-height:1">0</span>
     </a>
     {% if consumidor %}
     <div class="pq-user-menu pq-desktop-only">
-      <button class="pq-user-link" type="button" onclick="toggleUserMenu(event)" title="Minha conta" style="border:0;background:transparent;font-family:inherit">
-        <span class="pq-user-avatar"><i class="fa fa-user"></i></span>
-        <span class="pq-user-name">{{ consumidor.nome.split()[0] if consumidor.nome else 'Conta' }}</span>
-        <i class="fa fa-chevron-down" style="font-size:.68rem"></i>
+      <button class="pq-nav-link" type="button" onclick="toggleUserMenu(event)" title="Minha conta">
+        <img src="{{ url_for('static', filename='icons/user.png') }}" alt="" class="pq-custom-ico">
+        <span>{{ consumidor.nome.split()[0] if consumidor.nome else 'Conta' }}</span>
       </button>
       <div class="pq-user-dropdown" id="pq-user-dropdown">
         <div class="pq-user-head">
@@ -853,9 +931,9 @@
       </div>
     </div>
     {% else %}
-    <a class="pq-user-link pq-desktop-only" href="{{ url_for('consumidor_login') }}" title="Entrar">
-      <span class="pq-user-avatar"><i class="fa fa-user"></i></span>
-      <span class="pq-user-name">Entrar</span>
+    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('consumidor_login') }}">
+      <img src="{{ url_for('static', filename='icons/user.png') }}" alt="" class="pq-custom-ico">
+      <span>Sua<br>Conta</span>
     </a>
     {% endif %}
     <button class="pq-hamburger" id="pq-hamburger" onclick="abrirDrawer()" aria-label="Menu">

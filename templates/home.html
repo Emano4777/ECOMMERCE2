@@ -277,7 +277,7 @@
 .bnr-carousel { position:relative; overflow:hidden; border-radius:16px; }
 .bnr-track { display:flex; transition:transform .45s cubic-bezier(.25,.8,.25,1); }
 .bnr-slide { flex:0 0 100%; position:relative; cursor:pointer; }
-.bnr-slide img { width:100%; height:240px; object-fit:cover; display:block; border-radius:16px; }
+.bnr-slide img { width:100%; height:auto; aspect-ratio:1815/445; object-fit:cover; display:block; border-radius:16px; }
 .welcome-video-wrap {
   margin-bottom:22px;
   overflow:hidden;
@@ -302,7 +302,6 @@
 .bnr-dot { width:8px; height:8px; border-radius:50%; background:#d1d5db; cursor:pointer; transition:.2s; border:none; padding:0; }
 .bnr-dot.active { background:var(--pq-red); width:20px; border-radius:4px; }
 @media(max-width:560px){
-  .bnr-slide img,
   .welcome-video { height:155px; }
 }
 
@@ -441,7 +440,7 @@
 .home-title-accent { display:flex; align-items:center; gap:8px; }
 .home-title-accent::before { content:''; display:block; width:4px; height:22px; border-radius:3px; background:currentColor; opacity:.7; flex-shrink:0; }
 
-/* ═══ DEPT TILES: override completo para grid visual ═══════════ */
+/* ═══ DEPT TILES: layout com fotos reais ═══════════════════════ */
 .dept-strip-wrap::after { display:none !important; }
 .dept-strip {
   display:grid !important;
@@ -454,36 +453,48 @@
 .dept-chip {
   flex:unset !important;
   min-width:0 !important;
-  min-height:168px;
-  padding:26px 14px 22px !important;
-  border-radius:24px;
-  gap:14px !important;
-  box-shadow:0 4px 24px rgba(0,0,0,.09) !important;
-  justify-content:center;
-  border-width:1.5px !important;
+  padding:0 !important;
+  border-radius:20px !important;
+  gap:0 !important;
+  box-shadow:0 4px 24px rgba(0,0,0,.12) !important;
+  justify-content:flex-start !important;
+  align-items:stretch !important;
+  background:#fff !important;
+  border:none !important;
+  overflow:hidden;
 }
-.dept-chip-ico { width:68px !important; height:68px !important; font-size:1.7rem !important; border-radius:20px !important; box-shadow:0 8px 24px rgba(0,0,0,.22) !important; }
-.dept-chip-name { font-size:.83rem !important; font-weight:900 !important; }
-.dept-chip-sub   { display:block !important; font-size:.69rem !important; }
-/* Fundos com gradiente por categoria */
-.dept-chip--med  { background:linear-gradient(160deg,#fff0f1 0%,#ffd6da 100%) !important; border-color:#fecdd3 !important; }
-.dept-chip--sup  { background:linear-gradient(160deg,#f0fdf4 0%,#c4f0d1 100%) !important; border-color:#bbf7d0 !important; }
-.dept-chip--derm { background:linear-gradient(160deg,#fdf2f8 0%,#f7cde9 100%) !important; border-color:#f9a8d4 !important; }
-.dept-chip--perf { background:linear-gradient(160deg,#faf5ff 0%,#ddd6fe 100%) !important; border-color:#c4b5fd !important; }
-.dept-chip--nut  { background:linear-gradient(160deg,#fff7ed 0%,#ffe0b2 100%) !important; border-color:#fed7aa !important; }
-.dept-chip--var  { background:linear-gradient(160deg,#eff6ff 0%,#c4d8f9 100%) !important; border-color:#bfdbfe !important; }
+.dept-chip-img-wrap {
+  width:100%;
+  aspect-ratio:1;
+  overflow:hidden;
+  flex-shrink:0;
+}
+.dept-chip-img-wrap img {
+  width:100%; height:100%; object-fit:cover; display:block;
+  transition:transform .3s ease;
+}
+.dept-chip:hover .dept-chip-img-wrap img { transform:scale(1.07); }
+.dept-chip-ico { display:none !important; }
+.dept-chip-sub { display:none !important; }
+.dept-chip-name {
+  display:block !important;
+  width:100% !important;
+  background:var(--pq-red) !important;
+  color:#fff !important;
+  font-weight:800 !important;
+  font-size:.76rem !important;
+  text-align:center !important;
+  padding:9px 6px !important;
+  line-height:1.25 !important;
+}
 /* Tablet: 3 colunas */
 @media(min-width:560px) and (max-width:1023px) {
   .dept-strip { grid-template-columns:repeat(3,1fr) !important; }
-  .dept-chip { min-height:152px; }
 }
-/* Mobile: 3 colunas menores */
+/* Mobile: 3 colunas */
 @media(max-width:559px) {
   .dept-strip { grid-template-columns:repeat(3,1fr) !important; gap:8px !important; }
-  .dept-chip { min-height:118px !important; padding:18px 8px 14px !important; }
-  .dept-chip-ico { width:52px !important; height:52px !important; font-size:1.3rem !important; }
-  .dept-chip-sub { display:none !important; }
-  .dept-chip-name { font-size:.74rem !important; }
+  .dept-chip-name { font-size:.7rem !important; padding:7px 4px !important; }
 }
 
 /* ═══ POPUP PROMOCIONAL ════════════════════════════════════════ */
@@ -602,6 +613,20 @@
 </style>
 {% endblock %}
 
+{% block topbar_search %}
+<form class="pq-topbar-search" action="{{ url_for('catalogo_publico') }}" method="get" autocomplete="off">
+  <input name="q" type="text" id="home-q"
+         placeholder="Buscar item ou medicamento"
+         oninput="_homeSugDebounce(this.value)"
+         onkeydown="_homeSugKeyNav(event)"
+         onblur="_homeSugHide()">
+  <button type="submit" class="pq-topbar-search-btn" title="Buscar">
+    <i class="fa fa-magnifying-glass"></i>
+  </button>
+  <div class="pq-topbar-sug" id="home-suggestions" onmousedown="event.preventDefault()"></div>
+</form>
+{% endblock %}
+
 {% block content %}
 <div class="home-wrap">
 
@@ -624,164 +649,73 @@
     </div>
   </div>
 
-  {# ── Banners das lojas (carrossel) — acima das categorias ── #}
-  <section class="welcome-video-wrap" aria-label="Conheça o PoupAqui">
-    <video class="welcome-video" autoplay muted loop playsinline controls
-           preload="metadata"
-           poster="https://res.cloudinary.com/dizfq460q/video/upload/so_0,q_auto,f_jpg/v1781328696/home/poupaqui_boas_vindas.jpg">
-      <source src="https://res.cloudinary.com/dizfq460q/video/upload/q_auto,vc_h264/v1781328696/home/poupaqui_boas_vindas.mp4"
-              type="video/mp4">
-      <source src="https://res.cloudinary.com/dizfq460q/video/upload/v1781328696/home/poupaqui_boas_vindas.webm"
-              type="video/webm">
-    </video>
-  </section>
+  {# ── Banners + categorias ── #}
 
-  <section id="bnr-section" class="bnr-section" style="display:none">
+  <section id="bnr-section" class="bnr-section">
     <div class="bnr-carousel" id="bnr-carousel">
-      <div class="bnr-track" id="bnr-track"></div>
+      <div class="bnr-track" id="bnr-track">
+        <div class="bnr-slide" onclick="location.href='{{ url_for('catalogo_publico', q='principia') }}'">
+          <img src="{{ url_for('static', filename='banners/principia.jpg') }}" alt="Principia">
+        </div>
+        <div class="bnr-slide" onclick="location.href='{{ url_for('catalogo_publico', q='cimegripe') }}'">
+          <img src="{{ url_for('static', filename='banners/cimegripe.jpg') }}" alt="Cimegripe">
+        </div>
+        <div class="bnr-slide" onclick="location.href='{{ url_for('catalogo_publico', q='babysec') }}'">
+          <img src="{{ url_for('static', filename='banners/babysec.jpg') }}" alt="Babysec">
+        </div>
+      </div>
       <button class="bnr-nav-btn bnr-nav-prev" id="bnr-prev" aria-label="Banner anterior"><i class="fa fa-chevron-left"></i></button>
       <button class="bnr-nav-btn bnr-nav-next" id="bnr-next" aria-label="Próximo banner"><i class="fa fa-chevron-right"></i></button>
     </div>
-    <div class="bnr-dots" id="bnr-dots"></div>
+    <div class="bnr-dots" id="bnr-dots">
+      <button class="bnr-dot active" onclick="bnrGoTo(0)"></button>
+      <button class="bnr-dot" onclick="bnrGoTo(1)"></button>
+      <button class="bnr-dot" onclick="bnrGoTo(2)"></button>
+    </div>
   </section>
 
   {# ── Departamentos: strip rápida acima do hero ── #}
   <div class="dept-strip-wrap">
   <nav class="dept-strip" aria-label="Departamentos">
-    <a class="dept-chip dept-chip--med" href="{{ url_for('catalogo_publico', cat='medicamento') }}" style="--dc:#c8102e">
-      <div class="dept-chip-ico"><i class="fa fa-pills"></i></div>
+    <a class="dept-chip dept-chip--med" href="{{ url_for('catalogo_publico', cat='medicamento') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/medicamentos.jpg') }}" alt="Medicamentos">
+      </div>
       <div class="dept-chip-name">Medicamentos</div>
-      <div class="dept-chip-sub">Referência, similar, genérico</div>
     </a>
-    <a class="dept-chip dept-chip--sup" href="{{ url_for('catalogo_publico', cat='suplemento') }}" style="--dc:#2e7d32">
-      <div class="dept-chip-ico"><i class="fa fa-flask"></i></div>
+    <a class="dept-chip dept-chip--sup" href="{{ url_for('catalogo_publico', cat='suplemento') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/suplementos.jpg') }}" alt="Suplementos">
+      </div>
       <div class="dept-chip-name">Suplementos</div>
-      <div class="dept-chip-sub">Vitaminas e performance</div>
     </a>
-    <a class="dept-chip dept-chip--derm" href="{{ url_for('catalogo_publico', cat='dermocosmetico') }}" style="--dc:#ad1457">
-      <div class="dept-chip-ico"><i class="fa fa-face-smile"></i></div>
+    <a class="dept-chip dept-chip--derm" href="{{ url_for('catalogo_publico', cat='dermocosmetico') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/dermocosmeticos.jpg') }}" alt="Dermocosméticos">
+      </div>
       <div class="dept-chip-name">Dermocosméticos</div>
-      <div class="dept-chip-sub">Skin care e pele</div>
     </a>
-    <a class="dept-chip dept-chip--perf" href="{{ url_for('catalogo_publico', cat='perfumaria') }}" style="--dc:#6a1b9a">
-      <div class="dept-chip-ico"><i class="fa fa-soap"></i></div>
-      <div class="dept-chip-name">Perfumaria e Higiene</div>
-      <div class="dept-chip-sub">Beleza, corpo e cabelos</div>
+    <a class="dept-chip dept-chip--perf" href="{{ url_for('catalogo_publico', cat='perfumaria') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/perfumaria.jpg') }}" alt="Perfumaria">
+      </div>
+      <div class="dept-chip-name">Perfumaria</div>
     </a>
-    <a class="dept-chip dept-chip--nut" href="{{ url_for('catalogo_publico', cat='nutricao') }}" style="--dc:#e65100">
-      <div class="dept-chip-ico"><i class="fa fa-apple-whole"></i></div>
+    <a class="dept-chip dept-chip--nut" href="{{ url_for('catalogo_publico', cat='nutricao') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/nutricao.jpg') }}" alt="Nutrição">
+      </div>
       <div class="dept-chip-name">Nutrição</div>
-      <div class="dept-chip-sub">Alimentos e dieta</div>
     </a>
-    <a class="dept-chip dept-chip--var" href="{{ url_for('catalogo_publico', cat='varejo') }}" style="--dc:#1565c0">
-      <div class="dept-chip-ico"><i class="fa fa-stethoscope"></i></div>
+    <a class="dept-chip dept-chip--var" href="{{ url_for('catalogo_publico', cat='varejo') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/varejo.jpg') }}" alt="Varejo e Correlatos">
+      </div>
       <div class="dept-chip-name">Varejo e Correlatos</div>
-      <div class="dept-chip-sub">Curativos e equipamentos</div>
     </a>
   </nav>
   </div>
 
-  <section class="home-hero">
-    <div>
-      <div id="hero-banner-ia"><i class="fa fa-wand-magic-sparkles"></i><span id="hero-banner-ia-txt"></span></div>
-      <h1 style="font-size:2.4rem;line-height:1.06">Compare preços e <span style="color:#ffd700;text-shadow:0 2px 10px rgba(0,0,0,.28)">economize</span><br>em saúde</h1>
-      <p style="font-size:1.02rem;margin-top:10px">Medicamentos, suplementos, dermocosméticos e mais.<br>Compare preços nas farmácias da sua região.</p>
-      <form class="home-search" action="{{ url_for('catalogo_publico') }}" method="get">
-        <div class="home-search-wrap">
-          <input id="home-q" name="q" placeholder="Busque produto, remédio ou o que está sentindo…" autocomplete="off"
-                 oninput="_homeSugDebounce(this.value)"
-                 onkeydown="_homeSugKeyNav(event)"
-                 onblur="_homeSugHide()">
-          <div id="home-suggestions" onmousedown="event.preventDefault()"
-               style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.14);z-index:9999;overflow:hidden;max-height:300px;overflow-y:auto"></div>
-          <div class="home-search-icons">
-            <button type="button" class="home-ico-btn" id="home-voice-btn"
-                    onclick="startVoiceInput('home-q',{button:this,onsubmit:function(){document.querySelector('.home-search').submit();}})"
-                    title="Buscar por voz" aria-label="Buscar por voz">
-              <i class="fa fa-microphone"></i>
-            </button>
-            <button type="button" class="home-ico-btn" id="home-camera-btn"
-                    onclick="abrirFotoBuscaHome()" title="Buscar por foto da embalagem">
-              <i class="fa fa-camera" id="home-foto-icon"></i>
-              <span class="home-foto-spinner" id="home-foto-spinner" style="display:none"></span>
-            </button>
-          </div>
-          <input type="file" id="home-foto-inp" accept="image/*" capture="environment"
-                 style="display:none" onchange="processarFotoBuscaHome(this)">
-        </div>
-        <button type="submit" title="Buscar"><i class="fa fa-magnifying-glass"></i></button>
-      </form>
-      <div class="home-quick">
-        <a href="{{ url_for('receita_medica') }}"><i class="fa fa-file-medical me-1"></i>Buscar por receita</a>
-        <a href="{{ url_for('catalogo_publico', ofertas='1') }}"><i class="fa fa-bolt me-1"></i>Ofertas</a>
-        <a href="{{ url_for('lojas_vitrine') }}"><i class="fa fa-store me-1"></i>Lojas</a>
-      </div>
-    </div>
-    <aside class="home-hero-visual" aria-hidden="true">
-      <div class="hhv-card">
-        <div class="hhv-badge">
-          <span style="width:22px;height:22px;border-radius:50%;overflow:hidden;flex-shrink:0;display:inline-flex;background:#fff8f8">
-            <video autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover">
-              <source src="https://res.cloudinary.com/dizfq460q/video/upload/v1770394811/Cute_3D_cartoon_boy_waving_his_hand_saying_hello__smooth_looping_animation__friendly__white_backgrou_seed3432330758_tvqhjc.mp4" type="video/mp4">
-            </video>
-          </span>
-          Poupinha IA
-        </div>
-        <div class="hhv-main">
-          <div class="hhv-cross"><i class="fa fa-plus"></i></div>
-          <div class="hhv-pill hhv-pill--a"><i class="fa fa-pills"></i></div>
-          <div class="hhv-pill hhv-pill--b"><i class="fa fa-heart-pulse"></i></div>
-          <div class="hhv-pill hhv-pill--c"><i class="fa fa-flask-vial"></i></div>
-        </div>
-        <div class="hhv-stats">
-          <div class="hhv-stat">
-            <div class="hhv-stat-val">R$&nbsp;<span id="hhv-ec-val">45</span></div>
-            <div class="hhv-stat-lbl">média de economia</div>
-          </div>
-          <div class="hhv-stat-div"></div>
-          <div class="hhv-stat">
-            <div class="hhv-stat-val"><span id="hhv-far-val">30</span>+</div>
-            <div class="hhv-stat-lbl">farmácias</div>
-          </div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Strip de clubes — full-width dentro do hero vermelho -->
-    <div id="hero-clubes-wrap" style="display:none;grid-column:1/-1;border-top:1px solid rgba(255,255,255,.2);padding-top:16px;margin-top:4px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:7px;font-weight:900;font-size:.88rem">
-          <i class="fa fa-star" style="font-size:.72rem"></i>Clubes de assinantes disponíveis perto de você
-        </div>
-        <a href="{{ url_for('lojas_vitrine') }}" style="font-size:.76rem;font-weight:800;color:rgba(255,255,255,.8);text-decoration:none">Ver lojas <i class="fa fa-chevron-right" style="font-size:.6rem"></i></a>
-      </div>
-      <div id="hero-clubes-row" style="display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px"></div>
-    </div>
-  </section>
-
-  {# ── Social proof strip ── #}
-  <div class="sp-strip">
-    <div class="sp-item">
-      <div class="sp-ico"><i class="fa fa-box-open"></i></div>
-      <div class="sp-val" id="sp-pedidos">12k+</div>
-      <div class="sp-lbl">pedidos processados</div>
-    </div>
-    <div class="sp-item">
-      <div class="sp-ico"><i class="fa fa-store"></i></div>
-      <div class="sp-val" id="sp-farmacias">32+</div>
-      <div class="sp-lbl">farmácias parceiras</div>
-    </div>
-    <div class="sp-item">
-      <div class="sp-ico"><i class="fa fa-pills"></i></div>
-      <div class="sp-val" id="sp-produtos">8.500+</div>
-      <div class="sp-lbl">produtos no catálogo</div>
-    </div>
-    <div class="sp-item">
-      <div class="sp-ico"><i class="fa fa-star"></i></div>
-      <div class="sp-val">4,9</div>
-      <div class="sp-lbl">avaliação média</div>
-    </div>
-  </div>
 
   {# ── Economia com IA Poupinha ── #}
   <section class="home-section" id="sec-economia-ia" style="display:none">
@@ -1229,19 +1163,32 @@ function _bnrGoTo(i){
   if(dotsEl) dotsEl.querySelectorAll('.bnr-dot').forEach((d,j)=>d.classList.toggle('active',j===_bnrCur));
 }
 function bnrGoTo(i){ clearInterval(_bnrTimer); _bnrGoTo(i); _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500); }
+// Inicializa o carrossel com os slides que já estão no HTML (banners padrão)
+(function _initBnrDefault(){
+  const track   = document.getElementById('bnr-track');
+  const dotsEl  = document.getElementById('bnr-dots');
+  const btnPrev = document.getElementById('bnr-prev');
+  const btnNext = document.getElementById('bnr-next');
+  if(!track) return;
+  _bnrSlides = track.querySelectorAll('.bnr-slide');
+  if(!_bnrSlides.length) return;
+  if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; dotsEl.style.display='none'; }
+  else { btnPrev.style.display=btnNext.style.display=''; dotsEl.style.display=''; }
+  btnPrev.onclick = ()=>bnrGoTo(_bnrCur - 1);
+  btnNext.onclick = ()=>bnrGoTo(_bnrCur + 1);
+  track.addEventListener('touchstart', e=>{ clearInterval(_bnrTimer); _bnrTs=e.touches[0].clientX; },{passive:true});
+  track.addEventListener('touchend',   e=>{ const dx=e.changedTouches[0].clientX-_bnrTs; if(Math.abs(dx)>40){ clearInterval(_bnrTimer); _bnrGoTo(dx<0?_bnrCur+1:_bnrCur-1); _bnrTimer=setInterval(()=>_bnrGoTo(_bnrCur+1),4500); } });
+  _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
+})();
+
 function carregarBanners(lat, lng){
-  clearInterval(_bnrTimer);
+  if(!lat || !lng) return;
   const track   = document.getElementById('bnr-track');
   const dotsEl  = document.getElementById('bnr-dots');
   const sec     = document.getElementById('bnr-section');
   const btnPrev = document.getElementById('bnr-prev');
   const btnNext = document.getElementById('bnr-next');
   if(!sec) return;
-  sec.style.display = 'none';
-  if(track) track.innerHTML = '';
-  if(dotsEl) dotsEl.innerHTML = '';
-  _bnrSlides = []; _bnrCur = 0;
-  if(!lat || !lng) return;
   const gk = _geoK(lat,lng);
   const _bnrKey = `bnr_${gk}`;
   const _bnrCached = _cFresh(_bnrKey, _PQC.bnr);
@@ -1252,21 +1199,19 @@ function carregarBanners(lat, lng){
   _bnrPromise
     .then(d=>{
       const banners = d.banners || [];
-      if(!banners.length) return;
-      sec.style.display = '';
+      if(!banners.length) return; // mantém banners padrão
+      clearInterval(_bnrTimer);
       track.innerHTML = banners.map(b=>`
         <div class="bnr-slide"${b.link_url ? ` onclick="window.open('${hEsc(b.link_url)}','_blank')"` : ''}>
           <img src="${hEsc(b.imagem_url)}" alt="${hEsc(b.titulo||'Banner')}" loading="lazy">
           ${b.razao ? `<div class="bnr-store-tag"><i class="fa fa-store" style="font-size:.6rem;margin-right:4px"></i>${hEsc(b.razao)}</div>` : ''}
         </div>`).join('');
       _bnrSlides = track.querySelectorAll('.bnr-slide');
+      _bnrCur = 0;
+      track.style.transform = 'translateX(0)';
       dotsEl.innerHTML = banners.map((_,i)=>`<button class="bnr-dot${i===0?' active':''}" onclick="bnrGoTo(${i})"></button>`).join('');
       if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; dotsEl.style.display='none'; }
       else { btnPrev.style.display=btnNext.style.display=''; dotsEl.style.display=''; }
-      btnPrev.onclick = ()=>bnrGoTo(_bnrCur - 1);
-      btnNext.onclick = ()=>bnrGoTo(_bnrCur + 1);
-      track.addEventListener('touchstart', e=>{ clearInterval(_bnrTimer); _bnrTs=e.touches[0].clientX; },{passive:true});
-      track.addEventListener('touchend',   e=>{ const dx=e.changedTouches[0].clientX-_bnrTs; if(Math.abs(dx)>40){ clearInterval(_bnrTimer); _bnrGoTo(dx<0?_bnrCur+1:_bnrCur-1); _bnrTimer=setInterval(()=>_bnrGoTo(_bnrCur+1),4500); } });
       _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
     }).catch(()=>{});
 }
@@ -1527,7 +1472,7 @@ function processarFotoBuscaHome(inp) {
       const id = data.identificado || {};
       const termo = [id.nome, id.dosagem].filter(Boolean).join(' ');
       document.getElementById('home-q').value = termo;
-      document.querySelector('.home-search').submit();
+      document.querySelector('.pq-topbar-search').submit();
     })
     .catch(() => {
       _done();
@@ -1799,7 +1744,7 @@ function _homeSugSelect(val) {
   const inp = document.getElementById('home-q');
   if (inp) inp.value = val;
   _homeSugHide(true);
-  document.querySelector('.home-search').submit();
+  document.querySelector('.pq-topbar-search').submit();
 }
 
 function _homeSugHide(immediate) {

@@ -30,7 +30,7 @@
 /* guia de dimensões */
 .bnr-dim-guide { border:1px solid var(--pk-line); border-radius:12px; padding:16px 20px; background:#0d1016; margin-bottom:24px; }
 .bnr-dim-title { font-size:.82rem; font-weight:800; color:var(--pk-yellow); margin-bottom:12px; display:flex; align-items:center; gap:7px; }
-.bnr-dim-preview { position:relative; width:100%; max-width:480px; aspect-ratio:3/1; background:linear-gradient(135deg,#1a1f2e,#111520); border:2px dashed var(--pk-line); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; margin-bottom:10px; }
+.bnr-dim-preview { position:relative; width:100%; max-width:480px; aspect-ratio:1815/445; background:linear-gradient(135deg,#1a1f2e,#111520); border:2px dashed var(--pk-line); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; margin-bottom:10px; }
 .bnr-dim-label { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; }
 .bnr-dim-label strong { display:block; font-size:1.1rem; font-weight:900; color:var(--pk-yellow); }
 .bnr-dim-label span  { display:block; font-size:.72rem; color:var(--pk-muted); margin-top:3px; }
@@ -56,22 +56,22 @@
   <div class="bnr-dim-title"><i class="fa fa-ruler-combined"></i>Especificação do banner</div>
   <div class="bnr-dim-preview">
     <div class="bnr-dim-label">
-      <strong>1200 × 400 px</strong>
-      <span>proporção 3:1 — ideal para banners de loja</span>
+      <strong>1815 × 445 px</strong>
+      <span>proporção ~4:1 — ideal para banners de loja</span>
     </div>
     <div class="bnr-dim-arrow-h"></div>
     <div class="bnr-dim-arrow-v"></div>
   </div>
   <div class="bnr-dim-specs">
-    <div class="bnr-dim-spec"><strong>Largura:</strong> 1200 px (mínimo 900 px)</div>
-    <div class="bnr-dim-spec"><strong>Altura:</strong> 400 px (mínimo 300 px)</div>
-    <div class="bnr-dim-spec"><strong>Proporção:</strong> 3:1 (3 de largo por 1 de alto)</div>
+    <div class="bnr-dim-spec"><strong>Largura:</strong> 1815 px (mínimo 1200 px)</div>
+    <div class="bnr-dim-spec"><strong>Altura:</strong> 445 px (mínimo 300 px)</div>
+    <div class="bnr-dim-spec"><strong>Proporção:</strong> ~4:1 (1815×445)</div>
     <div class="bnr-dim-spec"><strong>Formato:</strong> JPG, PNG ou WEBP</div>
     <div class="bnr-dim-spec"><strong>Tamanho máx.:</strong> 4 MB</div>
   </div>
   <div style="margin-top:10px;font-size:.74rem;color:var(--pk-muted)">
     <i class="fa fa-lightbulb me-1" style="color:var(--pk-yellow)"></i>
-    Dica: use ferramentas gratuitas como <strong>Canva</strong> (modelo "Banner de Email 1200×400") para criar banners no tamanho certo.
+    Dica: use ferramentas gratuitas como <strong>Canva</strong> (crie um design personalizado em 1815×445 px) para criar banners no tamanho certo.
   </div>
 </div>
 
@@ -89,7 +89,7 @@
       <i class="fa fa-cloud-upload-alt"></i>
       <span style="font-weight:700;color:var(--pk-txt)">Clique para enviar um banner</span>
       <span class="bnr-limit">JPG, PNG ou WEBP · Máx 4 MB · até 5 banners por loja</span>
-      <span class="bnr-limit" style="color:var(--pk-yellow);font-size:.68rem"><i class="fa fa-ruler-combined me-1"></i>Dimensão recomendada: <strong>1200 × 400 px</strong> (proporção 3:1)</span>
+      <span class="bnr-limit" style="color:var(--pk-yellow);font-size:.68rem"><i class="fa fa-ruler-combined me-1"></i>Dimensão recomendada: <strong>1815 × 445 px</strong> (proporção ~4:1)</span>
     </label>
     <input type="file" id="bnr-file-input" name="imagem" accept="image/jpeg,image/png,image/webp" onchange="previewBanner(this)">
     <img id="bnr-preview-img" class="bnr-preview" alt="preview">
