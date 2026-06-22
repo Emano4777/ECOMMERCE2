@@ -306,65 +306,69 @@
 }
 
 /* ── Home Personalizada ──────────────────────────────────── */
-@keyframes lembreteIn { from { opacity:0; transform:translateX(-16px); } to { opacity:1; transform:translateX(0); } }
+@keyframes lembreteIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 @keyframes icoPulse { 0%,100% { box-shadow:0 4px 14px rgba(200,16,46,.32); } 50% { box-shadow:0 4px 22px rgba(200,16,46,.58); } }
 @keyframes icoPulseBlue { 0%,100% { box-shadow:0 4px 14px rgba(29,78,216,.32); } 50% { box-shadow:0 4px 22px rgba(29,78,216,.55); } }
 @keyframes icoPulseGreen { 0%,100% { box-shadow:0 4px 14px rgba(22,163,74,.32); } 50% { box-shadow:0 4px 22px rgba(22,163,74,.5); } }
 
-.lembrete-card {
-  background:#fff;
-  border-radius:18px;
-  border:1.5px solid #ffe4e8;
-  box-shadow:0 3px 18px rgba(200,16,46,.08);
-  padding:14px 16px;
-  display:flex;
+/* Tabela de reposição */
+.lembrete-table-wrap { background:#fff; border-radius:16px; border:1.5px solid #ffe4e8; overflow:hidden; box-shadow:0 2px 16px rgba(200,16,46,.06); }
+.lembrete-thead {
+  display:grid;
+  grid-template-columns:52px 1fr 110px 86px 70px 140px;
+  gap:0 8px;
+  padding:9px 16px;
+  background:#fff8f9;
+  border-bottom:1.5px solid #ffe4e8;
+  font-size:.64rem; font-weight:800; color:#94a3b8;
+  text-transform:uppercase; letter-spacing:.06em;
   align-items:center;
-  gap:14px;
-  position:relative;
-  overflow:hidden;
+}
+.lembrete-row {
+  display:grid;
+  grid-template-columns:52px 1fr 110px 86px 70px 140px;
+  gap:0 8px;
+  align-items:center;
+  padding:12px 16px;
+  border-bottom:1px solid #fff0f2;
+  transition:background .15s;
   opacity:0;
-  transition:transform .2s,box-shadow .2s,border-color .2s;
-  animation:lembreteIn .36s ease forwards;
+  animation:lembreteIn .32s ease forwards;
 }
-.lembrete-card:nth-child(1){animation-delay:.0s}
-.lembrete-card:nth-child(2){animation-delay:.09s}
-.lembrete-card:nth-child(3){animation-delay:.18s}
-.lembrete-card:nth-child(4){animation-delay:.27s}
-.lembrete-card + .lembrete-card { margin-top:10px; }
-.lembrete-card::before {
-  content:''; position:absolute; left:0; top:0; bottom:0; width:5px;
-  background:linear-gradient(180deg,#d6112e 0%,#ffc300 100%);
-  border-radius:18px 0 0 18px;
-}
-.lembrete-card:hover { transform:translateY(-2px); box-shadow:0 8px 28px rgba(200,16,46,.14); border-color:#ffc0c8; }
+.lembrete-row:last-child { border-bottom:0; }
+.lembrete-row:hover { background:#fff8f9; }
+.lembrete-row:nth-child(1){animation-delay:.0s}
+.lembrete-row:nth-child(2){animation-delay:.08s}
+.lembrete-row:nth-child(3){animation-delay:.16s}
+.lembrete-row:nth-child(4){animation-delay:.24s}
 
 .lembrete-ico {
-  width:52px; height:52px; flex-shrink:0;
-  border-radius:16px;
+  width:40px; height:40px; flex-shrink:0;
+  border-radius:12px;
   background:linear-gradient(135deg,#c8102e,#e86420);
   display:flex; align-items:center; justify-content:center;
-  font-size:1.35rem; color:#fff;
-  box-shadow:0 4px 14px rgba(200,16,46,.32);
+  font-size:1.1rem; color:#fff;
+  box-shadow:0 3px 10px rgba(200,16,46,.28);
   animation:icoPulse 2.6s ease-in-out infinite;
 }
-.lembrete-ico--blue  { background:linear-gradient(135deg,#1d4ed8,#4f80f7); box-shadow:0 4px 14px rgba(29,78,216,.32); animation:icoPulseBlue 2.6s ease-in-out infinite; }
-.lembrete-ico--green { background:linear-gradient(135deg,#16a34a,#22c55e); box-shadow:0 4px 14px rgba(22,163,74,.32); animation:icoPulseGreen 2.6s ease-in-out infinite; }
-.lembrete-ico--rose  { background:linear-gradient(135deg,#be185d,#ec4899); box-shadow:0 4px 14px rgba(190,24,93,.32); animation:icoPulse 2.6s ease-in-out infinite; }
+.lembrete-ico--blue  { background:linear-gradient(135deg,#1d4ed8,#4f80f7); box-shadow:0 3px 10px rgba(29,78,216,.28); animation:icoPulseBlue 2.6s ease-in-out infinite; }
+.lembrete-ico--green { background:linear-gradient(135deg,#16a34a,#22c55e); box-shadow:0 3px 10px rgba(22,163,74,.28); animation:icoPulseGreen 2.6s ease-in-out infinite; }
+.lembrete-ico--rose  { background:linear-gradient(135deg,#be185d,#ec4899); box-shadow:0 3px 10px rgba(190,24,93,.28); animation:icoPulse 2.6s ease-in-out infinite; }
 .lembrete-ico--red   { background:linear-gradient(135deg,#b91c1c,#ef4444); }
 
-.lembrete-body { flex:1; min-width:0; }
-.lembrete-tags { display:flex; gap:5px; margin-bottom:5px; flex-wrap:wrap; }
-.lembrete-tag { display:inline-flex; align-items:center; gap:3px; font-size:.62rem; font-weight:800; padding:2px 7px; border-radius:20px; text-transform:uppercase; letter-spacing:.02em; }
+.lembrete-tag { display:inline-flex; align-items:center; gap:3px; font-size:.62rem; font-weight:800; padding:2px 7px; border-radius:20px; text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; }
 .lembrete-tag--tipo    { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
 .lembrete-tag--urgente { background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; }
-.lembrete-nome { font-weight:900; font-size:.93rem; line-height:1.25; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.lembrete-msg-short { font-size:.74rem; color:#64748b; margin-top:2px; line-height:1.35; }
+.lembrete-tag--normal  { background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0; }
+.lembrete-nome { font-weight:800; font-size:.9rem; line-height:1.3; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lembrete-sub-sm { display:none; font-size:.7rem; color:#64748b; margin-top:2px; }
+.lembrete-dias-val { font-size:.88rem; font-weight:700; color:#475569; }
+.lembrete-cta-cell { display:flex; justify-content:flex-end; }
 
-.lembrete-cta { flex-shrink:0; }
 .lembrete-btn-repor {
   display:inline-flex; align-items:center; gap:5px;
-  padding:9px 15px; border-radius:12px;
-  font-size:.78rem; font-weight:900; text-decoration:none; cursor:pointer; border:0;
+  padding:8px 14px; border-radius:10px;
+  font-size:.76rem; font-weight:900; text-decoration:none; cursor:pointer; border:0;
   background:linear-gradient(135deg,#d6112e,#e86420);
   color:#fff; white-space:nowrap;
   box-shadow:0 3px 10px rgba(200,16,46,.28);
@@ -372,10 +376,21 @@
 }
 .lembrete-btn-repor:hover { opacity:.88; transform:scale(.97); color:#fff; }
 
+@media(max-width:700px) {
+  .lembrete-thead { grid-template-columns:40px 1fr auto; }
+  .lembrete-thead .lh-cat, .lembrete-thead .lh-status, .lembrete-thead .lh-dias { display:none; }
+  .lembrete-row { grid-template-columns:40px 1fr auto; }
+  .lembrete-cat-col, .lembrete-status-col, .lembrete-dias-col { display:none; }
+  .lembrete-sub-sm { display:block; }
+  .lembrete-nome { white-space:normal; }
+}
+@media(max-width:450px) {
+  .lembrete-btn-repor { font-size:.7rem; padding:7px 10px; }
+}
+
 .insights-row { display:flex; gap:12px; overflow-x:auto; scrollbar-width:none; padding-bottom:4px; }
 .insights-row::-webkit-scrollbar { display:none; }
 .cross-sell-tag { position:absolute; top:8px; left:8px; background:#7c3aed; color:#fff; font-size:.6rem; font-weight:900; padding:2px 7px; border-radius:6px; display:flex; align-items:center; gap:3px; }
-@media(max-width:560px){ .lembrete-card { padding:11px 12px; gap:10px; } .lembrete-ico { width:42px; height:42px; font-size:1.1rem; border-radius:12px; } .lembrete-btn-repor { padding:8px 12px; font-size:.72rem; } }
 /* ── Carrossel das home-rows ─────────────────────────────── */
 .home-row-wrap { position:relative; }
 .home-row-cnav { position:absolute; top:50%; transform:translateY(-50%); z-index:4; width:34px; height:34px; border-radius:50%; background:#fff; border:1.5px solid #e2e8f0; box-shadow:0 2px 10px rgba(0,0,0,.12); cursor:pointer; display:flex; align-items:center; justify-content:center; color:#555; font-size:.8rem; transition:.15s; }
@@ -462,11 +477,12 @@
   align-items:stretch !important;
   background:#fff !important;
   border:none !important;
-  overflow:visible !important;
+  overflow:hidden !important;
   transition:box-shadow .25s, transform .25s !important;
   will-change:transform;
 }
 .dept-chip > * { border-radius:inherit; overflow:hidden; }
+.dept-strip { padding-bottom:20px !important; overflow-y:visible !important; }
 .dept-chip-img-wrap {
   width:100%;
   aspect-ratio:4/3;
@@ -751,8 +767,26 @@
   </section>
 
 
-  {# ── Lembretes (oculto) ── #}
-  <section style="display:none" id="sec-lembretes"><div id="home-lembretes"></div></section>
+  {# ── Reposição sugerida ── #}
+  <section class="home-section" id="sec-lembretes" style="display:none">
+    <div class="home-section-head">
+      <div>
+        <h2 class="home-title"><i class="fa fa-bell-concierge" style="color:var(--pq-red);font-size:1.1rem;margin-right:6px;vertical-align:middle"></i>Reposição sugerida</h2>
+        <div class="home-sub">Medicamentos que podem estar acabando com base no seu histórico.</div>
+      </div>
+    </div>
+    <div class="lembrete-table-wrap">
+      <div class="lembrete-thead">
+        <span></span>
+        <span>Medicamento</span>
+        <span class="lh-cat">Categoria</span>
+        <span class="lh-status">Status</span>
+        <span class="lh-dias">Há (dias)</span>
+        <span></span>
+      </div>
+      <div id="home-lembretes"></div>
+    </div>
+  </section>
 
   {# ── Bom pra você ── #}
   <section class="home-section" id="sec-para-voce" style="display:none">
@@ -875,7 +909,7 @@ function renderHomeProdutos(produtos){
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
   if (validos.length) {
-    achadosEl.innerHTML = validos.slice(0,10).map(p => prodCard(p, '')).join('');
+    achadosEl.innerHTML = validos.slice().sort((a,b)=>parseFloat(a.preco)-parseFloat(b.preco)).slice(0,10).map(p => prodCard(p, '')).join('');
     if (secAchados) secAchados.style.display = '';
     setTimeout(() => _homeCarousel('home-achados'), 50);
     // Atualiza contador de farmácias no hero visual (pelo número de lojas com produtos)
@@ -890,34 +924,6 @@ function renderHomeProdutos(produtos){
   } else {
     carregarProdutosGerais();
   }
-  const ofertas = validos
-    .slice()
-    .sort((a,b)=>(parseFloat(a.preco)||0)-(parseFloat(b.preco)||0))
-    .slice(0,12);
-  document.getElementById('home-ofertas').innerHTML = ofertas.map(p => prodCard(p, `<i class="fa fa-bolt"></i>Oferta`)).join('') || '<div class="home-empty">Nenhuma oferta encontrada agora.</div>';
-  setTimeout(() => _homeCarousel('home-ofertas'), 50);
-  renderComparador(produtos);
-}
-function renderComparador(produtos){
-  const porEan = {};
-  produtos.forEach(p => {
-    const ean = String(p.ean || '').replace(/\D/g,'').replace(/^0+/,'');
-    if (!ean || ean.length < 4) return;
-    porEan[ean] = porEan[ean] || [];
-    porEan[ean].push(p);
-  });
-  const comps = Object.values(porEan).filter(a => a.length > 1).map(arr => {
-    arr.sort((a,b)=>(parseFloat(a.preco)||999999)-(parseFloat(b.preco)||999999));
-    const best = arr[0], worst = arr[arr.length-1];
-    return {best, economia: (parseFloat(worst.preco)||0) - (parseFloat(best.preco)||0), opcoes: arr.length};
-  }).filter(x => x.economia > 0).sort((a,b)=>b.economia-a.economia).slice(0,3);
-  document.getElementById('home-comparador').innerHTML = comps.map(c => `
-    <a class="compare-card" href="/produto/${encodeURIComponent(c.best.ean||'')}?cnpj=${encodeURIComponent(c.best.cnpjloja||'')}&nome=${encodeURIComponent(c.best.nome||'')}" style="text-decoration:none;color:inherit">
-      <strong>${hEsc(c.best.nome)}</strong>
-      <span>${c.opcoes} farmácias próximas com esse item</span>
-      <div class="compare-price">${hBrl(c.best.preco)}</div>
-      <span>Economia de até ${hBrl(c.economia)} na comparação.</span>
-    </a>`).join('') || '<div class="home-empty">Ainda não há itens repetidos suficientes para comparar nesta região.</div>';
 }
 function carregarHome(lat,lng){
   const gk = _geoK(lat,lng);
@@ -991,9 +997,11 @@ function renderClubes(produtos, lojasProximas){
 
 }
 function renderCupons(produtos){
+  const el = document.getElementById('home-cupons');
+  if (!el) return;
   const lojaNome = Object.fromEntries(produtos.map(p => [p.cnpjloja, p.razao]));
   const lista = Object.entries(cuponsHome).flatMap(([cnpj, cs]) => cs.map(c => ({...c, cnpjloja:cnpj, razao:lojaNome[cnpj]}))).slice(0,6);
-  document.getElementById('home-cupons').innerHTML = lista.map(c => `
+  el.innerHTML = lista.map(c => `
     <div class="coupon-card">
       <div class="coupon-code">${hEsc(c.codigo)}</div>
       <div class="coupon-desc">${c.desconto_tipo === 'pct' ? parseInt(c.desconto_valor) + '% de desconto' : hBrl(c.desconto_valor) + ' de desconto'}</div>
@@ -1045,6 +1053,7 @@ function carregarMaisComprados(){
     .then(d=>{
       const produtos = d.produtos || [];
       const el = document.getElementById('home-mais-comprados');
+      if(!el) return;
       if(!produtos.length){ el.innerHTML='<div class="home-empty">Ainda sem dados de compras nesta região.</div>'; return; }
       el.innerHTML = produtos.map(p=>{
         const url=`/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
@@ -1163,18 +1172,21 @@ function renderLembrete(l) {
   const cfg = _LEMBRETE_ICOS[l.tipo] || {ico:'fa-bell',cls:''};
   const urlProd = l.ean ? `/produto/${encodeURIComponent(l.ean)}?cnpj=${encodeURIComponent(l.cnpjloja||'')}` : '#';
   const tipoLabel = _LEMBRETE_TIPO_LABEL[l.tipo] || l.tipo;
-  const urgente = (l.dias || 0) >= 25;
-  return `<div class="lembrete-card">
-    <div class="lembrete-ico ${cfg.cls}"><i class="fa ${cfg.ico}"></i></div>
-    <div class="lembrete-body">
-      <div class="lembrete-tags">
-        <span class="lembrete-tag lembrete-tag--tipo"><i class="fa ${cfg.ico}" style="font-size:.5rem;margin-right:2px"></i>${hEsc(tipoLabel)}</span>
-        ${urgente ? '<span class="lembrete-tag lembrete-tag--urgente"><i class="fa fa-triangle-exclamation" style="font-size:.5rem;margin-right:2px"></i>Urgente</span>' : ''}
-      </div>
+  const dias = l.dias || 0;
+  const urgente = dias >= 25;
+  const statusTag = urgente
+    ? '<span class="lembrete-tag lembrete-tag--urgente"><i class="fa fa-triangle-exclamation" style="font-size:.5rem;margin-right:2px"></i>Urgente</span>'
+    : '<span class="lembrete-tag lembrete-tag--normal">Normal</span>';
+  return `<div class="lembrete-row">
+    <div><div class="lembrete-ico ${cfg.cls}"><i class="fa ${cfg.ico}"></i></div></div>
+    <div class="lembrete-nome-col">
       <div class="lembrete-nome">${hEsc(l.nome || l.titulo)}</div>
-      <div class="lembrete-msg-short">${hEsc(l.mensagem)}</div>
+      <div class="lembrete-sub-sm"><span class="lembrete-tag lembrete-tag--tipo">${hEsc(tipoLabel)}</span>${urgente ? ' <span class="lembrete-tag lembrete-tag--urgente">Urgente</span>' : ''}${dias > 0 ? ` · <span style="color:#64748b">${dias}d atrás</span>` : ''}</div>
     </div>
-    ${l.ean ? `<div class="lembrete-cta"><a class="lembrete-btn-repor" href="${urlProd}"><i class="fa fa-cart-shopping"></i>Repor agora</a></div>` : ''}
+    <div class="lembrete-cat-col"><span class="lembrete-tag lembrete-tag--tipo"><i class="fa ${cfg.ico}" style="font-size:.5rem;margin-right:2px"></i>${hEsc(tipoLabel)}</span></div>
+    <div class="lembrete-status-col">${statusTag}</div>
+    <div class="lembrete-dias-col"><span class="lembrete-dias-val">${dias > 0 ? dias : '—'}</span></div>
+    <div class="lembrete-cta-cell">${l.ean ? `<a class="lembrete-btn-repor" href="${urlProd}"><i class="fa fa-cart-shopping"></i>Repor agora</a>` : ''}</div>
   </div>`;
 }
 
@@ -1243,22 +1255,20 @@ function carregarInsights() {
       // Trending lojas físicas (só com imagem)
       const trending = (d.trending_lojas || []).filter(p => p.nome && p.imagem);
       const trendingEl = document.getElementById('home-trending-lojas');
-      if (trending.length) {
-        trendingEl.innerHTML = trending.map(p => `<a class="home-prod" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}">
-          ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
-          <div class="home-prod-name">${hEsc(p.nome)}</div>
-          <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia')}</div>
-          ${parseFloat(p.preco) > 0 ? `<div class="home-prod-price">${hBrl(p.preco)}</div>` : ''}
-          <div class="home-prod-badge"><i class="fa fa-fire"></i>Mais vendido</div>
-        </a>`).join('');
-        setTimeout(() => _homeCarousel('home-trending-lojas'), 50);
-      } else {
-        trendingEl.innerHTML = '<div class="home-empty">Carregando produtos das lojas físicas...</div>';
+      if (trendingEl) {
+        trendingEl.innerHTML = trending.length
+          ? trending.map(p => `<a class="home-prod" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}">
+              ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
+              <div class="home-prod-name">${hEsc(p.nome)}</div>
+              <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia')}</div>
+              ${parseFloat(p.preco) > 0 ? `<div class="home-prod-price">${hBrl(p.preco)}</div>` : ''}
+              <div class="home-prod-badge"><i class="fa fa-fire"></i>Mais vendido</div>
+            </a>`).join('')
+          : '<div class="home-empty">Carregando produtos das lojas físicas...</div>';
+        if (trending.length) setTimeout(() => _homeCarousel('home-trending-lojas'), 50);
       }
     })
-    .catch(() => {
-      document.getElementById('home-trending-lojas').innerHTML = '<div class="home-empty">Não foi possível carregar os produtos populares agora.</div>';
-    });
+    .catch(() => {});
 }
 carregarInsights();
 

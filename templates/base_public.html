@@ -68,7 +68,7 @@
       letter-spacing: -.3px;
     }
     .pq-brand-logo {
-      height: 46px;
+      height: 54px;
       width: auto;
       margin-right: 0;
       border-radius: 6px;
@@ -474,18 +474,13 @@
       .pq-loc-label { display: none; }
     }
 
-    /* laptop ≤ 1440px: hamburger substitui nav links */
-    @media(max-width:1440px) {
+    /* tablet/mobile ≤ 1024px: hamburger + search na segunda linha */
+    @media(max-width:1024px) {
       .pq-hamburger { display: flex; }
       .pq-desktop-only { display: none !important; }
-      .pq-topbar-right { gap: 4px; }
-    }
-
-    /* tablet ≤ 1024px: search vai para segunda linha */
-    @media(max-width:1024px) {
       .pq-topbar-inner { flex-wrap: wrap; padding: 6px 14px; gap: 0 8px; }
-      .pq-topbar-left { flex: 1 1 auto; min-width: 0; }
-      .pq-topbar-right { flex: 0 0 auto; }
+      .pq-topbar-left { flex: 1 1 auto; min-width: 0; gap: 12px; }
+      .pq-topbar-right { flex: 0 0 auto; gap: 4px; }
       .pq-topbar-search {
         flex: 0 0 100%;
         order: 10;
@@ -884,7 +879,7 @@
       <span>Busca rápida<br>com receita</span>
     </a>
     <a class="pq-nav-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}">
-      <img src="{{ url_for('static', filename='icons/vitnatu.png') }}" alt="Vit Natu" style="width:64px;height:32px;object-fit:contain;display:block;filter:brightness(0) invert(1);">
+      <img src="{{ url_for('static', filename='icons/vitnatu.png') }}" alt="Vit Natu" style="width:80px;height:40px;object-fit:contain;display:block;filter:brightness(0) invert(1);">
     </a>
     <a class="pq-nav-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
       <img src="{{ url_for('static', filename='icons/store.png') }}" alt="" class="pq-custom-ico">
