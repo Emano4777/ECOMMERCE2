@@ -150,9 +150,9 @@
 .home-prod { flex:0 0 190px; background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:10px; text-decoration:none; color:inherit; position:relative; }
 .home-prod:hover { color:inherit; }
 .home-prod-img { width:100%; aspect-ratio:1; border-radius:10px; background:#f7f7f7; object-fit:contain; padding:8px; }
-.home-prod-name { font-size:.78rem; font-weight:900; line-height:1.28; margin-top:8px; min-height:2.5em; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.home-prod-meta { color:var(--pq-muted); font-size:.68rem; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:4px; }
-.home-prod-price { color:var(--pq-red); font-size:1.03rem; font-weight:900; margin-top:5px; }
+.home-prod-name { font-size:.78rem; font-weight:600; line-height:1.28; margin-top:8px; min-height:2.5em; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.home-prod-meta { color:var(--pq-muted); font-size:.68rem; font-weight:400; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:4px; }
+.home-prod-price { color:#c8102e; font-size:1.03rem; font-weight:600; margin-top:5px; }
 .home-prod-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; background:#fff0f2; color:var(--pq-red); padding:3px 8px; font-size:.66rem; font-weight:900; margin-top:6px; }
 .coupon-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .coupon-card { background:#fff; border:1px dashed #f1b6c0; border-radius:14px; padding:16px; box-shadow:var(--pq-shadow); }
@@ -450,6 +450,7 @@
   flex-wrap:unset !important;
   padding-bottom:0 !important;
 }
+@keyframes chip-pulse { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-5px) scale(1.01)} }
 .dept-chip {
   flex:unset !important;
   min-width:0 !important;
@@ -461,18 +462,23 @@
   align-items:stretch !important;
   background:#fff !important;
   border:none !important;
-  overflow:hidden;
+  overflow:visible !important;
+  transition:box-shadow .25s, transform .25s !important;
+  will-change:transform;
 }
+.dept-chip > * { border-radius:inherit; overflow:hidden; }
 .dept-chip-img-wrap {
   width:100%;
-  aspect-ratio:1;
+  aspect-ratio:4/3;
   overflow:hidden;
   flex-shrink:0;
+  border-radius:20px 20px 0 0;
 }
 .dept-chip-img-wrap img {
-  width:100%; height:100%; object-fit:cover; display:block;
-  transition:transform .3s ease;
+  width:100%; height:100%; object-fit:cover; object-position:center center; display:block;
+  transition:transform .45s ease;
 }
+.dept-chip:hover { animation:chip-pulse 1s ease-in-out infinite; box-shadow:0 12px 36px rgba(200,16,46,.28) !important; }
 .dept-chip:hover .dept-chip-img-wrap img { transform:scale(1.07); }
 .dept-chip-ico { display:none !important; }
 .dept-chip-sub { display:none !important; }
@@ -584,7 +590,7 @@
 .heia-msg { font-size:.92rem; font-weight:700; color:#e2e8f0; line-height:1.5; }
 .heia-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 .heia-prod {
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+  background:#fff; border:1px solid var(--pq-border);
   border-radius:14px; padding:12px; text-decoration:none; color:inherit;
   transition:background .15s,transform .18s;
 }
@@ -594,9 +600,9 @@
   border-radius:10px; background:rgba(255,255,255,.07); padding:8px;
   margin-bottom:8px;
 }
-.heia-prod-name { font-size:.74rem; font-weight:800; color:#e2e8f0; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.4em; }
-.heia-prod-store { font-size:.64rem; color:rgba(255,255,255,.42); font-weight:700; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.heia-prod-preco { font-size:.98rem; font-weight:900; color:var(--pq-yellow); margin-top:6px; }
+.heia-prod-name { font-size:.78rem; font-weight:600; color:#1a1a1a; line-height:1.28; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.5em; margin-top:8px; }
+.heia-prod-store { font-size:.68rem; color:var(--pq-muted); font-weight:400; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.heia-prod-preco { font-size:1.03rem; font-weight:600; color:#c8102e; margin-top:5px; }
 .heia-prod-eco { font-size:.64rem; color:#86efac; font-weight:800; margin-top:2px; display:flex; align-items:center; gap:3px; }
 @media(max-width:560px){ .heia-grid { grid-template-columns:repeat(2,1fr); } }
 
@@ -630,21 +636,14 @@
 {% block content %}
 <div class="home-wrap">
 
-  {# ── Faixa de destaques ── #}
-  <div class="promo-ticker">
-    <div class="promo-ticker-label"><i class="fa fa-bolt"></i>&nbsp;Destaque</div>
-    <div class="promo-ticker-overflow">
-      <div class="promo-ticker-track">
-        <span>Compare preços nas farmácias mais próximas de você</span>
-        <span>Medicamentos com os melhores preços da região</span>
-        <span>Suplementos, vitaminas e dermocosméticos</span>
-        <span>Busque por nome, sintoma ou foto da embalagem</span>
-        <span>Genéricos e similares com excelente custo-benefício</span>
-        <span>Compare preços nas farmácias mais próximas de você</span>
-        <span>Medicamentos com os melhores preços da região</span>
-        <span>Suplementos, vitaminas e dermocosméticos</span>
-        <span>Busque por nome, sintoma ou foto da embalagem</span>
-        <span>Genéricos e similares com excelente custo-benefício</span>
+
+  {# ── Aviso sem farmácia próxima ── #}
+  <div id="sec-sem-farmacia" style="display:none;margin-bottom:12px">
+    <div class="sfp-banner">
+      <div class="sfp-ico"><i class="fa fa-map-pin"></i></div>
+      <div class="sfp-body">
+        <div class="sfp-titulo">Ainda não chegamos na sua cidade!</div>
+        <div class="sfp-msg">Estamos expandindo e em breve estaremos por aí. Enquanto isso, confira nossos produtos e prepare sua lista.</div>
       </div>
     </div>
   </div>
@@ -735,12 +734,12 @@
     </div>
   </section>
 
-  {# ── Melhores achados ── #}
+  {# ── Top Ofertas ── #}
   <section class="home-section" id="sec-achados" style="display:none">
     <div class="home-section-head">
       <div>
-        <h2 class="home-title"><i class="fa fa-ranking-star" style="color:var(--pq-red)"></i>Melhores achados <span class="badge-live"><span class="badge-live-dot"></span>ao vivo</span></h2>
-        <div class="home-sub">Produtos próximos de você com ótimo preço</div>
+        <h2 class="home-title"><img src="{{ url_for('static', filename='icons/ico-topo.jpg') }}" style="width:28px;height:28px;object-fit:contain;border-radius:4px;">Top Ofertas</h2>
+        <div class="home-sub">Promoções em lojas próximas a você.</div>
       </div>
       <a class="home-link" href="{{ url_for('catalogo_publico') }}">Ver catálogo</a>
     </div>
@@ -751,141 +750,31 @@
     </div>
   </section>
 
-  <section class="need-section">
-    <div class="home-section-head">
-      <div>
-        <h2 class="home-title"><i class="fa fa-layer-group" style="color:var(--pq-red)"></i>Comprar por necessidade</h2>
-        <div class="home-sub">Selecione pelo que está sentindo ou precisando.</div>
-      </div>
-      <a class="home-link" href="{{ url_for('catalogo_publico') }}">Ver catálogo</a>
-    </div>
-    <div class="need-grid">
-      <a class="need-card need-card--red" href="{{ url_for('catalogo_publico', q='febre') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-temperature-high"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Febre e dor</div><div class="need-copy">Antitérmicos, analgésicos e apoio para mal-estar.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--orange" href="{{ url_for('catalogo_publico', q='gripe') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-head-side-cough"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Gripe e resfriado</div><div class="need-copy">Antigripais, soro nasal, vitamina C e garganta.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--navy" href="{{ url_for('catalogo_publico', q='tosse') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-lungs"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Tosse e catarro</div><div class="need-copy">Xaropes, expectorantes e cuidados respiratórios.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--teal" href="{{ url_for('catalogo_publico', q='alergia') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-head-side-virus"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Alergia e rinite</div><div class="need-copy">Antialérgicos, coriza, espirros e nariz entupido.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--amber" href="{{ url_for('catalogo_publico', q='azia') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-droplet"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Azia e digestão</div><div class="need-copy">Antiácidos, refluxo, enjoo e desconforto gástrico.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--purple" href="{{ url_for('catalogo_publico', q='colica') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-arrows-rotate"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Cólicas e gases</div><div class="need-copy">Alívio abdominal, antiespasmódicos e simeticona.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--rose" href="{{ url_for('catalogo_publico', q='assadura') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-baby"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Bebê e assaduras</div><div class="need-copy">Pomadas, higiene e cuidado com pele sensível.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-      <a class="need-card need-card--green" href="{{ url_for('catalogo_publico', q='machucado') }}">
-        <div class="need-ico-hd"><div class="need-anim-ico"><i class="fa fa-kit-medical"></i></div><span class="need-arr"><i class="fa fa-chevron-right"></i></span></div>
-        <div class="need-body"><div class="need-name">Curativos e ferimentos</div><div class="need-copy">Gaze, antissépticos e primeiros socorros.</div><div class="need-cta">Ver produtos <i class="fa fa-chevron-right" style="font-size:.6rem"></i></div></div>
-      </a>
-    </div>
-  </section>
 
-  {# ── Aviso sem farmácia próxima ── #}
-  <div id="sec-sem-farmacia" style="display:none;margin-bottom:18px">
-    <div class="sfp-banner">
-      <div class="sfp-ico"><i class="fa fa-map-pin"></i></div>
-      <div class="sfp-body">
-        <div class="sfp-titulo">Ainda não chegamos na sua cidade!</div>
-        <div class="sfp-msg">Estamos expandindo e em breve estaremos por aí. Enquanto isso, confira nossos produtos e prepare sua lista.</div>
-      </div>
-    </div>
-  </div>
+  {# ── Lembretes (oculto) ── #}
+  <section style="display:none" id="sec-lembretes"><div id="home-lembretes"></div></section>
 
-  {# ── Lembretes de tratamento ── #}
-  <section class="home-section" id="sec-lembretes" style="display:none">
-    <div class="home-section-head" style="margin-bottom:14px">
-      <div><h2 class="home-title"><i class="fa fa-bell" style="color:#d97706"></i>Lembretes de tratamento</h2><div class="home-sub">Baseado nas suas últimas compras</div></div>
-    </div>
-    <div id="home-lembretes"></div>
-  </section>
-
-  {# ── Para você: produtos personalizados ── #}
+  {# ── Bom pra você ── #}
   <section class="home-section" id="sec-para-voce" style="display:none">
     <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-heart" style="color:var(--pq-red)"></i>Para você</h2><div class="home-sub">Baseado no seu histórico de compras</div></div>
+      <div>
+        <h2 class="home-title"><img src="{{ url_for('static', filename='icons/ico-relogio.jpg') }}" style="width:28px;height:28px;object-fit:cover;border-radius:50%;">Bom pra você</h2>
+        <div class="home-sub">Baseado em seu histórico de compras.</div>
+      </div>
     </div>
-    <div id="home-para-voce" class="insights-row"><div class="home-empty">Carregando...</div></div>
+    <div class="home-row-wrap">
+      <button class="home-row-cnav home-row-cnav--prev" onclick="_homeCarouselNav('home-para-voce',-1)" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="home-para-voce" class="home-row"><div class="home-empty">Carregando...</div></div>
+      <button class="home-row-cnav home-row-cnav--next" onclick="_homeCarouselNav('home-para-voce',1)" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+    </div>
   </section>
 
-  {# ── Cross-sell IA ── #}
-  <section class="home-section" id="sec-cross-sell" style="display:none">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-wand-magic-sparkles" style="color:#7c3aed"></i>Você também pode precisar de</h2><div class="home-sub">Produtos que combinam com o que você já comprou</div></div>
-    </div>
-    <div id="home-cross-sell" class="insights-row"><div class="home-empty">Carregando sugestões...</div></div>
-  </section>
+  {# ── Cross-sell IA (oculto, mantém funcionalidade) ── #}
+  <section style="display:none" id="sec-cross-sell"><div id="home-cross-sell"></div></section>
 
-  {# ── Trending lojas físicas ── #}
-  <section class="home-section" id="sec-trending-lojas">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-fire" style="color:#ea580c"></i>Mais vendidos nas farmácias</h2><div class="home-sub">Produtos mais procurados nas lojas físicas da região</div></div>
-    </div>
-    <div id="home-trending-lojas" class="home-row"><div class="home-empty">Carregando produtos populares...</div></div>
-  </section>
 
-  <section class="sec-ofertas">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><span class="bolt-anim"><i class="fa fa-bolt" style="color:#ea580c"></i></span>&nbsp;Ofertas relâmpago</h2><div class="home-sub">Produtos com cupom, bom preço ou estoque pronto para vender.</div></div>
-      <a class="home-link" href="{{ url_for('catalogo_publico', ofertas='1') }}">Ver todas</a>
-    </div>
-    <div id="home-ofertas" class="home-row"><div class="home-empty">Carregando ofertas...</div></div>
-  </section>
-
-  <section class="home-section">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-fire" style="color:#e65100"></i>Mais comprados</h2><div class="home-sub">Os produtos preferidos pelos clientes das farmácias próximas.</div></div>
-    </div>
-    <div id="home-mais-comprados" class="home-row"><div class="home-empty"><i class="fa fa-spinner fa-spin me-1"></i>Carregando...</div></div>
-  </section>
-
-  <section class="home-section" id="sec-comprar-novamente" style="display:none">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-rotate-right" style="color:#0077cc"></i>Comprar novamente</h2><div class="home-sub">Produtos que você já comprou e pode precisar de novo.</div></div>
-      <a class="home-link" href="{{ url_for('meus_pedidos') }}">Meus pedidos</a>
-    </div>
-    <div id="home-comprar-novamente" class="home-row"><div class="home-empty">Carregando seus históricos...</div></div>
-  </section>
-
-  <section class="home-section">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-ticket" style="color:var(--pq-red)"></i>Cupons para você</h2><div class="home-sub">Cupons gerais aparecem mesmo sem login; entrando na conta podem surgir cupons exclusivos.</div></div>
-      <a class="home-link" href="{{ url_for('consumidor_cupons') if consumidor else url_for('consumidor_login') }}">Meus cupons</a>
-    </div>
-    <div id="home-cupons" class="coupon-grid"><div class="home-empty">Buscando cupons disponíveis...</div></div>
-  </section>
-
-  <section class="home-section">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-scale-balanced" style="color:var(--pq-red)"></i>Comparador perto de você</h2><div class="home-sub">Quando o mesmo item aparece em mais de uma farmácia, destacamos a melhor opção.</div></div>
-    </div>
-    <div id="home-comparador" class="compare-grid"><div class="home-empty">Comparando farmácias próximas...</div></div>
-  </section>
-
-  <section class="home-section">
-    <div class="home-section-head">
-      <div><h2 class="home-title"><i class="fa fa-basket-shopping" style="color:var(--pq-red)"></i>Kits prontos</h2><div class="home-sub">Selecione os produtos que precisa e adicione tudo de uma vez ao carrinho.</div></div>
-    </div>
-    <div class="home-row">
-      <div class="kit-card"><h3>Kit gripe e resfriado</h3><ul><li>Analgésicos e antitérmicos</li><li>Soro nasal e pastilhas</li><li>Vitaminas e hidratação</li></ul><button class="kit-card-btn" onclick="abrirKitDrawer('gripe')"><i class="fa fa-basket-shopping"></i>Montar kit</button></div>
-      <div class="kit-card"><h3>Kit bebê</h3><ul><li>Fraldas e lenços</li><li>Pomadas e higiene</li><li>Termômetro e cuidados básicos</li></ul><button class="kit-card-btn" onclick="abrirKitDrawer('bebe')"><i class="fa fa-basket-shopping"></i>Montar kit</button></div>
-      <div class="kit-card"><h3>Kit cuidados com a pele</h3><ul><li>Protetor solar</li><li>Hidratantes</li><li>Limpeza facial</li></ul><button class="kit-card-btn" onclick="abrirKitDrawer('pele')"><i class="fa fa-basket-shopping"></i>Montar kit</button></div>
-    </div>
-  </section>
+  {# Trending e kits ocultos #}
+  <section style="display:none"><div id="home-trending-lojas"></div></section>
 </div>
 
 <!-- ── Drawer de montagem de kit ──────────────────────────────────────────── -->
@@ -948,6 +837,7 @@ function _cFresh(k,ttl){ const o=_cGet(k); return (o && (Date.now()-o.t)<ttl) ? 
 function _cFetch(k,ttl,url){ const c=_cFresh(k,ttl); if(c!=null) return Promise.resolve(c); return fetch(url).then(r=>r.json()).then(d=>{ _cSet(k,d); return d; }); }
 function hEsc(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function hBrl(v){ const n=parseFloat(v)||0; return 'R$ ' + n.toFixed(2).replace('.',','); }
+function fixRazao(r){ return (r||'').replace(/\bDrogaria\b(?!s)/gi,'Drogarias'); }
 function hCat(p){ return ({cosmetico:'perfumaria', higiene:'perfumaria', alimento:'nutricao', correlato:'varejo'}[p.categoria] || p.categoria || 'varejo'); }
 function prodCard(p, badge){
   const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
@@ -973,7 +863,7 @@ function prodCard(p, badge){
   return `<a class="home-prod" href="${url}">
     ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
     <div class="home-prod-name">${hEsc(p.nome)}</div>
-    <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao || 'Farmácia Poupaqui')}</div>
+    <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(fixRazao(p.razao) || 'Drogarias Poupaqui')}</div>
     ${precoHtml}
     ${badge ? `<div class="home-prod-badge">${badge}</div>` : ''}
     ${promoBadge}
@@ -998,7 +888,7 @@ function renderHomeProdutos(produtos){
     const lat = localStorage.getItem('pq_lat'), lng = localStorage.getItem('pq_lng');
     if (lat && lng) carregarEconomiaIa(lat, lng, validos);
   } else {
-    achadosEl.innerHTML = '<div class="home-empty">Escolha sua localização para ver achados próximos.</div>';
+    carregarProdutosGerais();
   }
   const ofertas = validos
     .slice()
@@ -1053,7 +943,24 @@ function carregarHome(lat,lng){
       renderClubes(produtos, lojasProximas);
       renderCupons(produtos);
     })
-    .catch(()=>{ document.getElementById('home-achados').innerHTML='<div class="home-empty">Não foi possível carregar os produtos agora.</div>'; });
+    .catch(()=>{ carregarProdutosGerais(); });
+}
+
+function carregarProdutosGerais(){
+  const achadosEl = document.getElementById('home-achados');
+  const secAchados = document.getElementById('sec-achados');
+  if(!achadosEl) return;
+  _cFetch('prod_destaque', 300e3, '/api/produtos-destaque')
+    .then(d=>{
+      const lista = (d.produtos||[]).filter(p=>p.imagem && parseFloat(p.preco)>0).slice(0,12);
+      achadosEl.innerHTML = lista.length
+        ? lista.map(p=>prodCard(p,'')).join('')
+        : '<div class="home-empty">Explore nosso catálogo completo.</div>';
+      if(secAchados) secAchados.style.display='';
+      if(lista.length) setTimeout(()=>_homeCarousel('home-achados'),50);
+    }).catch(()=>{
+      if(secAchados) secAchados.style.display='';
+    });
 }
 function renderClubes(produtos, lojasProximas){
   const lojaMap = {};
@@ -1118,7 +1025,7 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
       return `<a class="heia-prod" href="${url}">
         <img class="heia-prod-img" src="${hEsc(p.imagem||'')}" alt="${hEsc(p.nome||'')}" onerror="this.style.display='none'">
         <div class="heia-prod-name">${hEsc(p.nome||'')}</div>
-        <div class="heia-prod-store"><i class="fa fa-store"></i> ${hEsc(p.razao||'Farmácia')}</div>
+        <div class="heia-prod-store"><i class="fa fa-store"></i> ${hEsc(fixRazao(p.razao)||'Drogarias Poupaqui')}</div>
         <div class="heia-prod-preco">${hBrl(p.preco)}</div>
         ${ecoHtml}
       </a>`;

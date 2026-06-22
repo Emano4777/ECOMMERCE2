@@ -37,18 +37,24 @@
 
     /* ── TOPBAR iFood-style ─────────────────────────────── */
     .pq-topbar {
-      background: linear-gradient(135deg, #c8102e 0%, #d6112e 30%, #e06018 65%, #ffc300 100%);
+      background: #c8102e;
       border-bottom: none;
-      min-height: 64px;
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0 12px;
-      padding: 8px 20px;
       position: sticky;
       top: 0;
       z-index: 200;
       box-shadow: 0 3px 16px rgba(180,8,28,.28);
+    }
+    .pq-topbar-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 5px 20px;
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 0 10px;
+      width: 100%;
+      box-sizing: border-box;
     }
     .pq-brand {
       display: inline-flex;
@@ -62,7 +68,7 @@
       letter-spacing: -.3px;
     }
     .pq-brand-logo {
-      height: 38px;
+      height: 46px;
       width: auto;
       margin-right: 0;
       border-radius: 6px;
@@ -76,8 +82,8 @@
     .pq-loc-btn {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 8px 14px;
+      gap: 6px;
+      padding: 5px 12px;
       border: 1.5px solid rgba(255,255,255,.35);
       border-radius: 50px;
       cursor: pointer;
@@ -86,20 +92,19 @@
       transition: background .15s, border-color .15s;
       min-width: 38px;
       flex: 0 0 auto;
-      max-width: 220px;
+      max-width: 280px;
     }
 
     /* ── SEARCH NA TOPBAR ────────────────────────────── */
     .pq-topbar-search {
-      flex: 1;
+      flex: 0 1 420px;
       min-width: 0;
-      max-width: 520px;
       position: relative;
       background: rgba(255,255,255,.97);
       border-radius: 24px;
       display: flex;
       align-items: center;
-      height: 42px;
+      height: 38px;
     }
     .pq-topbar-search input {
       flex: 1;
@@ -149,9 +154,9 @@
       gap: 3px;
       color: #fff;
       text-decoration: none;
-      font-size: .58rem;
+      font-size: .64rem;
       font-weight: 700;
-      padding: 5px 8px;
+      padding: 5px 10px;
       border-radius: 8px;
       white-space: nowrap;
       text-align: center;
@@ -164,15 +169,17 @@
       position: relative;
     }
     .pq-nav-link:hover { background: rgba(255,255,255,.18); color: #fff; }
-    .pq-nav-link .pq-custom-ico { width: 22px; height: 22px; }
+    .pq-nav-link .pq-custom-ico { width: 28px; height: 28px; }
     .pq-loc-btn:hover { background: rgba(255,255,255,.28); border-color: rgba(255,255,255,.6); }
     .pq-loc-icon { color: #fff; font-size: 1rem; flex-shrink: 0; }
     .pq-loc-texts { min-width: 0; flex: 1; }
     .pq-loc-label { font-size: .68rem; font-weight: 700; color: rgba(255,255,255,.75); text-transform: uppercase; letter-spacing: .3px; display: block; }
-    .pq-loc-addr  { font-size: .88rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .pq-loc-addr  { font-size: .88rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 220px; }
+    @media(min-width:1200px){ .pq-loc-addr { max-width: none; } }
     .pq-loc-arrow { color: rgba(255,255,255,.7); font-size: .7rem; flex-shrink: 0; }
 
-    .pq-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .pq-topbar-left { flex: 1; display: flex; align-items: center; gap: 28px; min-width: 0; }
+    .pq-topbar-right { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
     .pq-topbar-link {
       color: rgba(255,255,255,.92);
       text-decoration: none;
@@ -462,34 +469,46 @@
 
     /* ── RESPONSIVE ─────────────────────────────────────── */
 
-    /* monitores amplos ≤ 1600px: esconde só o rótulo "SUA LOCALIZAÇÃO" */
+    /* monitores amplos ≤ 1600px: esconde rótulo "SUA LOCALIZAÇÃO" */
     @media(max-width:1600px) {
       .pq-loc-label { display: none; }
     }
 
-    /* laptop/tablet ≤ 1440px: hamburger substitui nav links — libera espaço para busca */
+    /* laptop ≤ 1440px: hamburger substitui nav links */
     @media(max-width:1440px) {
       .pq-hamburger { display: flex; }
       .pq-desktop-only { display: none !important; }
-      .pq-loc-btn { max-width: 220px; }
-      .pq-topbar-right { gap: 6px; }
+      .pq-topbar-right { gap: 4px; }
     }
 
-    /* tablet portrait ≤ 900px */
+    /* tablet ≤ 1024px: search vai para segunda linha */
+    @media(max-width:1024px) {
+      .pq-topbar-inner { flex-wrap: wrap; padding: 6px 14px; gap: 0 8px; }
+      .pq-topbar-left { flex: 1 1 auto; min-width: 0; }
+      .pq-topbar-right { flex: 0 0 auto; }
+      .pq-topbar-search {
+        flex: 0 0 100%;
+        order: 10;
+        max-width: 100%;
+        margin: 4px 0 2px;
+      }
+    }
+
+    /* tablet menor ≤ 900px */
     @media(max-width:900px) {
-      .pq-topbar { padding: 6px 12px; gap: 0 8px; }
-      .pq-loc-btn { max-width: 160px; padding: 6px 10px; }
+      .pq-topbar-inner { padding: 5px 10px; }
+      .pq-loc-btn { max-width: 200px; padding: 5px 10px; }
     }
 
-    /* mobile ≤ 680px: localização ocupa espaço flexível, busca vai para linha 2 */
+    /* mobile ≤ 680px */
     @media(max-width:680px) {
-      .pq-loc-btn { flex: 1; max-width: none; min-width: 0; padding: 7px 10px; }
+      .pq-loc-btn { flex: 1 1 auto; max-width: none; min-width: 0; padding: 6px 10px; }
       .pq-brand-text { display: none; }
     }
 
     /* tela muito pequena ≤ 400px: localização vira só ícone */
     @media(max-width:400px) {
-      .pq-loc-btn { padding: 6px 8px; flex: 0 0 auto; }
+      .pq-loc-btn { padding: 5px 8px; flex: 0 0 auto; }
       .pq-loc-texts { display: none; }
       .pq-loc-arrow { display: none; }
     }
@@ -843,15 +862,18 @@
 
 <!-- TOPBAR -->
 <header class="pq-topbar">
-  <a class="pq-brand" href="{{ url_for('index') }}"><img class="pq-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt=""><span class="pq-brand-text">Poupaqu<span class="pq-brand-highlight">i</span></span></a>
+<div class="pq-topbar-inner">
+  <div class="pq-topbar-left">
+    <a class="pq-brand" href="{{ url_for('index') }}"><img class="pq-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt=""><span class="pq-brand-text">Poupaqu<span class="pq-brand-highlight">i</span></span></a>
 
-  <div class="pq-loc-btn" id="loc-btn" onclick="abrirModalLoc()">
-    <img src="{{ url_for('static', filename='icons/location.png') }}" alt="" class="pq-custom-ico" style="width:18px;height:18px;flex-shrink:0">
-    <div class="pq-loc-texts">
-      <span class="pq-loc-label">sua localização</span>
-      <span class="pq-loc-addr" id="loc-addr-text">Detectando…</span>
+    <div class="pq-loc-btn" id="loc-btn" onclick="abrirModalLoc()">
+      <img src="{{ url_for('static', filename='icons/location.png') }}" alt="" class="pq-custom-ico" style="width:18px;height:18px;flex-shrink:0">
+      <div class="pq-loc-texts">
+        <span class="pq-loc-label">sua localização</span>
+        <span class="pq-loc-addr" id="loc-addr-text">Detectando…</span>
+      </div>
+      <i class="fa fa-chevron-down pq-loc-arrow"></i>
     </div>
-    <i class="fa fa-chevron-down pq-loc-arrow"></i>
   </div>
 
   {% block topbar_search %}{% endblock %}
@@ -862,8 +884,7 @@
       <span>Busca rápida<br>com receita</span>
     </a>
     <a class="pq-nav-link pq-desktop-only" href="{{ url_for('vitnatu_page') }}">
-      <img src="{{ url_for('static', filename='icons/search-interface-symbol.png') }}" alt="" class="pq-custom-ico">
-      <span>Marca<br>Própria</span>
+      <img src="{{ url_for('static', filename='icons/vitnatu.png') }}" alt="Vit Natu" style="width:64px;height:32px;object-fit:contain;display:block;filter:brightness(0) invert(1);">
     </a>
     <a class="pq-nav-link pq-desktop-only" href="{{ url_for('lojas_vitrine') }}">
       <img src="{{ url_for('static', filename='icons/store.png') }}" alt="" class="pq-custom-ico">
@@ -940,6 +961,7 @@
       <i class="fa fa-bars"></i>
     </button>
   </div>
+</div>
 </header>
 
 <!-- OVERLAY + DRAWER MOBILE -->

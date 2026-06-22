@@ -6082,6 +6082,29 @@ def api_lojas_ativas():
     })
 
 
+@app.get("/api/produtos-destaque")
+def api_produtos_destaque():
+    """Produtos em destaque sem necessidade de localização (fallback home)."""
+    try:
+        conn = db()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT e.ean, e.nome, e.preco, e.imagem, u.razao, e.cnpjloja
+            FROM ecommerce_estoque e
+            JOIN users u ON u.cnpjloja = e.cnpjloja
+            WHERE e.imagem IS NOT NULL AND e.imagem <> ''
+              AND e.preco > 0
+              AND COALESCE(e.ativo, TRUE) = TRUE
+            ORDER BY RANDOM()
+            LIMIT 20
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        return jsonify({"produtos": [dict(r) for r in rows]})
+    except Exception:
+        return jsonify({"produtos": []})
+
+
 @app.get("/api/produtos-proximos")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_produtos_proximos():
