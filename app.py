@@ -11983,13 +11983,16 @@ def painel_pedido_status(pedido_id):
     conn = db()
     cur  = conn.cursor()
     ml_order_id = None
-    if novo_status == "entregue":
+    is_ml_status = False
+    if novo_status in {"enviado", "entregue"}:
         cur.execute(
             "SELECT tipo_entrega, origem, ml_order_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
             (pedido_id, cnpjloja),
         )
         row = cur.fetchone()
         is_ml = row and row.get("origem") == "mercado_livre"
+        is_ml_status = bool(is_ml)
+    if novo_status == "entregue":
         if row and not is_ml:
             cur.close()
             flash(
@@ -12015,7 +12018,9 @@ def painel_pedido_status(pedido_id):
     conn.commit()
     cur.close()
     if novo_status == "entregue" and ml_order_id:
-        _ml_feedback_entregue(ml_order_id)
+        _ml_feedback_entregue(ml_order_id, cnpjloja=cnpjloja)
+    elif novo_status == "enviado" and is_ml_status:
+        _ml_sync_shipment_for_pedido(pedido_id=pedido_id, cnpjloja=cnpjloja)
     _email_status_pedido(pedido_id, novo_status)
     _notificar_pedido_evento(
         pedido_id,
@@ -12026,7 +12031,13 @@ def painel_pedido_status(pedido_id):
     # se ficou como pago e é retirada com flag ativada, avança automaticamente
     if novo_status == "pago":
         _auto_pronto_retirada(pedido_id)
-    flash(f"Pedido marcado como {_STATUS_LABEL.get(novo_status, novo_status)}.", "success")
+    if novo_status == "enviado" and is_ml_status:
+        flash(
+            "Pedido marcado como enviado no Poupaqui. No Mercado Livre, o transporte muda pela etiqueta/postagem/coleta; sincronizamos o envio pela API.",
+            "success",
+        )
+    else:
+        flash(f"Pedido marcado como {_STATUS_LABEL.get(novo_status, novo_status)}.", "success")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
 
 
@@ -12068,7 +12079,7 @@ def painel_confirmar_entrega(pedido_id):
     conn.commit()
     cur.close()
     if ok and is_ml and ok.get("ml_order_id"):
-        _ml_feedback_entregue(ok["ml_order_id"])
+        _ml_feedback_entregue(ok["ml_order_id"], cnpjloja=cnpjloja)
     if ok:
         _email_status_pedido(pedido_id, "entregue")
         _notificar_pedido_evento(
@@ -12130,7 +12141,7 @@ def painel_avisar_entrega_ml(pedido_id):
     if not row or not row.get("ml_order_id"):
         flash("Pedido não encontrado ou não é do Mercado Livre.", "error")
         return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
-    ok, err = _ml_feedback_entregue(row["ml_order_id"])
+    ok, err = _ml_feedback_entregue(row["ml_order_id"], cnpjloja=cnpjloja)
     if ok:
         flash("Entrega avisada no Mercado Livre com sucesso.", "success")
     else:
@@ -17238,7 +17249,7 @@ def _ml_post(path, body_dict, token):
         return resp.status, json.loads(resp_body) if resp_body else {}
 
 
-def _ml_feedback_entregue(ml_order_id):
+def _ml_feedback_entregue(ml_order_id, cnpjloja=None):
     """
     Notifica o ML que o pedido foi entregue.
     - Com Mercado Envios (tem shipment_id): POST /shipments/{id}/fulfillment
@@ -17246,7 +17257,7 @@ def _ml_feedback_entregue(ml_order_id):
     Retorna (True, "") em sucesso ou (False, mensagem_erro) em falha.
     """
     try:
-        token = _ml_get_token()
+        token = _ml_get_token(cnpjloja=cnpjloja)
         if not token:
             return False, "Sem token ML válido."
         order_data = _ml_api_get(f"/orders/{ml_order_id}", token)
