@@ -1700,16 +1700,68 @@ def _ensure_ml_schema():
                 titulo TEXT,
                 preco NUMERIC(10,2),
                 category_id TEXT,
+                cnpjloja TEXT,
                 status TEXT DEFAULT 'active',
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
         cur.execute("ALTER TABLE ml_items ADD COLUMN IF NOT EXISTS category_id TEXT")
+        cur.execute("ALTER TABLE ml_items ADD COLUMN IF NOT EXISTS cnpjloja TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'ecommerce'")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_order_id TEXT")
         conn.commit(); cur.close()
         _schema_ready.add("ml")
         _mark_migration_done("ml")
+
+
+def _ensure_ml_accounts_schema():
+    key = "ml_accounts_v1"
+    _ensure_ml_schema()
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ml_tokens_loja (
+                cnpjloja TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                ml_user_id TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ml_tokens_loja_user ON ml_tokens_loja (ml_user_id)")
+        cur.execute("ALTER TABLE ml_items ADD COLUMN IF NOT EXISTS cnpjloja TEXT")
+        conn.commit(); cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_ml_shipping_schema():
+    key = "ml_shipping_v1"
+    _ensure_ml_accounts_schema()
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db(); cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_shipping_id TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_shipping_status TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_shipping_substatus TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_shipping_mode TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_logistic_type TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_tracking_number TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_tracking_method TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_shipping_updated_at TIMESTAMPTZ")
+        conn.commit(); cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _norm_email(email):
@@ -11774,6 +11826,7 @@ def painel_pedidos():
 @painel_required
 def painel_pedido_detalhe(pedido_id):
     _ensure_payment_schema()
+    _ensure_ml_shipping_schema()
     cnpjloja = session.get("cnpjloja")
     conn = db()
     cur  = conn.cursor()
@@ -11789,6 +11842,38 @@ def painel_pedido_detalhe(pedido_id):
     itens = [dict(i) for i in cur.fetchall()]
     cur.close()
     pedido_dict = dict(pedido)
+    ml_shipping_info = None
+    if pedido_dict.get("origem") == "mercado_livre":
+        if pedido_dict.get("ml_order_id") and (not pedido_dict.get("ml_shipping_id") or not pedido_dict.get("ml_shipping_status")):
+            synced_info, _sync_err = _ml_sync_shipment_for_pedido(
+                pedido_id=pedido_id,
+                cnpjloja=cnpjloja,
+            )
+            if synced_info:
+                ml_shipping_info = synced_info
+                cur2 = db().cursor()
+                cur2.execute(
+                    "SELECT * FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+                    (pedido_id, cnpjloja),
+                )
+                pedido_dict = dict(cur2.fetchone() or pedido_dict)
+                cur2.close()
+        if not ml_shipping_info:
+            ml_shipping_info = {
+                "id": pedido_dict.get("ml_shipping_id"),
+                "status": pedido_dict.get("ml_shipping_status"),
+                "substatus": pedido_dict.get("ml_shipping_substatus"),
+                "mode": pedido_dict.get("ml_shipping_mode"),
+                "logistic_type": pedido_dict.get("ml_logistic_type"),
+                "tracking_number": pedido_dict.get("ml_tracking_number"),
+                "tracking_method": pedido_dict.get("ml_tracking_method"),
+                "instruction": _ml_shipping_instruction(
+                    pedido_dict.get("ml_logistic_type"),
+                    pedido_dict.get("ml_shipping_mode"),
+                    pedido_dict.get("ml_shipping_status"),
+                    pedido_dict.get("ml_shipping_substatus"),
+                ),
+            }
     # Parseia receita_url que pode ser JSON array ["url1","url2"] ou URL simples (legado)
     _ru = pedido_dict.get("receita_url") or ""
     try:
@@ -11799,7 +11884,13 @@ def painel_pedido_detalhe(pedido_id):
         receita_urls = [u for u in _parsed if u]
     else:
         receita_urls = [_ru] if _ru else []
-    return render_template("painel_pedido_detalhe.html", pedido=pedido_dict, itens=itens, receita_urls=receita_urls)
+    return render_template(
+        "painel_pedido_detalhe.html",
+        pedido=pedido_dict,
+        itens=itens,
+        receita_urls=receita_urls,
+        ml_shipping=ml_shipping_info,
+    )
 
 
 @app.post("/painel/pedidos/<pedido_id>/sincronizar-pagamento")
@@ -11820,6 +11911,63 @@ def painel_sincronizar_pagamento(pedido_id):
     else:
         flash("Não foi possível sincronizar. Verifique se o pedido tem pagamento automático e token configurado.", "error")
     return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+
+@app.post("/painel/pedidos/<pedido_id>/ml/sincronizar-envio")
+@painel_required
+def painel_ml_sincronizar_envio(pedido_id):
+    cnpjloja = session.get("cnpjloja")
+    info, err = _ml_sync_shipment_for_pedido(pedido_id=pedido_id, cnpjloja=cnpjloja)
+    if info:
+        flash("Envio Mercado Livre sincronizado.", "success")
+    else:
+        flash(f"Não foi possível sincronizar o envio: {err}", "error")
+    return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+
+@app.get("/painel/pedidos/<pedido_id>/ml/etiqueta")
+@painel_required
+def painel_ml_baixar_etiqueta(pedido_id):
+    _ensure_ml_shipping_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, ml_order_id, ml_shipping_id
+        FROM ecommerce_pedidos
+        WHERE id=%s AND cnpjloja=%s AND COALESCE(origem, 'ecommerce')='mercado_livre'
+        LIMIT 1
+        """,
+        (pedido_id, cnpjloja),
+    )
+    row = cur.fetchone(); cur.close()
+    if not row:
+        flash("Pedido Mercado Livre não encontrado.", "error")
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+    shipping_id = row.get("ml_shipping_id")
+    if not shipping_id:
+        info, err = _ml_sync_shipment_for_pedido(pedido_id=pedido_id, cnpjloja=cnpjloja)
+        shipping_id = (info or {}).get("id")
+        if not shipping_id:
+            flash(f"Envio sem etiqueta disponível: {err}", "error")
+            return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+    path = "/shipment_labels?" + urllib.parse.urlencode({
+        "shipment_ids": shipping_id,
+        "response_type": "pdf",
+    })
+    data, status, content_type = _ml_api_get_raw(path, accept="application/pdf")
+    if not data or status not in (200, 201):
+        flash(f"Não foi possível baixar a etiqueta no Mercado Livre: HTTP {status} - {content_type}", "error")
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+    return Response(
+        data,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="etiqueta-ml-{shipping_id}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/painel/pedidos/<pedido_id>/status")
@@ -16494,21 +16642,49 @@ def api_painel_produtos_loja():
 
 # ── helpers de token ──────────────────────────────────────────────────────────
 
-def _ml_get_token():
-    """Retorna access_token válido, renovando automaticamente se necessário."""
-    _ensure_ml_schema()
+def _ml_current_cnpj():
+    try:
+        return session.get("cnpjloja")
+    except Exception:
+        return None
+
+
+def _ml_get_token(cnpjloja=None, ml_user_id=None):
+    """Retorna access_token válido da loja, renovando automaticamente se necessário."""
+    _ensure_ml_accounts_schema()
+    cnpjloja = cnpjloja or _ml_current_cnpj()
     conn = db(); cur = conn.cursor()
-    cur.execute("SELECT access_token, refresh_token, expires_at FROM ml_tokens WHERE id=1")
+    if cnpjloja:
+        cur.execute("""
+            SELECT cnpjloja, access_token, refresh_token, expires_at
+            FROM ml_tokens_loja
+            WHERE cnpjloja=%s
+            LIMIT 1
+        """, (cnpjloja,))
+    elif ml_user_id:
+        cur.execute("""
+            SELECT cnpjloja, access_token, refresh_token, expires_at
+            FROM ml_tokens_loja
+            WHERE ml_user_id=%s
+            LIMIT 1
+        """, (str(ml_user_id),))
+    else:
+        cur.execute("""
+            SELECT cnpjloja, access_token, refresh_token, expires_at
+            FROM ml_tokens_loja
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """)
     row = cur.fetchone()
     cur.close()
     if not row:
         return None
     if row["expires_at"] <= datetime.now(timezone.utc) + timedelta(minutes=5):
-        return _ml_refresh_token(row["refresh_token"])
+        return _ml_refresh_token(row["refresh_token"], row["cnpjloja"])
     return row["access_token"]
 
 
-def _ml_refresh_token(refresh_token):
+def _ml_refresh_token(refresh_token, cnpjloja):
     """Usa o refresh_token para obter um novo access_token e salva no banco."""
     data = urllib.parse.urlencode({
         "grant_type": "refresh_token",
@@ -16533,10 +16709,10 @@ def _ml_refresh_token(refresh_token):
     expires_at    = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        UPDATE ml_tokens
+        UPDATE ml_tokens_loja
         SET access_token=%s, refresh_token=%s, expires_at=%s, updated_at=NOW()
-        WHERE id=1
-    """, (access_token, new_refresh, expires_at))
+        WHERE cnpjloja=%s
+    """, (access_token, new_refresh, expires_at, cnpjloja))
     conn.commit(); cur.close()
     return access_token
 
@@ -16564,11 +16740,159 @@ def _ml_api_get(path, token=None):
         return None
 
 
-def _ml_is_connected():
+def _ml_api_get_raw(path, token=None, accept="application/octet-stream"):
+    """GET autenticado que retorna bytes, usado para etiqueta/arquivos."""
+    if token is None:
+        token = _ml_get_token()
+    if not token:
+        return None, 401, "Sem token ML válido."
+    req = urllib.request.Request(ML_API_BASE + path)
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+    req.add_header("Accept", accept)
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            return resp.read(), resp.status, resp.headers.get("Content-Type", accept)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:400]
+        return None, e.code, body
+    except Exception as e:
+        return None, 500, str(e)
+
+
+def _ml_flat_value(value):
+    if isinstance(value, dict):
+        return value.get("id") or value.get("name") or value.get("description") or json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return None
+    return str(value)
+
+
+def _ml_shipping_instruction(logistic_type, mode, status=None, substatus=None):
+    logistic_type = (logistic_type or "").strip()
+    mode = (mode or "").strip()
+    status = (status or "").strip()
+    substatus = (substatus or "").strip()
+    if logistic_type == "fulfillment":
+        return "Produto em fulfillment do Mercado Livre. A expedição é operacionalizada pelo Mercado Livre."
+    if logistic_type == "self_service":
+        return "Modalidade Mercado Envios Flex/entrega própria. Prepare o produto e siga a rota/instrução liberada pelo Mercado Livre."
+    if logistic_type in {"drop_off", "xd_drop_off"}:
+        return "Imprima a etiqueta e leve o pacote ao ponto/agência indicado pelo Mercado Livre."
+    if logistic_type == "cross_docking":
+        return "Prepare o pacote com etiqueta. Se a conta tiver coleta habilitada, aguarde a coleta; caso contrário, siga o ponto de despacho indicado pelo Mercado Livre."
+    if mode == "me2":
+        return "Mercado Envios ativo. Consulte a etiqueta e a instrução de despacho; a modalidade exata depende da conta e da venda."
+    if status or substatus:
+        return "Envio vinculado ao Mercado Livre. Sincronize para acompanhar status e instruções."
+    return "Ainda não há detalhe de envio disponível para este pedido."
+
+
+def _ml_parse_shipment(shipping):
+    shipping = shipping or {}
+    receiver = shipping.get("receiver_address") or {}
+    city = receiver.get("city") or {}
+    state = receiver.get("state") or {}
+    return {
+        "id": _ml_flat_value(shipping.get("id")),
+        "status": _ml_flat_value(shipping.get("status")),
+        "substatus": _ml_flat_value(shipping.get("substatus")),
+        "mode": _ml_flat_value(shipping.get("mode")),
+        "logistic_type": _ml_flat_value(shipping.get("logistic_type")),
+        "tracking_number": _ml_flat_value(shipping.get("tracking_number") or shipping.get("tracking_code")),
+        "tracking_method": _ml_flat_value(shipping.get("tracking_method")),
+        "date_created": _ml_flat_value(shipping.get("date_created")),
+        "last_updated": _ml_flat_value(shipping.get("last_updated")),
+        "estimated_delivery": _ml_flat_value(
+            ((shipping.get("shipping_option") or {}).get("estimated_delivery_time") or {}).get("date")
+        ),
+        "address": {
+            "street": receiver.get("street_name") or "",
+            "number": receiver.get("street_number") or "",
+            "city": city.get("name") or "",
+            "state": state.get("name") or "",
+            "zip_code": re.sub(r"\D+", "", receiver.get("zip_code", "") or ""),
+        },
+    }
+
+
+def _ml_sync_shipment_for_pedido(pedido_id=None, ml_order_id=None, shipping_id=None, cnpjloja=None):
+    """Busca envio no ML, salva dados principais no pedido e retorna info para UI."""
+    _ensure_ml_shipping_schema()
+    token = _ml_get_token(cnpjloja=cnpjloja)
+    if not token:
+        return None, "Sem token ML válido. Reconecte a conta Mercado Livre."
+
+    pedido_row = None
+    if pedido_id:
+        conn = db(); cur = conn.cursor()
+        if cnpjloja:
+            cur.execute(
+                "SELECT id, ml_order_id, ml_shipping_id FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+                (pedido_id, cnpjloja),
+            )
+        else:
+            cur.execute(
+                "SELECT id, ml_order_id, ml_shipping_id FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
+                (pedido_id,),
+            )
+        pedido_row = cur.fetchone(); cur.close()
+        if not pedido_row:
+            return None, "Pedido não encontrado."
+        ml_order_id = ml_order_id or pedido_row.get("ml_order_id")
+        shipping_id = shipping_id or pedido_row.get("ml_shipping_id")
+
+    if not shipping_id and ml_order_id:
+        order_data = _ml_api_get(f"/orders/{ml_order_id}", token)
+        if not order_data:
+            return None, f"Não foi possível consultar o pedido ML {ml_order_id}."
+        shipping_id = _ml_flat_value((order_data.get("shipping") or {}).get("id"))
+
+    if not shipping_id:
+        return None, "Pedido Mercado Livre sem shipping_id. Pode ser venda sem Mercado Envios ou envio ainda não gerado."
+
+    shipping = _ml_api_get(f"/shipments/{shipping_id}", token)
+    if not shipping:
+        return None, f"Não foi possível consultar o envio {shipping_id}."
+    info = _ml_parse_shipment(shipping)
+    info["instruction"] = _ml_shipping_instruction(
+        info.get("logistic_type"), info.get("mode"), info.get("status"), info.get("substatus")
+    )
+
+    if pedido_id:
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ecommerce_pedidos
+            SET ml_shipping_id=%s,
+                ml_shipping_status=%s,
+                ml_shipping_substatus=%s,
+                ml_shipping_mode=%s,
+                ml_logistic_type=%s,
+                ml_tracking_number=%s,
+                ml_tracking_method=%s,
+                ml_shipping_updated_at=NOW()
+            WHERE id=%s
+            """,
+            (
+                info.get("id"), info.get("status"), info.get("substatus"), info.get("mode"),
+                info.get("logistic_type"), info.get("tracking_number"), info.get("tracking_method"),
+                pedido_id,
+            ),
+        )
+        conn.commit(); cur.close()
+    return info, ""
+
+
+def _ml_is_connected(cnpjloja=None):
     """Verifica se há token válido armazenado."""
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
+    cnpjloja = cnpjloja or _ml_current_cnpj()
+    if not cnpjloja:
+        return False
     conn = db(); cur = conn.cursor()
-    cur.execute("SELECT expires_at FROM ml_tokens WHERE id=1")
+    cur.execute("SELECT expires_at FROM ml_tokens_loja WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
     row = cur.fetchone()
     cur.close()
     if not row:
@@ -16643,18 +16967,51 @@ def _ml_assign_loja(eans, cep):
 
 # ── processamento assíncrono de pedido ML ─────────────────────────────────────
 
-def _process_ml_order(order_id):
+def _ml_tokens_candidates(cnpjloja=None, ml_user_id=None):
+    _ensure_ml_accounts_schema()
+    conn = db(); cur = conn.cursor()
+    if cnpjloja:
+        cur.execute("""
+            SELECT cnpjloja, access_token, refresh_token, expires_at
+            FROM ml_tokens_loja
+            WHERE cnpjloja=%s
+        """, (cnpjloja,))
+    elif ml_user_id:
+        cur.execute("""
+            SELECT cnpjloja, access_token, refresh_token, expires_at
+            FROM ml_tokens_loja
+            WHERE ml_user_id=%s
+            ORDER BY updated_at DESC
+        """, (str(ml_user_id),))
+    else:
+        cur.execute("""
+            SELECT cnpjloja, access_token, refresh_token, expires_at
+            FROM ml_tokens_loja
+            ORDER BY updated_at DESC
+        """)
+    rows = cur.fetchall(); cur.close()
+    return rows
+
+
+def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
     """Busca detalhes do pedido no ML e cria em ecommerce_pedidos. Roda em thread."""
     try:
         import uuid as _uuid
-        token = _ml_get_token()
-        if not token:
+        _ensure_ml_shipping_schema()
+        token = None
+        token_cnpj = None
+        order = None
+        for candidate in _ml_tokens_candidates(cnpjloja_hint, ml_user_id):
+            token_cnpj = candidate["cnpjloja"]
+            token = _ml_get_token(cnpjloja=token_cnpj)
+            if not token:
+                continue
+            order = _ml_api_get(f"/orders/{order_id}", token)
+            if order:
+                break
+        if not token or not order:
             print(f"[ML] Sem token para processar pedido {order_id}")
             return
-
-        order = _ml_api_get(f"/orders/{order_id}", token)
-        if not order:
-            raise RuntimeError(f"API ML retornou vazio para /orders/{order_id} — PolicyAgent ou token inválido")
 
         conn = db(); cur = conn.cursor()
 
@@ -16701,11 +17058,13 @@ def _process_ml_order(order_id):
         # Endereço de envio
         shipping_obj  = order.get("shipping") or {}
         shipping_id   = shipping_obj.get("id")
+        shipping_info = {}
         endereco_entrega = ""
         cep_comprador = ""
         if shipping_id:
             shipping = _ml_api_get(f"/shipments/{shipping_id}", token)
             if shipping:
+                shipping_info = _ml_parse_shipment(shipping)
                 addr   = shipping.get("receiver_address") or {}
                 cep_comprador = re.sub(r"\D+", "", addr.get("zip_code", ""))
                 street = addr.get("street_name", "")
@@ -16719,7 +17078,7 @@ def _process_ml_order(order_id):
         # Atribui loja — prioridade: loja que publicou o item → primeira loja cadastrada
         # A loja que publicou é sempre a correta; CEP apenas serviria se o item
         # estivesse em múltiplas lojas, o que não ocorre nesta arquitetura.
-        cnpjloja = cnpjloja_publicou
+        cnpjloja = cnpjloja_publicou or token_cnpj or cnpjloja_hint
         if not cnpjloja:
             # Fallback: item não está em ml_items (publicado fora do painel) — usa primeira loja
             conn_fb = db(); cur_fb = conn_fb.cursor()
@@ -16739,17 +17098,24 @@ def _process_ml_order(order_id):
                 id, cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_email,
                 forma_pagamento, total, status, pagamento_status,
                 tipo_entrega, endereco_entrega,
-                origem, ml_order_id, criado_em, atualizado_em
+                origem, ml_order_id, ml_shipping_id, ml_shipping_status, ml_shipping_substatus,
+                ml_shipping_mode, ml_logistic_type, ml_tracking_number, ml_tracking_method,
+                ml_shipping_updated_at, criado_em, atualizado_em
             ) VALUES (
                 %s,%s,NULL,%s,%s,%s,
                 'mercado_livre',%s,%s,%s,
                 'entrega',%s,
-                'mercado_livre',%s,NOW(),NOW()
+                'mercado_livre',%s,%s,%s,%s,
+                %s,%s,%s,%s,
+                CASE WHEN %s IS NULL THEN NULL ELSE NOW() END,NOW(),NOW()
             )
         """, (
             pedido_id, cnpjloja, cliente_nome, cliente_telefone, cliente_email,
             total, status_ped, pag_status,
-            endereco_entrega, str(order_id)
+            endereco_entrega, str(order_id), str(shipping_id) if shipping_id else None,
+            shipping_info.get("status"), shipping_info.get("substatus"), shipping_info.get("mode"),
+            shipping_info.get("logistic_type"), shipping_info.get("tracking_number"),
+            shipping_info.get("tracking_method"), str(shipping_id) if shipping_id else None,
         ))
         for it in itens_pedido:
             cur2.execute("""
@@ -16768,11 +17134,29 @@ def _process_ml_order(order_id):
 @app.get("/ml/auth")
 @painel_required
 def ml_auth():
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
+    if not ML_APP_ID or not ML_SECRET:
+        faltando = []
+        if not ML_APP_ID:
+            faltando.append("ML_APP_ID")
+        if not ML_SECRET:
+            faltando.append("ML_CLIENT_SECRET")
+        flash(
+            "Integração Mercado Livre incompleta. Configure no ambiente: "
+            + ", ".join(faltando)
+            + ".",
+            "error",
+        )
+        return redirect(url_for("painel_ml"))
+    cnpjloja = session.get("cnpjloja")
+    state = secrets.token_urlsafe(24)
+    session["ml_oauth_state"] = state
+    session["ml_oauth_cnpjloja"] = cnpjloja
     params = urllib.parse.urlencode({
         "response_type": "code",
         "client_id": ML_APP_ID,
         "redirect_uri": ML_REDIRECT,
+        "state": state,
     })
     return redirect(f"{ML_AUTH_URL}?{params}")
 
@@ -16781,10 +17165,19 @@ def ml_auth():
 
 @app.get("/ml/callback")
 def ml_callback():
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
+    if not ML_APP_ID or not ML_SECRET:
+        flash("Integração Mercado Livre incompleta. Configure ML_APP_ID e ML_CLIENT_SECRET.", "error")
+        return redirect(url_for("painel_ml"))
     code = request.args.get("code", "")
+    state = request.args.get("state", "")
+    expected_state = session.get("ml_oauth_state")
+    cnpjloja = session.get("ml_oauth_cnpjloja") or session.get("cnpjloja")
     if not code:
         flash("Autorização ML cancelada ou inválida.", "error")
+        return redirect(url_for("painel_ml"))
+    if not expected_state or state != expected_state or not cnpjloja:
+        flash("Autorização ML expirada ou sem loja vinculada. Tente conectar novamente pelo painel da loja.", "error")
         return redirect(url_for("painel_ml"))
 
     data = urllib.parse.urlencode({
@@ -16816,13 +17209,15 @@ def ml_callback():
 
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        INSERT INTO ml_tokens (id, access_token, refresh_token, expires_at, ml_user_id, updated_at)
-        VALUES (1, %s, %s, %s, %s, NOW())
-        ON CONFLICT (id) DO UPDATE
+        INSERT INTO ml_tokens_loja (cnpjloja, access_token, refresh_token, expires_at, ml_user_id, updated_at)
+        VALUES (%s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (cnpjloja) DO UPDATE
           SET access_token=%s, refresh_token=%s, expires_at=%s, ml_user_id=%s, updated_at=NOW()
-    """, (access_token, refresh_token, expires_at, ml_user_id,
+    """, (cnpjloja, access_token, refresh_token, expires_at, ml_user_id,
           access_token, refresh_token, expires_at, ml_user_id))
     conn.commit(); cur.close()
+    session.pop("ml_oauth_state", None)
+    session.pop("ml_oauth_cnpjloja", None)
 
     flash("Conta Mercado Livre conectada com sucesso!", "success")
     return redirect(url_for("painel_ml"))
@@ -16890,7 +17285,7 @@ def _ml_feedback_entregue(ml_order_id):
 
 # ── Webhook: recebe notificações do ML ───────────────────────────────────────
 
-def _ml_queue_order(order_id_str):
+def _ml_queue_order(order_id_str, ml_user_id=None):
     """Enfileira um order_id ML para processamento. Cria a tabela se não existir."""
     try:
         conn = db(); cur = conn.cursor()
@@ -16899,12 +17294,19 @@ def _ml_queue_order(order_id_str):
                 order_id TEXT PRIMARY KEY,
                 received_at TIMESTAMPTZ DEFAULT NOW(),
                 processed BOOLEAN DEFAULT FALSE,
-                error TEXT
+                error TEXT,
+                ml_user_id TEXT
             )
         """)
+        cur.execute("ALTER TABLE ml_order_queue ADD COLUMN IF NOT EXISTS ml_user_id TEXT")
         cur.execute(
-            "INSERT INTO ml_order_queue (order_id) VALUES (%s) ON CONFLICT DO NOTHING",
-            (order_id_str,)
+            """
+            INSERT INTO ml_order_queue (order_id, ml_user_id)
+            VALUES (%s, %s)
+            ON CONFLICT (order_id) DO UPDATE
+              SET ml_user_id=COALESCE(EXCLUDED.ml_user_id, ml_order_queue.ml_user_id)
+            """,
+            (order_id_str, str(ml_user_id) if ml_user_id else None)
         )
         conn.commit(); cur.close()
     except Exception as e:
@@ -16920,18 +17322,21 @@ def _ml_flush_queue():
                 order_id TEXT PRIMARY KEY,
                 received_at TIMESTAMPTZ DEFAULT NOW(),
                 processed BOOLEAN DEFAULT FALSE,
-                error TEXT
+                error TEXT,
+                ml_user_id TEXT
             )
         """)
+        cur.execute("ALTER TABLE ml_order_queue ADD COLUMN IF NOT EXISTS ml_user_id TEXT")
         cur.execute(
-            "SELECT order_id FROM ml_order_queue WHERE processed=FALSE ORDER BY received_at LIMIT 20"
+            "SELECT order_id, ml_user_id FROM ml_order_queue WHERE processed=FALSE ORDER BY received_at LIMIT 20"
         )
-        pendentes = [r["order_id"] for r in cur.fetchall()]
+        pendentes = cur.fetchall()
         cur.close()
     except Exception:
         return
 
-    for oid in pendentes:
+    for rowq in pendentes:
+        oid = rowq["order_id"]
         try:
             # Pula se já foi criado (webhook pode ter processado antes)
             conn2 = db(); cur2 = conn2.cursor()
@@ -16943,7 +17348,7 @@ def _ml_flush_queue():
                 conn3.commit(); cur3.close()
                 continue
 
-            _process_ml_order(int(oid))
+            _process_ml_order(int(oid), ml_user_id=rowq.get("ml_user_id"))
 
             # Só marca como processado se o pedido foi realmente criado no banco
             conn4 = db(); cur4 = conn4.cursor()
@@ -16978,14 +17383,15 @@ def ml_webhook():
         payload  = request.get_json(force=True, silent=True) or {}
         topic    = payload.get("topic", "") or payload.get("type", "")
         resource = payload.get("resource", "")
+        ml_user_id = payload.get("user_id") or payload.get("application_id")
 
         if ("orders" in topic or "orders" in resource) and resource:
             order_id = resource.strip("/").split("/")[-1]
             if order_id.isdigit():
-                _ml_queue_order(order_id)
+                _ml_queue_order(order_id, ml_user_id)
                 # Tenta processar imediatamente; se falhar, fila garante reprocessamento
                 try:
-                    _process_ml_order(int(order_id))
+                    _process_ml_order(int(order_id), ml_user_id=ml_user_id)
                     conn = db(); cur = conn.cursor()
                     cur.execute("UPDATE ml_order_queue SET processed=TRUE WHERE order_id=%s", (order_id,))
                     conn.commit(); cur.close()
@@ -17006,6 +17412,7 @@ def api_ml_importar_pedido():
     if not order_id_raw.isdigit():
         return jsonify({"ok": False, "erro": "ID inválido — informe apenas números."}), 400
     order_id = int(order_id_raw)
+    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
     cur.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (order_id_raw,))
     if cur.fetchone():
@@ -17013,7 +17420,7 @@ def api_ml_importar_pedido():
         return jsonify({"ok": False, "erro": "Pedido já importado anteriormente."})
     cur.close()
     try:
-        _process_ml_order(order_id)
+        _process_ml_order(order_id, cnpjloja_hint=cnpjloja)
     except Exception as e:
         erro = str(e)
         if "403" in erro or "UNAUTHORIZED" in erro or "PolicyAgent" in erro:
@@ -17037,17 +17444,20 @@ def api_ml_sincronizar_fila():
             CREATE TABLE IF NOT EXISTS ml_order_queue (
                 order_id TEXT PRIMARY KEY,
                 received_at TIMESTAMPTZ DEFAULT NOW(),
-                processed BOOLEAN DEFAULT FALSE
+                processed BOOLEAN DEFAULT FALSE,
+                ml_user_id TEXT
             )
         """)
-        cur.execute("SELECT order_id FROM ml_order_queue WHERE processed=FALSE ORDER BY received_at LIMIT 20")
-        pendentes = [r["order_id"] for r in cur.fetchall()]
+        cur.execute("ALTER TABLE ml_order_queue ADD COLUMN IF NOT EXISTS ml_user_id TEXT")
+        cur.execute("SELECT order_id, ml_user_id FROM ml_order_queue WHERE processed=FALSE ORDER BY received_at LIMIT 20")
+        pendentes = cur.fetchall()
         cur.close()
     except Exception:
         return jsonify({"ok": False, "erro": "Erro ao acessar fila."}), 500
 
     importados = 0
-    for oid in pendentes:
+    for rowq in pendentes:
+        oid = rowq["order_id"]
         try:
             conn2 = db(); cur2 = conn2.cursor()
             cur2.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (oid,))
@@ -17056,7 +17466,7 @@ def api_ml_sincronizar_fila():
                 conn2.commit(); cur2.close()
                 continue
             cur2.close()
-            _process_ml_order(int(oid))
+            _process_ml_order(int(oid), ml_user_id=rowq.get("ml_user_id"))
             conn3 = db(); cur3 = conn3.cursor()
             cur3.execute("UPDATE ml_order_queue SET processed=TRUE WHERE order_id=%s", (oid,))
             conn3.commit(); cur3.close()
@@ -17072,11 +17482,11 @@ def api_ml_sincronizar_fila():
 @app.get("/painel/ml")
 @painel_required
 def painel_ml():
-    _ensure_ml_schema()
-    connected = _ml_is_connected()
+    _ensure_ml_accounts_schema()
+    cnpjloja = session.get("cnpjloja")
+    connected = _ml_is_connected(cnpjloja)
 
     # Conta pedidos ML desta loja
-    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
     cur.execute("""
         SELECT COUNT(*) AS total,
@@ -17087,7 +17497,7 @@ def painel_ml():
     ml_stats = dict(cur.fetchone() or {})
 
     # Token info
-    cur.execute("SELECT ml_user_id, updated_at FROM ml_tokens WHERE id=1")
+    cur.execute("SELECT ml_user_id, updated_at FROM ml_tokens_loja WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
     token_row = cur.fetchone()
     cur.close()
 
@@ -17102,9 +17512,10 @@ def painel_ml():
 @app.post("/painel/ml/desconectar")
 @painel_required
 def painel_ml_desconectar():
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
+    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
-    cur.execute("DELETE FROM ml_tokens WHERE id=1")
+    cur.execute("DELETE FROM ml_tokens_loja WHERE cnpjloja=%s", (cnpjloja,))
     conn.commit(); cur.close()
     flash("Conta Mercado Livre desconectada.", "success")
     return redirect(url_for("painel_ml"))
@@ -17162,18 +17573,19 @@ def _ml_api_put(path, body, token=None):
 @painel_required
 def api_ml_status_produtos():
     """Retorna status real dos itens do vendedor no ML (consulta a API do ML para status atualizado)."""
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
     cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
     cur.execute("""
         SELECT mi.ml_item_id, mi.ean, mi.titulo, mi.preco, mi.status
         FROM ml_items mi
-        WHERE mi.ean IN (
+        WHERE mi.cnpjloja=%s
+          AND mi.ean IN (
             SELECT barras FROM estoque WHERE cnpj=%s
             UNION
             SELECT ean FROM automatiza_estoque WHERE cnpj_loja=%s
         )
-    """, (cnpjloja, cnpjloja))
+    """, (cnpjloja, cnpjloja, cnpjloja))
     rows = cur.fetchall()
     cur.close()
 
@@ -17239,7 +17651,7 @@ def api_ml_status_produtos():
 @painel_required
 def api_ml_publicar():
     """Publica ou atualiza um produto no Mercado Livre."""
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
     if not _ml_is_connected():
         return jsonify({"ok": False, "erro": "Conta ML não conectada. Vá em Mercado Livre > Conectar."}), 400
 
@@ -17281,7 +17693,7 @@ def api_ml_publicar():
     conn = db(); cur = conn.cursor()
 
     # Verifica se já existe item publicado para este EAN
-    cur.execute("SELECT ml_item_id, status FROM ml_items WHERE ean=%s", (ean,))
+    cur.execute("SELECT ml_item_id, status FROM ml_items WHERE ean=%s AND cnpjloja=%s", (ean, session.get("cnpjloja")))
     existing = cur.fetchone()
 
     if existing:
@@ -17317,8 +17729,8 @@ def api_ml_publicar():
             msg = "; ".join(erros[:3]) if erros else str(resp)
             return jsonify({"ok": False, "erro": f"Erro ML {code}: {msg}"}), 400
         cur.execute("""
-            UPDATE ml_items SET preco=%s, status='active', updated_at=NOW() WHERE ml_item_id=%s
-        """, (preco, ml_item_id))
+            UPDATE ml_items SET preco=%s, status='active', updated_at=NOW() WHERE ml_item_id=%s AND cnpjloja=%s
+        """, (preco, ml_item_id, session.get("cnpjloja")))
         conn.commit(); cur.close()
         return jsonify({"ok": True, "ml_item_id": ml_item_id, "acao": "atualizado"})
 
@@ -17400,7 +17812,7 @@ def api_ml_publicar():
 @painel_required
 def api_ml_pausar():
     """Pausa (remove do ar) um anúncio no ML."""
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
     body = request.get_json(force=True) or {}
     ean = (body.get("ean") or "").strip()
     if not ean:
@@ -17408,7 +17820,7 @@ def api_ml_pausar():
 
     token = _ml_get_token()
     conn = db(); cur = conn.cursor()
-    cur.execute("SELECT ml_item_id FROM ml_items WHERE ean=%s", (ean,))
+    cur.execute("SELECT ml_item_id FROM ml_items WHERE ean=%s AND cnpjloja=%s", (ean, session.get("cnpjloja")))
     row = cur.fetchone()
     if not row:
         cur.close()
@@ -17420,7 +17832,7 @@ def api_ml_pausar():
         cur.close()
         return jsonify({"ok": False, "erro": f"Erro ML {code}: {resp}"}), 400
 
-    cur.execute("UPDATE ml_items SET status='paused', updated_at=NOW() WHERE ml_item_id=%s", (ml_item_id,))
+    cur.execute("UPDATE ml_items SET status='paused', updated_at=NOW() WHERE ml_item_id=%s AND cnpjloja=%s", (ml_item_id, session.get("cnpjloja")))
     conn.commit(); cur.close()
     return jsonify({"ok": True, "ml_item_id": ml_item_id})
 
@@ -17610,16 +18022,17 @@ def api_ml_categoria_por_item():
 @painel_required
 def api_ml_categorias_usadas():
     """Retorna categorias únicas já usadas em publicações ML desta loja."""
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
     token = _ml_get_token()
+    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
     try:
         cur.execute("""
             SELECT DISTINCT category_id
             FROM ml_items
-            WHERE category_id IS NOT NULL AND category_id != '' AND status = 'active'
+            WHERE cnpjloja=%s AND category_id IS NOT NULL AND category_id != '' AND status = 'active'
             ORDER BY category_id
-        """)
+        """, (cnpjloja,))
         cat_ids = [r["category_id"] for r in cur.fetchall()]
     except Exception:
         cat_ids = []
@@ -17890,7 +18303,7 @@ def api_ml_sugerir_categoria():
 @painel_required
 def api_ml_publicar_lote():
     """Publica múltiplos produtos no ML em sequência."""
-    _ensure_ml_schema()
+    _ensure_ml_accounts_schema()
     if not _ml_is_connected():
         return jsonify({"ok": False, "erro": "Conta ML não conectada."}), 400
 
@@ -17903,6 +18316,7 @@ def api_ml_publicar_lote():
         return jsonify({"ok": False, "erro": "Nenhum produto enviado."}), 400
 
     token = _ml_get_token()
+    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
     resultados = []
 
@@ -17918,7 +18332,7 @@ def api_ml_publicar_lote():
             continue
 
         try:
-            cur.execute("SELECT ml_item_id, status FROM ml_items WHERE ean=%s", (ean,))
+            cur.execute("SELECT ml_item_id, status FROM ml_items WHERE ean=%s AND cnpjloja=%s", (ean, cnpjloja))
             existing = cur.fetchone()
 
             if existing:
@@ -17928,8 +18342,8 @@ def api_ml_publicar_lote():
                 if code not in (200, 201):
                     resultados.append({"ean": ean, "ok": False, "erro": f"ML {code}"})
                     continue
-                cur.execute("UPDATE ml_items SET preco=%s, status='active', updated_at=NOW() WHERE ml_item_id=%s",
-                            (preco, ml_item_id))
+                cur.execute("UPDATE ml_items SET preco=%s, status='active', updated_at=NOW() WHERE ml_item_id=%s AND cnpjloja=%s",
+                            (preco, ml_item_id, cnpjloja))
                 conn.commit()
                 resultados.append({"ean": ean, "ok": True, "ml_item_id": ml_item_id, "acao": "atualizado"})
             else:
@@ -17953,10 +18367,11 @@ def api_ml_publicar_lote():
                     continue
                 ml_item_id = resp.get("id", "")
                 cur.execute("""
-                    INSERT INTO ml_items (ml_item_id, ean, titulo, preco, status, updated_at)
-                    VALUES (%s, %s, %s, %s, 'active', NOW())
-                    ON CONFLICT (ml_item_id) DO UPDATE SET preco=%s, status='active', updated_at=NOW()
-                """, (ml_item_id, ean, titulo, preco, preco))
+                    INSERT INTO ml_items (ml_item_id, ean, titulo, preco, category_id, cnpjloja, status, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW())
+                    ON CONFLICT (ml_item_id) DO UPDATE
+                      SET preco=%s, category_id=%s, cnpjloja=%s, status='active', updated_at=NOW()
+                """, (ml_item_id, ean, titulo, preco, category_id, cnpjloja, preco, category_id, cnpjloja))
                 conn.commit()
                 resultados.append({"ean": ean, "ok": True, "ml_item_id": ml_item_id, "acao": "publicado"})
         except Exception as ex:

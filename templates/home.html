@@ -462,7 +462,6 @@
 .lembrete-carousel { gap:12px; padding:2px 2px 6px; }
 .home-row-wrap > .lembrete-thead { display:none; }
 .lembrete-prod { flex:0 0 clamp(180px, 18vw, 210px); }
-.lembrete-prod .home-prod-img { height:auto; }
 .lembrete-prod-tags { display:flex; flex-wrap:wrap; align-content:flex-start; gap:5px; margin-top:7px; min-height:48px; }
 .lembrete-prod-fallback { display:flex; align-items:center; justify-content:center; color:#c8102e; font-size:2rem; background:#fff5f6; }
 .lembrete-prod .lembrete-btn-repor {
@@ -783,10 +782,10 @@
 
 /* â”€â”€ Economia com IA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .home-economia-ia {
-  background:linear-gradient(135deg,#1a1a2e 0%,#0f1117 100%);
+  background:linear-gradient(135deg,#c8102e 0%,#8b0b1e 100%);
   border-radius:22px; padding:22px 20px;
-  border:2px solid rgba(200,16,46,.55);
-  box-shadow:0 8px 32px rgba(200,16,46,.18);
+  border:none;
+  box-shadow:0 8px 32px rgba(200,16,46,.35);
 }
 .heia-header { display:flex; align-items:flex-start; gap:14px; margin-bottom:16px; }
 .heia-avatar {
@@ -798,7 +797,7 @@
   animation:heia-pulse 2.8s ease-in-out infinite;
 }
 @keyframes heia-pulse { 0%,100%{box-shadow:0 4px 18px rgba(124,58,237,.42)} 50%{box-shadow:0 4px 28px rgba(124,58,237,.7)} }
-.heia-badge { font-size:.62rem; font-weight:900; color:#a78bfa; text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; display:flex; align-items:center; gap:5px; }
+.heia-badge { font-size:.62rem; font-weight:900; color:rgba(255,255,255,.8); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; display:flex; align-items:center; gap:5px; }
 .heia-msg { font-size:.92rem; font-weight:700; color:#e2e8f0; line-height:1.5; }
 .heia-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 .heia-prod {
@@ -1009,16 +1008,10 @@
         <div class="home-sub">Medicamentos que podem estar acabando com base no seu histórico.</div>
       </div>
     </div>
-    <div class="lembrete-table-wrap">
-      <div class="lembrete-thead">
-        <span></span>
-        <span>Medicamento</span>
-        <span class="lh-cat">Categoria</span>
-        <span class="lh-status">Status</span>
-        <span class="lh-dias">Há (dias)</span>
-        <span></span>
-      </div>
-      <div id="home-lembretes"></div>
+    <div class="home-row-wrap">
+      <button class="home-row-cnav home-row-cnav--prev" onclick="_homeCarouselNav('home-lembretes',-1)" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="home-lembretes" class="home-row lembrete-carousel"></div>
+      <button class="home-row-cnav home-row-cnav--next" onclick="_homeCarouselNav('home-lembretes',1)" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
     </div>
   </section>
 
@@ -1527,7 +1520,7 @@ function renderLembrete(l) {
       <span class="lembrete-tag lembrete-tag--tipo"><i class="fa ${cfg.ico}" style="font-size:.5rem;margin-right:2px"></i>${hEsc(tipoLabel)}</span>
       ${statusTag}
     </div>
-    <div class="home-prod-meta">${dias > 0 ? `Comprado ha ${dias} dias` : 'Baseado no historico'}</div>
+    <div class="home-prod-meta">${dias > 0 ? `Comprado há ${dias} dias` : 'Baseado no histórico'}</div>
     ${precoNum > 0 ? `<div class="home-prod-price">${hBrl(precoNum)}</div>` : ''}
     ${homeCartButton(l, precoNum, 'Repor agora')}
   </a>`;
@@ -1574,6 +1567,7 @@ function carregarInsights() {
       if (lembretes.length) {
         document.getElementById('sec-lembretes').style.display = '';
         document.getElementById('home-lembretes').innerHTML = lembretes.map(renderLembrete).join('');
+        setTimeout(()=>_homeCarousel('home-lembretes'), 50);
       }
 
       // Para você (só com imagem e preço)

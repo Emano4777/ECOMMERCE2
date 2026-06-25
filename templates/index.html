@@ -42,11 +42,12 @@
 <style>
 /* ── NAVBAR SEARCH BLOCK ────────────────────────── */
 .idx-nb-wrap {
-  flex: 1;
+  flex: 1 1 440px;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 140px;
+  min-width: 0;
+  max-width: 560px;
 }
 .idx-nb-search {
   position: relative;
@@ -186,10 +187,16 @@
   .idx-nb-exibir { display: none; }
   .idx-nb-filtro-label { display: none; }
 }
-@media(max-width:680px) {
+@media(max-width:1180px) {
   .idx-nb-wrap {
     order: 10;
     flex: 0 0 100%;
+    max-width: 100%;
+    margin: 4px 0 2px;
+  }
+}
+@media(max-width:680px) {
+  .idx-nb-wrap {
     padding: 4px 0 6px;
   }
 }
@@ -396,7 +403,9 @@
 }
 @media(max-width:360px) {
   .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .prod-buy-row { grid-template-columns: 1fr; gap: 6px; }
+  .prod-buy-row { flex-direction: column; gap: 6px; }
+  .prod-qty-ctrl,
+  .prod-add-btn { width: 100%; }
 }
 
 /* ── PRODUCT CARD ───────────────────────────────── */
@@ -525,29 +534,38 @@
   flex-shrink: 0;
 }
 .prod-add-btn {
-  margin-top: 8px;
   background: var(--pq-red);
   color: #fff;
   text-align: center;
-  padding: 7px 10px;
+  padding: 0 9px;
   border-radius: 8px;
-  font-size: .78rem;
+  font-size: .74rem;
   font-weight: 700;
   border: none;
   cursor: pointer;
   font-family: inherit;
-  width: 100%;
+  width: auto;
+  min-width: 68px;
+  height: 34px;
+  line-height: 1.1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   transition: background .15s;
 }
 .prod-card:hover .prod-add-btn { background: var(--pq-red-dk); }
 .prod-buy-row {
   margin-top: 8px;
-  display: grid;
-  grid-template-columns: 82px 1fr;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
   gap: 8px;
 }
 .prod-qty-ctrl {
   height: 34px;
+  width: 82px;
+  flex: 0 0 82px;
   display: grid;
   grid-template-columns: 24px 1fr 24px;
   align-items: center;
@@ -938,6 +956,7 @@ let _serverSearchTimer = null;
 let _lastServerSearch = '';
 let _serverSearchLoading = false;
 let _produtosLoadSeq = 0;
+let _allowUrlSearchFallback = true;
 const _cuponsIndex = {};   // {cnpjloja: [{codigo, desconto_tipo, desconto_valor, escopo, ...}]}
 const _planosIndex = {};   // {cnpjloja: {nome, preco, ja_assina}}
 const IS_CONSUMIDOR = {{ (consumidor is not none)|tojson }};
@@ -945,6 +964,14 @@ const LOJAS_SERVIDOR = {{ (lojas | map(attribute='cnpjloja') | list | tojson) if
 const LOJAS_SERVIDOR_NOMES = {{ (lojas | map(attribute='razao') | list | tojson) if lojas is defined else '[]' }};
 const FAVORITOS = new Set();
 const INITIAL_PARAMS = new URLSearchParams(location.search);
+function initialCatalogQuery() {
+  const explicit = INITIAL_PARAMS.get('q') || INITIAL_PARAMS.get('busca') || INITIAL_PARAMS.get('search') || '';
+  if (explicit) return explicit.trim();
+  const raw = (location.search || '').replace(/^\?/, '');
+  if (raw && !raw.includes('=')) return decodeURIComponent(raw.replace(/\+/g, ' ')).trim();
+  return '';
+}
+const INITIAL_Q = initialCatalogQuery();
 const ONLY_OFFERS = INITIAL_PARAMS.get('ofertas') === '1';
 const INTERESSE_KEY = 'pq_anon_interesse';
 const _interessesRegistrados = new Set();
@@ -973,6 +1000,12 @@ function brl(v) {
 
 function normTxt(s) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function catalogSearchTerm() {
+  const inp = document.getElementById('search-inp');
+  if (inp) return (inp.value || '').trim();
+  return (INITIAL_Q || '').trim();
 }
 
 const SYMPTOM_TERMS = {
@@ -1316,17 +1349,29 @@ function filtrar(q) {
   }
   if (precisaServidor && termo !== _lastServerSearch) {
     _serverSearchLoading = true;
-    filterAndRender(true);
     _serverSearchTimer = setTimeout(() => {
       carregarProdutos(_currentLat, _currentLng, termo);
     }, 280);
+    try {
+      filterAndRender(true);
+    } catch (err) {
+      console.error('Erro ao preparar busca no catálogo', err);
+    }
   } else if (!termo && _lastServerSearch) {
     _serverSearchLoading = true;
-    filterAndRender(true);
     _serverSearchTimer = setTimeout(() => carregarProdutos(_currentLat, _currentLng, ''), 250);
+    try {
+      filterAndRender(true);
+    } catch (err) {
+      console.error('Erro ao limpar busca no catálogo', err);
+    }
   } else {
     _serverSearchLoading = false;
-    filterAndRender(true);
+    try {
+      filterAndRender(true);
+    } catch (err) {
+      console.error('Erro ao filtrar catálogo', err);
+    }
   }
 }
 
@@ -1458,6 +1503,8 @@ function renderSortList() {
 
 function clearFilters() {
   document.getElementById('search-inp').value = '';
+  _allowUrlSearchFallback = false;
+  if (location.search) history.replaceState(null, '', location.pathname);
   _sugestoesHide(true);
   storeSel.value = '';
   catSel.value = '';
@@ -1629,23 +1676,39 @@ async function enviarSugestaoRegiao() {
 function carregarProdutos(lat, lng, busca='') {
   _currentLat = lat;
   _currentLng = lng;
-  _lastServerSearch = (busca || '').trim();
+  const urlSearch = initialCatalogQuery();
+  const inputSearch = catalogSearchTerm();
+  _lastServerSearch = (busca || inputSearch || (_allowUrlSearchFallback ? urlSearch : '') || '').trim();
+  if (_lastServerSearch && urlSearch && _lastServerSearch === urlSearch) {
+    _allowUrlSearchFallback = false;
+  }
   const loadSeq = ++_produtosLoadSeq;
   const requestedSearch = _lastServerSearch;
   const params = new URLSearchParams({lat, lng});
   if (_lastServerSearch) params.set('q', _lastServerSearch);
-  const _activeCat = catSel ? catSel.value : '';
+  const _activeCat = (catSel && catSel.value) ? catSel.value : (INITIAL_PARAMS.get('cat') || '');
   if (_activeCat) params.set('cat', _activeCat);
   fetch(`/api/produtos-proximos?${params.toString()}`)
     .then(r => r.json())
     .then(data => {
-      const currentSearch = (document.getElementById('search-inp')?.value || '').trim();
+      const currentSearch = catalogSearchTerm();
       if (loadSeq !== _produtosLoadSeq) return;
       if (requestedSearch && currentSearch !== requestedSearch) return;
-      if (!requestedSearch && (currentSearch.length >= 3 || /^\d{8,}$/.test(currentSearch.replace(/\D/g, '')))) return;
+      if (!requestedSearch && (currentSearch.length >= 3 || /^\d{8,}$/.test(currentSearch.replace(/\D/g, '')))) {
+        carregarProdutos(lat, lng, currentSearch);
+        return;
+      }
       _serverSearchLoading = false;
       allProdutos = data.produtos || [];
       if (data.cnpjs_proximos && data.cnpjs_proximos.length) _cnpjsProximos = data.cnpjs_proximos;
+      _encomendaLojas = [];
+      if (data.lojas_proximas && data.lojas_proximas.length) {
+        _encomendaLojas = data.lojas_proximas.map(l => ({
+          cnpjloja: l.cnpjloja,
+          razao: l.razao || l.cnpjloja,
+          distancia_km: l.distancia_km
+        }));
+      }
 
       // Poupinha: mostra saudação quando busca NL retorna resultado OU quando encontrou genérico
       const poupinhaBubble = document.getElementById('poupinha-bubble');
@@ -1662,7 +1725,7 @@ function carregarProdutos(lat, lng, busca='') {
       }
 
       // Mantém lista de farmácias próximas para o modal de encomenda
-      if (allProdutos.length) {
+      if (allProdutos.length && !_encomendaLojas.length) {
         const _seenEnc = new Set();
         _encomendaLojas = allProdutos
           .filter(p => p.cnpjloja && !_seenEnc.has(p.cnpjloja) && _seenEnc.add(p.cnpjloja))
@@ -1822,7 +1885,10 @@ function carregarProdutos(lat, lng, busca='') {
       // Sem produtos na região: card regional já foi inserido, não renderizar filtro
       if (!allProdutos.length) return;
 
-      hydrateFilters();
+      try {
+        hydrateFilters();
+      } catch (_) {}
+      filterAndRender(true);
       // Busca cupons disponíveis (só se logado)
       const allCnpjs = [...new Set(allProdutos.map(p => p.cnpjloja).filter(Boolean))];
       const fetchPlanos = allCnpjs.length
@@ -1848,7 +1914,7 @@ function carregarProdutos(lat, lng, busca='') {
             })
             .catch(() => {}),
           fetchPlanos,
-        ]).then(() => filterAndRender(true));
+        ]).then(() => filterAndRender(false)).catch(() => {});
       } else {
         const cnpjs = allCnpjs.slice(0, 16);
         Promise.all([
@@ -1859,7 +1925,7 @@ function carregarProdutos(lat, lng, busca='') {
               .catch(() => {})
           ),
           fetchPlanos,
-        ]).then(() => filterAndRender(true));
+        ]).then(() => filterAndRender(false)).catch(() => {});
       }
     })
     .catch(() => {
@@ -1926,13 +1992,13 @@ function irParaCidade(lat, lng, nome, uf) {
   localStorage.setItem('pq_lat', lat);
   localStorage.setItem('pq_lng', lng);
   titleEl.textContent = 'Buscando produtos em ' + nome + '…';
-  carregarProdutos(lat, lng, document.getElementById('search-inp')?.value || '');
+  carregarProdutos(lat, lng, catalogSearchTerm());
 }
 
 /* Chamado pelo base_public quando localização estiver pronta */
 function onLocationReady(lat, lng) {
   titleEl.textContent = 'Buscando produtos próximos…';
-  carregarProdutos(lat, lng, document.getElementById('search-inp')?.value || '');
+  carregarProdutos(lat, lng, catalogSearchTerm());
 }
 
 /* Usa localização salva ou aguarda 3s antes de carregar sem localização */
@@ -1942,22 +2008,32 @@ if (['25','50','100'].includes(savedPageSize)) {
   const ds = document.getElementById('page-size-drawer');
   if (ds) ds.value = savedPageSize;
 }
-const initialQ = INITIAL_PARAMS.get('q') || '';
-if (initialQ && document.getElementById('search-inp')) {
-  document.getElementById('search-inp').value = initialQ;
+const _searchInputEl = document.getElementById('search-inp');
+if (_searchInputEl) {
+  _searchInputEl.value = INITIAL_Q || '';
 }
 
 const _lat = localStorage.getItem('pq_lat');
 const _lng = localStorage.getItem('pq_lng');
 if (_lat && _lng) {
-  carregarProdutos(parseFloat(_lat), parseFloat(_lng), initialQ);
+  carregarProdutos(parseFloat(_lat), parseFloat(_lng), INITIAL_Q);
 } else {
   setTimeout(() => {
     if (skelGrid.style.display !== 'none') {
-      carregarProdutos(0, 0, initialQ);
+      carregarProdutos(0, 0, INITIAL_Q);
     }
   }, 3000);
 }
+
+function ensureVisibleSearchRequested() {
+  const termo = catalogSearchTerm();
+  if (!termo || termo.length < 3 || _currentLat === null || _currentLng === null) return;
+  if (_lastServerSearch !== termo || _serverSearchLoading) {
+    carregarProdutos(_currentLat, _currentLng, termo);
+  }
+}
+setTimeout(ensureVisibleSearchRequested, 250);
+setTimeout(ensureVisibleSearchRequested, 1200);
 
 /* ─── Autocomplete / Sugestões ─── */
 let _sugTimer = null;

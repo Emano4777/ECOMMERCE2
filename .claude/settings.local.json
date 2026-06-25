@@ -97,7 +97,20 @@
       "PowerShell(python \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\add_cron.py\" 2>&1)",
       "Bash(grep -viE \"^\\\\./\\\\.git\")",
       "Bash(python3 -c \"import secrets,string; alphabet=string.ascii_letters+string.digits; print\\(''.join\\(secrets.choice\\(alphabet\\) for _ in range\\(24\\)\\)\\)\")",
-      "PowerShell($bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create\\(\\).GetBytes\\($bytes\\); $pw = [Convert]::ToBase64String\\($bytes\\) -replace '[+/=]',''; $pw.Substring\\(0,28\\))"
+      "PowerShell($bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create\\(\\).GetBytes\\($bytes\\); $pw = [Convert]::ToBase64String\\($bytes\\) -replace '[+/=]',''; $pw.Substring\\(0,28\\))",
+      "Bash(grep -n \"def.*home\\\\|@app.route.*'/$'\\\\|@app.get.*'/$'\" \"c:\\\\Users\\\\Public\\\\dns-ecommerce\\\\app.py\")",
+      "Bash(grep -E \"/$|index\")",
+      "Bash(grep -E \"\\\\.html$\")",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\windows\\\\Downloads\" | Where-Object { $_.LastWriteTime -gt \"2026-06-18 15:55\" -and $_.LastWriteTime -lt \"2026-06-18 16:05\" } | Select-Object Name, LastWriteTime)",
+      "Bash(Copy-Item \"C:\\\\Users\\\\windows\\\\Downloads\\\\VIT NATU TRANSPARENCY.png\" \"c:\\\\Users\\\\Public\\\\dns-ecommerce\\\\static\\\\icons\\\\vitnatu.png\")",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\windows\\\\Downloads\\\\WhatsApp Image 2026-06-22 at 12.34.10.jpeg\" \"c:\\\\Users\\\\Public\\\\dns-ecommerce\\\\static\\\\icons\\\\ico-relogio.jpg\")",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\windows\\\\Downloads\\\\WhatsApp Image 2026-06-22 at 12.34.11.jpeg\" \"c:\\\\Users\\\\Public\\\\dns-ecommerce\\\\static\\\\icons\\\\ico-topo.jpg\")",
+      "Bash(git checkout *)",
+      "Bash(grep \"^+.*function\\\\|^+.*{$\\\\|^+.*}$\")",
+      "Bash(grep -v \"^\\\\+\\\\s*//\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\windows\\Downloads"
     ]
   }
 }

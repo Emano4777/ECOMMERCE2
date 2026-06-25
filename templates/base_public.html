@@ -30,6 +30,8 @@
       --pq-border:   #e0e0e0;
       --pq-radius:   14px;
       --pq-shadow:   0 1px 6px rgba(0,0,0,.08), 0 2px 12px rgba(0,0,0,.04);
+      --pq-shell-max: 1240px;
+      --pq-shell-pad: 20px;
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: 'Montserrat', system-ui, sans-serif; background: var(--pq-bg); color: var(--pq-text); }
@@ -41,18 +43,18 @@
       border-bottom: none;
       position: sticky;
       top: 0;
-      z-index: 200;
+      z-index: 1200;
       box-shadow: 0 3px 16px rgba(180,8,28,.28);
     }
     .pq-topbar-inner {
-      max-width: 1180px;
+      max-width: var(--pq-shell-max);
       margin: 0 auto;
-      padding: 5px 20px;
+      padding: 5px var(--pq-shell-pad);
       min-height: 52px;
       display: flex;
       align-items: center;
       flex-wrap: nowrap;
-      gap: 0 10px;
+      gap: 0 12px;
       width: 100%;
       box-sizing: border-box;
     }
@@ -66,9 +68,11 @@
       text-decoration: none;
       white-space: nowrap;
       letter-spacing: -.3px;
+      flex: 0 0 92px;
     }
     .pq-brand-logo {
-      height: 54px;
+      height: 92px;
+      max-width: 92px;
       width: auto;
       margin-right: 0;
       border-radius: 6px;
@@ -91,14 +95,15 @@
       backdrop-filter: blur(6px);
       transition: background .15s, border-color .15s;
       min-width: 38px;
-      flex: 0 0 auto;
-      max-width: 280px;
+      flex: 0 1 auto;
+      max-width: 260px;
     }
 
     /* ── SEARCH NA TOPBAR ────────────────────────────── */
     .pq-topbar-search {
-      flex: 0 1 420px;
+      flex: 1 1 440px;
       min-width: 0;
+      max-width: 470px;
       position: relative;
       background: rgba(255,255,255,.97);
       border-radius: 24px;
@@ -156,7 +161,7 @@
       text-decoration: none;
       font-size: .64rem;
       font-weight: 700;
-      padding: 5px 10px;
+      padding: 5px 8px;
       border-radius: 8px;
       white-space: nowrap;
       text-align: center;
@@ -169,7 +174,7 @@
       position: relative;
     }
     .pq-nav-link:hover { background: rgba(255,255,255,.18); color: #fff; }
-    .pq-nav-link .pq-custom-ico { width: 28px; height: 28px; }
+    .pq-nav-link .pq-custom-ico { width: 28px; height: 28px; flex:0 0 auto; }
     .pq-loc-btn:hover { background: rgba(255,255,255,.28); border-color: rgba(255,255,255,.6); }
     .pq-loc-icon { color: #fff; font-size: 1rem; flex-shrink: 0; }
     .pq-loc-texts { min-width: 0; flex: 1; }
@@ -178,8 +183,8 @@
     @media(min-width:1200px){ .pq-loc-addr { max-width: none; } }
     .pq-loc-arrow { color: rgba(255,255,255,.7); font-size: .7rem; flex-shrink: 0; }
 
-    .pq-topbar-left { flex: 1; display: flex; align-items: center; gap: 28px; min-width: 0; }
-    .pq-topbar-right { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+    .pq-topbar-left { flex: 0 1 360px; display: flex; align-items: center; gap: 18px; min-width: 0; }
+    .pq-topbar-right { flex: 0 1 auto; display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width:0; }
     .pq-topbar-link {
       color: rgba(255,255,255,.92);
       text-decoration: none;
@@ -230,7 +235,7 @@
       overflow-y: auto;
       max-height: calc(100vh - 80px);
       display: none;
-      z-index: 700;
+      z-index: 1250;
     }
     .pq-user-dropdown.show { display: block; }
     .pq-user-head {
@@ -374,7 +379,7 @@
       display: none;
       position: fixed; inset: 0;
       background: rgba(0,0,0,.45);
-      z-index: 500;
+      z-index: 1300;
     }
     .pq-drawer-overlay.open { display: block; }
 
@@ -383,11 +388,11 @@
       top: 0; right: 0; bottom: 0;
       width: 290px; max-width: 88vw;
       background: #fff;
-      z-index: 501;
+      z-index: 1301;
       transform: translateX(100%);
       transition: transform .25s cubic-bezier(.4,0,.2,1);
       display: flex; flex-direction: column;
-      overflow-y: auto;
+      overflow: hidden;
       box-shadow: -8px 0 32px rgba(0,0,0,.18);
     }
     .pq-drawer.open { transform: translateX(0); }
@@ -466,6 +471,18 @@
       font-weight: 900; padding: 1px 7px;
       margin-left: auto;
     }
+    .pq-drawer-scroll {
+      flex:1 1 auto;
+      min-height:0;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      padding-bottom:16px;
+    }
+    .pq-drawer-foot {
+      flex:0 0 auto;
+      border-top:1px solid var(--pq-border);
+      background:#fff;
+    }
 
     /* ── RESPONSIVE ─────────────────────────────────────── */
 
@@ -474,11 +491,13 @@
       .pq-loc-label { display: none; }
     }
 
-    /* tablet/mobile ≤ 1024px: hamburger + search na segunda linha */
-    @media(max-width:1024px) {
+    @media(max-width:1180px) {
+      :root { --pq-shell-pad: 14px; }
       .pq-hamburger { display: flex; }
       .pq-desktop-only { display: none !important; }
-      .pq-topbar-inner { flex-wrap: wrap; padding: 6px 14px; gap: 0 8px; }
+      .pq-topbar-inner { flex-wrap: wrap; padding-top: 6px; padding-bottom: 6px; gap: 0 8px; }
+      .pq-brand { flex-basis:82px; }
+      .pq-brand-logo { height: 82px; max-width:82px; }
       .pq-topbar-left { flex: 1 1 auto; min-width: 0; gap: 12px; }
       .pq-topbar-right { flex: 0 0 auto; gap: 4px; }
       .pq-topbar-search {
@@ -489,14 +508,22 @@
       }
     }
 
+    @media(min-width:1181px) {
+      .pq-topbar-search { min-width: 320px; }
+      .pq-nav-link { flex:0 0 auto; }
+    }
+
     /* tablet menor ≤ 900px */
     @media(max-width:900px) {
-      .pq-topbar-inner { padding: 5px 10px; }
+      :root { --pq-shell-pad: 10px; }
+      .pq-topbar-inner { padding-top: 5px; padding-bottom: 5px; }
       .pq-loc-btn { max-width: 200px; padding: 5px 10px; }
     }
 
     /* mobile ≤ 680px */
     @media(max-width:680px) {
+      .pq-brand { flex-basis:72px; }
+      .pq-brand-logo { height: 72px; max-width:72px; }
       .pq-loc-btn { flex: 1 1 auto; max-width: none; min-width: 0; padding: 6px 10px; }
       .pq-brand-text { display: none; }
     }
@@ -514,7 +541,7 @@
       position: fixed;
       inset: 0;
       background: rgba(0,0,0,.4);
-      z-index: 300;
+      z-index: 1400;
       align-items: flex-start;
       justify-content: center;
       padding-top: 70px;
@@ -643,7 +670,14 @@
     .pq-red-strip p  { opacity: .85; margin: 0; font-size: .95rem; }
 
     /* ── MAIN ───────────────────────────────────────────── */
-    .pq-main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 60px; }
+    .pq-main { max-width: var(--pq-shell-max); margin: 0 auto; padding: 24px var(--pq-shell-pad) 60px; }
+    .pq-hero-strip > div,
+    .pq-red-strip > div {
+      max-width: var(--pq-shell-max) !important;
+      padding-left: var(--pq-shell-pad);
+      padding-right: var(--pq-shell-pad);
+      box-sizing: border-box;
+    }
 
     /* ── ALERTS ─────────────────────────────────────────── */
     .pq-alert { padding: 12px 16px; border-radius: 10px; margin-bottom: 14px; font-weight: 700; font-size: .88rem; display: flex; align-items: center; gap: 8px; }
@@ -652,47 +686,55 @@
     .pq-alert-info    { background: var(--pq-yellow-lt); border-left: 4px solid var(--pq-yellow); color: #5a4a00; }
 
     /* ── FOOTER ─────────────────────────────────────────── */
-    .pq-footer { background:#111827; color:rgba(255,255,255,.55); font-size:.82rem; margin-top:48px; }
+    .pq-footer {
+      background:var(--pq-red);
+      color:#fff;
+      font-family:'Montserrat', system-ui, sans-serif;
+      font-size:.92rem;
+      margin-top:64px;
+    }
     .pq-footer-inner {
-      max-width:1200px; margin:0 auto;
-      padding:52px 24px 0;
-      display:grid; grid-template-columns:1.8fr 1fr 1fr 1.3fr; gap:36px;
+      max-width:var(--pq-shell-max); margin:0 auto;
+      padding:42px var(--pq-shell-pad) 28px;
+      display:grid; grid-template-columns:1.6fr .9fr .9fr 1.15fr; gap:52px;
+      align-items:start;
     }
-    .pq-footer-brand img { height:44px; filter:brightness(0) invert(1); opacity:.88; }
-    .pq-footer-brand p { margin:14px 0 0; font-size:.81rem; line-height:1.65; color:rgba(255,255,255,.52); max-width:270px; }
-    .pq-footer-col-title { font-weight:900; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--pq-yellow); margin-bottom:16px; }
-    .pq-footer-link { display:flex; align-items:center; gap:8px; color:rgba(255,255,255,.55); text-decoration:none; padding:5px 0; font-size:.83rem; font-weight:600; transition:color .15s; }
-    .pq-footer-link:hover { color:#fff; }
-    .pq-footer-link i { width:16px; text-align:center; opacity:.65; flex-shrink:0; }
-    .pq-footer-social { display:flex; gap:10px; margin-top:18px; }
-    .pq-footer-social-btn {
-      width:42px; height:42px; border-radius:13px;
-      background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1);
-      display:flex; align-items:center; justify-content:center;
-      color:rgba(255,255,255,.65); font-size:1.08rem; text-decoration:none;
-      transition:background .15s, color .15s, border-color .15s, transform .15s;
-    }
-    .pq-footer-social-btn:hover { transform:translateY(-2px); border-color:transparent; color:#fff; }
-    .pq-footer-social-btn.ig:hover  { background:linear-gradient(135deg,#f9ce34,#ee2a7b,#6228d7); }
-    .pq-footer-social-btn.wa:hover  { background:#25d366; }
-    .pq-footer-divider { border:none; border-top:1px solid rgba(255,255,255,.07); margin:0; }
+    .pq-footer-brand-head { display:flex; align-items:center; gap:16px; margin-bottom:22px; }
+    .pq-footer-brand-logo { width:152px; height:auto; display:block; }
+    .pq-footer-instagram img { width:32px; height:32px; object-fit:contain; display:block; filter:brightness(0) saturate(100%) invert(83%) sepia(55%) saturate(900%) hue-rotate(5deg) brightness(105%); }
+    .pq-footer-brand p { margin:0; font-size:.94rem; line-height:1.35; color:#fff; max-width:360px; font-weight:500; }
+    .pq-footer-legal { margin-top:36px; font-size:.72rem; line-height:1.35; color:#fff; font-weight:600; max-width:430px; }
+    .pq-footer-copy { margin-top:34px; font-size:.72rem; color:#fff; font-weight:500; }
+    .pq-footer-col-title { font-weight:900; font-size:.82rem; letter-spacing:.02em; text-transform:uppercase; color:var(--pq-yellow); margin-bottom:12px; }
+    .pq-footer-link { display:block; color:#fff; text-decoration:none; padding:1px 0; font-size:.94rem; font-weight:500; line-height:1.22; transition:opacity .15s; }
+    .pq-footer-link:hover { color:#fff; opacity:.78; }
+    .pq-footer-link i { display:none; }
+    .pq-footer-divider { display:none; }
     .pq-footer-bottom {
-      max-width:1200px; margin:0 auto;
-      padding:20px 24px 24px;
-      display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+      max-width:var(--pq-shell-max); margin:0 auto;
+      padding:0 var(--pq-shell-pad) 34px;
+      display:flex; justify-content:flex-end;
     }
-    .pq-footer-bottom p { margin:0; font-size:.74rem; line-height:1.65; color:rgba(255,255,255,.38); }
-    .pq-footer-bottom strong { color:var(--pq-yellow); font-weight:900; }
+    .pq-footer-bottom p { margin:0; font-size:.72rem; line-height:1.35; color:#fff; }
     .pq-footer-badge {
-      display:inline-flex; align-items:center; gap:6px;
-      background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
-      border-radius:8px; padding:6px 12px;
-      font-size:.7rem; font-weight:700; color:rgba(255,255,255,.4);
-      white-space:nowrap;
+      display:flex; align-items:center; gap:12px;
+      color:#fff; font-size:.78rem; font-weight:600; white-space:nowrap;
     }
-    .pq-footer-badges { display:flex; gap:8px; flex-wrap:wrap; }
-    @media(max-width:900px){ .pq-footer-inner { grid-template-columns:1fr 1fr; gap:28px; } }
-    @media(max-width:560px){ .pq-footer-inner { grid-template-columns:1fr; gap:22px; padding-top:36px; } .pq-footer-bottom { flex-direction:column; text-align:center; } }
+    .pq-footer-badge img { width:28px; height:28px; object-fit:contain; flex-shrink:0; }
+    .pq-footer-badges { display:flex; flex-direction:column; gap:18px; min-width:340px; }
+    @media(max-width:900px){
+      .pq-footer-inner { grid-template-columns:1fr 1fr; gap:30px; }
+      .pq-footer-bottom { justify-content:flex-start; }
+      .pq-footer-badges { min-width:0; }
+    }
+    @media(max-width:560px){
+      .pq-footer { margin-top:42px; }
+      .pq-footer-inner { grid-template-columns:1fr; gap:24px; padding-top:34px; }
+      .pq-footer-brand-head { justify-content:flex-start; }
+      .pq-footer-brand-logo { width:140px; }
+      .pq-footer-bottom { padding-bottom:30px; }
+      .pq-footer-badge { white-space:normal; align-items:flex-start; }
+    }
 
     /* ── PRODUCT DETAIL MODAL ───────────────────────────── */
     .pq-prod-overlay {
@@ -700,7 +742,7 @@
       position: fixed;
       inset: 0;
       background: rgba(0,0,0,.52);
-      z-index: 500;
+      z-index: 1450;
       align-items: flex-start;
       justify-content: center;
       padding: 20px;
@@ -756,6 +798,150 @@
     .pq-prod-sec-title.warn { color: #c45e00; }
     .pq-prod-sec-body { font-size: .86rem; line-height: 1.6; color: var(--pq-text); }
     .pq-prod-loading { text-align: center; padding: 60px 20px; color: var(--pq-muted); }
+
+    /* ── CESTA LATERAL ─────────────────────────────────── */
+    .pq-cart-panel-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 1500;
+      display: none;
+    }
+    .pq-cart-panel-overlay.open { display: block; }
+    .pq-cart-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(420px, 100vw);
+      background: #fff;
+      z-index: 1501;
+      transform: translateX(100%);
+      transition: transform .25s ease;
+      display: flex;
+      flex-direction: column;
+      box-shadow: -18px 0 50px rgba(15,23,42,.22);
+    }
+    .pq-cart-panel.open { transform: translateX(0); }
+    .pq-cart-panel-head {
+      padding: 24px 24px 14px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .pq-cart-panel-title { font-size:1.25rem; font-weight:900; color:var(--pq-text); display:flex; align-items:center; gap:10px; }
+    .pq-cart-panel-title img { width:28px; height:28px; filter:none; object-fit:contain; }
+    .pq-cart-panel-count { color:var(--pq-muted); font-size:.85rem; font-weight:700; margin-top:4px; }
+    .pq-cart-panel-close {
+      width:36px; height:36px; border:0; border-radius:50%;
+      background:#f3f4f6; color:#4b5563; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      font-size:1rem;
+    }
+    .pq-cart-panel-close:hover { background:#fff0f2; color:var(--pq-red); }
+    .pq-cart-panel-body { flex:1; min-height:0; overflow-y:auto; padding: 6px 24px 18px; }
+    .pq-cart-side-item {
+      display:grid;
+      grid-template-columns:64px 1fr auto;
+      gap:12px;
+      padding:14px 0;
+      border-bottom:1px solid #eef0f3;
+      align-items:start;
+    }
+    .pq-cart-side-img {
+      width:64px; height:64px; border-radius:8px; background:#f5f5f5;
+      object-fit:contain; padding:4px; border:1px solid #eee;
+    }
+    .pq-cart-side-ph {
+      width:64px; height:64px; border-radius:8px; background:#f5f5f5; color:#c8c8c8;
+      display:flex; align-items:center; justify-content:center; font-size:1.5rem; border:1px solid #eee;
+    }
+    .pq-cart-side-name { font-family:'Montserrat', system-ui, sans-serif; font-size:.86rem; font-weight:600; line-height:1.35; color:#333; }
+    .pq-cart-side-store { margin-top:4px; color:var(--pq-muted); font-family:'Montserrat', system-ui, sans-serif; font-size:.73rem; font-weight:400; line-height:1.3; }
+    .pq-cart-side-price { margin-top:9px; font-family:'Montserrat', system-ui, sans-serif; font-weight:600; color:var(--pq-red); font-size:.95rem; }
+    .pq-cart-side-remove {
+      border:0; background:transparent; color:#6b7280; cursor:pointer; padding:3px;
+      font-size:1rem; border-radius:6px;
+    }
+    .pq-cart-side-remove:hover { background:#fff0f2; color:var(--pq-red); }
+    .pq-cart-side-qty {
+      margin-top:10px;
+      min-width:62px;
+      height:36px;
+      border-radius:10px;
+      background:#f1f1f1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      color:#333;
+      font-weight:900;
+      font-size:.88rem;
+    }
+    .pq-cart-side-qty button {
+      width:20px; height:20px; border:0; background:transparent; cursor:pointer;
+      color:#555; font-weight:900; display:flex; align-items:center; justify-content:center;
+    }
+    .pq-cart-empty {
+      min-height: calc(100vh - 210px);
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:center;
+      text-align:center;
+      padding:28px 10px;
+    }
+    .pq-cart-empty-icon {
+      width:96px; height:96px; border-radius:28px;
+      background:#fff3f5;
+      display:flex; align-items:center; justify-content:center;
+      margin-bottom:18px;
+      box-shadow:0 12px 30px rgba(200,16,46,.12);
+    }
+    .pq-cart-empty-icon img { width:52px; height:52px; object-fit:contain; }
+    .pq-cart-empty h3 { margin:0 0 8px; font-size:1.12rem; font-weight:900; color:var(--pq-text); }
+    .pq-cart-empty p { margin:0; max-width:300px; color:var(--pq-muted); line-height:1.55; font-size:.9rem; }
+    .pq-cart-panel-foot {
+      flex:0 0 auto;
+      border-top:1px solid #e5e7eb;
+      padding:18px 24px 22px;
+      background:#fff;
+    }
+    .pq-cart-subtotal {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      color:#4b5563;
+      font-weight:700;
+      margin-bottom:12px;
+    }
+    .pq-cart-subtotal strong { color:var(--pq-text); font-size:1.02rem; }
+    .pq-cart-action {
+      width:100%;
+      min-height:48px;
+      border-radius:24px;
+      border:1.5px solid #d1d5db;
+      background:#fff;
+      color:#333;
+      font-weight:900;
+      font-family:inherit;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      text-decoration:none;
+      cursor:pointer;
+      margin-top:9px;
+    }
+    .pq-cart-action.primary { background:var(--pq-red); border-color:var(--pq-red); color:#fff; }
+    .pq-cart-action.primary:hover { background:var(--pq-red-dk); border-color:var(--pq-red-dk); color:#fff; }
+    .pq-cart-action:hover { border-color:var(--pq-red); color:var(--pq-red); }
+    @media(max-width:520px) {
+      .pq-cart-panel { width:100vw; }
+      .pq-cart-panel-head, .pq-cart-panel-body, .pq-cart-panel-foot { padding-left:20px; padding-right:20px; }
+    }
 
     /* ── CAROUSEL DE RECOMENDAÇÕES (global) ──────────────── */
     .pq-recs-section {
@@ -871,7 +1057,14 @@
     </div>
   </div>
 
-  {% block topbar_search %}{% endblock %}
+  {% block topbar_search %}
+  <form class="pq-topbar-search" action="{{ url_for('catalogo_publico') }}" method="get" autocomplete="off">
+    <input name="q" type="text" placeholder="Buscar item ou medicamento">
+    <button type="submit" class="pq-topbar-search-btn" title="Buscar" aria-label="Buscar">
+      <i class="fa fa-magnifying-glass"></i>
+    </button>
+  </form>
+  {% endblock %}
 
   <div class="pq-topbar-right">
     <a class="pq-nav-link pq-desktop-only" href="{{ url_for('receita_medica') }}">
@@ -885,7 +1078,7 @@
       <img src="{{ url_for('static', filename='icons/store.png') }}" alt="" class="pq-custom-ico">
       <span>Farmácias<br>Próximas</span>
     </a>
-    <a class="pq-nav-link" href="{{ url_for('carrinho') }}">
+    <a class="pq-nav-link" href="{{ url_for('carrinho') }}" onclick="return abrirCestaLateral(event)">
       <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="" class="pq-custom-ico">
       <span>Sua<br>Cesta</span>
       <span id="cart-badge" style="position:absolute;top:-3px;right:-3px;background:#fff;color:var(--pq-red);font-size:.58rem;font-weight:800;min-width:17px;height:17px;border-radius:9px;padding:0 3px;display:none;align-items:center;justify-content:center;line-height:1">0</span>
@@ -912,16 +1105,6 @@
         </div>
         <div class="pq-user-list">
         <div class="pq-user-section-title">Atalhos da conta</div>
-        <a class="pq-user-item" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i><span>Meus pedidos<small>Acompanhe suas compras</small></span><b class="pq-user-item-arrow">›</b></a>
-        <a class="pq-user-item" href="{{ url_for('consumidor_notificacoes') }}">
-          <i class="fa fa-bell"></i>
-          <span>Notificacoes<small>Sistema, pedidos e beneficios</small></span>
-          {% if consumidor_notif_nao_lidas > 0 %}
-          <span style="background:#c8102e;color:#fff;border-radius:999px;font-size:.68rem;font-weight:900;padding:1px 7px;margin-left:auto">{{ consumidor_notif_nao_lidas }}</span>
-          {% else %}
-          <b class="pq-user-item-arrow">›</b>
-          {% endif %}
-        </a>
         {% if consumidor_rec_abertas > 0 %}
         <a class="pq-user-item" href="{{ url_for('minhas_reclamacoes') }}">
           <i class="fa fa-triangle-exclamation" style="color:#d97706"></i>
@@ -940,7 +1123,6 @@
         {% endif %}
         <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i><span>Meus cupons<small>Descontos disponíveis</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
-        <a class="pq-user-item" href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i><span>Sair</span></a>
         </div>
@@ -970,6 +1152,7 @@
     <button class="pq-drawer-close" onclick="fecharDrawer()"><i class="fa fa-xmark"></i></button>
   </div>
 
+  <div class="pq-drawer-scroll">
   {% if consumidor %}
   <div class="pq-drawer-user">
     <div class="pq-drawer-user-icon"><i class="fa fa-user"></i></div>
@@ -1029,12 +1212,13 @@
   <a class="pq-drawer-item" href="{{ url_for('lojas_vitrine') }}" onclick="fecharDrawer()">
     <i class="fa fa-store"></i>Nossas lojas
   </a>
-  <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer()">
-    <i class="fa fa-cart-shopping"></i>Carrinho
+  <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer();return abrirCestaLateral(event)">
+    <i class="fa fa-basket-shopping"></i>Minha cesta
   </a>
+  </div>
 
   {% if consumidor %}
-  <div style="margin-top:auto;border-top:1px solid var(--pq-border)">
+  <div class="pq-drawer-foot">
     <a class="pq-drawer-item danger" href="{{ url_for('consumidor_logout') }}">
       <i class="fa fa-right-from-bracket"></i>Sair
     </a>
@@ -1042,6 +1226,25 @@
   {% endif %}
 </div>
 <div id="cart-toast" style="position:fixed;bottom:20px;right:20px;background:#1a1a1a;color:#fff;padding:10px 18px;border-radius:10px;font-size:.86rem;font-weight:700;opacity:0;transform:translateY(10px);transition:opacity .2s,transform .2s;z-index:600;pointer-events:none"></div>
+
+<!-- CESTA LATERAL -->
+<div class="pq-cart-panel-overlay" id="pq-cart-panel-overlay" onclick="fecharCestaLateral()"></div>
+<aside class="pq-cart-panel" id="pq-cart-panel" aria-hidden="true">
+  <div class="pq-cart-panel-head">
+    <div>
+      <div class="pq-cart-panel-title">
+        <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="">
+        <span>Minha cesta</span>
+      </div>
+      <div class="pq-cart-panel-count" id="pq-cart-panel-count">Nenhum item</div>
+    </div>
+    <button class="pq-cart-panel-close" type="button" onclick="fecharCestaLateral()" aria-label="Fechar cesta">
+      <i class="fa fa-xmark"></i>
+    </button>
+  </div>
+  <div class="pq-cart-panel-body" id="pq-cart-panel-body"></div>
+  <div class="pq-cart-panel-foot" id="pq-cart-panel-foot"></div>
+</aside>
 
 <!-- MODAL LOCALIZAÇÃO -->
 <div class="pq-loc-overlay" id="loc-overlay" onclick="if(event.target===this)fecharModalLoc()">
@@ -1117,64 +1320,58 @@
 <footer class="pq-footer">
   <div class="pq-footer-inner">
 
-    <!-- Marca -->
     <div class="pq-footer-brand">
-      <img src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
-      <p>Comparamos preços nas farmácias da rede para que você economize de verdade na sua saúde. Produtos com qualidade, preço justo e entrega rápida.</p>
-      <div class="pq-footer-social">
-        <a href="https://www.instagram.com/drogariaspoupaqui/" target="_blank" rel="noopener noreferrer" class="pq-footer-social-btn ig" title="Instagram Poupaqui" aria-label="Instagram">
-          <i class="fa-brands fa-instagram"></i>
-        </a>
-        <a href="https://wa.me/5511999999999" target="_blank" rel="noopener noreferrer" class="pq-footer-social-btn wa" title="WhatsApp SAC" aria-label="WhatsApp">
-          <i class="fa-brands fa-whatsapp"></i>
+      <div class="pq-footer-brand-head">
+        <img class="pq-footer-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Drogarias Poupaqui">
+        <a href="https://www.instagram.com/drogariaspoupaqui/" target="_blank" rel="noopener noreferrer" class="pq-footer-instagram" title="Instagram Drogarias Poupaqui" aria-label="Instagram Drogarias Poupaqui">
+          <img src="{{ url_for('static', filename='icons/footer-instagram.png') }}" alt="">
         </a>
       </div>
+      <p>Comparamos preços nas farmácias da rede para que você economize de verdade na sua saúde. Isso garante produtos com qualidade, preço justo e entrega rápida.</p>
+      <div class="pq-footer-legal">
+        Drogarias Poupaqui - Marketplace de farmácias da rede.<br>
+        Os preços e disponibilidade de itens são de responsabilidade de cada unidade cadastrada.
+      </div>
+      <div class="pq-footer-copy">© 2026 Drogarias Poupaqui - Todos os direitos reservados.</div>
     </div>
 
-    <!-- Navegação -->
     <div>
       <div class="pq-footer-col-title">Navegação</div>
-      <a class="pq-footer-link" href="{{ url_for('catalogo_publico') }}"><i class="fa fa-table-cells-large"></i>Catálogo de produtos</a>
-      <a class="pq-footer-link" href="{{ url_for('lojas_vitrine') }}"><i class="fa fa-store"></i>Nossas lojas</a>
-      <a class="pq-footer-link" href="{{ url_for('receita_medica') }}"><i class="fa fa-file-medical"></i>Busca por receita</a>
-      <a class="pq-footer-link" href="{{ url_for('vitnatu_page') }}"><i class="fa fa-leaf"></i>Marca própria</a>
-      <a class="pq-footer-link" href="{{ url_for('catalogo_publico', ofertas='1') }}"><i class="fa fa-bolt"></i>Ofertas relâmpago</a>
+      <a class="pq-footer-link" href="{{ url_for('lojas_vitrine') }}">Farmácias Próximas</a>
+      <a class="pq-footer-link" href="{{ url_for('receita_medica') }}">Busca rápida com Receita</a>
+      <a class="pq-footer-link" href="{{ url_for('vitnatu_page') }}">VITNATU</a>
+      <a class="pq-footer-link" href="{{ url_for('catalogo_publico', ofertas='1') }}">Ofertas Relâmpago</a>
     </div>
 
-    <!-- Minha conta -->
     <div>
       <div class="pq-footer-col-title">Minha conta</div>
-      <a class="pq-footer-link" href="{{ url_for('consumidor_login') }}"><i class="fa fa-right-to-bracket"></i>Entrar na conta</a>
-      <a class="pq-footer-link" href="{{ url_for('consumidor_criar_conta') }}"><i class="fa fa-user-plus"></i>Criar conta grátis</a>
-      <a class="pq-footer-link" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-receipt"></i>Meus pedidos</a>
-      <a class="pq-footer-link" href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i>Favoritos</a>
-      <a class="pq-footer-link" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i>Meus cupons</a>
+      <a class="pq-footer-link" href="{{ url_for('consumidor_criar_conta') }}">Criar conta</a>
+      <a class="pq-footer-link" href="{{ url_for('consumidor_login') }}">Entrar na conta</a>
+      <a class="pq-footer-link" href="{{ url_for('meus_pedidos') }}">Meus pedidos</a>
+      <a class="pq-footer-link" href="{{ url_for('carrinho') }}">Minha Cesta</a>
     </div>
 
-    <!-- Atendimento & Legal -->
     <div>
       <div class="pq-footer-col-title">Atendimento</div>
-      <a class="pq-footer-link" href="mailto:contato@poupaqui.com.br"><i class="fa fa-envelope"></i>contato@poupaqui.com.br</a>
-      <a class="pq-footer-link" href="{{ url_for('politica_privacidade') }}"><i class="fa fa-shield-halved"></i>Política de privacidade</a>
-      <a class="pq-footer-link" href="{{ url_for('minhas_reclamacoes') if consumidor else url_for('consumidor_login') }}"><i class="fa fa-comment-dots"></i>Reclamações / SAC</a>
-      <a class="pq-footer-link" href="https://consultas.anvisa.gov.br/#/bulario" target="_blank" rel="noopener noreferrer"><i class="fa fa-shield-heart"></i>Bulário ANVISA</a>
-      <a class="pq-footer-link" href="{{ url_for('minhas_assinaturas') if consumidor else url_for('consumidor_login') }}"><i class="fa fa-star"></i>Clube de assinatura</a>
+      <a class="pq-footer-link" href="mailto:contato@drogariaspoupaqui.com.br">contato@drogariaspoupaqui.com.br</a>
+      <a class="pq-footer-link" href="{{ url_for('politica_privacidade') }}">Política de Privacidade</a>
+      <a class="pq-footer-link" href="{{ url_for('minhas_reclamacoes') if consumidor else url_for('consumidor_login') }}">Reclamações/SAC</a>
+      <a class="pq-footer-link" href="https://consultas.anvisa.gov.br/#/bulario" target="_blank" rel="noopener noreferrer">Bulário Anvisa</a>
     </div>
 
   </div>
 
-  <hr class="pq-footer-divider" style="margin-top:40px">
-
   <div class="pq-footer-bottom">
-    <p>
-      <strong>Poupaqui</strong> — Marketplace de farmácias independentes.<br>
-      Os preços e a disponibilidade de produtos são de responsabilidade de cada farmácia participante da rede.
-    </p>
     <div class="pq-footer-badges">
-      <span class="pq-footer-badge"><i class="fa fa-shield-halved"></i>&nbsp;Produtos regulados pela ANVISA</span>
-      <span class="pq-footer-badge"><i class="fa fa-store"></i>&nbsp;Farmácias com CRF ativo</span>
+      <span class="pq-footer-badge">
+        <img src="{{ url_for('static', filename='icons/footer-secure.png') }}" alt="">
+        Produtos regulamentados pela ANVISA
+      </span>
+      <span class="pq-footer-badge">
+        <img src="{{ url_for('static', filename='icons/footer-store.png') }}" alt="">
+        Farmácias cadastradas com CRF ativo
+      </span>
     </div>
-    <p>© 2026 Poupaqui. Todos os direitos reservados.</p>
   </div>
 </footer>
 
@@ -1670,7 +1867,7 @@ document.addEventListener('click', () => document.getElementById('pq-user-dropdo
 
 /* ── UTILITÁRIO GLOBAL ──────────────────────────────────── */
 function esc(s) {
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 /* ── CARRINHO (localStorage + banco) ───────────────────── */
@@ -1703,6 +1900,7 @@ function _syncCartToDB(cart) {
 function saveCart(c) {
   localStorage.setItem(CART_KEY, JSON.stringify(c));
   updateCartBadge();
+  renderCestaLateral();
   _syncCartToDB(c);
 }
 
@@ -1744,6 +1942,98 @@ function updateCartBadge() {
   b.textContent = n;
   b.style.display = n > 0 ? 'flex' : 'none';
 }
+function brlGlobal(v) {
+  const n = parseFloat(v) || 0;
+  return 'R$ ' + n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+function formatStoreName(nome) {
+  return String(nome || 'Drogarias Poupaqui').replace(/\bDrogaria\b/gi, 'Drogarias');
+}
+
+function abrirCestaLateral(ev) {
+  if (ev) ev.preventDefault();
+  renderCestaLateral();
+  document.getElementById('pq-cart-panel-overlay')?.classList.add('open');
+  const panel = document.getElementById('pq-cart-panel');
+  if (panel) {
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
+  }
+  document.body.style.overflow = 'hidden';
+  return false;
+}
+function fecharCestaLateral() {
+  document.getElementById('pq-cart-panel-overlay')?.classList.remove('open');
+  const panel = document.getElementById('pq-cart-panel');
+  if (panel) {
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
+  }
+  document.body.style.overflow = '';
+}
+function alterarQtyCesta(ean, cnpjloja, delta) {
+  const cart = getCart();
+  const item = cart.find(c => c.ean === ean && c.cnpjloja === cnpjloja);
+  if (!item) return;
+  item.qty = Math.max(1, (parseInt(item.qty) || 1) + delta);
+  saveCart(cart);
+}
+function removerItemCesta(ean, cnpjloja) {
+  removeFromCart(ean, cnpjloja);
+}
+function renderCestaLateral() {
+  const body = document.getElementById('pq-cart-panel-body');
+  const foot = document.getElementById('pq-cart-panel-foot');
+  const count = document.getElementById('pq-cart-panel-count');
+  if (!body || !foot || !count) return;
+  const cart = getCart();
+  const totalItens = cart.reduce((s, c) => s + (parseInt(c.qty) || 1), 0);
+  const subtotal = cart.reduce((s, c) => s + ((parseFloat(c.preco) || 0) * (parseInt(c.qty) || 1)), 0);
+  count.textContent = totalItens === 1 ? '1 item' : `${totalItens} itens`;
+
+  if (!cart.length) {
+    count.textContent = 'Sua cesta está vazia';
+    body.innerHTML = `<div class="pq-cart-empty">
+      <div class="pq-cart-empty-icon"><img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt=""></div>
+      <h3>Sua cesta está vazia</h3>
+      <p>Adicione produtos das farmácias da rede Poupaqui e acompanhe tudo por aqui.</p>
+    </div>`;
+    foot.innerHTML = `<button type="button" class="pq-cart-action primary" onclick="fecharCestaLateral();window.location.href='{{ url_for('catalogo_publico') }}'">
+      <i class="fa fa-magnifying-glass"></i>Ver produtos
+    </button>
+    <button type="button" class="pq-cart-action" onclick="fecharCestaLateral()">Continuar comprando</button>`;
+    return;
+  }
+
+  body.innerHTML = cart.map(item => {
+    const qty = parseInt(item.qty) || 1;
+    const preco = parseFloat(item.preco) || 0;
+    const img = item.imagem
+      ? `<img class="pq-cart-side-img" src="${esc(item.imagem)}" alt="" onerror="this.outerHTML='<div class=&quot;pq-cart-side-ph&quot;><i class=&quot;fa fa-box&quot;></i></div>'">`
+      : `<div class="pq-cart-side-ph"><i class="fa fa-box"></i></div>`;
+    return `<div class="pq-cart-side-item">
+      ${img}
+      <div>
+        <div class="pq-cart-side-name">${esc(item.nome || 'Produto')}</div>
+        <div class="pq-cart-side-store">${esc(formatStoreName(item.razao || 'Drogarias Poupaqui'))}</div>
+        <div class="pq-cart-side-price">${brlGlobal(preco * qty)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end">
+        <button type="button" class="pq-cart-side-remove" onclick="removerItemCesta('${esc(item.ean || '')}','${esc(item.cnpjloja || '')}')" aria-label="Remover item">
+          <i class="fa fa-trash-can"></i>
+        </button>
+        <div class="pq-cart-side-qty">
+          <button type="button" onclick="alterarQtyCesta('${esc(item.ean || '')}','${esc(item.cnpjloja || '')}',-1)" aria-label="Diminuir quantidade">−</button>
+          <span>${qty}</span>
+          <button type="button" onclick="alterarQtyCesta('${esc(item.ean || '')}','${esc(item.cnpjloja || '')}',1)" aria-label="Aumentar quantidade">+</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  foot.innerHTML = `<div class="pq-cart-subtotal"><span>Subtotal</span><strong>${brlGlobal(subtotal)}</strong></div>
+    <a class="pq-cart-action primary" href="{{ url_for('carrinho') }}"><i class="fa fa-basket-shopping"></i>Ir para minha cesta</a>
+    <button type="button" class="pq-cart-action" onclick="fecharCestaLateral()">Continuar comprando</button>`;
+}
 function showCartToast(nome) {
   const t = document.getElementById('cart-toast');
   if (!t) return;
@@ -1752,7 +2042,7 @@ function showCartToast(nome) {
   clearTimeout(t._tid);
   t._tid = setTimeout(() => { t.style.opacity='0'; t.style.transform='translateY(10px)'; }, 2200);
 }
-document.addEventListener('DOMContentLoaded', updateCartBadge);
+document.addEventListener('DOMContentLoaded', () => { updateCartBadge(); renderCestaLateral(); });
 
 /* ── MODAL PRODUTO ──────────────────────────────────────── */
 function abrirModalProd()  { document.getElementById('prod-overlay').classList.add('show');    document.body.style.overflow='hidden'; }
@@ -1891,7 +2181,9 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharDrawer
 <script>
 /* ── SERVICE WORKER (PWA) ────────────────────────────── */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/static/sw.js?v=20260623-1')
+    .then(reg => reg.update())
+    .catch(() => {});
 }
 
 /* ── LGPD ────────────────────────────────────────────── */

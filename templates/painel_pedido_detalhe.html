@@ -33,6 +33,16 @@
 .pay-detail strong { color:var(--pk-txt); }
 .pay-sync { margin-top:10px; border:1px solid var(--pk-line); background:#0d1016; color:var(--pk-txt); border-radius:8px; padding:7px 12px; font-weight:800; cursor:pointer; }
 .pay-sync:hover { background:var(--pk-line); }
+.ml-ship-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px; }
+.ml-ship-cell { background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; padding:10px 12px; }
+.ml-ship-cell .lbl { font-size:.68rem; font-weight:800; text-transform:uppercase; color:var(--pk-muted); margin-bottom:4px; }
+.ml-ship-cell .val { font-size:.86rem; font-weight:800; color:var(--pk-txt); overflow-wrap:anywhere; }
+.ml-ship-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.ml-ship-btn { border:1px solid var(--pk-line); background:#0d1016; color:var(--pk-txt); border-radius:8px; padding:9px 13px; font-size:.82rem; font-weight:900; text-decoration:none; cursor:pointer; display:inline-flex; align-items:center; gap:7px; font-family:inherit; }
+.ml-ship-btn.primary { background:#fff200; border-color:#fff200; color:#111; }
+.ml-ship-btn:hover { filter:brightness(1.08); color:inherit; }
+@media(max-width:900px){ .ml-ship-grid { grid-template-columns:1fr 1fr; } }
+@media(max-width:560px){ .ml-ship-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
 
@@ -120,6 +130,110 @@
     {% endif %}
   </div>
 </div>
+
+{% if pedido.origem == 'mercado_livre' %}
+{% set ml_status_labels = {
+  'pending':'Pendente',
+  'handling':'Em preparação',
+  'ready_to_ship':'Pronto para envio',
+  'shipped':'Em trânsito',
+  'delivered':'Entregue',
+  'not_delivered':'Não entregue',
+  'cancelled':'Cancelado'
+} %}
+{% set ml_logistic_labels = {
+  'drop_off':'Postagem/ponto de envio',
+  'xd_drop_off':'Ponto de envio Mercado Livre',
+  'cross_docking':'Coleta ou despacho Mercado Envios',
+  'self_service':'Mercado Envios Flex',
+  'fulfillment':'Full/fulfillment Mercado Livre'
+} %}
+<div class="pk-card" style="margin-bottom:18px;border-color:rgba(255,242,0,.28)">
+  <div class="pk-card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <svg width="18" height="18" viewBox="0 0 48 48"><rect width="48" height="48" rx="5" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>
+    Envio Mercado Livre
+    {% if pedido.ml_shipping_updated_at %}
+      <span style="font-size:.72rem;color:var(--pk-muted);font-weight:500">sincronizado em {{ pedido.ml_shipping_updated_at.strftime('%d/%m/%Y %H:%M') }}</span>
+    {% endif %}
+  </div>
+
+  <div style="background:#1e1a08;border:1px solid rgba(245,200,66,.28);border-radius:8px;padding:12px 14px;font-size:.84rem;color:#f5d36b;line-height:1.5">
+    <strong style="color:#fff">Orientação:</strong>
+    {{ ml_shipping.instruction if ml_shipping else 'Sincronize o envio para carregar instruções do Mercado Livre.' }}
+  </div>
+
+  <div class="ml-ship-grid">
+    <div class="ml-ship-cell">
+      <div class="lbl">Pedido ML</div>
+      <div class="val">{{ pedido.ml_order_id or '—' }}</div>
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Envio / Shipment</div>
+      <div class="val">{{ pedido.ml_shipping_id or (ml_shipping.id if ml_shipping else '') or '—' }}</div>
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Status</div>
+      <div class="val">{{ ml_status_labels.get((pedido.ml_shipping_status or '')|lower, pedido.ml_shipping_status or '—') }}</div>
+      {% if pedido.ml_shipping_substatus %}
+        <div style="font-size:.72rem;color:var(--pk-muted);margin-top:3px">{{ pedido.ml_shipping_substatus }}</div>
+      {% endif %}
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Modalidade</div>
+      <div class="val">{{ ml_logistic_labels.get(pedido.ml_logistic_type or '', pedido.ml_logistic_type or pedido.ml_shipping_mode or '—') }}</div>
+      {% if pedido.ml_shipping_mode %}
+        <div style="font-size:.72rem;color:var(--pk-muted);margin-top:3px">{{ pedido.ml_shipping_mode }}</div>
+      {% endif %}
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Rastreamento</div>
+      <div class="val">{{ pedido.ml_tracking_number or '—' }}</div>
+      {% if pedido.ml_tracking_method %}
+        <div style="font-size:.72rem;color:var(--pk-muted);margin-top:3px">{{ pedido.ml_tracking_method }}</div>
+      {% endif %}
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Próxima ação</div>
+      <div class="val">
+        {% if pedido.ml_shipping_status in ['ready_to_ship','handling','pending'] %}
+          Preparar pacote
+        {% elif pedido.ml_shipping_status == 'shipped' %}
+          Acompanhar trânsito
+        {% elif pedido.ml_shipping_status == 'delivered' %}
+          Entregue
+        {% else %}
+          Sincronizar envio
+        {% endif %}
+      </div>
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Etiqueta</div>
+      <div class="val">{{ 'Disponível se o ML liberar' if pedido.ml_shipping_id else 'Aguardando envio' }}</div>
+    </div>
+    <div class="ml-ship-cell">
+      <div class="lbl">Operação</div>
+      <div class="val">Mercado Envios</div>
+    </div>
+  </div>
+
+  <div class="ml-ship-actions">
+    <form method="post" action="{{ url_for('painel_ml_sincronizar_envio', pedido_id=pedido.id) }}">
+      <button class="ml-ship-btn" type="submit"><i class="fa fa-rotate"></i>Sincronizar envio</button>
+    </form>
+    {% if pedido.ml_shipping_id %}
+      <a class="ml-ship-btn primary" href="{{ url_for('painel_ml_baixar_etiqueta', pedido_id=pedido.id) }}">
+        <i class="fa fa-file-arrow-down"></i>Baixar etiqueta
+      </a>
+    {% endif %}
+    <a class="ml-ship-btn" target="_blank" href="https://www.mercadolivre.com.br/vendas/{{ pedido.ml_order_id }}">
+      <i class="fa fa-arrow-up-right-from-square"></i>Abrir venda no ML
+    </a>
+  </div>
+  <div style="font-size:.74rem;color:var(--pk-muted);line-height:1.45;margin-top:12px">
+    O Poupaqui consulta o Mercado Livre pela API. Algumas ações, como emissão de NF-e ou bloqueios de conta, ainda podem exigir resolução no painel do Mercado Livre.
+  </div>
+</div>
+{% endif %}
 
 <!-- ITENS -->
 <div class="pk-card" style="padding:0;overflow:hidden;margin-bottom:18px">

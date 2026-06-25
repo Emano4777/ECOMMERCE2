@@ -430,7 +430,7 @@
         {% if ean %}
           <span><i class="fa fa-barcode"></i>EAN {{ ean }}</span>
         {% endif %}
-        {% if med.classe %}
+        {% if _eh_medicamento and med.classe %}
           <span><i class="fa fa-tag"></i>{{ med.classe }}</span>
         {% endif %}
         {% if anvisa.principio_ativo %}

@@ -5,6 +5,7 @@
 <style>
 .cart-wrap { max-width:820px; margin:0 auto; padding:28px 16px 60px; }
 .cart-title { font-size:1.5rem; font-weight:900; margin-bottom:24px; display:flex; align-items:center; gap:10px; }
+.cart-title img { width:34px; height:34px; object-fit:contain; }
 
 /* GRUPO FARMÁCIA */
 .cart-group {
@@ -211,8 +212,8 @@
 {% block content %}
 <div class="cart-wrap">
   <div class="cart-title">
-    <i class="fa fa-cart-shopping" style="color:var(--pq-red)"></i>
-    Meu Carrinho
+    <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="">
+    Minha cesta
   </div>
 
   <div id="cart-container">
@@ -258,7 +259,7 @@
       <div class="pq-recs-header">
         <div class="pq-recs-title-block">
           <div class="pq-recs-title"><i class="fa fa-basket-shopping"></i><span id="cart-recs-title">Complete sua compra</span></div>
-          <div class="pq-recs-sub" id="cart-recs-sub">Sugestões relacionadas aos itens do carrinho.</div>
+          <div class="pq-recs-sub" id="cart-recs-sub">Sugestões relacionadas aos itens da sua cesta.</div>
         </div>
         <div class="pq-recs-nav">
           <button class="pq-nav-btn" id="cart-recs-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
@@ -432,7 +433,7 @@ async function carregarRecomendacoesCarrinho() {
     if (!produtos.length) { box.style.display = 'none'; return; }
     _cartRecItems = produtos;
     document.getElementById('cart-recs-title').textContent = data.titulo || 'Complete sua compra';
-    document.getElementById('cart-recs-sub').textContent = data.subtitulo || 'Sugestões relacionadas aos itens do carrinho.';
+    document.getElementById('cart-recs-sub').textContent = data.subtitulo || 'Sugestões relacionadas aos itens da sua cesta.';
     document.getElementById('cart-recs-track').innerHTML = produtos.map((p,i) => pqRecCardHtml(p, i, 'addCartRec')).join('');
     box.style.display = '';
     pqInitCarouselNav('cart-recs');
@@ -691,8 +692,8 @@ function renderCart() {
   if (!cart.length) {
     document.getElementById('cart-recs').style.display = 'none'; // esconde seção de recs
     container.innerHTML = `<div class="cart-empty">
-      <i class="fa fa-cart-shopping"></i>
-      <div class="empty-title">Seu carrinho está vazio</div>
+      <i class="fa fa-basket-shopping"></i>
+      <div class="empty-title">Sua cesta está vazia</div>
       <p style="margin-bottom:20px">Adicione produtos e encontre as melhores ofertas perto de você.</p>
       <a class="empty-btn" href="/">
         <i class="fa fa-arrow-left me-2"></i>Ver produtos
@@ -800,7 +801,7 @@ function renderCart() {
       : temTarjaVermelhaSimples
         ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px">
              <i class="fa fa-file-prescription" style="color:#d97706;margin-top:2px;flex-shrink:0"></i>
-             <span><strong>Medicamento sob prescricao.</strong> Tarja vermelha sem retencao detectada: nao e necessario anexar receita digital no carrinho. A dispensacao segue avaliacao do farmaceutico e as informacoes sanitarias obrigatorias.</span>
+             <span><strong>Medicamento sob prescricao.</strong> Tarja vermelha sem retencao detectada: nao e necessario anexar receita digital na cesta. A dispensacao segue avaliacao do farmaceutico e as informacoes sanitarias obrigatorias.</span>
            </div>`
         : '';
     // Seção de upload de receita (exibida quando entrega é selecionada + tem tarja)
