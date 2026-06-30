@@ -386,6 +386,72 @@ def _alpha_sync_statuses_safe():
         app.logger.warning("alpha sync statuses error: %s", exc)
         return {"ok": False, "erro": str(exc)}
 
+
+_alpha_catalog_sync_lock = threading.Lock()
+_alpha_catalog_last_attempt = 0.0
+
+
+def _alpha_catalog_has_products(cur, cnpjloja=None):
+    try:
+        _ensure_alpha_schema()
+        if cnpjloja:
+            cur.execute(
+                """
+                SELECT 1
+                FROM ecommerce_alpha_produtos
+                WHERE cnpjloja=%s
+                  AND COALESCE(inativo,false)=false
+                  AND COALESCE(estoque,0)>0
+                LIMIT 1
+                """,
+                (cnpjloja,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT 1
+                FROM ecommerce_alpha_produtos
+                WHERE COALESCE(inativo,false)=false
+                  AND COALESCE(estoque,0)>0
+                LIMIT 1
+                """
+            )
+        return cur.fetchone() is not None
+    except Exception as exc:
+        app.logger.warning("alpha catalog has products check error: %s", exc)
+        return False
+
+
+def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
+    if not _catalogo_alpha_exclusivo():
+        return {"ok": False, "erro": "alpha_nao_configurado"}
+    own_conn = None
+    try:
+        if cur is None:
+            own_conn = db()
+            cur = own_conn.cursor()
+        has_products = _alpha_catalog_has_products(cur, cnpjloja=cnpjloja)
+        now_ts = time.time()
+        global _alpha_catalog_last_attempt
+        if not force and now_ts - _alpha_catalog_last_attempt < 300:
+            return {"ok": True, "skipped": "tentativa_recente", "has_products": has_products}
+        if not _alpha_catalog_sync_lock.acquire(blocking=False):
+            return {"ok": False, "skipped": "sync_em_andamento"}
+        try:
+            _alpha_catalog_last_attempt = now_ts
+            result = _alpha_sync_products_safe(limit=5000)
+            app.logger.warning("alpha catalog autosync result: %s", result)
+            return result
+        finally:
+            _alpha_catalog_sync_lock.release()
+    finally:
+        if own_conn is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+
 def fmt_brl(val):
     try:
         v = float(val or 0)
@@ -3760,9 +3826,15 @@ def _schedule_fill_images(produtos, cnpjloja=None, limit=10):
 
 _MEDICINE_PLACEHOLDER_URLS = frozenset({GENERIC_TARJA_VERMELHA_IMG, GENERIC_TARJA_PRETA_IMG})
 
+def _is_alpha_product(produto):
+    return (produto.get("fonte_estoque") or "").strip().lower() == "alpha_a7"
+
+
 def _has_catalog_image(produto):
     img = (produto.get("imagem") or "").strip()
     if not img:
+        return False
+    if _is_alpha_product(produto) and (img in _MEDICINE_PLACEHOLDER_URLS or produto.get("imagem_padrao_poupaqui")):
         return False
     if img in _MEDICINE_PLACEHOLDER_URLS:
         tarja = (produto.get("tarja") or "").strip().lower()
@@ -3862,6 +3934,16 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
         _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _classificar_produto(produto.get("nome") or "")
         _tipo_p = _TIPO_ALIAS.get(_tipo_p_raw, _tipo_p_raw)
         _exibir_publicamente = produto.get("exibir_imagem_publica")
+        _alpha_item = _is_alpha_product(produto)
+        if _alpha_item and imagem_atual in _MED_PLACEHOLDERS:
+            produto["imagem"] = ""
+            produto.pop("imagem_padrao_poupaqui", None)
+            produto.pop("imagem_bloqueada_anvisa", None)
+            imagem_atual = ""
+            cnpj_c = produto.get("cnpjloja")
+            ean_c  = (produto.get("ean") or "").strip()
+            if cnpj_c and ean_c:
+                to_cleanup.append((cnpj_c, ean_c))
         # Decisao explicita da fonte oficial prevalece sobre o fallback por tarja.
         if imagem_atual in _MED_PLACEHOLDERS and (
             _exibir_publicamente is True
@@ -3880,6 +3962,8 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
             if _cosmos_img:
                 produto["imagem"] = _cosmos_img
                 imagem_atual = _cosmos_img
+        if _alpha_item and not imagem_atual:
+            continue
         if (
             _tipo_p not in _TIPOS_NAO_MEDICAMENTO
             and _exibir_publicamente is not True
@@ -4371,6 +4455,8 @@ def get_dns_products(
 
     if ensure_precificador_schema:
         _ensure_precificador_schema()
+    if _catalogo_alpha_exclusivo():
+        _alpha_catalog_sync_if_needed(cur=cur, cnpjloja=cnpjloja)
 
     # EANs ocultos por esta loja
     cur.execute("SELECT ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = %s", (cnpjloja,))
@@ -4527,9 +4613,14 @@ def get_dns_products(
     for _p in combined:
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
-            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
-            _p["imagem_padrao_poupaqui"] = True
-            _p["imagem_bloqueada_anvisa"] = True
+            if _is_alpha_product(_p):
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
+            else:
+                _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+                _p["imagem_padrao_poupaqui"] = True
+                _p["imagem_bloqueada_anvisa"] = True
     combined = (
         _dedupe_products_for_display(combined)
         if dedupe_display
@@ -4778,6 +4869,8 @@ def get_dns_products_batch(cnpjs):
     _ensure_produto_canon_schema()
     conn = _new_conn_batch()
     cur = conn.cursor()
+    if _catalogo_alpha_exclusivo():
+        _alpha_catalog_sync_if_needed(cur=cur)
     alpha_a7 = []
     if _alpha_enabled():
         try:
@@ -4903,9 +4996,14 @@ def get_dns_products_batch(cnpjs):
     for _p in combined:
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
-            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
-            _p["imagem_padrao_poupaqui"] = True
-            _p["imagem_bloqueada_anvisa"] = True
+            if _is_alpha_product(_p):
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
+            else:
+                _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+                _p["imagem_padrao_poupaqui"] = True
+                _p["imagem_bloqueada_anvisa"] = True
     cur.close()
     try:
         conn.close()
@@ -4928,6 +5026,8 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         return []
     conn = _new_conn_batch()
     cur = conn.cursor()
+    if _catalogo_alpha_exclusivo():
+        _alpha_catalog_sync_if_needed(cur=cur)
     cur.execute(
         """
         WITH alvo AS (SELECT unnest(%s::text[]) AS ean_key),
@@ -5041,13 +5141,21 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         pass
     # Remove produtos sem imagem: não devem aparecer no catálogo público
     # (depois de _marcar_tarja_batch para que tarjados recebam placeholder antes de filtrar)
-    rows = [r for r in rows if _has_catalog_image(r)]
+    if _catalogo_alpha_exclusivo():
+        rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7" and _has_catalog_image(r)]
+    else:
+        rows = [r for r in rows if _has_catalog_image(r)]
     for _p in rows:
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
-            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
-            _p["imagem_padrao_poupaqui"] = True
-            _p["imagem_bloqueada_anvisa"] = True
+            if _is_alpha_product(_p):
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
+            else:
+                _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+                _p["imagem_padrao_poupaqui"] = True
+                _p["imagem_bloqueada_anvisa"] = True
     _attach_product_promos(rows)
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
@@ -5066,6 +5174,8 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         return []
     conn = _new_conn_batch()
     cur = conn.cursor()
+    if _catalogo_alpha_exclusivo():
+        _alpha_catalog_sync_if_needed(cur=cur)
     cur.execute(
         """
         WITH alpha_a7 AS (
@@ -5215,14 +5325,87 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         conn2.close()
     except Exception:
         pass
-    rows = [r for r in rows if _has_catalog_image(r)]
+    if _catalogo_alpha_exclusivo():
+        rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7" and _has_catalog_image(r)]
+    else:
+        rows = [r for r in rows if _has_catalog_image(r)]
     for _p in rows:
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
-            _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
-            _p["imagem_padrao_poupaqui"] = True
-            _p["imagem_bloqueada_anvisa"] = True
+            if _is_alpha_product(_p):
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
+            else:
+                _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
+                _p["imagem_padrao_poupaqui"] = True
+                _p["imagem_bloqueada_anvisa"] = True
     _attach_product_promos(rows)
+    _schedule_fill_images(rows)
+    return _dedupe_products_for_display(rows)
+
+
+def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
+    if not cnpjs or not query or not _catalogo_alpha_exclusivo():
+        return []
+    q_norm = _norm_text(query)
+    patterns = []
+    if q_norm:
+        patterns.append(f"%{q_norm}%")
+    q_raw = (query or "").strip().lower()
+    if q_raw and f"%{q_raw}%" not in patterns:
+        patterns.append(f"%{q_raw}%")
+    ean_q = _digits(query)
+    if not patterns and not ean_q:
+        return []
+    conn = _new_conn_batch()
+    cur = conn.cursor()
+    _alpha_catalog_sync_if_needed(cur=cur)
+    cur.execute(
+        """
+        SELECT
+            ap.cnpjloja,
+            ap.ean,
+            COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+            COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
+            m.marca AS marca,
+            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            CAST(ap.estoque AS INTEGER) AS qty,
+            ap.preco_atual AS preco,
+            COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+            'alpha_a7' AS fonte_estoque
+        FROM ecommerce_alpha_produtos ap
+        LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+        LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        LEFT JOIN medicamentos5 m5        ON m5.barra = ap.ean
+        WHERE ap.cnpjloja = ANY(%s)
+          AND COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND (
+            LOWER(ap.nome) LIKE ANY(%s)
+            OR COALESCE(ap.ean, '') LIKE %s
+          )
+        ORDER BY ap.nome
+        LIMIT %s
+        """,
+        (cnpjs, patterns or ["__sem_match__"], f"%{ean_q}%" if ean_q else "__sem_match__", int(limit)),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _apply_safe_catalog_images(rows)
+    try:
+        conn2 = _new_conn()
+        _marcar_tarja_batch(rows, conn2)
+        conn2.close()
+    except Exception:
+        pass
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
 
@@ -6856,6 +7039,14 @@ def api_produtos_proximos():
     else:
         produtos_raw = get_dns_products_batch(cnpjs)
 
+    if _catalogo_alpha_exclusivo() and busca_q:
+        seen_alpha_direct = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
+        for p in get_alpha_products_direct_by_query(cnpjs, busca_q):
+            key = (p.get("cnpjloja"), p.get("ean"))
+            if key not in seen_alpha_direct:
+                produtos_raw.append(p)
+                seen_alpha_direct.add(key)
+
     # Filtro server-side de categoria (mesmos aliases que o JS usa)
     if cat_filter:
         _CAT_ALIAS_SRV = {
@@ -6904,7 +7095,16 @@ def api_produtos_proximos():
         if is_nl and not ia_filter_terms:
             # IA não retornou a tempo: exibe apenas produtos vindos do índice de sintomas.
             # Evita que a busca ampla por texto mostre produtos irrelevantes (ex: sabonetes para "pressão alta").
-            produtos_view = [p for p in produtos_view if p.get("ean") in _nl_ean_src]
+            _bq_norm_direct = _norm_text(busca_q)
+            produtos_view = [
+                p for p in produtos_view
+                if p.get("ean") in _nl_ean_src
+                or (
+                    p.get("fonte_estoque") == "alpha_a7"
+                    and _bq_norm_direct
+                    and _bq_norm_direct in _norm_text(p.get("nome") or "")
+                )
+            ]
         else:
             # NL: usa termos da IA (específicos); Direto: usa q_terms expandidos
             filter_terms = ia_filter_terms if ia_filter_terms else _search_terms_for_query(busca_q)
@@ -6956,6 +7156,54 @@ def api_produtos_proximos():
             ]
 
     result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+    if _catalogo_alpha_exclusivo() and busca_q and not result:
+        try:
+            q_norm_direct = _norm_text(busca_q)
+            ean_direct = _digits(busca_q)
+            conn_alpha_direct = db()
+            cur_alpha_direct = conn_alpha_direct.cursor()
+            cur_alpha_direct.execute(
+                """
+                SELECT cnpjloja, ean, nome, preco_atual AS preco,
+                       CAST(estoque AS INTEGER) AS qty,
+                       imagem_url AS imagem,
+                       fabricante AS laboratorio,
+                       'alpha_a7' AS fonte_estoque
+                FROM ecommerce_alpha_produtos
+                WHERE cnpjloja = ANY(%s)
+                  AND COALESCE(inativo,false)=false
+                  AND COALESCE(estoque,0)>0
+                  AND (
+                    LOWER(COALESCE(nome,'')) LIKE %s
+                    OR COALESCE(ean,'') LIKE %s
+                  )
+                ORDER BY nome
+                LIMIT 20
+                """,
+                (cnpjs, f"%{q_norm_direct}%" if q_norm_direct else "__sem_match__", f"%{ean_direct}%" if ean_direct else "__sem_match__"),
+            )
+            alpha_rows = [dict(r) for r in cur_alpha_direct.fetchall()]
+            cur_alpha_direct.close()
+            for p in alpha_rows:
+                info = loja_info.get(p["cnpjloja"], {})
+                dist = info.get("distancia_km")
+                aceita_entrega = bool(info.get("aceita_entrega"))
+                raio_entrega = float(info.get("raio_entrega_km") or 0)
+                entrega_disponivel = bool(aceita_entrega and dist is not None and dist <= raio_entrega)
+                result.append({
+                    **p,
+                    "razao": _public_store_name(info),
+                    "distancia_km": dist,
+                    "categoria": _classificar_produto(p.get("nome") or ""),
+                    "requer_receita": False,
+                    "aceita_entrega": aceita_entrega,
+                    "raio_entrega_km": raio_entrega,
+                    "entrega_disponivel": entrega_disponivel,
+                    "cobra_frete": bool(info.get("cobra_frete")),
+                    "valor_frete": float(info.get("valor_frete") or 0) if entrega_disponivel and info.get("cobra_frete") else 0.0,
+                })
+        except Exception as exc:
+            app.logger.warning("alpha direct final fallback error: %s", exc)
     saudacao = None
     if is_nl and ia_result:
         saudacao = (ia_result.get("saudacao") or "").strip() or None
@@ -14633,6 +14881,8 @@ def precificador_importar():
 @app.post("/api/alpha/sync")
 @painel_required
 def api_alpha_sync():
+    global _alpha_catalog_last_attempt
+    _alpha_catalog_last_attempt = 0.0
     produtos = _alpha_sync_products_safe()
     statuses = _alpha_sync_statuses_safe()
     return jsonify({"ok": bool(produtos.get("ok") or statuses.get("ok")), "produtos": produtos, "status_pedidos": statuses})

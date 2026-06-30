@@ -200,6 +200,7 @@ def sync_products(limit=5000, mark_processed=True):
               FROM {}.out_embalagem
              WHERE COALESCE(io_integracaoconcluida, false) = false
                 OR COALESCE(o_caminhoclassificacao, '') ILIKE %s
+                OR COALESCE(o_estoque, 0) > 0
              ORDER BY o_id
              LIMIT %s
             """
@@ -221,7 +222,10 @@ def sync_products(limit=5000, mark_processed=True):
         for r in rows:
             ean = _digits(r.get("o_codigobarras"))
             path = (r.get("o_caminhoclassificacao") or "").upper()
-            is_active = active_path in path and not bool(r.get("o_inativa"))
+            estoque = float(r.get("o_estoque") or 0)
+            is_active = bool(ean) and not bool(r.get("o_inativa")) and (
+                active_path in path or estoque > 0
+            )
             if is_active:
                 active_ids.append(r.get("o_id"))
             values.append(
@@ -257,7 +261,7 @@ def sync_products(limit=5000, mark_processed=True):
                 promo_inicio, promo_fim, preco_atual, estoque, fabricante,
                 principio_ativo, classificacao, inativo, medicamento_sngpc,
                 altura, largura, comprimento, peso, imagem_url,
-                alpha_integracao_concluida, synced_at
+                alpha_integracao_concluida
             ) VALUES %s
             ON CONFLICT (cnpjloja, alpha_o_id) DO UPDATE SET
                 ean=EXCLUDED.ean,
