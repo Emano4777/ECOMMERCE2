@@ -378,14 +378,18 @@ def _alpha_export_paid_order_safe(pedido_id):
 
 
 def _finalizar_pos_pagamento_aprovado(pedido_id, notificar=True):
-    try:
-        _auto_pronto_retirada(str(pedido_id))
-    except Exception as exc:
-        app.logger.warning("pos pagamento pronto retirada %s error: %s", pedido_id, exc)
+    # Exporta para o Alpha ANTES de avancar o status: _auto_pronto_retirada
+    # move o pedido para 'pronto_retirada', e o export so deve depender de o
+    # pagamento estar aprovado (a verificacao em export_paid_order ja aceita
+    # ambos os casos, mas manter esta ordem evita qualquer corrida).
     try:
         _alpha_export_paid_order_safe(str(pedido_id))
     except Exception as exc:
         app.logger.warning("pos pagamento alpha %s error: %s", pedido_id, exc)
+    try:
+        _auto_pronto_retirada(str(pedido_id))
+    except Exception as exc:
+        app.logger.warning("pos pagamento pronto retirada %s error: %s", pedido_id, exc)
     if notificar:
         try:
             _notificar_pedido_evento(
@@ -4709,10 +4713,9 @@ _SQL_ALPHA_A7_BATCH = """
             ap.fabricante,
             ap.imagem_url
         FROM ecommerce_alpha_produtos ap
-        LEFT JOIN ecommerce_config_loja cfg_ap ON cfg_ap.cnpjloja = ap.cnpjloja
         WHERE ap.cnpjloja = ANY(%s)
           AND COALESCE(ap.inativo, false) = false
-          AND CAST(COALESCE(ap.estoque, 0) AS INTEGER) >= COALESCE(cfg_ap.estoque_min_publicacao, 1)
+          AND COALESCE(ap.estoque, 0) > 0
           AND COALESCE(ap.ean, '') <> ''
           AND (
             ap.imagem_url IS NOT NULL

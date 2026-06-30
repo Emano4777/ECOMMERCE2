@@ -382,7 +382,21 @@ def export_paid_order(pedido_id):
     with _local_connect(timeout_ms=30000) as lconn:
         lcur = lconn.cursor()
         pedido, itens, doc = _pedido_payload(lcur, str(pedido_id))
-        if pedido.get("status") != "pago":
+        # Considera pago tanto pelo status do pedido quanto pelo status do
+        # pagamento — o pos-pagamento avanca o status para 'pronto_retirada'
+        # (ou alem) antes do export, entao checar somente status=='pago'
+        # rejeitaria pedidos legitimamente pagos.
+        _pag = (pedido.get("pagamento_status") or "").lower()
+        _pago = (
+            pedido.get("status") in {
+                "pago", "pronto_retirada", "em_separacao", "separado",
+                "em_transito", "saiu_entrega", "saiu_para_entrega",
+                "entregue", "concluido", "finalizado",
+            }
+            or _pag in {"approved", "pago", "paid", "received", "confirmed", "received_in_cash"}
+            or bool(pedido.get("pagamento_confirmado_em"))
+        )
+        if not _pago:
             return {"ok": False, "erro": "pedido_nao_pago"}
         if pedido.get("alpha_enviado_em") and pedido.get("alpha_status") in {"enviado", "integrado"}:
             return {"ok": True, "ja_enviado": True}
@@ -395,7 +409,9 @@ def export_paid_order(pedido_id):
         pessoa_values = {
             "i_codigointegracao": pessoa_id,
             "io_statusintegracao": "N",
+            "di_statusintegracao": now,
             "i_tipo": "J" if len(doc) == 14 else "F",
+            "di_tipo": now,
             "i_nome": (pedido.get("cliente_nome") or "Cliente Poupaqui")[:70],
             "i_email": (pedido.get("cliente_email") or "")[:50],
             "i_cpf": doc if len(doc) == 11 else None,
@@ -415,6 +431,7 @@ def export_paid_order(pedido_id):
             "i_codigointegracao": ext_id,
             "i_codigopessoaintegracao": pessoa_id,
             "io_statusintegracao": "N",
+            "di_statusintegracao": now,
             "i_logradouroentrega": None if retirada else addr["logradouro"],
             "i_bairroentrega": None if retirada else addr["bairro"],
             "i_cepentrega": None if retirada else addr["cep"],
