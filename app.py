@@ -6532,19 +6532,27 @@ def api_produtos_destaque():
     try:
         conn = db()
         cur  = conn.cursor()
-        cur.execute("""
-            SELECT e.ean, e.nome, e.preco, e.imagem, u.razao, e.cnpjloja
-            FROM ecommerce_estoque e
-            JOIN users u ON u.cnpjloja = e.cnpjloja
-            WHERE e.imagem IS NOT NULL AND e.imagem <> ''
-              AND e.preco > 0
-              AND COALESCE(e.ativo, TRUE) = TRUE
-            ORDER BY RANDOM()
-            LIMIT 20
-        """)
-        rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT u.cnpjloja, u.razao
+            FROM users u
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+            WHERE u.is_admin = FALSE
+              AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+            ORDER BY u.razao
+            """
+        )
+        lojas = cur.fetchall()
         cur.close()
-        return jsonify({"produtos": [dict(r) for r in rows]})
+        cnpjs = [l["cnpjloja"] for l in lojas]
+        loja_nome = {l["cnpjloja"]: _public_store_name(l) for l in lojas}
+        produtos = []
+        for p in get_dns_products_batch(cnpjs):
+            d = dict(p)
+            d["razao"] = d.get("razao") or loja_nome.get(d.get("cnpjloja"), "")
+            produtos.append(d)
+        random.shuffle(produtos)
+        return jsonify({"produtos": produtos[:20]})
     except Exception:
         return jsonify({"produtos": []})
 
