@@ -16,3 +16,11 @@ build/
 Thumbs.db
 
 .vercel
+
+# venvs temporários e arquivos de trabalho/segredos — NUNCA versionar
+.venv_tmp/
+_tmp_*.py
+*.tmp
+.vercel.env.tmp
+.vercel.dev.tmp
+.vercel*.tmp

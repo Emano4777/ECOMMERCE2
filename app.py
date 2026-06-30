@@ -338,10 +338,26 @@ def _catalogo_alpha_exclusivo():
 def _ensure_alpha_schema():
     if not _alpha_enabled():
         return
-    try:
-        alpha_sync.ensure_local_schema()
-    except Exception as exc:
-        app.logger.warning("alpha ensure schema error: %s", exc)
+    # Roda o DDL do schema Alpha uma única vez (por instância/migração). Antes
+    # isso era executado a cada chamada — e _preco_catalogo_atual chama por item
+    # do carrinho —, abrindo nova conexão e disparando ~15 ALTER TABLE com lock
+    # exclusivo em ecommerce_pedidos. Com Alpha habilitado, isso serializava as
+    # requisições de carrinho e estourava o timeout de 15s da Vercel (504).
+    key = "alpha_local_schema_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        try:
+            alpha_sync.ensure_local_schema()
+            _schema_ready.add(key)
+            _mark_migration_done(key)
+        except Exception as exc:
+            app.logger.warning("alpha ensure schema error: %s", exc)
 
 
 def _alpha_sync_products_safe(limit=5000):
@@ -3161,7 +3177,11 @@ def _busca_cache_get(query_norm):
 
 
 def _busca_cache_set(query_norm, resultado_ia):
-    """Salva resultado da IA no cache (memória + DB, TTL 24 h)."""
+    """Salva resultado da IA no cache (memória + DB, TTL 3 dias).
+
+    O cache é global por query normalizada — a mesma busca reaproveita o
+    resultado para todos os usuários (logados e anônimos), então a IA roda
+    no máximo uma vez por busca distinta a cada 3 dias."""
     # Memória imediata
     if len(_BUSCA_IA_MEM_CACHE) >= _BUSCA_IA_MEM_MAX:
         try:
@@ -3179,11 +3199,11 @@ def _busca_cache_set(query_norm, resultado_ia):
             cur2.execute(
                 """
                 INSERT INTO busca_cache (query_normalizada, resultado_ia, created_at, expires_at)
-                VALUES (%s, %s::jsonb, NOW(), NOW() + INTERVAL '24 hours')
+                VALUES (%s, %s::jsonb, NOW(), NOW() + INTERVAL '3 days')
                 ON CONFLICT (query_normalizada) DO UPDATE
                     SET resultado_ia = EXCLUDED.resultado_ia,
                         created_at   = NOW(),
-                        expires_at   = NOW() + INTERVAL '24 hours'
+                        expires_at   = NOW() + INTERVAL '3 days'
                 """,
                 (query_norm, json.dumps(resultado_ia)),
             )
@@ -7665,7 +7685,7 @@ def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
 
 
 def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos=None):
-    """Sugestões de cross-sell via Claude, cacheadas 24h."""
+    """Sugestões de cross-sell via Claude, cacheadas 7 dias por usuário."""
     from datetime import datetime, timezone, timedelta
     _ensure_home_insights_schema()
     cur = conn.cursor()
@@ -7786,11 +7806,14 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
         except Exception:
             pass
 
-    # Salva cache por 24h — v2: objetos completos com imagem e preço
+    # Salva cache por 7 dias — v2: objetos completos com imagem e preço.
+    # TTL longo para a IA de cross-sell rodar no máximo ~1x por usuário por
+    # semana (controle de custo): o histórico de compras muda devagar, então
+    # não compensa regenerar a cada dia/login.
     try:
         cur.execute("DELETE FROM ecommerce_home_insights WHERE consumidor_id=%s AND tipo='cross_sell_v3'",
                     (consumidor_id,))
-        expira = datetime.now(timezone.utc) + timedelta(hours=24)
+        expira = datetime.now(timezone.utc) + timedelta(days=7)
         _payload_v2 = {
             "v": 2, "mensagem": mensagem_ia,
             "produtos": [
@@ -8648,15 +8671,26 @@ def api_home_economia_ia():
     nomes_str = "; ".join(t.get("nome", "") for t in top[:3] if t.get("nome"))
     insight_ia = None
     if nomes_str:
-        prompt = (
-            "Você é Poupinha, a IA da rede de farmácias Poupaqui. "
-            f"Você encontrou estes produtos com bom preço na região do cliente: {nomes_str}. "
-            f"A economia potencial é de R$ {economia_total:.2f}. "
-            "Gere UMA frase curta e animada (máximo 120 caracteres) dizendo que o cliente pode economizar "
-            "comprando esses produtos no Poupaqui. Seja direto, simpático e em português. Sem emojis. "
-            "Retorne SOMENTE a frase, sem aspas nem explicações."
-        )
-        insight_ia = _claude_haiku(prompt, max_tokens=80, timeout=5)
+        # Cache compartilhado por conjunto de produtos (mem + DB, 3 dias). O
+        # insight é o mesmo para todos os visitantes daquela região, então a
+        # IA roda no máximo uma vez a cada 3 dias por combinação de produtos —
+        # antes chamava o Claude a cada carregamento da home (logado ou não).
+        _eco_cache_key = f"economia_ia:{_norm_query_cache(nomes_str)}"
+        _eco_cached = _busca_cache_get(_eco_cache_key)
+        if isinstance(_eco_cached, dict) and _eco_cached.get("insight"):
+            insight_ia = _eco_cached["insight"]
+        else:
+            prompt = (
+                "Você é Poupinha, a IA da rede de farmácias Poupaqui. "
+                f"Você encontrou estes produtos com bom preço na região do cliente: {nomes_str}. "
+                f"A economia potencial é de R$ {economia_total:.2f}. "
+                "Gere UMA frase curta e animada (máximo 120 caracteres) dizendo que o cliente pode economizar "
+                "comprando esses produtos no Poupaqui. Seja direto, simpático e em português. Sem emojis. "
+                "Retorne SOMENTE a frase, sem aspas nem explicações."
+            )
+            insight_ia = _claude_haiku(prompt, max_tokens=80, timeout=5)
+            if insight_ia:
+                _busca_cache_set(_eco_cache_key, {"insight": insight_ia})
 
     if not insight_ia:
         insight_ia = f"Compare preços e economize até {_format_brl(economia_total)} nos produtos mais procurados da sua região." if economia_total > 0 else "Confira os melhores preços nas farmácias perto de você."
@@ -8705,23 +8739,35 @@ def api_produto_quem_viu():
     titulo_ia = None
     subtitulo_ia = None
     if nome and nomes_rec:
-        prompt = (
-            "Você é Poupinha, IA da Drogaria Poupaqui. "
-            f"Um cliente está vendo o produto '{nome}'. "
-            f"Outros clientes que viram esse produto também se interessaram por: {nomes_rec}. "
-            "Gere:\n"
-            "1. Um título criativo de até 50 caracteres para a seção (variação de 'Quem viu isso também viu'). "
-            "2. Uma frase de subtítulo de até 80 caracteres contextualizando a relação com o produto. "
-            "Retorne JSON: {\"titulo\": \"...\", \"subtitulo\": \"...\"} — sem markdown, sem explicações."
-        )
-        texto = _claude_haiku(prompt, max_tokens=120, timeout=5)
-        if texto:
-            try:
-                parsed = json.loads(texto)
-                titulo_ia   = parsed.get("titulo")
-                subtitulo_ia = parsed.get("subtitulo")
-            except Exception:
-                pass
+        # Cache compartilhado por produto visto (mem + DB, 3 dias). O título é o
+        # mesmo para todos que abrem aquele produto, então a IA roda no máximo
+        # uma vez a cada 3 dias por produto — antes chamava o Claude a cada
+        # visualização de produto.
+        _qv_cache_key = f"quem_viu:{ean}"
+        _qv_cached = _busca_cache_get(_qv_cache_key)
+        if isinstance(_qv_cached, dict) and _qv_cached.get("titulo"):
+            titulo_ia    = _qv_cached.get("titulo")
+            subtitulo_ia = _qv_cached.get("subtitulo")
+        else:
+            prompt = (
+                "Você é Poupinha, IA da Drogaria Poupaqui. "
+                f"Um cliente está vendo o produto '{nome}'. "
+                f"Outros clientes que viram esse produto também se interessaram por: {nomes_rec}. "
+                "Gere:\n"
+                "1. Um título criativo de até 50 caracteres para a seção (variação de 'Quem viu isso também viu'). "
+                "2. Uma frase de subtítulo de até 80 caracteres contextualizando a relação com o produto. "
+                "Retorne JSON: {\"titulo\": \"...\", \"subtitulo\": \"...\"} — sem markdown, sem explicações."
+            )
+            texto = _claude_haiku(prompt, max_tokens=120, timeout=5)
+            if texto:
+                try:
+                    parsed = json.loads(texto)
+                    titulo_ia   = parsed.get("titulo")
+                    subtitulo_ia = parsed.get("subtitulo")
+                    if titulo_ia:
+                        _busca_cache_set(_qv_cache_key, {"titulo": titulo_ia, "subtitulo": subtitulo_ia})
+                except Exception:
+                    pass
 
     return jsonify({
         "titulo_ia":    titulo_ia    or "Quem viu isso também viu",
@@ -8827,14 +8873,10 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
     )
 
     try:
-        import anthropic as _anthropic
-        client = _anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = msg.content[0].text.strip()
+        # Usa o mesmo cliente HTTP das demais chamadas Claude (api.anthropic.com).
+        # Antes usava o SDK `anthropic`, que não está no requirements e por isso
+        # falhava silenciosamente em produção (e gerava o aviso de import).
+        raw = (_claude_haiku(prompt, max_tokens=300) or "").strip()
         # Extrai JSON mesmo se vier com markdown
         _m = re.search(r"\{[\s\S]+\}", raw)
         data = _json.loads(_m.group(0)) if _m else {}
