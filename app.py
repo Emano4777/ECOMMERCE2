@@ -377,6 +377,47 @@ def _alpha_export_paid_order_safe(pedido_id):
         return {"ok": False, "erro": str(exc)}
 
 
+def _finalizar_pos_pagamento_aprovado(pedido_id, notificar=True):
+    try:
+        _auto_pronto_retirada(str(pedido_id))
+    except Exception as exc:
+        app.logger.warning("pos pagamento pronto retirada %s error: %s", pedido_id, exc)
+    try:
+        _alpha_export_paid_order_safe(str(pedido_id))
+    except Exception as exc:
+        app.logger.warning("pos pagamento alpha %s error: %s", pedido_id, exc)
+    if notificar:
+        try:
+            _notificar_pedido_evento(
+                str(pedido_id),
+                "pagamento",
+                "Pagamento aprovado",
+                f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
+            )
+        except Exception as exc:
+            app.logger.warning("pos pagamento notificar %s error: %s", pedido_id, exc)
+
+
+def _finalizar_pos_pagamento_aprovado_async(pedido_id, notificar=True):
+    # Em ambiente serverless (Vercel) a instância é congelada assim que a
+    # resposta HTTP é enviada, então uma daemon thread iniciada aqui não chega
+    # a executar — e o pedido pago nunca é exportado para o Alpha. Nesse caso
+    # roda de forma síncrona antes de retornar (cabe no maxDuration de 60s e
+    # cada etapa já é protegida por try/except). Localmente mantém o
+    # comportamento assíncrono para não travar a requisição.
+    if os.environ.get("VERCEL"):
+        _finalizar_pos_pagamento_aprovado(str(pedido_id), notificar)
+        return
+    try:
+        threading.Thread(
+            target=_finalizar_pos_pagamento_aprovado,
+            args=(str(pedido_id), notificar),
+            daemon=True,
+        ).start()
+    except Exception:
+        pass
+
+
 def _alpha_sync_statuses_safe():
     if not _alpha_enabled():
         return {"ok": False, "erro": "alpha_nao_configurado"}
@@ -11263,7 +11304,22 @@ def api_checkout():
         elif pagamento == "pix" and gateway_pagamento != "mercadopago":
             pix_erro = f"Gateway {gateway_pagamento} configurado, mas o PIX automático deste gateway ainda não está ativo."
         elif pagamento == "mercadopago" and loja.get("mp_access_token"):
-            if loja.get("mp_public_key"):
+            mp_pref = _criar_preferencia_mp(
+                loja["mp_access_token"], pedido_id, itens, total, cliente
+            )
+            mp_erro = (mp_pref or {}).get("_erro")
+            if mp_pref and not mp_erro:
+                mp_init = mp_pref.get("init_point")
+                cur.execute(
+                    """
+                    UPDATE ecommerce_pedidos
+                    SET mp_preference_id=%s, mp_init_point=%s, pagamento_status=%s
+                    WHERE id=%s
+                    """,
+                    (mp_pref.get("id"), mp_init, payment_status, pedido_id),
+                )
+                conn.commit()
+            elif loja.get("mp_public_key"):
                 cur.execute(
                     """
                     UPDATE ecommerce_pedidos
@@ -11273,22 +11329,6 @@ def api_checkout():
                     (payment_status, pedido_id),
                 )
                 conn.commit()
-            else:
-                mp_pref = _criar_preferencia_mp(
-                    loja["mp_access_token"], pedido_id, itens, total, cliente
-                )
-                mp_erro = (mp_pref or {}).get("_erro")
-                if mp_pref and not mp_erro:
-                    mp_init = mp_pref.get("init_point")
-                    cur.execute(
-                        """
-                        UPDATE ecommerce_pedidos
-                        SET mp_preference_id=%s, mp_init_point=%s, pagamento_status=%s
-                        WHERE id=%s
-                        """,
-                        (mp_pref.get("id"), mp_init, payment_status, pedido_id),
-                    )
-                    conn.commit()
         elif pagamento == "pix" and loja.get("mp_access_token"):
             mp_payment = _criar_pagamento_pix_mp(
                 loja["mp_access_token"], pedido_id, itens, total, cliente
@@ -11426,7 +11466,7 @@ def api_pedido_cartao_transparente(pedido_id):
     }
     consumidor_id = str(row.get("consumidor_id") or "")
     cnpjloja = str(row.get("cnpjloja") or "")
-    mp_customer_id = _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
+    mp_customer_id = None
     pay = _criar_pagamento_cartao_mp(row["mp_access_token"], pedido_id, row["total"], cliente, data, mp_customer_id)
     erro = pay.get("_erro") if isinstance(pay, dict) else None
     if erro:
@@ -11448,19 +11488,10 @@ def api_pedido_cartao_transparente(pedido_id):
         """,
         (str(pay.get("id") or ""), status, detail, pedido_status, pedido_status, pedido_id),
     )
-    if pedido_status == "pago" and mp_customer_id:
-        _registrar_cartao_de_pagamento(conn, pay, consumidor_id, cnpjloja)
     conn.commit()
     cur.close()
     if pedido_status == "pago":
-        _auto_pronto_retirada(pedido_id)
-        _alpha_export_paid_order_safe(pedido_id)
-        _notificar_pedido_evento(
-            pedido_id,
-            "pagamento",
-            "Pagamento aprovado",
-            f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
-        )
+        _finalizar_pos_pagamento_aprovado_async(pedido_id)
     return jsonify({
         "status": status,
         "status_detail": detail,
@@ -12168,16 +12199,8 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
                 or (old_payment_row.get("pagamento_status") or "") != status
             )
         )
-        if result and result.get("status") == "pago":
-            _auto_pronto_retirada(pedido_id)
-            _alpha_export_paid_order_safe(pedido_id)
         if status_changed_to_paid:
-            _notificar_pedido_evento(
-                pedido_id,
-                "pagamento",
-                "Pagamento aprovado",
-                f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
-            )
+            _finalizar_pos_pagamento_aprovado_async(pedido_id)
         return result
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         reset_db_conn()
@@ -12343,8 +12366,10 @@ def mercado_pago_webhook():
     if event_type and event_type not in {"payment", "merchant_order"}:
         return jsonify({"ok": True})
     if payment_id:
-        _ativar_assinatura_mp(str(payment_id))
-        _aplicar_webhook_pagamento(str(payment_id))
+        threading.Thread(
+            target=lambda: (_ativar_assinatura_mp(str(payment_id)), _aplicar_webhook_pagamento(str(payment_id))),
+            daemon=True,
+        ).start()
     return jsonify({"ok": True})
 
 
@@ -12403,12 +12428,7 @@ def asaas_webhook():
         conn.commit()
         cur.close()
         if row and pedido_status == "pago":
-            _auto_pronto_retirada(str(row["id"]))
-            _alpha_export_paid_order_safe(str(row["id"]))
-            _notificar_pedido_evento(
-                str(row["id"]), "pagamento", "Pagamento aprovado",
-                f"O pagamento do pedido #{str(row['id'])[:8].upper()} foi confirmado.",
-            )
+            _finalizar_pos_pagamento_aprovado_async(str(row["id"]))
     return jsonify({"ok": True})
 
 
