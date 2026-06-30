@@ -44,6 +44,10 @@
         <input id="telefone" name="telefone" value="{{ user.telefone }}" required minlength="10">
       </div>
       <div class="field">
+        <label for="documento">CPF ou CNPJ</label>
+        <input id="documento" name="documento" value="{{ user.documento or '' }}" inputmode="numeric" maxlength="18" required>
+      </div>
+      <div class="field">
         <label for="email">E-mail</label>
         <input id="email" name="email" type="email" value="{{ user.email }}" required>
       </div>
@@ -167,6 +171,15 @@ function formatCEP(v) {
   return v.length > 5 ? v.slice(0,5)+'-'+v.slice(5) : v;
 }
 cepEl.addEventListener('input', function(){ this.value = formatCEP(this.value); });
+
+const docEl = document.getElementById('documento');
+function formatDoc(v) {
+  v = (v || '').replace(/\D/g,'').slice(0,14);
+  if (v.length > 11) return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2}).*/, '$1.$2.$3/$4-$5');
+  return v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2}).*/, function(_, a, b, c, d){ return d ? `${a}.${b}.${c}-${d}` : `${a}.${b}.${c}`; });
+}
+docEl.value = formatDoc(docEl.value);
+docEl.addEventListener('input', function(){ this.value = formatDoc(this.value); });
 
 async function buscarCEP(cep) {
   cep = cep.replace(/\D/g,'');

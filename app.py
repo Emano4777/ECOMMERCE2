@@ -33,6 +33,11 @@ from flask import (
     url_for, session, flash, jsonify, send_from_directory, Response
 )
 
+try:
+    import alpha_sync
+except Exception:
+    alpha_sync = None
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "poupaqui-ecommerce-dev-2026")
 app.permanent_session_lifetime = timedelta(days=30)
@@ -319,6 +324,68 @@ def reset_db_conn():
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
+def _alpha_enabled():
+    try:
+        return bool(alpha_sync and alpha_sync.alpha_enabled())
+    except Exception:
+        return False
+
+
+def _catalogo_alpha_exclusivo():
+    return _alpha_enabled()
+
+
+def _ensure_alpha_schema():
+    if not _alpha_enabled():
+        return
+    try:
+        alpha_sync.ensure_local_schema()
+    except Exception as exc:
+        app.logger.warning("alpha ensure schema error: %s", exc)
+
+
+def _alpha_sync_products_safe(limit=5000):
+    if not _alpha_enabled():
+        return {"ok": False, "erro": "alpha_nao_configurado"}
+    try:
+        result = alpha_sync.sync_products(limit=limit)
+        _batch_cache_clear()
+        return result
+    except Exception as exc:
+        app.logger.warning("alpha sync products error: %s", exc)
+        return {"ok": False, "erro": str(exc)}
+
+
+def _alpha_export_paid_order_safe(pedido_id):
+    if not _alpha_enabled() or not pedido_id:
+        return {"ok": False, "erro": "alpha_nao_configurado"}
+    try:
+        return alpha_sync.export_paid_order(str(pedido_id))
+    except Exception as exc:
+        app.logger.warning("alpha export order %s error: %s", pedido_id, exc)
+        try:
+            conn = db()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE ecommerce_pedidos SET alpha_status='erro', alpha_erro=%s, alpha_status_atualizado_em=NOW() WHERE id=%s",
+                (str(exc)[:800], str(pedido_id)),
+            )
+            conn.commit()
+            cur.close()
+        except Exception:
+            pass
+        return {"ok": False, "erro": str(exc)}
+
+
+def _alpha_sync_statuses_safe():
+    if not _alpha_enabled():
+        return {"ok": False, "erro": "alpha_nao_configurado"}
+    try:
+        return alpha_sync.sync_order_statuses()
+    except Exception as exc:
+        app.logger.warning("alpha sync statuses error: %s", exc)
+        return {"ok": False, "erro": str(exc)}
+
 def fmt_brl(val):
     try:
         v = float(val or 0)
@@ -489,6 +556,8 @@ def _ensure_consumidor_schema():
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco TEXT")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lat DOUBLE PRECISION")
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lng DOUBLE PRECISION")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS documento TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cliente_documento TEXT")
         conn.commit()
         cur.close()
         _schema_ready.add("consumidor")
@@ -1709,6 +1778,7 @@ def _ensure_ml_schema():
         cur.execute("ALTER TABLE ml_items ADD COLUMN IF NOT EXISTS cnpjloja TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'ecommerce'")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_order_id TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cliente_documento TEXT")
         conn.commit(); cur.close()
         _schema_ready.add("ml")
         _mark_migration_done("ml")
@@ -2640,6 +2710,8 @@ def _attach_product_promos(produtos):
             assinados = {r["cnpj_key"] for r in cur.fetchall()}
         cur.close()
         for p in produtos:
+            if p.get("fonte_estoque") == "alpha_a7":
+                continue
             cnpj_key = _digits(p.get("cnpjloja"))
             row = promo_map.get((_digits(p.get("ean")).lstrip("0"), cnpj_key))
             if not row:
@@ -2701,6 +2773,28 @@ def _preco_produto_com_promocao(cnpjloja: str, ean: str, preco_base, consumidor_
     preco = float(preco_base or 0)
     if not cnpjloja or not ean:
         return preco, None
+    if _alpha_enabled():
+        try:
+            _ensure_alpha_schema()
+            conn_alpha = db()
+            cur_alpha = conn_alpha.cursor()
+            cur_alpha.execute(
+                """
+                SELECT 1
+                FROM ecommerce_alpha_produtos
+                WHERE cnpjloja=%s
+                  AND LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')
+                  AND COALESCE(inativo, false) = false
+                LIMIT 1
+                """,
+                (cnpjloja, ean),
+            )
+            is_alpha_a7 = cur_alpha.fetchone() is not None
+            cur_alpha.close()
+            if is_alpha_a7:
+                return preco, None
+        except Exception:
+            pass
     try:
         _ensure_promo_schema()
         conn = db()
@@ -2744,6 +2838,29 @@ def _preco_catalogo_atual(cnpjloja: str, ean: str, fallback=0) -> float:
     try:
         conn = db()
         cur = conn.cursor()
+        if _alpha_enabled():
+            try:
+                _ensure_alpha_schema()
+                cur.execute(
+                    """
+                    SELECT preco_atual AS preco
+                    FROM ecommerce_alpha_produtos
+                    WHERE cnpjloja=%s
+                      AND LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')
+                      AND COALESCE(inativo, false) = false
+                      AND COALESCE(estoque, 0) > 0
+                    LIMIT 1
+                    """,
+                    (cnpjloja, ean),
+                )
+                row_alpha = cur.fetchone()
+                if row_alpha and row_alpha.get("preco") is not None:
+                    cur.close()
+                    return float(row_alpha["preco"] or 0)
+            except Exception:
+                pass
+            cur.close()
+            return 0.0
         cur.execute(
             """
             SELECT COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco
@@ -3883,6 +4000,37 @@ _IMAGEM_FILTER_ALPHA = """AND (
             )
           )"""
 
+_IMAGEM_FILTER_ALPHA_A7 = """AND (
+            ap.imagem_url IS NOT NULL
+            OR ap.ean IN (
+                SELECT barra_norm FROM medicamentos
+                WHERE barra_norm IS NOT NULL
+                  AND (
+                    NULLIF(TRIM(imagem), '') IS NOT NULL
+                    OR id IN (SELECT medicamento_id FROM medicamentos_imagens
+                              WHERE cloudinary_url IS NOT NULL)
+                  )
+            )
+            OR ap.ean IN (
+                SELECT ean FROM produto_canon
+                WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND fonte NOT IN ('cosmos_miss', 'ia_miss')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM ecommerce_produto_imagens epi0
+                WHERE epi0.cnpjloja = ap.cnpjloja
+                  AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                  AND epi0.imagem_url IS NOT NULL
+                  AND TRIM(epi0.imagem_url) <> ''
+            )
+            OR EXISTS (
+                SELECT 1 FROM medicamentos5 m5x
+                WHERE m5x.barra = ap.ean
+                  AND NULLIF(TRIM(m5x.imagem), '') IS NOT NULL
+            )
+          )"""
+
 _SQL_ALPHA = """
     WITH eligible AS (
         SELECT
@@ -4086,6 +4234,51 @@ _SQL_AUTO_FAST = """
 """
 
 
+_SQL_ALPHA_A7 = """
+    WITH eligible AS (
+        SELECT
+            ap.cnpjloja,
+            ap.ean,
+            ap.nome,
+            CAST(ap.estoque AS INTEGER) AS qty,
+            ap.preco_atual,
+            ap.fabricante,
+            ap.principio_ativo,
+            ap.imagem_url,
+            ap.alpha_o_id
+        FROM ecommerce_alpha_produtos ap
+        WHERE ap.cnpjloja = %s
+          AND COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND COALESCE(ap.ean, '') <> ''
+          {busca}
+          {imagem_filter}
+        ORDER BY ap.nome
+        LIMIT {limite}
+    )
+    SELECT
+        el.ean,
+        COALESCE(m.descricao, pc.descricao_canon, el.nome) AS nome,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
+        m.marca AS marca,
+        el.qty,
+        el.preco_atual AS preco_ref,
+        NULL::numeric AS preco_custom,
+        el.preco_atual AS preco,
+        NULL::numeric AS custo,
+        COALESCE(el.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+        'alpha_a7' AS fonte_estoque,
+        el.alpha_o_id
+    FROM eligible el
+    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.ean
+"""
+
+
 def _apply_latest_sales_prices(produtos, cnpjloja, cur):
     alpha_eans = [p["ean"] for p in produtos if p.get("ean") and p.get("fonte_estoque") == "alpha" and p.get("preco_custom") is None]
     auto_eans = [p["ean"] for p in produtos if p.get("ean") and p.get("fonte_estoque") == "auto" and p.get("preco_custom") is None]
@@ -4184,20 +4377,26 @@ def get_dns_products(
     ocultos = {r["ean"] for r in cur.fetchall()}
 
     busca_alpha = busca_auto = ""
+    busca_alpha_a7 = ""
     args_alpha = [cnpjloja]
+    args_alpha_a7 = [cnpjloja]
     args_auto  = [cnpjloja]
     if q:
         like = f"%{q.lower()}%"
         busca_alpha = "AND (LOWER(e.descricao) LIKE %s OR COALESCE(e.barras_norm, e.barras, '') LIKE %s)"
+        busca_alpha_a7 = "AND (LOWER(ap.nome) LIKE %s OR COALESCE(ap.ean, '') LIKE %s)"
         busca_auto  = "AND (LOWER(ae.descricao_produto) LIKE %s OR COALESCE(ae.ean, '') LIKE %s)"
         args_alpha.extend([like, f"%{q}%"])
+        args_alpha_a7.extend([like, f"%{q}%"])
         args_auto.extend([like, f"%{q}%"])
 
     if skip_image_filter:
+        imagem_alpha_a7 = ""
         imagem_alpha = ""
         imagem_auto  = ""
         limite = 9999  # sem limite prático — mostra todos com estoque
     else:
+        imagem_alpha_a7 = _IMAGEM_FILTER_ALPHA_A7
         imagem_alpha = _IMAGEM_FILTER_ALPHA
         imagem_auto  = _IMAGEM_FILTER_AUTO
         limite = 9999  # idem: todos com imagem e estoque
@@ -4205,14 +4404,26 @@ def get_dns_products(
     sql_alpha = _SQL_ALPHA_FAST if batch_sales_prices else _SQL_ALPHA
     sql_auto = _SQL_AUTO_FAST if batch_sales_prices else _SQL_AUTO
 
-    cur.execute(sql_alpha.format(busca=busca_alpha, imagem_filter=imagem_alpha, limite=limite), args_alpha)
-    alpha = cur.fetchall()
+    alpha_a7 = []
+    if _alpha_enabled():
+        try:
+            _ensure_alpha_schema()
+            cur.execute(_SQL_ALPHA_A7.format(busca=busca_alpha_a7, imagem_filter=imagem_alpha_a7, limite=limite), args_alpha_a7)
+            alpha_a7 = cur.fetchall()
+        except Exception as exc:
+            app.logger.warning("catalogo alpha a7 indisponivel: %s", exc)
 
-    cur.execute(sql_auto.format(busca=busca_auto, imagem_filter=imagem_auto, limite=limite), args_auto)
-    auto = cur.fetchall()
+    alpha = []
+    auto = []
+    if not _catalogo_alpha_exclusivo():
+        cur.execute(sql_alpha.format(busca=busca_alpha, imagem_filter=imagem_alpha, limite=limite), args_alpha)
+        alpha = cur.fetchall()
+
+        cur.execute(sql_auto.format(busca=busca_auto, imagem_filter=imagem_auto, limite=limite), args_auto)
+        auto = cur.fetchall()
 
     seen, combined = set(), []
-    for row in list(alpha) + list(auto):
+    for row in list(alpha_a7) + list(alpha) + list(auto):
         ean = (row["ean"] or "").strip()
         if ean not in seen and (include_hidden or ean not in ocultos):
             seen.add(ean)
@@ -4225,8 +4436,10 @@ def get_dns_products(
         _apply_latest_sales_prices(combined, cnpjloja, cur)
 
     # Produtos extras incluídos manualmente pela loja
-    cur.execute("SELECT ean FROM ecommerce_catalogo_extra WHERE cnpjloja = %s", (cnpjloja,))
-    extra_eans = [r["ean"] for r in cur.fetchall() if r["ean"] not in seen]
+    extra_eans = []
+    if not _catalogo_alpha_exclusivo():
+        cur.execute("SELECT ean FROM ecommerce_catalogo_extra WHERE cnpjloja = %s", (cnpjloja,))
+        extra_eans = [r["ean"] for r in cur.fetchall() if r["ean"] not in seen]
 
     if extra_eans:
         cur.execute("""
@@ -4329,6 +4542,75 @@ def get_dns_products(
 
 
 # ─── BATCH DNS PRODUCTS (home page) ──────────────────────────────────────────
+
+_SQL_ALPHA_A7_BATCH = """
+    WITH eligible AS (
+        SELECT
+            ap.cnpjloja,
+            ap.ean,
+            ap.nome,
+            CAST(ap.estoque AS INTEGER) AS qty,
+            ap.preco_atual,
+            ap.fabricante,
+            ap.imagem_url
+        FROM ecommerce_alpha_produtos ap
+        LEFT JOIN ecommerce_config_loja cfg_ap ON cfg_ap.cnpjloja = ap.cnpjloja
+        WHERE ap.cnpjloja = ANY(%s)
+          AND COALESCE(ap.inativo, false) = false
+          AND CAST(COALESCE(ap.estoque, 0) AS INTEGER) >= COALESCE(cfg_ap.estoque_min_publicacao, 1)
+          AND COALESCE(ap.ean, '') <> ''
+          AND (
+            ap.imagem_url IS NOT NULL
+            OR ap.ean IN (
+                SELECT barra_norm FROM medicamentos
+                WHERE barra_norm IS NOT NULL
+                  AND (
+                    NULLIF(TRIM(imagem), '') IS NOT NULL
+                    OR id IN (SELECT medicamento_id FROM medicamentos_imagens
+                              WHERE cloudinary_url IS NOT NULL)
+                  )
+            )
+            OR ap.ean IN (
+                SELECT ean FROM produto_canon
+                WHERE imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
+                  AND fonte NOT IN ('cosmos_miss', 'ia_miss')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM ecommerce_produto_imagens epi0
+                WHERE epi0.cnpjloja = ap.cnpjloja
+                  AND LTRIM(COALESCE(epi0.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                  AND epi0.imagem_url IS NOT NULL
+                  AND TRIM(epi0.imagem_url) <> ''
+            )
+            OR EXISTS (
+                SELECT 1 FROM medicamentos5 m5x
+                WHERE m5x.barra = ap.ean
+                  AND NULLIF(TRIM(m5x.imagem), '') IS NOT NULL
+            )
+          )
+        ORDER BY ap.nome
+        LIMIT 9999
+    )
+    SELECT
+        el.cnpjloja,
+        el.ean,
+        COALESCE(m.descricao, pc.descricao_canon, el.nome) AS nome,
+        COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
+        m.marca AS marca,
+        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+        el.qty,
+        el.preco_atual AS preco,
+        COALESCE(el.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+        'alpha_a7' AS fonte_estoque
+    FROM eligible el
+    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+    LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+    LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(el.ean,''),'0')
+    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = el.cnpjloja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN medicamentos5 m5        ON m5.barra = el.ean
+"""
 
 _SQL_ALPHA_BATCH = """
     WITH eligible AS (
@@ -4496,10 +4778,21 @@ def get_dns_products_batch(cnpjs):
     _ensure_produto_canon_schema()
     conn = _new_conn_batch()
     cur = conn.cursor()
-    cur.execute(_SQL_ALPHA_BATCH, (cnpjs, cnpjs))
-    alpha = cur.fetchall()
-    cur.execute(_SQL_AUTO_BATCH, (cnpjs,))
-    auto = cur.fetchall()
+    alpha_a7 = []
+    if _alpha_enabled():
+        try:
+            _ensure_alpha_schema()
+            cur.execute(_SQL_ALPHA_A7_BATCH, (cnpjs,))
+            alpha_a7 = cur.fetchall()
+        except Exception as exc:
+            app.logger.warning("batch catalogo alpha a7 indisponivel: %s", exc)
+    alpha = []
+    auto = []
+    if not _catalogo_alpha_exclusivo():
+        cur.execute(_SQL_ALPHA_BATCH, (cnpjs, cnpjs))
+        alpha = cur.fetchall()
+        cur.execute(_SQL_AUTO_BATCH, (cnpjs,))
+        auto = cur.fetchall()
 
     # Ocultos por loja
     cur.execute(
@@ -4509,14 +4802,16 @@ def get_dns_products_batch(cnpjs):
     ocultos = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
 
     # Extras adicionados manualmente pelas lojas
-    cur.execute(
-        "SELECT cnpjloja, ean FROM ecommerce_catalogo_extra WHERE cnpjloja = ANY(%s)",
-        (cnpjs,),
-    )
-    extra_pairs = [(r["cnpjloja"], r["ean"]) for r in cur.fetchall()]
+    extra_pairs = []
+    if not _catalogo_alpha_exclusivo():
+        cur.execute(
+            "SELECT cnpjloja, ean FROM ecommerce_catalogo_extra WHERE cnpjloja = ANY(%s)",
+            (cnpjs,),
+        )
+        extra_pairs = [(r["cnpjloja"], r["ean"]) for r in cur.fetchall()]
 
     seen, combined = set(), []
-    for row in list(alpha) + list(auto):
+    for row in list(alpha_a7) + list(alpha) + list(auto):
         ean = (row["ean"] or "").strip()
         cnpj = row["cnpjloja"]
         key = (ean, cnpj)
@@ -4627,6 +4922,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
     _ensure_catalog_admin_schema()
     _ensure_precificador_schema()
     _ensure_produto_canon_schema()
+    _ensure_alpha_schema()
     ean_keys = sorted({_digits(e).lstrip("0") for e in eans if _digits(e)})
     if not ean_keys:
         return []
@@ -4635,13 +4931,28 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
     cur.execute(
         """
         WITH alvo AS (SELECT unnest(%s::text[]) AS ean_key),
+        alpha_a7 AS (
+            SELECT ap.cnpjloja,
+                   ap.ean AS ean,
+                   ap.ean AS ean_join,
+                   ap.nome AS nome_raw,
+                   CAST(ap.estoque AS INTEGER) AS qty,
+                   ap.preco_atual AS preco_base,
+                   'alpha_a7' AS fonte_estoque
+            FROM ecommerce_alpha_produtos ap
+            JOIN alvo a ON LTRIM(COALESCE(ap.ean, ''), '0') = a.ean_key
+            WHERE ap.cnpjloja = ANY(%s)
+              AND COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > 0
+        ),
         alpha AS (
             SELECT e.cnpj AS cnpjloja,
                    e.barras AS ean,
                    COALESCE(e.barras_norm, e.barras) AS ean_join,
                    e.descricao AS nome_raw,
                    CAST(e.estoque AS INTEGER) AS qty,
-                   e.preco_referencial AS preco_base
+                   e.preco_referencial AS preco_base,
+                   'alpha' AS fonte_estoque
             FROM estoque e
             JOIN alvo a ON LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') = a.ean_key
             WHERE e.cnpj = ANY(%s) AND e.estoque > 0
@@ -4652,12 +4963,15 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
                    ae.ean AS ean_join,
                    ae.descricao_produto AS nome_raw,
                    CAST(ae.quantidade_estoque AS INTEGER) AS qty,
-                   ae.valor_final_produto AS preco_base
+                   ae.valor_final_produto AS preco_base,
+                   'auto' AS fonte_estoque
             FROM automatiza_estoque ae
             JOIN alvo a ON LTRIM(COALESCE(ae.ean, ''), '0') = a.ean_key
             WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
         ),
         base AS (
+            SELECT * FROM alpha_a7
+            UNION ALL
             SELECT * FROM alpha
             UNION ALL
             SELECT * FROM auto
@@ -4670,8 +4984,9 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             m.marca AS marca,
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
-            COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) AS preco,
-            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
+            CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
+            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+            b.fonte_estoque
         FROM base b
         LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
@@ -4694,9 +5009,11 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             ORDER BY valor_final_vendido DESC LIMIT 1
         ) av ON TRUE
         """,
-        (ean_keys, cnpjs, cnpjs),
+        (ean_keys, cnpjs, cnpjs, cnpjs),
     )
     rows = [dict(r) for r in cur.fetchall()]
+    if _catalogo_alpha_exclusivo():
+        rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
 
     # Filtra itens ocultos pela loja (não devem aparecer no catálogo público)
     try:
@@ -4743,6 +5060,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
     _ensure_catalog_admin_schema()
     _ensure_precificador_schema()
     _ensure_produto_canon_schema()
+    _ensure_alpha_schema()
     patterns = [f"%{t.lower()}%" for t in terms[:4] if t]
     if not patterns:
         return []
@@ -4750,13 +5068,41 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
     cur = conn.cursor()
     cur.execute(
         """
-        WITH alpha AS (
+        WITH alpha_a7 AS (
+            SELECT ap.cnpjloja,
+                   ap.ean AS ean,
+                   ap.ean AS ean_join,
+                   ap.nome AS nome_raw,
+                   CAST(ap.estoque AS INTEGER) AS qty,
+                   ap.preco_atual AS preco_base,
+                   'alpha_a7' AS fonte_estoque
+            FROM ecommerce_alpha_produtos ap
+            WHERE ap.cnpjloja = ANY(%s)
+              AND COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > 0
+              AND (
+                LOWER(ap.nome) LIKE ANY(%s)
+                OR COALESCE(ap.ean,'') IN (
+                    SELECT barra_norm FROM medicamentos
+                    WHERE barra_norm IS NOT NULL
+                      AND (LOWER(descricao) LIKE ANY(%s) OR LOWER(COALESCE(marca,'')) LIKE ANY(%s))
+                )
+                OR COALESCE(ap.ean,'') IN (
+                    SELECT ean FROM produto_canon
+                    WHERE ean IS NOT NULL AND fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+                      AND LOWER(descricao_canon) LIKE ANY(%s)
+                )
+              )
+            LIMIT %s
+        ),
+        alpha AS (
             SELECT e.cnpj AS cnpjloja,
                    e.barras AS ean,
                    COALESCE(e.barras_norm, e.barras) AS ean_join,
                    e.descricao AS nome_raw,
                    CAST(e.estoque AS INTEGER) AS qty,
-                   e.preco_referencial AS preco_base
+                   e.preco_referencial AS preco_base,
+                   'alpha' AS fonte_estoque
             FROM estoque e
             WHERE e.cnpj = ANY(%s) AND e.estoque > 0
               AND (
@@ -4780,7 +5126,8 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
                    ae.ean AS ean_join,
                    ae.descricao_produto AS nome_raw,
                    CAST(ae.quantidade_estoque AS INTEGER) AS qty,
-                   ae.valor_final_produto AS preco_base
+                   ae.valor_final_produto AS preco_base,
+                   'auto' AS fonte_estoque
             FROM automatiza_estoque ae
             WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
               AND (
@@ -4799,6 +5146,8 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
             LIMIT %s
         ),
         base AS (
+            SELECT * FROM alpha_a7
+            UNION ALL
             SELECT * FROM alpha
             UNION ALL
             SELECT * FROM auto
@@ -4811,8 +5160,9 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
             m.marca AS marca,
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
-            COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) AS preco,
-            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
+            CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
+            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+            b.fonte_estoque
         FROM base b
         LEFT JOIN medicamentos m           ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
@@ -4837,9 +5187,12 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         ) av ON TRUE
         """,
         (cnpjs, patterns, patterns, patterns, patterns, limit,
+         cnpjs, patterns, patterns, patterns, patterns, limit,
          cnpjs, patterns, patterns, patterns, patterns, limit),
     )
     rows = [dict(r) for r in cur.fetchall()]
+    if _catalogo_alpha_exclusivo():
+        rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
     try:
         cur.execute(
             "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
@@ -5158,6 +5511,45 @@ def api_vitnatu_produtos():
     if not cnpjs:
         cur.close()
         return jsonify({"produtos": []})
+
+    if _catalogo_alpha_exclusivo():
+        produtos_base = get_dns_products_batch(cnpjs)
+        cur.execute("SELECT * FROM vitnatu_produtos WHERE ativo=TRUE")
+        vp_all = {r["nome"].upper(): dict(r) for r in cur.fetchall()}
+        cur.close()
+
+        stop = {"com","de","do","da","dos","das","para","por","em","e","ou","cp","ml","mg","un","gr","caps","comp","tab"}
+
+        def _enrich_vitnatu_alpha(nome):
+            words = [w for w in (nome or "").upper().split() if len(w) >= 4 and w.lower() not in stop][:3]
+            for vp_nome, vp in vp_all.items():
+                if words and all(w in vp_nome for w in words):
+                    return vp
+            return None
+
+        produtos = []
+        seen = set()
+        for row in produtos_base:
+            hay = " ".join(str(row.get(k) or "") for k in ("nome", "marca", "laboratorio")).upper()
+            if "VITNATU" not in hay and "VIT NATU" not in hay:
+                continue
+            ean = (row.get("ean") or "").strip()
+            ean_norm = ean.lstrip("0") or ean
+            if not ean_norm or ean_norm in seen:
+                continue
+            seen.add(ean_norm)
+            p = dict(row)
+            vp = _enrich_vitnatu_alpha(p.get("nome") or "")
+            if vp:
+                p["serve_para"] = vp.get("serve_para") or ""
+                p["porque_comprar"] = vp.get("porque_comprar") or ""
+                p["como_usar"] = vp.get("como_usar") or ""
+            info = loja_info.get(p["cnpjloja"], {})
+            p["razao"] = _public_store_name(info) if info else ""
+            p["distancia_km"] = info.get("distancia_km")
+            produtos.append(p)
+        produtos.sort(key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+        return jsonify({"produtos": produtos, "n_lojas": len({p["cnpjloja"] for p in produtos})})
 
     _VITNATU_FILTER = """
         AND (
@@ -8204,40 +8596,69 @@ def produto_detalhe(ean):
         if imagem_custom in _MEDICINE_PLACEHOLDER_URLS:
             imagem_custom = None
 
-        cur.execute(
-            """
-            SELECT e.barras AS ean, e.descricao AS nome,
-                   CAST(e.estoque AS INTEGER) AS qty,
-                   COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
-                   COALESCE(%s, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
-            FROM estoque e
-            LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
-            LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
-            LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
-            LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
-            LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
-            LEFT JOIN LATERAL (
-                SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
-                FROM vendageral
-                WHERE cnpj = e.cnpj AND ean = e.barras
-                  AND total_vendasgeral > 0 AND itens > 0
-                ORDER BY id DESC LIMIT 1
-            ) vg ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
-                FROM vendageral
-                WHERE ean = e.barras
-                  AND total_vendasgeral > 0 AND itens > 0
-                ORDER BY id DESC LIMIT 1
-            ) vg_market ON TRUE
-            WHERE e.cnpj = %s AND (e.barras = %s OR e.barras_norm = %s) AND e.estoque > 0
-            LIMIT 1
-            """,
-            (imagem_custom, cnpjloja, ean, ean),
-        )
-        produto = cur.fetchone()
+        if _alpha_enabled():
+            try:
+                _ensure_alpha_schema()
+                cur.execute(
+                    """
+                    SELECT ap.ean, COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+                           CAST(ap.estoque AS INTEGER) AS qty,
+                           ap.preco_atual AS preco,
+                           COALESCE(%s, ap.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
+                           'alpha_a7' AS fonte_estoque,
+                           ap.alpha_o_id
+                    FROM ecommerce_alpha_produtos ap
+                    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                    LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
+                    LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+                    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                    WHERE ap.cnpjloja = %s
+                      AND LTRIM(COALESCE(ap.ean, ''), '0') = LTRIM(%s, '0')
+                      AND COALESCE(ap.inativo, false) = false
+                      AND COALESCE(ap.estoque, 0) > 0
+                    LIMIT 1
+                    """,
+                    (imagem_custom, cnpjloja, ean),
+                )
+                produto = cur.fetchone()
+            except Exception as exc:
+                app.logger.warning("produto detalhe alpha a7 indisponivel: %s", exc)
 
-        if not produto:
+        if not produto and not _catalogo_alpha_exclusivo():
+            cur.execute(
+                """
+                SELECT e.barras AS ean, e.descricao AS nome,
+                       CAST(e.estoque AS INTEGER) AS qty,
+                       COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
+                       COALESCE(%s, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem
+                FROM estoque e
+                LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
+                LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+                LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(e.barras_norm, e.barras, ''), '0')
+                LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+                LEFT JOIN LATERAL (
+                    SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                    FROM vendageral
+                    WHERE cnpj = e.cnpj AND ean = e.barras
+                      AND total_vendasgeral > 0 AND itens > 0
+                    ORDER BY id DESC LIMIT 1
+                ) vg ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
+                    FROM vendageral
+                    WHERE ean = e.barras
+                      AND total_vendasgeral > 0 AND itens > 0
+                    ORDER BY id DESC LIMIT 1
+                ) vg_market ON TRUE
+                WHERE e.cnpj = %s AND (e.barras = %s OR e.barras_norm = %s) AND e.estoque > 0
+                LIMIT 1
+                """,
+                (imagem_custom, cnpjloja, ean, ean),
+            )
+            produto = cur.fetchone()
+
+        if not produto and not _catalogo_alpha_exclusivo():
             cur.execute(
                 """
                 SELECT ae.ean, ae.descricao_produto AS nome,
@@ -9072,6 +9493,8 @@ def api_carrinho_get():
     for r in cur.fetchall():
         nome = r["nome"] or ""
         preco_base_atual = _preco_catalogo_atual(r["cnpjloja"], r["ean"], r["preco"])
+        if _catalogo_alpha_exclusivo() and float(preco_base_atual or 0) <= 0:
+            continue
         preco_item, promo_item = _preco_produto_com_promocao(
             r["cnpjloja"], r["ean"], preco_base_atual, cid
         )
@@ -9114,6 +9537,8 @@ def api_carrinho_recalcular():
         if not ean or not cnpjloja:
             continue
         preco_base = _preco_catalogo_atual(cnpjloja, ean, item.get("preco", 0))
+        if _catalogo_alpha_exclusivo() and float(preco_base or 0) <= 0:
+            continue
         preco, promo = _preco_produto_com_promocao(cnpjloja, ean, preco_base, cid)
         novo = dict(item)
         novo["preco"] = preco
@@ -9187,6 +9612,7 @@ def consumidor_login_post():
     session["consumidor_nome"] = user["nome"]
     session["consumidor_email"] = user["email"]
     session["consumidor_telefone"] = user["telefone"]
+    session["consumidor_documento"] = user.get("documento") or ""
     session["consumidor_endereco"] = user.get("endereco") or ""
     session["consumidor_lat"] = user.get("endereco_lat")
     session["consumidor_lng"] = user.get("endereco_lng")
@@ -9206,6 +9632,7 @@ def consumidor_criar_conta_post():
     _ensure_consumidor_schema()
     nome = (request.form.get("nome") or "").strip()
     telefone = (request.form.get("telefone") or "").strip()
+    documento = _digits(request.form.get("documento") or "")
     email = _norm_email(request.form.get("email"))
     senha = request.form.get("senha") or ""
     endereco = (request.form.get("endereco") or "").strip()
@@ -9218,6 +9645,9 @@ def consumidor_criar_conta_post():
         return redirect(url_for("consumidor_criar_conta", next=next_url))
     if not _valid_phone(telefone):
         flash("Informe um WhatsApp válido com DDD.", "error")
+        return redirect(url_for("consumidor_criar_conta", next=next_url))
+    if len(documento) not in {11, 14}:
+        flash("Informe CPF ou CNPJ válido.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
     if not _valid_email(email):
         flash("Informe um e-mail válido.", "error")
@@ -9234,11 +9664,11 @@ def consumidor_criar_conta_post():
     try:
         cur.execute(
             """
-            INSERT INTO ecommerce_consumidores (nome, telefone, email, senha_hash, endereco, endereco_lat, endereco_lng)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, nome, telefone, email, endereco, endereco_lat, endereco_lng
+            INSERT INTO ecommerce_consumidores (nome, telefone, documento, email, senha_hash, endereco, endereco_lat, endereco_lng)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, nome, telefone, documento, email, endereco, endereco_lat, endereco_lng
             """,
-            (nome, telefone, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng),
+            (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng),
         )
         user = cur.fetchone()
         conn.commit()
@@ -9254,6 +9684,7 @@ def consumidor_criar_conta_post():
     session["consumidor_nome"] = user["nome"]
     session["consumidor_email"] = user["email"]
     session["consumidor_telefone"] = user["telefone"]
+    session["consumidor_documento"] = user.get("documento") or ""
     session["consumidor_endereco"] = user.get("endereco") or ""
     session["consumidor_lat"] = user.get("endereco_lat")
     session["consumidor_lng"] = user.get("endereco_lng")
@@ -9265,7 +9696,7 @@ def consumidor_criar_conta_post():
 
 @app.get("/sair")
 def consumidor_logout():
-    for key in ("consumidor_id", "consumidor_nome", "consumidor_email", "consumidor_telefone", "consumidor_endereco", "consumidor_lat", "consumidor_lng"):
+    for key in ("consumidor_id", "consumidor_nome", "consumidor_email", "consumidor_telefone", "consumidor_documento", "consumidor_endereco", "consumidor_lat", "consumidor_lng"):
         session.pop(key, None)
     return redirect(url_for("index"))
 
@@ -9950,7 +10381,7 @@ def consumidor_perfil():
     _ensure_consumidor_schema()
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT nome, telefone, email, endereco, endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
+    cur.execute("SELECT nome, telefone, documento, email, endereco, endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
     user = cur.fetchone()
     cur.close()
     return render_template("consumidor_perfil.html", user=user)
@@ -9962,6 +10393,7 @@ def consumidor_perfil_post():
     _ensure_consumidor_schema()
     nome = (request.form.get("nome") or "").strip()
     telefone = (request.form.get("telefone") or "").strip()
+    documento = _digits(request.form.get("documento") or "")
     email = _norm_email(request.form.get("email"))
     senha = request.form.get("senha") or ""
     endereco = (request.form.get("endereco") or "").strip()
@@ -9973,6 +10405,9 @@ def consumidor_perfil_post():
         return redirect(url_for("consumidor_perfil"))
     if not _valid_phone(telefone):
         flash("Informe um WhatsApp válido com DDD.", "error")
+        return redirect(url_for("consumidor_perfil"))
+    if len(documento) not in {11, 14}:
+        flash("Informe CPF ou CNPJ válido.", "error")
         return redirect(url_for("consumidor_perfil"))
     if not _valid_email(email):
         flash("Informe um e-mail válido.", "error")
@@ -9991,19 +10426,19 @@ def consumidor_perfil_post():
             cur.execute(
                 """
                 UPDATE ecommerce_consumidores
-                SET nome=%s, telefone=%s, email=%s, senha_hash=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
+                SET nome=%s, telefone=%s, documento=%s, email=%s, senha_hash=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
                 WHERE id=%s
                 """,
-                (nome, telefone, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, session["consumidor_id"]),
+                (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, session["consumidor_id"]),
             )
         else:
             cur.execute(
                 """
                 UPDATE ecommerce_consumidores
-                SET nome=%s, telefone=%s, email=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
+                SET nome=%s, telefone=%s, documento=%s, email=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
                 WHERE id=%s
                 """,
-                (nome, telefone, email, endereco or None, endereco_lat, endereco_lng, session["consumidor_id"]),
+                (nome, telefone, documento, email, endereco or None, endereco_lat, endereco_lng, session["consumidor_id"]),
             )
         conn.commit()
     except psycopg2.errors.UniqueViolation:
@@ -10016,6 +10451,7 @@ def consumidor_perfil_post():
     session["consumidor_nome"] = nome
     session["consumidor_email"] = email
     session["consumidor_telefone"] = telefone
+    session["consumidor_documento"] = documento
     session["consumidor_endereco"] = endereco
     session["consumidor_lat"] = endereco_lat
     session["consumidor_lng"] = endereco_lng
@@ -10066,6 +10502,7 @@ def api_checkout():
     cliente = {
         "nome": session.get("consumidor_nome") or "",
         "telefone": session.get("consumidor_telefone") or "",
+        "documento": session.get("consumidor_documento") or "",
         "email": session.get("consumidor_email") or "",
         "endereco": session.get("consumidor_endereco") or "",
         "lat": session.get("consumidor_lat"),
@@ -10075,10 +10512,10 @@ def api_checkout():
     conn = db()
     cur  = conn.cursor()
 
-    # Garante que o email está presente (sessões antigas podem não ter o campo)
-    if not cliente["email"] or "@" not in cliente["email"]:
+    # Garante que email/documento estão presentes (sessões antigas podem não ter esses campos)
+    if (not cliente["email"] or "@" not in cliente["email"]) or len(_digits(cliente.get("documento"))) not in {11, 14}:
         cur.execute(
-            "SELECT nome, email, telefone, endereco, endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
+            "SELECT nome, email, telefone, documento, endereco, endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
             (session["consumidor_id"],),
         )
         _c = cur.fetchone()
@@ -10086,9 +10523,16 @@ def api_checkout():
             cliente["email"]    = _c["email"] or ""
             cliente["nome"]     = cliente["nome"] or _c["nome"] or ""
             cliente["telefone"] = cliente["telefone"] or _c["telefone"] or ""
+            cliente["documento"] = cliente["documento"] or _c.get("documento") or ""
             cliente["endereco"] = cliente["endereco"] or _c.get("endereco") or ""
             cliente["lat"] = cliente["lat"] or _c.get("endereco_lat")
             cliente["lng"] = cliente["lng"] or _c.get("endereco_lng")
+    if len(_digits(cliente.get("documento"))) not in {11, 14}:
+        cur.close()
+        return jsonify({
+            "error": "Informe CPF ou CNPJ no perfil para finalizar o pedido.",
+            "profile_required": True,
+        }), 400
     pedidos_result = []
     _itens_por_loja: dict = {}
 
@@ -10133,6 +10577,11 @@ def api_checkout():
                 item.get("ean") or "",
                 item.get("preco", 0),
             )
+            if _catalogo_alpha_exclusivo() and float(preco_base_atual or 0) <= 0:
+                return jsonify({
+                    "error": f"{item.get('nome') or 'Um item do carrinho'} não está mais disponível. Atualize o carrinho e tente novamente.",
+                    "reload_cart": True,
+                }), 400
             preco_corrigido, promo_info = _preco_produto_com_promocao(
                 cnpjloja,
                 item.get("ean") or "",
@@ -10339,10 +10788,10 @@ def api_checkout():
         cur.execute(
             """
             INSERT INTO ecommerce_pedidos
-              (cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_email, forma_pagamento, total,
+              (cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_documento, cliente_email, forma_pagamento, total,
                tipo_entrega, endereco_entrega, entrega_lat, entrega_lng, entrega_distancia_km, codigo_entrega, frete_valor,
                cupom_id, desconto_cupom, receita_url, receita_status, receita_declaracao_digital_valida)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -10350,6 +10799,7 @@ def api_checkout():
                 session.get("consumidor_id"),
                 (cliente.get("nome") or "").strip(),
                 (cliente.get("telefone") or "").strip(),
+                _digits(cliente.get("documento")),
                 (cliente.get("email")    or "").strip(),
                 pagamento,
                 round(total, 2),
@@ -10463,6 +10913,8 @@ def api_checkout():
                     ),
                 )
                 conn.commit()
+                if pedido_status == "pago":
+                    _alpha_export_paid_order_safe(pedido_id)
             except Exception as exc:
                 pix_erro = str(exc)
         elif pagamento == "mercadopago" and gateway_pagamento != "mercadopago":
@@ -10528,6 +10980,8 @@ def api_checkout():
                     ),
                 )
                 conn.commit()
+                if pedido_status == "pago":
+                    _alpha_export_paid_order_safe(pedido_id)
 
         # Monta URL de notificação WhatsApp para receita pendente
         _wpp_receita_url = None
@@ -10659,6 +11113,7 @@ def api_pedido_cartao_transparente(pedido_id):
     cur.close()
     if pedido_status == "pago":
         _auto_pronto_retirada(pedido_id)
+        _alpha_export_paid_order_safe(pedido_id)
         _notificar_pedido_evento(
             pedido_id,
             "pagamento",
@@ -10752,6 +11207,7 @@ def api_pedido_asaas_cartao(pedido_id):
     cur.close()
     if pedido_status == "pago":
         _auto_pronto_retirada(pedido_id)
+        _alpha_export_paid_order_safe(pedido_id)
         _notificar_pedido_evento(
             pedido_id, "pagamento", "Pagamento aprovado",
             f"O pagamento do pedido #{str(pedido_id)[:8].upper()} foi confirmado.",
@@ -10849,6 +11305,7 @@ def _ensure_payment_schema():
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS pagamento_status TEXT DEFAULT 'pending'")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS pagamento_status_detail TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS pagamento_confirmado_em TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cliente_documento TEXT")
         conn.commit()
         cur.close()
         _schema_ready.add("payment")
@@ -11372,6 +11829,7 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
         )
         if result and result.get("status") == "pago":
             _auto_pronto_retirada(pedido_id)
+            _alpha_export_paid_order_safe(pedido_id)
         if status_changed_to_paid:
             _notificar_pedido_evento(
                 pedido_id,
@@ -11605,6 +12063,7 @@ def asaas_webhook():
         cur.close()
         if row and pedido_status == "pago":
             _auto_pronto_retirada(str(row["id"]))
+            _alpha_export_paid_order_safe(str(row["id"]))
             _notificar_pedido_evento(
                 str(row["id"]), "pagamento", "Pagamento aprovado",
                 f"O pagamento do pedido #{str(row['id'])[:8].upper()} foi confirmado.",
@@ -13696,11 +14155,24 @@ def precificador_salvar():
     conn = db()
     cur = conn.cursor()
     saved = 0
+    alpha_eans = set()
+    if _alpha_enabled():
+        try:
+            _ensure_alpha_schema()
+            cur.execute(
+                "SELECT LTRIM(COALESCE(ean, ''), '0') AS ean_key FROM ecommerce_alpha_produtos WHERE cnpjloja=%s AND COALESCE(inativo, false)=false",
+                (cnpjloja,),
+            )
+            alpha_eans = {r["ean_key"] for r in cur.fetchall() if r.get("ean_key")}
+        except Exception:
+            alpha_eans = set()
 
     for key, val in request.form.items():
         if not key.startswith("preco_"):
             continue
         ean = key[6:]
+        if _digits(ean).lstrip("0") in alpha_eans:
+            continue
         try:
             preco = float(val.replace(",", ".").replace("R$", "").strip())
             if preco <= 0:
@@ -14043,6 +14515,8 @@ def precificador_ajuste_percentual():
     cur = conn.cursor()
     atualizados = 0
     for p in produtos:
+        if p.get("fonte_estoque") == "alpha_a7":
+            continue
         base = p.get("preco_custom") or p.get("preco_ref")
         if not base:
             continue
@@ -14104,8 +14578,21 @@ def precificador_importar():
     conn = db()
     cur = conn.cursor()
     saved = errors = 0
+    alpha_eans = set()
+    if _alpha_enabled():
+        try:
+            _ensure_alpha_schema()
+            cur.execute(
+                "SELECT LTRIM(COALESCE(ean, ''), '0') AS ean_key FROM ecommerce_alpha_produtos WHERE cnpjloja=%s AND COALESCE(inativo, false)=false",
+                (cnpjloja,),
+            )
+            alpha_eans = {r["ean_key"] for r in cur.fetchall() if r.get("ean_key")}
+        except Exception:
+            alpha_eans = set()
 
     for ean, preco_raw in rows:
+        if _digits(ean).lstrip("0") in alpha_eans:
+            continue
         try:
             preco = float(preco_raw.replace(",", ".").replace("R$", "").strip())
             if preco <= 0:
@@ -14133,6 +14620,14 @@ def precificador_importar():
         msg += f" ({errors} linhas ignoradas por erro de formato)"
     flash(msg, "success")
     return redirect(url_for("precificador"))
+
+
+@app.post("/api/alpha/sync")
+@painel_required
+def api_alpha_sync():
+    produtos = _alpha_sync_products_safe()
+    statuses = _alpha_sync_statuses_safe()
+    return jsonify({"ok": bool(produtos.get("ok") or statuses.get("ok")), "produtos": produtos, "status_pedidos": statuses})
 
 
 # ─── ADMIN ────────────────────────────────────────────────────────────────────
@@ -17041,6 +17536,15 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
         phone_obj   = buyer.get("phone", {})
         raw_phone   = f"{phone_obj.get('area_code','')}{phone_obj.get('number','')}"
         cliente_telefone = re.sub(r"\D+", "", raw_phone)[:11] or "00000000000"
+        billing_info = order.get("billing_info") or buyer.get("billing_info") or {}
+        cliente_documento = _digits(
+            billing_info.get("doc_number")
+            or billing_info.get("document_number")
+            or billing_info.get("docNumber")
+            or buyer.get("doc_number")
+            or buyer.get("document")
+            or ""
+        )
 
         total       = float(order.get("total_amount", 0))
         status_ml   = order.get("status", "confirmed")
@@ -17106,14 +17610,14 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
         pedido_id = str(_uuid.uuid4())
         cur2.execute("""
             INSERT INTO ecommerce_pedidos (
-                id, cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_email,
+                id, cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_documento, cliente_email,
                 forma_pagamento, total, status, pagamento_status,
                 tipo_entrega, endereco_entrega,
                 origem, ml_order_id, ml_shipping_id, ml_shipping_status, ml_shipping_substatus,
                 ml_shipping_mode, ml_logistic_type, ml_tracking_number, ml_tracking_method,
                 ml_shipping_updated_at, criado_em, atualizado_em
             ) VALUES (
-                %s,%s,NULL,%s,%s,%s,
+                %s,%s,NULL,%s,%s,%s,%s,
                 'mercado_livre',%s,%s,%s,
                 'entrega',%s,
                 'mercado_livre',%s,%s,%s,%s,
@@ -17121,7 +17625,7 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 CASE WHEN %s IS NULL THEN NULL ELSE NOW() END,NOW(),NOW()
             )
         """, (
-            pedido_id, cnpjloja, cliente_nome, cliente_telefone, cliente_email,
+            pedido_id, cnpjloja, cliente_nome, cliente_telefone, cliente_documento or None, cliente_email,
             total, status_ped, pag_status,
             endereco_entrega, str(order_id), str(shipping_id) if shipping_id else None,
             shipping_info.get("status"), shipping_info.get("substatus"), shipping_info.get("mode"),
@@ -17134,6 +17638,8 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 VALUES (%s,%s,%s,%s,%s)
             """, (pedido_id, it["ean"], it["nome"], it["preco"], it["qty"]))
         conn2.commit(); cur2.close()
+        if status_ped == "pago":
+            _alpha_export_paid_order_safe(pedido_id)
         print(f"[ML] Pedido {order_id} criado → {pedido_id} (loja {cnpjloja})")
     except Exception as e:
         print(f"[ML] Erro ao processar pedido {order_id}: {e}")
