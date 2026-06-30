@@ -404,6 +404,20 @@ function brl(v) {
   return 'R$ ' + n.toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
 }
 
+async function readJsonResponse(resp) {
+  const text = await resp.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (err) {
+    console.error('Resposta não JSON:', text.slice(0, 300));
+    return {
+      error: resp.ok
+        ? 'Resposta inesperada do servidor. Tente novamente.'
+        : 'Não foi possível finalizar agora. Tente novamente em instantes.'
+    };
+  }
+}
+
 let _cartRecItems = [];
 function addCartRec(idx, btn) {
   const p = _cartRecItems[idx];
@@ -1297,9 +1311,9 @@ async function finalizarPedido() {
         farmaciasPedidos,
       }),
     });
-    const data = await r.json();
+    const data = await readJsonResponse(r);
     if (data.login_required) { window.location.href = '/entrar?next=/carrinho'; return; }
-    if (data.error) { alert(data.error); btn.disabled=false; btn.textContent='Finalizar pedido'; return; }
+    if (!r.ok || data.error) { alert(data.error || 'Não foi possível finalizar agora.'); btn.disabled=false; btn.textContent='Finalizar pedido'; return; }
 
     // Verificar se algum pedido é MP com init_point
     const cardError = (data.pedidos||[]).find(p => p.pagamento === 'mercadopago' && !p.mp_init_point && !p.mp_public_key);

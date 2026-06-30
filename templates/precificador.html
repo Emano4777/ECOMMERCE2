@@ -565,16 +565,18 @@
           <!-- AÇÕES -->
           <td>
             <div style="display:flex;flex-direction:column;gap:5px">
-              {% if p.oculto %}
-                <button type="button" class="btn-row-act btn-restaurar"
-                        onclick="restaurarProduto('{{ p.ean }}', this)">
-                  <i class="fa fa-eye me-1"></i>Mostrar
-                </button>
-              {% else %}
-                <button type="button" class="btn-row-act btn-ocultar"
-                        onclick="ocultarProduto('{{ p.ean }}', this)">
-                  <i class="fa fa-eye-slash me-1"></i>Ocultar
-                </button>
+              {% if not catalogo_alpha_exclusivo %}
+                {% if p.oculto %}
+                  <button type="button" class="btn-row-act btn-restaurar"
+                          onclick="restaurarProduto('{{ p.ean }}', this)">
+                    <i class="fa fa-eye me-1"></i>Mostrar
+                  </button>
+                {% else %}
+                  <button type="button" class="btn-row-act btn-ocultar"
+                          onclick="ocultarProduto('{{ p.ean }}', this)">
+                    <i class="fa fa-eye-slash me-1"></i>Ocultar
+                  </button>
+                {% endif %}
               {% endif %}
               {% if p.is_extra %}
                 <button type="button" class="btn-row-act btn-extra-rm"
@@ -676,16 +678,18 @@
       {% endif %}
 
       <div class="pf-card-actions">
-        {% if p.oculto %}
-          <button type="button" class="btn-row-act btn-restaurar"
-                  onclick="restaurarProduto('{{ p.ean }}', this)">
-            <i class="fa fa-eye me-1"></i>Mostrar
-          </button>
-        {% else %}
-          <button type="button" class="btn-row-act btn-ocultar"
-                  onclick="ocultarProduto('{{ p.ean }}', this)">
-            <i class="fa fa-eye-slash me-1"></i>Ocultar
-          </button>
+        {% if not catalogo_alpha_exclusivo %}
+          {% if p.oculto %}
+            <button type="button" class="btn-row-act btn-restaurar"
+                    onclick="restaurarProduto('{{ p.ean }}', this)">
+              <i class="fa fa-eye me-1"></i>Mostrar
+            </button>
+          {% else %}
+            <button type="button" class="btn-row-act btn-ocultar"
+                    onclick="ocultarProduto('{{ p.ean }}', this)">
+              <i class="fa fa-eye-slash me-1"></i>Ocultar
+            </button>
+          {% endif %}
         {% endif %}
         {% if p.is_extra %}
           <button type="button" class="btn-row-act btn-extra-rm"

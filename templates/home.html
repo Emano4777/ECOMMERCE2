@@ -1099,6 +1099,7 @@ function _homeCarouselNav(rowId, dir) {
 
 // â”€â”€ Cache localStorage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _PQC = { prod:600e3, bnr:900e3, mais:1200e3, cupom:300e3, clube:600e3 };
+const _PQCV = 'alpha2';
 function _geoK(lat,lng){ return `${parseFloat(lat).toFixed(3)}_${parseFloat(lng).toFixed(3)}`; }
 function _cGet(k){ try{ const s=localStorage.getItem('pq_c_'+k); if(!s) return null; return JSON.parse(s); }catch{ return null; } }
 function _cSet(k,d){ try{ localStorage.setItem('pq_c_'+k, JSON.stringify({t:Date.now(),d})); }catch{} }
@@ -1240,7 +1241,7 @@ function renderHomeProdutos(produtos){
 }
 function carregarHome(lat,lng){
   const gk = _geoK(lat,lng);
-  _cFetch(`prod_${gk}`, _PQC.prod, `/api/produtos-proximos?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
+  _cFetch(`prod_${_PQCV}_${gk}`, _PQC.prod, `/api/produtos-proximos?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
     .then(async data => {
       const produtos = data.produtos || [];
       const lojasProximas = data.lojas_proximas || [];
@@ -1285,7 +1286,7 @@ function carregarProdutosDestaqueFallback(){
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
   if(!achadosEl) return;
-  _cFetch('prod_destaque', 300e3, '/api/produtos-destaque')
+  _cFetch(`prod_destaque_${_PQCV}`, 300e3, '/api/produtos-destaque')
     .then(d=>{
       const lista = (d.produtos||[]).filter(p=>p.imagem && parseFloat(p.preco)>0).slice(0,12);
       if (lista.length) {

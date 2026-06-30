@@ -631,6 +631,27 @@ def _ensure_consumidor_schema():
     _ensure_consumidor_auth_columns()
 
 
+def _ensure_consumidor_profile_columns():
+    key = "consumidor_profile_v2"
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS documento TEXT")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco TEXT")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lat DOUBLE PRECISION")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS endereco_lng DOUBLE PRECISION")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cliente_documento TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_notificacoes_schema():
     key = "consumidor_notificacoes_v2"
     if key in _schema_ready:
@@ -3835,7 +3856,7 @@ def _has_catalog_image(produto):
     if not img:
         return False
     if _is_alpha_product(produto) and (img in _MEDICINE_PLACEHOLDER_URLS or produto.get("imagem_padrao_poupaqui")):
-        return False
+        return bool(produto.get("imagem_bloqueada_anvisa") and produto.get("anvisa_cache_encontrado"))
     if img in _MEDICINE_PLACEHOLDER_URLS:
         tarja = (produto.get("tarja") or "").strip().lower()
         if tarja in ("vermelha", "preta"):
@@ -3962,7 +3983,7 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
             if _cosmos_img:
                 produto["imagem"] = _cosmos_img
                 imagem_atual = _cosmos_img
-        if _alpha_item and not imagem_atual:
+        if _alpha_item:
             continue
         if (
             _tipo_p not in _TIPOS_NAO_MEDICAMENTO
@@ -4458,9 +4479,13 @@ def get_dns_products(
     if _catalogo_alpha_exclusivo():
         _alpha_catalog_sync_if_needed(cur=cur, cnpjloja=cnpjloja)
 
-    # EANs ocultos por esta loja
-    cur.execute("SELECT ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = %s", (cnpjloja,))
-    ocultos = {r["ean"] for r in cur.fetchall()}
+    # EANs ocultos por esta loja. No catálogo Alpha/A7 exclusivo essa regra antiga
+    # não se aplica: a publicação passa a ser controlada pelo próprio Alpha.
+    if _catalogo_alpha_exclusivo():
+        ocultos = set()
+    else:
+        cur.execute("SELECT ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = %s", (cnpjloja,))
+        ocultos = {r["ean"] for r in cur.fetchall()}
 
     busca_alpha = busca_auto = ""
     busca_alpha_a7 = ""
@@ -4614,9 +4639,7 @@ def get_dns_products(
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                _p["imagem"] = ""
-                _p.pop("imagem_padrao_poupaqui", None)
-                _p.pop("imagem_bloqueada_anvisa", None)
+                continue
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -4887,12 +4910,15 @@ def get_dns_products_batch(cnpjs):
         cur.execute(_SQL_AUTO_BATCH, (cnpjs,))
         auto = cur.fetchall()
 
-    # Ocultos por loja
-    cur.execute(
-        "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
-        (cnpjs,),
-    )
-    ocultos = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
+    # Ocultos por loja. Ignorado no modo Alpha/A7 exclusivo.
+    if _catalogo_alpha_exclusivo():
+        ocultos = set()
+    else:
+        cur.execute(
+            "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
+            (cnpjs,),
+        )
+        ocultos = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
 
     # Extras adicionados manualmente pelas lojas
     extra_pairs = []
@@ -4997,9 +5023,7 @@ def get_dns_products_batch(cnpjs):
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                _p["imagem"] = ""
-                _p.pop("imagem_padrao_poupaqui", None)
-                _p.pop("imagem_bloqueada_anvisa", None)
+                continue
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -5115,17 +5139,19 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
     if _catalogo_alpha_exclusivo():
         rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
 
-    # Filtra itens ocultos pela loja (não devem aparecer no catálogo público)
-    try:
-        cur.execute(
-            "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
-            (cnpjs,),
-        )
-        ocultos_by = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
-        if ocultos_by:
-            rows = [r for r in rows if (r.get("cnpjloja"), r.get("ean")) not in ocultos_by]
-    except Exception:
-        pass
+    # Filtra itens ocultos apenas no catálogo legado; no Alpha/A7 exclusivo
+    # a publicação é controlada no ERP.
+    if not _catalogo_alpha_exclusivo():
+        try:
+            cur.execute(
+                "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
+                (cnpjs,),
+            )
+            ocultos_by = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
+            if ocultos_by:
+                rows = [r for r in rows if (r.get("cnpjloja"), r.get("ean")) not in ocultos_by]
+        except Exception:
+            pass
 
     cur.close()
     try:
@@ -5149,9 +5175,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                _p["imagem"] = ""
-                _p.pop("imagem_padrao_poupaqui", None)
-                _p.pop("imagem_bloqueada_anvisa", None)
+                continue
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -5303,16 +5327,17 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
     rows = [dict(r) for r in cur.fetchall()]
     if _catalogo_alpha_exclusivo():
         rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
-    try:
-        cur.execute(
-            "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
-            (cnpjs,),
-        )
-        ocultos_by = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
-        if ocultos_by:
-            rows = [r for r in rows if (r.get("cnpjloja"), r.get("ean")) not in ocultos_by]
-    except Exception:
-        pass
+    if not _catalogo_alpha_exclusivo():
+        try:
+            cur.execute(
+                "SELECT cnpjloja, ean FROM ecommerce_catalogo_oculto WHERE cnpjloja = ANY(%s)",
+                (cnpjs,),
+            )
+            ocultos_by = {(r["cnpjloja"], r["ean"]) for r in cur.fetchall()}
+            if ocultos_by:
+                rows = [r for r in rows if (r.get("cnpjloja"), r.get("ean")) not in ocultos_by]
+        except Exception:
+            pass
     cur.close()
     try:
         conn.close()
@@ -5333,9 +5358,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                _p["imagem"] = ""
-                _p.pop("imagem_padrao_poupaqui", None)
-                _p.pop("imagem_bloqueada_anvisa", None)
+                continue
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -5406,6 +5429,59 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         conn2.close()
     except Exception:
         pass
+    _schedule_fill_images(rows)
+    return _dedupe_products_for_display(rows)
+
+
+def get_alpha_products_direct(cnpjs, limit=200):
+    if not cnpjs or not _catalogo_alpha_exclusivo():
+        return []
+    conn = _new_conn_batch()
+    cur = conn.cursor()
+    _alpha_catalog_sync_if_needed(cur=cur)
+    cur.execute(
+        """
+        SELECT
+            ap.cnpjloja,
+            ap.ean,
+            COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+            COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
+            m.marca AS marca,
+            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            CAST(ap.estoque AS INTEGER) AS qty,
+            ap.preco_atual AS preco,
+            COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+            'alpha_a7' AS fonte_estoque
+        FROM ecommerce_alpha_produtos ap
+        LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+        LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        LEFT JOIN medicamentos5 m5        ON m5.barra = ap.ean
+        WHERE ap.cnpjloja = ANY(%s)
+          AND COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND COALESCE(ap.ean, '') <> ''
+        ORDER BY ap.nome
+        LIMIT %s
+        """,
+        (cnpjs, int(limit)),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _apply_safe_catalog_images(rows)
+    try:
+        conn2 = _new_conn()
+        _marcar_tarja_batch(rows, conn2)
+        conn2.close()
+    except Exception:
+        pass
+    rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
 
@@ -6730,7 +6806,12 @@ def api_produtos_destaque():
         cnpjs = [l["cnpjloja"] for l in lojas]
         loja_nome = {l["cnpjloja"]: _public_store_name(l) for l in lojas}
         produtos = []
-        for p in get_dns_products_batch(cnpjs):
+        fonte_produtos = (
+            get_alpha_products_direct(cnpjs, limit=200)
+            if _catalogo_alpha_exclusivo()
+            else get_dns_products_batch(cnpjs)
+        )
+        for p in fonte_produtos:
             d = dict(p)
             d["razao"] = d.get("razao") or loja_nome.get(d.get("cnpjloja"), "")
             produtos.append(d)
@@ -7921,7 +8002,10 @@ def api_home_insights():
         app.logger.warning(f"cnpjs_proximos: {e}")
 
     try:
-        resultado["trending_lojas"] = _trending_lojas_fisicas(conn, lat, lng, cnpjs_proximos=cnpjs_proximos)
+        if _catalogo_alpha_exclusivo():
+            resultado["trending_lojas"] = get_alpha_products_direct(cnpjs_proximos or [], limit=24)
+        else:
+            resultado["trending_lojas"] = _trending_lojas_fisicas(conn, lat, lng, cnpjs_proximos=cnpjs_proximos)
     except Exception as e:
         app.logger.warning(f"trending_lojas: {e}")
 
@@ -10745,6 +10829,7 @@ def api_checkout():
     if not session.get("consumidor_id"):
         return jsonify({"error": "Faça login ou crie sua conta para enviar o pedido.", "login_required": True}), 401
     _ensure_consumidor_schema()
+    _ensure_consumidor_profile_columns()
     _ensure_payment_schema()
     _ensure_receita_schema()
     _ensure_mp_public_key_column()
@@ -14200,6 +14285,7 @@ def precificador():
         competitor_map=competitor_map,
         competitor_last_update=competitor_last_update,
         concorrentes=_CONCORRENTES,
+        catalogo_alpha_exclusivo=_catalogo_alpha_exclusivo(),
     )
 
 
@@ -16037,6 +16123,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
             if not _is_med:
                 return
+            produtos[idx]["anvisa_cache_encontrado"] = True
             tarja = _detectar_tarja(dict(row))
             produtos[idx]["tarja"] = tarja
             produtos[idx]["receita_retida"] = bool(row.get("receita_retida")) if row.get("receita_retida") is not None else _exige_receita_digital_entrega(dict(row), produtos[idx].get("nome") or "")
