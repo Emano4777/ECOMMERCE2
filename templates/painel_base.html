@@ -596,9 +596,47 @@
   var SUPA_ANON  = {{ SUPABASE_ANON | tojson }};
   var CNPJLOJA   = {{ (session.cnpjloja or '') | tojson }};
 
+  var STATUS_LABELS = {
+    pendente: "Pedido recebido",
+    pago: "Pedido pago",
+    pronto_retirada: "Pedido pronto para retirada",
+    enviado: "Pedido enviado",
+    entregue: "Pedido entregue",
+    cancelado: "Pedido cancelado"
+  };
+
+  function _pedidoKey(row) {
+    return row && row.id ? "pk_pedido_status_" + row.id + "_" + (row.status || "") : "";
+  }
+
+  function _marcarStatusVisto(row) {
+    var key = _pedidoKey(row);
+    if (key) localStorage.setItem(key, "1");
+  }
+
+  function _statusFoiVisto(row) {
+    var key = _pedidoKey(row);
+    return key && localStorage.getItem(key) === "1";
+  }
+
+  function _urlPedido(row) {
+    return row && row.id ? "/painel/pedidos/" + encodeURIComponent(row.id) : "/painel/pedidos";
+  }
+
   function _alertar(tipo, textoVoz, labelBtn, urlBtn) {
     pkToastMostrar("🛒 Poupaqui — novo aviso!", textoVoz, [{label: labelBtn, url: urlBtn}]);
     if (somAtivo) _tocarJingle(0.8, textoVoz + ", Poupaqui!");
+  }
+
+  function _alertarStatusPedido(payload) {
+    var row = payload && payload.new ? payload.new : {};
+    var oldRow = payload && payload.old ? payload.old : {};
+    var status = row.status || "";
+    if (!status || !STATUS_LABELS[status]) return;
+    if (oldRow.status && oldRow.status === status) return;
+    if (_statusFoiVisto(row)) return;
+    _marcarStatusVisto(row);
+    _alertar("pedido-status", STATUS_LABELS[status], "Ver pedido", _urlPedido(row));
   }
 
   function conectarRealtime() {
@@ -610,9 +648,17 @@
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "ecommerce_pedidos",
         filter: "cnpjloja=eq." + CNPJLOJA
-      }, function() {
-        _alertar("pedido", "Novo pedido", "Ver pedidos", "/painel/pedidos");
+      }, function(payload) {
+        _marcarStatusVisto(payload && payload.new ? payload.new : {});
+        _alertar("pedido", "Pedido recebido", "Ver pedidos", "/painel/pedidos");
       })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "ecommerce_pedidos",
+        filter: "cnpjloja=eq." + CNPJLOJA
+      }, function(payload) {
+        _alertarStatusPedido(payload);
+      })
+      {% if session.painel_role != 'motoboy' %}
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "ecommerce_reclamacoes",
         filter: "cnpjloja=eq." + CNPJLOJA
@@ -625,6 +671,7 @@
       }, function() {
         _alertar("encomenda", "Nova encomenda", "Ver encomendas", "/painel/encomendas");
       })
+      {% endif %}
       .subscribe(function(status) {
         /* reconecta se o canal cair */
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
