@@ -14346,6 +14346,7 @@ def precificador():
         bloqueados_sem_imagem=bloqueados_sem_imagem,
         q=q,
         razao=session.get("razao"),
+        cnpjloja=cnpjloja,
         is_admin=session.get("is_admin"),
         competitor_map=competitor_map,
         competitor_last_update=competitor_last_update,

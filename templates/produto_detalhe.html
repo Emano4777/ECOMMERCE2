@@ -97,6 +97,61 @@
 .btn-add-cart:hover   { background:var(--pq-red-dk); }
 .btn-add-cart:active  { transform:scale(.98); }
 .btn-add-cart.added   { background:#22c55e; }
+.pd-share-wrap { position:relative; }
+.pd-share-btn {
+  width:100%;
+  border:1.5px solid #ffd0d8;
+  border-radius:12px;
+  padding:12px 18px;
+  background:linear-gradient(135deg,#fff5f6,#f0fdf4);
+  color:var(--pq-red);
+  font-family:inherit;
+  font-size:.94rem;
+  font-weight:900;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+.pd-share-btn:hover { background:linear-gradient(135deg,#ffe9ed,#dcfce7); }
+.pd-share-menu {
+  position:absolute;
+  left:0;
+  right:0;
+  top:calc(100% + 8px);
+  display:none;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:7px;
+  background:#fff;
+  border:1px solid var(--pq-border);
+  border-radius:12px;
+  padding:8px;
+  box-shadow:0 14px 34px rgba(0,0,0,.14);
+  z-index:15;
+}
+.pd-share-wrap.open .pd-share-menu { display:grid; }
+.pd-share-menu button {
+  border:0;
+  border-radius:9px;
+  background:#f8fafc;
+  color:#1f2937;
+  padding:10px 6px;
+  font:inherit;
+  font-size:.76rem;
+  font-weight:900;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-width:0;
+}
+.pd-share-menu button:hover { background:#fff5f6; color:var(--pq-red); }
+.pd-share-menu .wa i { color:#16a34a; }
+.pd-share-menu .ig i { color:#db2777; }
+.pd-share-menu .copy i { color:#ca8a04; }
+@media(max-width:420px){ .pd-share-menu { grid-template-columns:1fr; } }
 
 /* DETAIL SECTIONS */
 .pd-details { margin-top:28px; display:flex; flex-direction:column; gap:0; }
@@ -630,6 +685,17 @@
         <i class="fa fa-cart-plus"></i>{% if requer_receita %}Reservar com receita{% else %}Adicionar ao carrinho{% endif %}
       </button>
 
+      <div class="pd-share-wrap" id="pd-share-wrap">
+        <button type="button" class="pd-share-btn" onclick="pdToggleShare()">
+          <i class="fa fa-share-nodes"></i>Compartilhar produto
+        </button>
+        <div class="pd-share-menu">
+          <button type="button" class="wa" onclick="pdShareProduct('whatsapp')"><i class="fa-brands fa-whatsapp"></i>WhatsApp</button>
+          <button type="button" class="ig" onclick="pdShareProduct('instagram')"><i class="fa-brands fa-instagram"></i>Instagram</button>
+          <button type="button" class="copy" onclick="pdShareProduct('copy')"><i class="fa fa-link"></i>Copiar link</button>
+        </div>
+      </div>
+
       {% else %}
       <div class="pd-no-loja">
         <i class="fa fa-circle-info me-2"></i>
@@ -819,6 +885,67 @@ const _pdPromo = {{ (produto.promo if produto and produto.promo else none) | toj
 const _pdImg   = {{ (imagem or '') | tojson }};
 const _pdCnpj  = {{ (loja.cnpjloja or '') | tojson }};
 const _pdRazao = {{ (loja.razao or '') | tojson }};
+
+function pdToast(msg, ok=true) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;padding:12px 18px;border-radius:12px;font-size:.88rem;font-weight:800;color:#fff;background:${ok?'#16a34a':'#dc2626'};box-shadow:0 8px 24px rgba(0,0,0,.18);transition:opacity .35s`;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 350); }, 2600);
+}
+
+function pdToggleShare() {
+  document.getElementById('pd-share-wrap')?.classList.toggle('open');
+}
+
+function pdShareInfo() {
+  const url = new URL(`/produto/${encodeURIComponent(_pdEan || '')}`, window.location.origin);
+  if (_pdCnpj) url.searchParams.set('cnpj', _pdCnpj);
+  if (_pdNome) url.searchParams.set('nome', _pdNome);
+  return url.toString();
+}
+
+async function pdCopyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
+async function pdShareProduct(canal) {
+  const url = pdShareInfo();
+  const preco = _pdPreco ? ` por R$ ${Number(_pdPreco).toFixed(2).replace('.', ',')}` : '';
+  const text = `Olha este produto no Poupaqui: ${_pdNome}${preco}\n${url}`;
+  document.getElementById('pd-share-wrap')?.classList.remove('open');
+  try {
+    if (canal === 'whatsapp') {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    } else if (canal === 'instagram') {
+      await pdCopyText(text);
+      pdToast('Link copiado para divulgar no Instagram.');
+      window.open('https://www.instagram.com/', '_blank', 'noopener');
+    } else {
+      await pdCopyText(url);
+      pdToast('Link copiado!');
+    }
+  } catch {
+    pdToast('Nao foi possivel compartilhar agora.', false);
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#pd-share-wrap')) {
+    document.getElementById('pd-share-wrap')?.classList.remove('open');
+  }
+});
 
 function changeQty(delta) {
   const inp = document.getElementById('pd-qty');

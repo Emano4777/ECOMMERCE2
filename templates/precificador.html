@@ -79,6 +79,7 @@
 }
 .pf-table tr:hover td { background: rgba(255,255,255,.02); }
 .pf-table tr.row-hidden td { opacity: .45; }
+.pf-table th:last-child, .pf-table td:last-child { min-width: 150px; }
 
 .prod-thumb {
   width: 48px; height: 48px;
@@ -137,6 +138,52 @@
 .btn-promo    { background:rgba(251,146,60,.1);  color:#fb923c;  border-color:rgba(251,146,60,.3); }
 .btn-promo:hover { background:rgba(251,146,60,.2); }
 .btn-promo.ativo { background:rgba(251,146,60,.2); border-color:#fb923c; }
+.pf-share-wrap { position: relative; }
+.btn-share {
+  background: linear-gradient(135deg, rgba(34,197,94,.18), rgba(14,165,233,.14));
+  color: #7dd3fc;
+  border-color: rgba(125,211,252,.34);
+}
+.btn-share:hover {
+  background: linear-gradient(135deg, rgba(34,197,94,.25), rgba(14,165,233,.22));
+  color: #d9f99d;
+}
+.pf-share-menu {
+  position: static;
+  width: 100%;
+  min-width: 158px;
+  margin-top: 6px;
+  padding: 7px;
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  background: #0b0f17;
+  border: 1px solid var(--pk-line);
+  border-radius: 10px;
+  box-shadow: 0 16px 34px rgba(0,0,0,.38);
+  z-index: 30;
+}
+.pf-share-wrap.open .pf-share-menu { display: flex; }
+.pf-share-menu button {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 9px;
+  background: transparent;
+  color: var(--pk-txt);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.pf-share-menu button:hover { background: rgba(255,255,255,.07); }
+.pf-share-menu .wa i { color:#22c55e; }
+.pf-share-menu .ig i { color:#fb7185; }
+.pf-share-menu .copy i { color:var(--pk-yellow); }
 /* modal promoção */
 .pf-promo-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:1000; align-items:center; justify-content:center; padding:16px; }
 .pf-promo-overlay.open { display:flex; }
@@ -598,6 +645,20 @@
                       onclick="abrirModalPromoItem(this)">
                 <i class="fa fa-bolt me-1"></i>Promoção
               </button>
+              <div class="pf-share-wrap">
+                <button type="button" class="btn-row-act btn-share"
+                        data-ean="{{ p.ean }}" data-nome="{{ p.nome|e }}"
+                        data-cnpj="{{ p.cnpjloja or cnpjloja or '' }}"
+                        data-preco="{{ p.preco or p.preco_ref or 0 }}"
+                        onclick="pfToggleShare(this)">
+                  <i class="fa fa-share-nodes me-1"></i>Compartilhar
+                </button>
+                <div class="pf-share-menu">
+                  <button type="button" class="wa" onclick="pfShareProduct(this, 'whatsapp')"><i class="fa-brands fa-whatsapp"></i>WhatsApp</button>
+                  <button type="button" class="ig" onclick="pfShareProduct(this, 'instagram')"><i class="fa-brands fa-instagram"></i>Instagram</button>
+                  <button type="button" class="copy" onclick="pfShareProduct(this, 'copy')"><i class="fa fa-link"></i>Copiar link</button>
+                </div>
+              </div>
             </div>
           </td>
         </tr>
@@ -703,6 +764,20 @@
                 style="padding:5px 10px;font-size:.78rem">
           <i class="fa fa-camera me-1"></i>Foto
         </button>
+        <div class="pf-share-wrap">
+          <button type="button" class="btn-row-act btn-share"
+                  data-ean="{{ p.ean }}" data-nome="{{ p.nome|e }}"
+                  data-cnpj="{{ p.cnpjloja or cnpjloja or '' }}"
+                  data-preco="{{ p.preco or p.preco_ref or 0 }}"
+                  onclick="pfToggleShare(this)">
+            <i class="fa fa-share-nodes me-1"></i>Compartilhar
+          </button>
+          <div class="pf-share-menu">
+            <button type="button" class="wa" onclick="pfShareProduct(this, 'whatsapp')"><i class="fa-brands fa-whatsapp"></i>WhatsApp</button>
+            <button type="button" class="ig" onclick="pfShareProduct(this, 'instagram')"><i class="fa-brands fa-instagram"></i>Instagram</button>
+            <button type="button" class="copy" onclick="pfShareProduct(this, 'copy')"><i class="fa fa-link"></i>Copiar link</button>
+          </div>
+        </div>
       </div>
     </div>
     {% endfor %}
@@ -888,6 +963,68 @@ function _pfToast(msg, tipo) {
 }
 
 // ── Ocultar / Restaurar ──────────────────────────────────────────────────────
+function pfToggleShare(btn) {
+  const wrap = btn.closest('.pf-share-wrap');
+  document.querySelectorAll('.pf-share-wrap.open').forEach(el => {
+    if (el !== wrap) el.classList.remove('open');
+  });
+  wrap.classList.toggle('open');
+}
+
+function pfShareUrl(btn) {
+  const root = btn.closest('.pf-share-wrap');
+  const main = root.querySelector('.btn-share');
+  const ean = main.dataset.ean || '';
+  const cnpj = main.dataset.cnpj || '';
+  const nome = main.dataset.nome || '';
+  const url = new URL(`/produto/${encodeURIComponent(ean)}`, window.location.origin);
+  if (cnpj) url.searchParams.set('cnpj', cnpj);
+  if (nome) url.searchParams.set('nome', nome);
+  return {url: url.toString(), nome, preco: parseFloat(main.dataset.preco || '0') || 0};
+}
+
+async function pfCopyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
+async function pfShareProduct(btn, canal) {
+  const info = pfShareUrl(btn);
+  const preco = info.preco ? ` por R$ ${info.preco.toFixed(2).replace('.', ',')}` : '';
+  const text = `Olha este produto no Poupaqui: ${info.nome}${preco}\n${info.url}`;
+  btn.closest('.pf-share-wrap')?.classList.remove('open');
+  try {
+    if (canal === 'whatsapp') {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    } else if (canal === 'instagram') {
+      await pfCopyText(text);
+      _pfToast('Link copiado para divulgar no Instagram.', 'success');
+      window.open('https://www.instagram.com/', '_blank', 'noopener');
+    } else {
+      await pfCopyText(info.url);
+      _pfToast('Link copiado!', 'success');
+    }
+  } catch {
+    _pfToast('Nao foi possivel compartilhar agora.', 'error');
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.pf-share-wrap')) {
+    document.querySelectorAll('.pf-share-wrap.open').forEach(el => el.classList.remove('open'));
+  }
+});
+
 function ocultarProduto(ean, btn) {
   if (!confirm('Ocultar este produto do ecommerce?')) return;
   fetch('/painel/precificador/ocultar', {
