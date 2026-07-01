@@ -244,7 +244,7 @@
     </a>
 
     <div class="dropdown">
-      <button type="button" class="pk-nav-drop {% if request.endpoint in ('painel_promocoes','painel_cupons','painel_notificacoes','painel_ml','painel_banners') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <button type="button" class="pk-nav-drop {% if request.endpoint in ('painel_promocoes','painel_cupons','painel_notificacoes','painel_ml','painel_banners','painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fa fa-puzzle-piece me-1"></i>Extras <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
       </button>
       <ul class="dropdown-menu dropdown-menu-dark">
@@ -273,6 +273,11 @@
             <svg width="13" height="13" viewBox="0 0 48 48" style="vertical-align:-1px;margin-right:8px"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>Mercado Livre
           </a>
         </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint in ('painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}active{% endif %}" href="{{ url_for('painel_motoboys') }}">
+            <i class="fa fa-motorcycle me-2"></i>Motoboys
+          </a>
+        </li>
       </ul>
     </div>
 
@@ -281,9 +286,6 @@
     </a>
     <a href="{{ url_for('painel_horario') }}" {% if request.endpoint == 'painel_horario' %}class="active"{% endif %}>
       <i class="fa fa-clock me-1"></i>Horário
-    </a>
-    <a href="{{ url_for('painel_motoboys') }}" {% if request.endpoint in ('painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}class="active"{% endif %}>
-      <i class="fa fa-motorcycle me-1"></i>Motoboys
     </a>
 
     {% if session.is_admin %}
