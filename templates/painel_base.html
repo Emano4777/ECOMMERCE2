@@ -218,12 +218,15 @@
     <i class="fa fa-bars" id="pk-menu-icon"></i>
   </button>
   <nav class="pk-nav" id="pk-nav-menu">
+    {% if session.painel_role != 'motoboy' %}
     <a href="{{ url_for('precificador') }}" {% if request.endpoint == 'precificador' %}class="active"{% endif %}>
       <i class="fa fa-tags me-1"></i>Precificador
     </a>
+    {% endif %}
     <a href="{{ url_for('painel_pedidos') }}" {% if request.endpoint in ('painel_pedidos','painel_pedido_detalhe') %}class="active"{% endif %}>
       <i class="fa fa-bag-shopping me-1"></i>Pedidos
     </a>
+    {% if session.painel_role != 'motoboy' %}
     <a href="{{ url_for('painel_reclamacoes') }}" {% if request.endpoint in ('painel_reclamacoes','painel_reclamacao_detalhe') %}class="active"{% endif %} style="position:relative">
       <i class="fa fa-triangle-exclamation me-1"></i>Reclamações
     </a>
@@ -279,6 +282,9 @@
     <a href="{{ url_for('painel_horario') }}" {% if request.endpoint == 'painel_horario' %}class="active"{% endif %}>
       <i class="fa fa-clock me-1"></i>Horário
     </a>
+    <a href="{{ url_for('painel_motoboys') }}" {% if request.endpoint in ('painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}class="active"{% endif %}>
+      <i class="fa fa-motorcycle me-1"></i>Motoboys
+    </a>
 
     {% if session.is_admin %}
     <span class="pk-nav-sep"></span>
@@ -311,6 +317,7 @@
       </ul>
     </div>
     {% endif %}
+    {% endif %}
   </nav>
 
   <div class="pk-user">
@@ -321,7 +328,7 @@
     <a href="{{ url_for('index') }}" target="_blank" class="pk-user-link" title="Ver site">
       <i class="fa fa-globe"></i>
     </a>
-    <strong>{{ session.razao or session.cnpjloja }}</strong>
+    <strong>{{ session.motoboy_nome or session.razao or session.cnpjloja }}</strong>
     <a href="{{ url_for('painel_logout') }}" class="pk-user-sair" title="Sair">
       <i class="fa fa-right-from-bracket"></i>
     </a>

@@ -5557,6 +5557,18 @@ def painel_required(fn):
     def wrapper(*args, **kwargs):
         if not session.get("painel_ok"):
             return redirect(url_for("painel_login"))
+        if session.get("painel_role") == "motoboy":
+            allowed = {
+                "painel_home",
+                "painel_pedidos",
+                "painel_pedido_detalhe",
+                "painel_confirmar_entrega",
+                "painel_logout",
+                "api_painel_novos_alertas",
+            }
+            if request.endpoint not in allowed:
+                flash("Acesso restrito aos pedidos de entrega.", "error")
+                return redirect(url_for("painel_pedidos"))
         return fn(*args, **kwargs)
     return wrapper
 
@@ -5568,6 +5580,33 @@ def admin_required(fn):
             return redirect(url_for("painel_login"))
         return fn(*args, **kwargs)
     return wrapper
+
+
+def _motoboy_logged():
+    return session.get("painel_role") == "motoboy"
+
+
+def _ensure_motoboy_schema():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ecommerce_motoboys (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            cnpjloja TEXT NOT NULL,
+            nome TEXT NOT NULL,
+            usuario TEXT NOT NULL UNIQUE,
+            senha_hash TEXT NOT NULL,
+            ativo BOOLEAN DEFAULT TRUE,
+            criado_em TIMESTAMPTZ DEFAULT NOW(),
+            atualizado_em TIMESTAMPTZ DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_motoboys_cnpj ON ecommerce_motoboys(cnpjloja)")
+    conn.commit()
+    cur.close()
 
 
 # ─── BANNERS ─────────────────────────────────────────────────────────────────
@@ -12624,10 +12663,19 @@ def api_painel_novos_alertas():
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND criado_em > %s",
+        "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND criado_em > %s"
+        + (" AND tipo_entrega='entrega'" if _motoboy_logged() else ""),
         (cnpjloja, since_dt),
     )
     pedidos = cur.fetchone()["n"]
+    if _motoboy_logged():
+        cur.close()
+        return jsonify({
+            "pedidos": pedidos,
+            "reclamacoes": 0,
+            "encomendas": 0,
+            "now": query_time.isoformat(),
+        })
     cur.execute(
         "SELECT COUNT(*) AS n FROM ecommerce_reclamacoes WHERE cnpjloja=%s AND aberta_em > %s",
         (cnpjloja, since_dt),
@@ -12666,9 +12714,11 @@ def painel_pedidos():
                receita_status, tipo_entrega,
                COALESCE(origem, 'ecommerce') AS origem, ml_order_id
         FROM ecommerce_pedidos
-        WHERE cnpjloja = %s
+    WHERE cnpjloja = %s
     """
     args = [cnpjloja]
+    if _motoboy_logged():
+        sql += " AND tipo_entrega = 'entrega'"
     if sf_receita:
         sql += " AND receita_status = 'pendente'"
     elif sf:
@@ -12682,6 +12732,8 @@ def painel_pedidos():
         (cnpjloja,),
     )
     receitas_pendentes = (cur.fetchone() or {}).get("count", 0) or 0
+    if _motoboy_logged():
+        receitas_pendentes = 0
     cur.close()
     return render_template("painel_pedidos.html", pedidos=pedidos, sf=sf,
                            sf_receita=sf_receita, receitas_pendentes=receitas_pendentes)
@@ -12702,6 +12754,9 @@ def painel_pedido_detalhe(pedido_id):
     pedido = cur.fetchone()
     if not pedido:
         flash("Pedido não encontrado.", "error")
+        return redirect(url_for("painel_pedidos"))
+    if _motoboy_logged() and pedido.get("tipo_entrega") != "entrega":
+        flash("Este acesso é restrito aos pedidos de entrega.", "error")
         return redirect(url_for("painel_pedidos"))
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
@@ -12920,7 +12975,7 @@ def painel_confirmar_entrega(pedido_id):
     )
     pedido_row = cur.fetchone()
     is_ml = pedido_row and pedido_row.get("origem") == "mercado_livre"
-    if is_ml:
+    if is_ml and not _motoboy_logged():
         cur.execute(
             """
             UPDATE ecommerce_pedidos
@@ -14252,6 +14307,8 @@ def catalogo_loja(cnpjloja):
 @app.get("/painel/login")
 def painel_login():
     if session.get("painel_ok"):
+        if _motoboy_logged():
+            return redirect(url_for("painel_pedidos"))
         return redirect(url_for("precificador"))
     return render_template("painel_login.html")
 
@@ -14272,23 +14329,54 @@ def painel_login_post():
     )
     u = cur.fetchone()
     cur.close()
+    if u and (u.get("senha") or "") == senha:
+        session.clear()
+        session["painel_ok"]  = True
+        session["user_id"]    = str(u["id"])
+        session["cnpjloja"]   = u["cnpjloja"]
+        session["razao"]      = u["razao"]
+        session["uf"]         = u["uf"]
+        session["endereco"]   = u["endereco"]
+        session["is_admin"]   = bool(u.get("is_admin"))
+        session["painel_role"] = "loja"
 
-    if not u or (u.get("senha") or "") != senha:
+        if session["is_admin"]:
+            return redirect(url_for("admin_lojas"))
+        return redirect(url_for("precificador"))
+
+    try:
+        _ensure_motoboy_schema()
+        cur = db().cursor()
+        cur.execute(
+            """
+            SELECT m.id, m.cnpjloja, m.nome, m.senha_hash, u.razao, u.uf, u.endereco
+            FROM ecommerce_motoboys m
+            JOIN users u ON u.cnpjloja = m.cnpjloja
+            WHERE m.usuario=%s AND COALESCE(m.ativo, TRUE)=TRUE
+            LIMIT 1
+            """,
+            (usuario,),
+        )
+        m = cur.fetchone()
+        cur.close()
+    except Exception:
+        m = None
+
+    if not m or not check_password_hash(m.get("senha_hash") or "", senha):
         flash("Usuário ou senha inválidos.", "error")
         return redirect(url_for("painel_login"))
 
     session.clear()
     session["painel_ok"]  = True
-    session["user_id"]    = str(u["id"])
-    session["cnpjloja"]   = u["cnpjloja"]
-    session["razao"]      = u["razao"]
-    session["uf"]         = u["uf"]
-    session["endereco"]   = u["endereco"]
-    session["is_admin"]   = bool(u.get("is_admin"))
-
-    if session["is_admin"]:
-        return redirect(url_for("admin_lojas"))
-    return redirect(url_for("precificador"))
+    session["user_id"]    = str(m["id"])
+    session["cnpjloja"]   = m["cnpjloja"]
+    session["razao"]      = m["razao"]
+    session["uf"]         = m["uf"]
+    session["endereco"]   = m["endereco"]
+    session["is_admin"]   = False
+    session["painel_role"] = "motoboy"
+    session["motoboy_nome"] = m["nome"]
+    return redirect(url_for("painel_pedidos"))
 
 
 @app.get("/painel/logout")
@@ -14300,7 +14388,107 @@ def painel_logout():
 @app.get("/painel")
 @painel_required
 def painel_home():
+    if _motoboy_logged():
+        return redirect(url_for("painel_pedidos"))
     return redirect(url_for("precificador"))
+
+
+@app.get("/painel/motoboys")
+@painel_required
+def painel_motoboys():
+    _ensure_motoboy_schema()
+    cnpjloja = session.get("cnpjloja")
+    cur = db().cursor()
+    cur.execute(
+        """
+        SELECT id, nome, usuario, ativo, criado_em, atualizado_em
+        FROM ecommerce_motoboys
+        WHERE cnpjloja=%s
+        ORDER BY ativo DESC, nome
+        """,
+        (cnpjloja,),
+    )
+    motoboys = cur.fetchall()
+    cur.close()
+    return render_template("painel_motoboys.html", motoboys=motoboys)
+
+
+@app.post("/painel/motoboys")
+@painel_required
+def painel_motoboys_criar():
+    _ensure_motoboy_schema()
+    cnpjloja = session.get("cnpjloja")
+    nome = (request.form.get("nome") or "").strip()
+    usuario = (request.form.get("usuario") or "").strip().lower()
+    senha = (request.form.get("senha") or "").strip()
+    if len(nome) < 3:
+        flash("Informe o nome do motoboy.", "error")
+        return redirect(url_for("painel_motoboys"))
+    if len(usuario) < 4 or not re.match(r"^[a-z0-9._-]+$", usuario):
+        flash("O login deve ter pelo menos 4 caracteres e usar apenas letras, números, ponto, traço ou underline.", "error")
+        return redirect(url_for("painel_motoboys"))
+    if len(senha) < 6:
+        flash("A senha do motoboy precisa ter pelo menos 6 caracteres.", "error")
+        return redirect(url_for("painel_motoboys"))
+    conn = db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO ecommerce_motoboys (cnpjloja, nome, usuario, senha_hash)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (cnpjloja, nome, usuario, generate_password_hash(senha)),
+        )
+        conn.commit()
+        flash("Login do motoboy criado com acesso restrito aos pedidos.", "success")
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        flash("Este login já está em uso. Escolha outro usuário.", "error")
+    finally:
+        cur.close()
+    return redirect(url_for("painel_motoboys"))
+
+
+@app.post("/painel/motoboys/<motoboy_id>/status")
+@painel_required
+def painel_motoboys_status(motoboy_id):
+    _ensure_motoboy_schema()
+    ativo = request.form.get("ativo") == "1"
+    cnpjloja = session.get("cnpjloja")
+    cur = db().cursor()
+    cur.execute(
+        "UPDATE ecommerce_motoboys SET ativo=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+        (ativo, motoboy_id, cnpjloja),
+    )
+    db().commit()
+    cur.close()
+    flash("Acesso do motoboy atualizado.", "success")
+    return redirect(url_for("painel_motoboys"))
+
+
+@app.post("/painel/motoboys/<motoboy_id>/senha")
+@painel_required
+def painel_motoboys_senha(motoboy_id):
+    _ensure_motoboy_schema()
+    senha = (request.form.get("senha") or "").strip()
+    if len(senha) < 6:
+        flash("A nova senha precisa ter pelo menos 6 caracteres.", "error")
+        return redirect(url_for("painel_motoboys"))
+    cnpjloja = session.get("cnpjloja")
+    cur = db().cursor()
+    cur.execute(
+        """
+        UPDATE ecommerce_motoboys
+        SET senha_hash=%s, atualizado_em=NOW()
+        WHERE id=%s AND cnpjloja=%s
+        """,
+        (generate_password_hash(senha), motoboy_id, cnpjloja),
+    )
+    db().commit()
+    cur.close()
+    flash("Senha do motoboy atualizada.", "success")
+    return redirect(url_for("painel_motoboys"))
 
 
 # ─── PRECIFICADOR ─────────────────────────────────────────────────────────────
