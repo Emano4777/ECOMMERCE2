@@ -1,4 +1,4 @@
-﻿"""
+"""
 POUPAQUI ECOMMERCE
 Ecommerce público da rede Poupaqui — inicialmente somente produtos DNS/Vitnatu.
 
@@ -1109,6 +1109,34 @@ def _banner_cache_set(key: str, data):
     with _banner_cache_lock:
         _banner_cache[key] = {"ts": time.time(), "data": data}
 
+
+_home_api_cache: dict = {}
+_home_api_cache_lock = threading.Lock()
+
+
+def _home_api_cache_get(key: tuple, ttl_seconds: int):
+    now = time.time()
+    with _home_api_cache_lock:
+        e = _home_api_cache.get(key)
+        if not e:
+            return None
+        if now - float(e.get("ts") or 0) > ttl_seconds:
+            _home_api_cache.pop(key, None)
+            return None
+        return e.get("data")
+
+
+def _home_api_cache_set(key: tuple, data, ttl_seconds: int = 180):
+    now = time.time()
+    with _home_api_cache_lock:
+        if len(_home_api_cache) >= 200:
+            old = [k for k, v in _home_api_cache.items() if now - float(v.get("ts") or 0) > ttl_seconds]
+            for k in old[:80]:
+                _home_api_cache.pop(k, None)
+            while len(_home_api_cache) >= 180:
+                oldest = min(_home_api_cache, key=lambda k: _home_api_cache[k]["ts"])
+                _home_api_cache.pop(oldest, None)
+        _home_api_cache[key] = {"ts": now, "data": data}
 
 def _ensure_promo_schema():
     if "promocoes" in _schema_ready:
@@ -8064,6 +8092,16 @@ def api_home_insights():
         lng = float(request.args.get("lng", 0))
     except (ValueError, TypeError):
         lat = lng = 0.0
+    home_insights_cache_key = (
+        "home_insights",
+        str(consumidor_id or "anon"),
+        round(lat or 0, 2),
+        round(lng or 0, 2),
+        bool(_catalogo_alpha_exclusivo()),
+    )
+    cached_home_insights = _home_api_cache_get(home_insights_cache_key, 180 if consumidor_id else 300)
+    if cached_home_insights is not None:
+        return jsonify(cached_home_insights)
     resultado = {
         "logado": bool(consumidor_id),
         "lembretes": [],
@@ -8150,6 +8188,11 @@ def api_home_insights():
         except Exception as e:
             app.logger.warning(f"banner_ia: {e}")
 
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _home_api_cache_set(home_insights_cache_key, resultado, ttl_seconds=180 if consumidor_id else 300)
     return jsonify(resultado)
 
 
@@ -21095,4 +21138,5 @@ def api_horario_status(cnpjloja):
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
+
 

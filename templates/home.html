@@ -1273,8 +1273,7 @@ function carregarProdutosGerais(){
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  fetch('/api/home/insights' + qs)
-    .then(r=>r.json())
+  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d=>{
       if (_renderAchadosFallback(d.trending_lojas || [], {rede: d.sem_farmacia_proxima || !d.logado})) return;
       throw new Error('sem-trending');
@@ -1352,9 +1351,7 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
   const gridEl = document.getElementById('heia-grid');
   if (!sec || !msgEl || !gridEl) return;
   try {
-    const r = await fetch(`/api/home/economia-ia?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`, {signal: AbortSignal.timeout(8000)});
-    if (!r.ok) return;
-    const d = await r.json();
+    const d = await _cFetch(`eco_${_geoK(lat || 0, lng || 0)}`, 300e3, `/api/home/economia-ia?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
     if (!d.produtos || !d.produtos.length) return;
     msgEl.textContent = d.insight_ia || 'Confira os melhores preços perto de você agora.';
     const ecVal = document.getElementById('hhv-ec-val');
@@ -1468,8 +1465,7 @@ function carregarBanners(lat, lng){
 }
 
 // â”€â”€ Comprar novamente (sÃ³ logados) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-fetch('/api/comprar-novamente')
-  .then(r=>r.json())
+_cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
   .then(d=>{
     if(!d.logado || !(d.produtos||[]).length) return;
     document.getElementById('sec-comprar-novamente').style.display='';
@@ -1544,8 +1540,7 @@ function carregarInsights() {
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  fetch('/api/home/insights' + qs)
-    .then(r => r.json())
+  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d => {
       // Aviso sem farmácia prÃ³xima
       if (d.sem_farmacia_proxima) {
