@@ -71,6 +71,14 @@ ML_AUTH_URL  = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 ML_API_BASE  = "https://api.mercadolibre.com"
 
+# ─── GOOGLE OAUTH (CONSUMIDOR) ───────────────────────────────────────────────
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+
 # ─── CLOUDINARY ───────────────────────────────────────────────────────────────
 try:
     import cloudinary
@@ -2088,6 +2096,69 @@ def _valid_email(email):
 def _valid_phone(phone):
     d = _digits(phone)
     return len(d) in (10, 11) and len(set(d)) > 2
+
+
+def _valid_cpf(cpf):
+    d = _digits(cpf)
+    if len(d) != 11 or len(set(d)) == 1:
+        return False
+    nums = [int(x) for x in d]
+    s1 = sum(nums[i] * (10 - i) for i in range(9))
+    v1 = (s1 * 10) % 11
+    if v1 == 10:
+        v1 = 0
+    s2 = sum(nums[i] * (11 - i) for i in range(10))
+    v2 = (s2 * 10) % 11
+    if v2 == 10:
+        v2 = 0
+    return nums[9] == v1 and nums[10] == v2
+
+
+def _valid_cnpj(cnpj):
+    d = _digits(cnpj)
+    if len(d) != 14 or len(set(d)) == 1:
+        return False
+    nums = [int(x) for x in d]
+    pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    pesos2 = [6] + pesos1
+    s1 = sum(nums[i] * pesos1[i] for i in range(12))
+    v1 = 0 if s1 % 11 < 2 else 11 - (s1 % 11)
+    s2 = sum(nums[i] * pesos2[i] for i in range(13))
+    v2 = 0 if s2 % 11 < 2 else 11 - (s2 % 11)
+    return nums[12] == v1 and nums[13] == v2
+
+
+def _valid_documento(documento):
+    d = _digits(documento)
+    return _valid_cpf(d) if len(d) == 11 else _valid_cnpj(d) if len(d) == 14 else False
+
+
+def _google_oauth_ready():
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+
+def _google_redirect_uri():
+    if GOOGLE_REDIRECT_URI:
+        return GOOGLE_REDIRECT_URI
+    return url_for("consumidor_google_callback", _external=True)
+
+
+def _google_post_json(url, data):
+    body = urllib.parse.urlencode(data).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _google_get_json(url, token):
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 def _valid_endereco_completo(endereco, lat=None, lng=None):
@@ -10095,7 +10166,89 @@ def api_carrinho_sync():
 def consumidor_login():
     if session.get("consumidor_id"):
         return redirect(request.args.get("next") or url_for("index"))
-    return render_template("consumidor_login.html", next_url=request.args.get("next") or "")
+    return render_template(
+        "consumidor_login.html",
+        next_url=request.args.get("next") or "",
+        google_auth_available=_google_oauth_ready(),
+    )
+
+
+@app.get("/auth/google")
+def consumidor_google_start():
+    if not _google_oauth_ready():
+        flash("Login com Google ainda não está configurado.", "info")
+        return redirect(request.referrer or url_for("consumidor_login", next=request.args.get("next") or ""))
+
+    state = secrets.token_urlsafe(24)
+    session["google_oauth_state"] = state
+    session["google_oauth_next"] = request.args.get("next") or url_for("index")
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": _google_redirect_uri(),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "prompt": "select_account",
+    }
+    return redirect(GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params))
+
+
+@app.get("/auth/google/callback")
+def consumidor_google_callback():
+    if request.args.get("state") != session.get("google_oauth_state"):
+        flash("Não foi possível validar o login com Google. Tente novamente.", "error")
+        return redirect(url_for("consumidor_login"))
+    code = request.args.get("code") or ""
+    next_url = session.get("google_oauth_next") or url_for("index")
+    if not code:
+        flash("Login com Google cancelado.", "info")
+        return redirect(url_for("consumidor_login", next=next_url))
+
+    try:
+        token_data = _google_post_json(GOOGLE_TOKEN_URL, {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": _google_redirect_uri(),
+            "grant_type": "authorization_code",
+        })
+        profile = _google_get_json(GOOGLE_USERINFO_URL, token_data.get("access_token") or "")
+    except Exception as exc:
+        app.logger.error("google oauth error: %s", exc)
+        flash("Não foi possível entrar com Google agora.", "error")
+        return redirect(url_for("consumidor_login", next=next_url))
+    finally:
+        session.pop("google_oauth_state", None)
+
+    email = _norm_email(profile.get("email"))
+    nome = (profile.get("name") or "").strip()
+    if not email or not profile.get("email_verified"):
+        flash("Use uma conta Google com e-mail verificado.", "error")
+        return redirect(url_for("consumidor_login", next=next_url))
+
+    _ensure_consumidor_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM ecommerce_consumidores WHERE email=%s LIMIT 1", (email,))
+    user = cur.fetchone()
+    cur.close()
+
+    if user:
+        session.permanent = True
+        session["consumidor_id"] = str(user["id"])
+        session["consumidor_nome"] = user["nome"]
+        session["consumidor_email"] = user["email"]
+        session["consumidor_telefone"] = user["telefone"]
+        session["consumidor_documento"] = user.get("documento") or ""
+        session["consumidor_endereco"] = user.get("endereco") or ""
+        session["consumidor_lat"] = user.get("endereco_lat")
+        session["consumidor_lng"] = user.get("endereco_lng")
+        session["email_verificado"] = True
+        return redirect(next_url)
+
+    session["google_signup"] = {"email": email, "nome": nome}
+    flash("Complete CPF, WhatsApp e endereço para finalizar sua conta Google.", "info")
+    return redirect(url_for("consumidor_criar_conta", next=next_url))
 
 
 @app.post("/entrar")
@@ -10132,7 +10285,13 @@ def consumidor_login_post():
 def consumidor_criar_conta():
     if session.get("consumidor_id"):
         return redirect(request.args.get("next") or url_for("index"))
-    return render_template("consumidor_cadastro.html", next_url=request.args.get("next") or "")
+    google_signup = session.get("google_signup") or {}
+    return render_template(
+        "consumidor_cadastro.html",
+        next_url=request.args.get("next") or "",
+        google_auth_available=_google_oauth_ready(),
+        google_signup=google_signup,
+    )
 
 
 @app.post("/criar-conta")
@@ -10147,6 +10306,9 @@ def consumidor_criar_conta_post():
     endereco_lat = _to_float_or_none(request.form.get("endereco_lat"))
     endereco_lng = _to_float_or_none(request.form.get("endereco_lng"))
     next_url = request.form.get("next") or url_for("index")
+    google_signup = session.get("google_signup") or {}
+    google_email = _norm_email(google_signup.get("email"))
+    is_google_signup = bool(google_email and google_email == email)
 
     if not _valid_nome(nome):
         flash("Informe nome e sobrenome reais.", "error")
@@ -10154,7 +10316,7 @@ def consumidor_criar_conta_post():
     if not _valid_phone(telefone):
         flash("Informe um WhatsApp válido com DDD.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
-    if len(documento) not in {11, 14}:
+    if not _valid_documento(documento):
         flash("Informe CPF ou CNPJ válido.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
     if not _valid_email(email):
@@ -10163,20 +10325,22 @@ def consumidor_criar_conta_post():
     if not _valid_endereco_completo(endereco, endereco_lat, endereco_lng):
         flash("Informe um endereço completo e selecione uma opção encontrada: rua, número, bairro, cidade, UF e CEP.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
-    if len(senha) < 6 or senha.isdigit() or len(set(senha)) < 4:
+    if not is_google_signup and (len(senha) < 6 or senha.isdigit() or len(set(senha)) < 4):
         flash("Crie uma senha com pelo menos 6 caracteres e variedade.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
+    if is_google_signup:
+        senha = secrets.token_urlsafe(24)
 
     conn = db()
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO ecommerce_consumidores (nome, telefone, documento, email, senha_hash, endereco, endereco_lat, endereco_lng)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ecommerce_consumidores (nome, telefone, documento, email, senha_hash, endereco, endereco_lat, endereco_lng, email_verificado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, nome, telefone, documento, email, endereco, endereco_lat, endereco_lng
             """,
-            (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng),
+            (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, is_google_signup),
         )
         user = cur.fetchone()
         conn.commit()
@@ -10196,9 +10360,12 @@ def consumidor_criar_conta_post():
     session["consumidor_endereco"] = user.get("endereco") or ""
     session["consumidor_lat"] = user.get("endereco_lat")
     session["consumidor_lng"] = user.get("endereco_lng")
-    session["email_verificado"] = False
+    session["email_verificado"] = bool(is_google_signup)
 
-    _enviar_email_verificacao(str(user["id"]), user["email"])
+    if is_google_signup:
+        session.pop("google_signup", None)
+    else:
+        _enviar_email_verificacao(str(user["id"]), user["email"])
     return redirect(next_url)
 
 

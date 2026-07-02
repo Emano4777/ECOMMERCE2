@@ -727,7 +727,7 @@
 .promo-pop-title { font-size:1.55rem; font-weight:900; color:#fff; line-height:1.12; text-shadow:0 2px 12px rgba(0,0,0,.22); }
 .promo-pop-yellow { color:#ffd700; }
 .promo-pop-body { padding:22px 24px 18px; text-align:center; }
-.promo-pop-emoji { font-size:2.8rem; line-height:1; margin-bottom:10px; display:block; animation:pq-bounce 2s ease-in-out infinite; }
+.promo-pop-emoji { width:56px; height:56px; margin:0 auto 12px; border-radius:18px; display:grid; place-items:center; background:#fff4f6; color:var(--pq-red); font-size:1.7rem; box-shadow:0 10px 24px rgba(200,16,46,.12); animation:pq-bounce 2s ease-in-out infinite; }
 .promo-pop-desc { color:#475569; font-size:.91rem; line-height:1.6; }
 .promo-pop-features { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; justify-content:center; }
 .promo-pop-feat { display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:999px; padding:5px 12px; font-size:.74rem; font-weight:700; color:#334155; }
@@ -1864,7 +1864,7 @@ function fecharPromoPop() {
       </div>
     </div>
     <div class="promo-pop-body">
-      <span class="promo-pop-emoji">ðŸ’Š</span>
+      <span class="promo-pop-emoji" aria-hidden="true"><i class="fa fa-pills"></i></span>
       <p class="promo-pop-desc">
         Encontre medicamentos, suplementos e cosmÃ©ticos com os
         <strong>melhores preços da sua região</strong>.

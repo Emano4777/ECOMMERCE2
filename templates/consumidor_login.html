@@ -1,44 +1,111 @@
 {% extends "base_public.html" %}
-{% block title %}Poupaqui - Produtos{% endblock %}
+{% block title %}Poupaqui - Entrar{% endblock %}
 
 {% block extra_style %}
 <style>
-.auth-wrap { max-width:460px; margin:0 auto; padding:36px 16px 70px; }
-.auth-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
-.auth-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
-.auth-card p { color:var(--pq-muted); margin:0 0 22px; font-size:.92rem; }
-.auth-field { margin-bottom:14px; }
-.auth-field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
-.auth-field input { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; outline:none; }
-.auth-field input:focus { border-color:var(--pq-red); }
-.auth-check { display:flex; align-items:center; gap:8px; font-size:.86rem; color:var(--pq-muted); margin:2px 0 18px; }
-.auth-btn { width:100%; border:0; background:var(--pq-red); color:#fff; border-radius:12px; padding:13px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
-.auth-link { display:block; text-align:center; margin-top:16px; color:var(--pq-red); font-weight:800; text-decoration:none; }
+  body { background: #f3f3f3; }
+  .pq-auth-shell { min-height: auto; display: flex; align-items: flex-start; justify-content: center; padding: 34px 24px 48px; }
+  .pq-auth-card { width: min(948px, 100%); min-height: 592px; display: grid; grid-template-columns: 334px 1fr; overflow: hidden; background: #fff; border-radius: 22px; box-shadow: 0 18px 46px rgba(0,0,0,.14); }
+  .pq-auth-side { position: relative; isolation: isolate; background: #b70d2d; color: #fff; padding: 48px 32px; display: flex; flex-direction: column; }
+  .pq-auth-side:before, .pq-auth-side:after { content: ""; position: absolute; border-radius: 999px; background: rgba(255,255,255,.08); z-index: -1; }
+  .pq-auth-side:before { width: 220px; height: 220px; right: -70px; top: -30px; }
+  .pq-auth-side:after { width: 180px; height: 180px; left: -70px; bottom: -95px; }
+  .pq-auth-logo { width: 78px; height: auto; margin-bottom: 26px; }
+  .pq-auth-side h1 { margin: 0 0 10px; font-size: 1.48rem; line-height: 1.15; font-weight: 900; letter-spacing: 0; }
+  .pq-auth-side p { margin: 0; color: rgba(255,255,255,.88); font-size: .88rem; line-height: 1.5; font-weight: 600; }
+  .pq-auth-benefits { margin: 38px 0 0; padding: 28px 0 0; border-top: 1px solid rgba(255,255,255,.22); display: grid; gap: 14px; }
+  .pq-auth-benefit { display: flex; align-items: center; gap: 11px; font-size: .82rem; font-weight: 800; }
+  .pq-auth-benefit i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.18); font-size: .62rem; }
+  .pq-auth-security { margin-top: auto; display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,.86); font-size: .72rem; line-height: 1.25; font-weight: 700; }
+  .pq-auth-security i { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: rgba(255,255,255,.13); }
+  .pq-auth-main { padding: 40px 72px; display: flex; align-items: center; }
+  .pq-auth-form { width: 100%; max-width: 430px; margin: 0 auto; }
+  .pq-auth-kicker { color: var(--pq-red); font-size: .72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; }
+  .pq-auth-form h2 { margin: 0 0 3px; font-size: 1.58rem; line-height: 1.1; font-weight: 900; letter-spacing: 0; color: #08090d; }
+  .pq-auth-sub { margin: 0 0 25px; color: #7b8190; font-size: .9rem; font-weight: 500; }
+  .pq-google-btn { width: 100%; height: 50px; display: flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid #dedfe4; border-radius: 10px; color: #2e3340; background: #fff; font: 800 .92rem Montserrat, system-ui, sans-serif; text-decoration: none; cursor: pointer; }
+  .pq-google-icon { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
+  .pq-auth-sep { margin: 25px 0 22px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 13px; color: #a9adb8; font-size: .74rem; font-weight: 900; text-transform: uppercase; }
+  .pq-auth-sep:before, .pq-auth-sep:after { content: ""; height: 1px; background: #ececf1; }
+  .pq-field { margin-bottom: 17px; }
+  .pq-field-top { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
+  .pq-field label { display: block; margin-bottom: 7px; color: #8a8f9d; font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; }
+  .pq-field a { color: var(--pq-red); font-size: .72rem; font-weight: 900; text-decoration: none; }
+  .pq-field input { width: 100%; height: 48px; border: 1px solid #dedfe4; border-radius: 10px; padding: 0 14px; color: #20242f; background: #fff; font: 600 .91rem Montserrat, system-ui, sans-serif; outline: none; }
+  .pq-field input::placeholder { color: #b2b6c2; }
+  .pq-field input:focus { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
+  .pq-auth-check { display: flex; align-items: center; gap: 10px; margin: 4px 0 24px; color: #343948; font-size: .84rem; font-weight: 500; }
+  .pq-auth-check input { width: 18px; height: 18px; accent-color: var(--pq-red); }
+  .pq-auth-submit { width: 100%; height: 52px; border: 0; border-radius: 10px; background: #d11035; color: #fff; font: 900 .95rem Montserrat, system-ui, sans-serif; box-shadow: 0 10px 20px rgba(209,16,53,.22); cursor: pointer; }
+  .pq-auth-footer { margin-top: 20px; text-align: center; color: #8a8f9d; font-size: .82rem; }
+  .pq-auth-footer a { color: var(--pq-red); font-weight: 900; text-decoration: none; }
+  @media (max-width: 820px) {
+    .pq-auth-shell { padding: 16px 14px 32px; }
+    .pq-auth-card { grid-template-columns: 1fr; min-height: 0; border-radius: 18px; }
+    .pq-auth-side { padding: 28px 24px; min-height: 260px; }
+    .pq-auth-benefits { margin-top: 24px; padding-top: 20px; }
+    .pq-auth-security { margin-top: 28px; }
+    .pq-auth-main { padding: 30px 22px 34px; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="auth-wrap">
-  <form class="auth-card" method="post" action="{{ url_for('consumidor_login_post') }}">
-    <input type="hidden" name="next" value="{{ next_url }}">
-    <h1><i class="fa fa-user" style="color:var(--pq-red)"></i>Entrar na sua conta</h1>
-    <p>Acesse para finalizar pedidos, acompanhar status e ver seu histórico.</p>
+<div class="pq-auth-shell">
+  <section class="pq-auth-card" aria-label="Entrar na conta Poupaqui">
+    <aside class="pq-auth-side">
+      <img class="pq-auth-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+      <h1>Bem-vindo<br>de volta</h1>
+      <p>Entre para finalizar pedidos, acompanhar status e ver seu histórico completo.</p>
+      <div class="pq-auth-benefits">
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Entrega rápida no seu endereço</span></div>
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Receitas e histórico salvos</span></div>
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Ofertas exclusivas de membro</span></div>
+      </div>
+      <div class="pq-auth-security"><i class="fa fa-lock"></i><span>Seus dados são protegidos.<br>Não compartilhamos com terceiros.</span></div>
+    </aside>
 
-    <div class="auth-field">
-      <label for="email">E-mail</label>
-      <input id="email" name="email" type="email" autocomplete="email" required>
-    </div>
-    <div class="auth-field">
-      <label for="senha">Senha</label>
-      <input id="senha" name="senha" type="password" autocomplete="current-password" required>
-    </div>
-    <label class="auth-check">
-      <input type="checkbox" name="lembrar" checked>
-      Manter conectado neste dispositivo
-    </label>
-    <button class="auth-btn" type="submit">Entrar</button>
-    <a class="auth-link" href="{{ url_for('recuperar_senha') }}" style="font-size:.82rem;color:var(--pq-muted);margin-bottom:4px">Esqueceu a senha?</a>
-    <a class="auth-link" href="{{ url_for('consumidor_criar_conta', next=next_url) }}">Criar minha conta</a>
-  </form>
+    <main class="pq-auth-main">
+      <form class="pq-auth-form" method="post" action="{{ url_for('consumidor_login_post') }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <div class="pq-auth-kicker">Acessar conta</div>
+        <h2>Entrar</h2>
+        <p class="pq-auth-sub">Que bom te ver de novo na Poupaqui.</p>
+
+        <a class="pq-google-btn" href="{{ url_for('consumidor_google_start', next=next_url) }}">
+          <svg class="pq-google-icon" viewBox="0 0 18 18" aria-hidden="true">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.94v2.34A9 9 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.18.28-1.72V4.94H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.06l3.02-2.34z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.34l2.59-2.59C13.46.88 11.43 0 9 0A9 9 0 0 0 .94 4.94l3.02 2.34C4.67 5.16 6.66 3.58 9 3.58z"/>
+          </svg>
+          <span>Entrar com Google</span>
+        </a>
+
+        <div class="pq-auth-sep">ou</div>
+
+        <div class="pq-field">
+          <label for="email">E-mail</label>
+          <input id="email" name="email" type="email" autocomplete="email" placeholder="voce@email.com" required>
+        </div>
+
+        <div class="pq-field">
+          <div class="pq-field-top">
+            <label for="senha">Senha</label>
+            <a href="{{ url_for('recuperar_senha') }}">Esqueceu a senha?</a>
+          </div>
+          <input id="senha" name="senha" type="password" autocomplete="current-password" placeholder="Sua senha" required>
+        </div>
+
+        <label class="pq-auth-check">
+          <input type="checkbox" name="lembrar" checked>
+          <span>Manter conectado neste dispositivo</span>
+        </label>
+
+        <button class="pq-auth-submit" type="submit">Entrar</button>
+        <div class="pq-auth-footer">Não tem conta? <a href="{{ url_for('consumidor_criar_conta', next=next_url) }}">Criar minha conta</a></div>
+      </form>
+    </main>
+  </section>
 </div>
 {% endblock %}

@@ -1,33 +1,78 @@
-﻿{% extends "base_public.html" %}
-{% block title %}Recuperar senha — Poupaqui{% endblock %}
+{% extends "base_public.html" %}
+{% block title %}Recuperar senha - Poupaqui{% endblock %}
 
 {% block extra_style %}
 <style>
-.auth-wrap { max-width:460px; margin:0 auto; padding:36px 16px 70px; }
-.auth-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
-.auth-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
-.auth-card p { color:var(--pq-muted); margin:0 0 22px; font-size:.92rem; }
-.auth-field { margin-bottom:14px; }
-.auth-field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
-.auth-field input { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; outline:none; }
-.auth-field input:focus { border-color:var(--pq-red); }
-.auth-btn { width:100%; border:0; background:var(--pq-red); color:#fff; border-radius:12px; padding:13px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
-.auth-link { display:block; text-align:center; margin-top:16px; color:var(--pq-red); font-weight:800; text-decoration:none; }
+  body { background: #f3f3f3; }
+  .pq-auth-shell { display: flex; align-items: flex-start; justify-content: center; padding: 34px 24px 48px; }
+  .pq-auth-card { width: min(948px, 100%); min-height: 560px; display: grid; grid-template-columns: 334px 1fr; overflow: hidden; background: #fff; border-radius: 22px; box-shadow: 0 18px 46px rgba(0,0,0,.14); }
+  .pq-auth-side { position: relative; isolation: isolate; background: #b70d2d; color: #fff; padding: 40px 32px; display: flex; flex-direction: column; }
+  .pq-auth-side:before, .pq-auth-side:after { content: ""; position: absolute; border-radius: 999px; background: rgba(255,255,255,.08); z-index: -1; }
+  .pq-auth-side:before { width: 220px; height: 220px; right: -58px; top: -30px; }
+  .pq-auth-side:after { width: 180px; height: 180px; left: -70px; bottom: -85px; }
+  .pq-auth-logo { width: 78px; height: auto; margin-bottom: 26px; }
+  .pq-auth-side h1 { margin: 0 0 11px; font-size: 1.48rem; line-height: 1.15; font-weight: 900; letter-spacing: 0; }
+  .pq-auth-side p { margin: 0; color: rgba(255,255,255,.88); font-size: .86rem; line-height: 1.5; font-weight: 600; }
+  .pq-auth-steps { margin: 34px 0 0; display: grid; gap: 0; }
+  .pq-side-step { position: relative; display: grid; grid-template-columns: 42px 1fr; gap: 10px; min-height: 56px; color: #fff; }
+  .pq-side-step:after { content: ""; position: absolute; left: 20px; top: 38px; bottom: 2px; width: 1px; background: rgba(255,255,255,.35); }
+  .pq-side-step:last-child:after { display: none; }
+  .pq-side-step b { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.12); font-size: .9rem; }
+  .pq-side-step strong { display: block; font-size: .84rem; font-weight: 900; }
+  .pq-auth-security { margin-top: auto; display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,.86); font-size: .72rem; line-height: 1.25; font-weight: 700; }
+  .pq-auth-security i { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: rgba(255,255,255,.13); }
+  .pq-auth-main { padding: 38px 72px; display: flex; align-items: center; }
+  .pq-auth-form { width: 100%; max-width: 430px; margin: 0 auto; }
+  .pq-auth-kicker { color: var(--pq-red); font-size: .72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; }
+  .pq-auth-form h2 { margin: 0 0 5px; font-size: 1.58rem; line-height: 1.1; font-weight: 900; letter-spacing: 0; color: #08090d; }
+  .pq-auth-sub { margin: 0 0 25px; color: #7b8190; font-size: .9rem; line-height: 1.45; font-weight: 500; }
+  .pq-field { margin-bottom: 22px; }
+  .pq-field label { display: block; margin-bottom: 7px; color: #8a8f9d; font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; }
+  .pq-field input { width: 100%; height: 48px; border: 1px solid #dedfe4; border-radius: 10px; padding: 0 14px; color: #20242f; background: #fff; font: 600 .91rem Montserrat, system-ui, sans-serif; outline: none; }
+  .pq-field input::placeholder { color: #b2b6c2; }
+  .pq-field input:focus { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
+  .pq-auth-submit { width: 100%; height: 52px; border: 0; border-radius: 10px; background: #d11035; color: #fff; font: 900 .95rem Montserrat, system-ui, sans-serif; box-shadow: 0 10px 20px rgba(209,16,53,.22); cursor: pointer; }
+  .pq-auth-footer { margin-top: 22px; text-align: center; color: #8a8f9d; font-size: .82rem; }
+  .pq-auth-footer a { color: #777d8d; font-weight: 900; text-decoration: none; }
+  @media (max-width: 820px) {
+    .pq-auth-shell { padding: 16px 14px 32px; }
+    .pq-auth-card { grid-template-columns: 1fr; min-height: 0; border-radius: 18px; }
+    .pq-auth-side { padding: 28px 24px; min-height: 330px; }
+    .pq-auth-main { padding: 30px 22px 34px; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="auth-wrap">
-  <form class="auth-card" method="post" action="{{ url_for('recuperar_senha_post') }}">
-    <h1><i class="fa fa-key" style="color:var(--pq-red)"></i>Recuperar senha</h1>
-    <p>Informe seu e-mail de cadastro e enviaremos um link para criar uma nova senha.</p>
+<div class="pq-auth-shell">
+  <section class="pq-auth-card" aria-label="Recuperar acesso Poupaqui">
+    <aside class="pq-auth-side">
+      <img class="pq-auth-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+      <h1>Recuperar<br>acesso</h1>
+      <p>Sem estresse. Em poucos passos voce volta a acessar sua conta.</p>
+      <div class="pq-auth-steps">
+        <div class="pq-side-step"><b>1</b><div><strong>Informe seu e-mail de cadastro</strong></div></div>
+        <div class="pq-side-step"><b>2</b><div><strong>Confira sua caixa de entrada</strong></div></div>
+        <div class="pq-side-step"><b>3</b><div><strong>Crie uma nova senha</strong></div></div>
+      </div>
+      <div class="pq-auth-security"><i class="fa fa-lock"></i><span>Seus dados sao protegidos.<br>Nao compartilhamos com terceiros.</span></div>
+    </aside>
 
-    <div class="auth-field">
-      <label for="email">E-mail</label>
-      <input id="email" name="email" type="email" autocomplete="email" required placeholder="seu@email.com">
-    </div>
-    <button class="auth-btn" type="submit">Enviar link de recuperação</button>
-    <a class="auth-link" href="{{ url_for('consumidor_login') }}">Voltar para o login</a>
-  </form>
+    <main class="pq-auth-main">
+      <form class="pq-auth-form" method="post" action="{{ url_for('recuperar_senha_post') }}">
+        <div class="pq-auth-kicker">Recuperar acesso</div>
+        <h2>Esqueceu a senha?</h2>
+        <p class="pq-auth-sub">Informe o e-mail do seu cadastro e enviamos um link seguro para voce criar uma nova senha.</p>
+
+        <div class="pq-field">
+          <label for="email">E-mail</label>
+          <input id="email" name="email" type="email" autocomplete="email" required placeholder="seu@email.com">
+        </div>
+
+        <button class="pq-auth-submit" type="submit">Enviar link de recuperação</button>
+        <div class="pq-auth-footer"><a href="{{ url_for('consumidor_login') }}">← Voltar para o login</a></div>
+      </form>
+    </main>
+  </section>
 </div>
 {% endblock %}

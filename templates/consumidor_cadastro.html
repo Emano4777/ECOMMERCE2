@@ -3,277 +3,461 @@
 
 {% block extra_style %}
 <style>
-.auth-wrap { max-width:520px; margin:0 auto; padding:36px 16px 70px; }
-.auth-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
-.auth-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
-.auth-card p { color:var(--pq-muted); margin:0 0 22px; font-size:.92rem; }
-.auth-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-.auth-field { margin-bottom:14px; }
-.auth-field.full { grid-column:1 / -1; }
-.auth-field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
-.auth-field input, .auth-field select { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; outline:none; box-sizing:border-box; background:#fff; }
-.auth-field input:focus, .auth-field select:focus { border-color:var(--pq-red); }
-.auth-field input:read-only { background:#f8f8f8; color:var(--pq-muted); }
-.auth-section { grid-column:1 / -1; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.5px; padding:6px 0 2px; border-top:1px solid var(--pq-border); margin-top:4px; }
-.auth-check { display:flex; align-items:center; gap:8px; font-size:.86rem; color:var(--pq-muted); margin:2px 0 18px; }
-.auth-btn { width:100%; border:0; background:var(--pq-red); color:#fff; border-radius:12px; padding:13px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
-.auth-link { display:block; text-align:center; margin-top:16px; color:var(--pq-red); font-weight:800; text-decoration:none; }
-.cep-hint { font-size:.72rem; color:var(--pq-muted); margin-top:4px; }
-@media(max-width:560px){ .auth-grid { grid-template-columns:1fr; } .auth-field.full { grid-column:auto; } .auth-section { grid-column:auto; } }
+  body { background: #f3f3f3; }
+  .pq-auth-shell { min-height: auto; display: flex; align-items: flex-start; justify-content: center; padding: 34px 24px 48px; }
+  .pq-auth-card { width: min(948px, 100%); min-height: 726px; display: grid; grid-template-columns: 334px 1fr; overflow: hidden; background: #fff; border-radius: 22px; box-shadow: 0 18px 46px rgba(0,0,0,.14); }
+  .pq-auth-side { position: relative; isolation: isolate; background: #b70d2d; color: #fff; padding: 40px 32px; display: flex; flex-direction: column; }
+  .pq-auth-side:before, .pq-auth-side:after { content: ""; position: absolute; border-radius: 999px; background: rgba(255,255,255,.08); z-index: -1; }
+  .pq-auth-side:before { width: 220px; height: 220px; right: -58px; top: -30px; }
+  .pq-auth-side:after { width: 180px; height: 180px; left: -70px; bottom: -85px; }
+  .pq-auth-logo { width: 78px; height: auto; margin-bottom: 24px; }
+  .pq-auth-side h1 { margin: 0 0 11px; font-size: 1.48rem; line-height: 1.15; font-weight: 900; letter-spacing: 0; }
+  .pq-auth-side p { margin: 0; color: rgba(255,255,255,.88); font-size: .86rem; line-height: 1.5; font-weight: 600; }
+  .pq-auth-steps { margin: 30px 0 0; display: grid; gap: 0; }
+  .pq-side-step { position: relative; display: grid; grid-template-columns: 42px 1fr; gap: 10px; min-height: 56px; color: rgba(255,255,255,.58); }
+  .pq-side-step:after { content: ""; position: absolute; left: 20px; top: 38px; bottom: 2px; width: 1px; background: rgba(255,255,255,.35); }
+  .pq-side-step:last-child:after { display: none; }
+  .pq-side-step b { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); color: inherit; font-size: .9rem; }
+  .pq-side-step strong { display: block; color: inherit; font-size: .86rem; font-weight: 900; }
+  .pq-side-step span { display: block; margin-top: 2px; font-size: .76rem; font-weight: 600; }
+  .pq-side-step.is-active, .pq-side-step.is-done { color: #fff; }
+  .pq-side-step.is-active b, .pq-side-step.is-done b { background: #d11035; border-color: rgba(255,255,255,.2); box-shadow: 0 0 0 5px rgba(255,255,255,.08); }
+  .pq-auth-benefits { margin: 28px 0 0; padding: 24px 0 0; border-top: 1px solid rgba(255,255,255,.22); display: grid; gap: 13px; }
+  .pq-auth-benefit { display: flex; align-items: center; gap: 11px; font-size: .8rem; font-weight: 800; }
+  .pq-auth-benefit i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.18); font-size: .62rem; }
+  .pq-auth-security { margin-top: auto; display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,.86); font-size: .72rem; line-height: 1.25; font-weight: 700; }
+  .pq-auth-security i { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: rgba(255,255,255,.13); }
+  .pq-auth-main { padding: 36px 44px; display: flex; align-items: center; }
+  .pq-auth-form { width: 100%; max-width: 526px; margin: 0 auto; }
+  .pq-auth-kicker { color: var(--pq-red); font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; }
+  .pq-auth-form h2 { margin: 0 0 3px; font-size: 1.58rem; line-height: 1.1; font-weight: 900; letter-spacing: 0; color: #08090d; }
+  .pq-auth-sub { margin: 0 0 25px; color: #7b8190; font-size: .88rem; font-weight: 500; }
+  .pq-google-btn { width: 100%; height: 50px; display: flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid #dedfe4; border-radius: 10px; color: #2e3340; background: #fff; font: 800 .9rem Montserrat, system-ui, sans-serif; text-decoration: none; cursor: pointer; }
+  .pq-google-icon { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
+  .pq-google-note { margin: 8px 0 0; color: #8a8f9d; font-size: .7rem; line-height: 1.35; font-weight: 600; }
+  .pq-auth-sep { margin: 22px 0 18px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 13px; color: #a9adb8; font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+  .pq-auth-sep:before, .pq-auth-sep:after { content: ""; height: 1px; background: #ececf1; }
+  .pq-form-step { display: none; }
+  .pq-form-step.is-active { display: block; }
+  .pq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pq-field { min-width: 0; }
+  .pq-field.full { grid-column: 1 / -1; }
+  .pq-field label { display: block; margin-bottom: 7px; color: #8a8f9d; font-size: .68rem; font-weight: 900; text-transform: uppercase; letter-spacing: .7px; }
+  .pq-field input, .pq-field select { width: 100%; height: 48px; border: 1px solid #dedfe4; border-radius: 10px; padding: 0 14px; color: #20242f; background: #fff; font: 600 .88rem Montserrat, system-ui, sans-serif; outline: none; }
+  .pq-field input::placeholder { color: #b2b6c2; }
+  .pq-field input:focus, .pq-field select:focus { border-color: var(--pq-red); box-shadow: 0 0 0 3px rgba(200,16,46,.08); }
+  .pq-field input.is-invalid, .pq-field select.is-invalid { border-color: #c8102e; }
+  .pq-hint { min-height: 16px; margin-top: 4px; color: #8a8f9d; font-size: .68rem; font-weight: 600; }
+  .pq-hint.is-error { color: #c8102e; font-weight: 800; }
+  .pq-actions { display: grid; grid-template-columns: 132px 1fr; gap: 12px; margin-top: 26px; }
+  .pq-actions.single { grid-template-columns: 1fr; }
+  .pq-auth-submit, .pq-auth-secondary { width: 100%; height: 52px; border-radius: 10px; font: 900 .95rem Montserrat, system-ui, sans-serif; cursor: pointer; }
+  .pq-auth-submit { border: 0; background: #d11035; color: #fff; box-shadow: 0 10px 20px rgba(209,16,53,.22); }
+  .pq-auth-secondary { border: 1px solid #dedfe4; background: #fff; color: #343948; }
+  .pq-auth-check { display: flex; align-items: center; gap: 10px; margin: 18px 0 0; color: #343948; font-size: .82rem; font-weight: 500; }
+  .pq-auth-check input { width: 18px; height: 18px; accent-color: var(--pq-red); }
+  .pq-auth-footer { margin-top: 20px; text-align: center; color: #8a8f9d; font-size: .82rem; }
+  .pq-auth-footer a { color: var(--pq-red); font-weight: 900; text-decoration: none; }
+  @media (max-width: 860px) {
+    .pq-auth-shell { padding: 16px 14px 32px; }
+    .pq-auth-card { grid-template-columns: 1fr; min-height: 0; border-radius: 18px; }
+    .pq-auth-side { padding: 28px 24px; min-height: 360px; }
+    .pq-auth-main { padding: 30px 22px 34px; }
+  }
+  @media (max-width: 560px) {
+    .pq-grid, .pq-actions { grid-template-columns: 1fr; }
+    .pq-field.full { grid-column: auto; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="auth-wrap">
-  <form class="auth-card" id="frmCadastro" method="post" action="{{ url_for('consumidor_criar_conta_post') }}">
-    <input type="hidden" name="next" value="{{ next_url }}">
-    <!-- campos combinados enviados ao backend -->
-    <input type="hidden" id="endereco"     name="endereco">
-    <input type="hidden" id="endereco_lat" name="endereco_lat">
-    <input type="hidden" id="endereco_lng" name="endereco_lng">
+<div class="pq-auth-shell">
+  <section class="pq-auth-card" aria-label="Criar conta Poupaqui">
+    <aside class="pq-auth-side">
+      <img class="pq-auth-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+      <h1>Sua conta<br>Poupaqui</h1>
+      <p>Cadastro rápido para a farmácia identificar seu pedido e entregar certinho.</p>
 
-    <h1><i class="fa fa-user-plus" style="color:var(--pq-red)"></i>Criar conta</h1>
-    <p>Use dados reais para a farmácia identificar seu pedido.</p>
-
-    <div class="auth-grid">
-      <!-- Dados pessoais -->
-      <div class="auth-field full">
-        <label for="nome">Nome completo</label>
-        <input id="nome" name="nome" type="text" autocomplete="name" minlength="6"
-               pattern="[A-Za-zÀ-ÿ' ]{6,}" placeholder="Nome e sobrenome" required>
-      </div>
-      <div class="auth-field">
-        <label for="telefone">WhatsApp</label>
-        <input id="telefone" name="telefone" type="tel" autocomplete="tel"
-               minlength="10" placeholder="(11) 99999-9999" required>
-      </div>
-      <div class="auth-field">
-        <label for="documento">CPF ou CNPJ</label>
-        <input id="documento" name="documento" type="text" inputmode="numeric"
-               maxlength="18" placeholder="CPF ou CNPJ" required>
-      </div>
-      <div class="auth-field">
-        <label for="email">E-mail</label>
-        <input id="email" name="email" type="email" autocomplete="email" required>
-        <div id="email-hint" style="font-size:.72rem;margin-top:4px"></div>
-      </div>
-      <div class="auth-field full">
-        <label for="senha">Senha</label>
-        <input id="senha" name="senha" type="password" autocomplete="new-password" minlength="6" required>
+      <div class="pq-auth-steps">
+        <div class="pq-side-step is-active" data-side-step="1"><b>1</b><div><strong>Seus dados</strong><span>Nome, contato e senha</span></div></div>
+        <div class="pq-side-step" data-side-step="2"><b>2</b><div><strong>Endereço</strong><span>Onde vamos entregar</span></div></div>
+        <div class="pq-side-step" data-side-step="3"><b>3</b><div><strong>Pronto</strong><span>Conta criada</span></div></div>
       </div>
 
-      <!-- Endereço de entrega -->
-      <div class="auth-section">Endereço de entrega</div>
-
-      <div class="auth-field" style="grid-column:span 1; max-width:160px">
-        <label for="f_cep">CEP</label>
-        <input id="f_cep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000" required>
-        <div class="cep-hint" id="cep_hint"></div>
+      <div class="pq-auth-benefits">
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Entrega rápida no seu endereço</span></div>
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Receitas e histórico salvos</span></div>
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Ofertas exclusivas de membro</span></div>
       </div>
+      <div class="pq-auth-security"><i class="fa fa-lock"></i><span>Seus dados são protegidos.<br>Não compartilhamos com terceiros.</span></div>
+    </aside>
 
-      <div class="auth-field full">
-        <label for="f_rua">Rua / Avenida</label>
-        <input id="f_rua" type="text" placeholder="Rua das Flores" required>
-      </div>
+    <main class="pq-auth-main">
+      <form class="pq-auth-form" id="frmCadastro" method="post" action="{{ url_for('consumidor_criar_conta_post') }}" novalidate>
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <input type="hidden" id="endereco" name="endereco">
+        <input type="hidden" id="endereco_lat" name="endereco_lat">
+        <input type="hidden" id="endereco_lng" name="endereco_lng">
 
-      <div class="auth-field" style="max-width:120px">
-        <label for="f_numero">Número</label>
-        <input id="f_numero" type="text" inputmode="numeric" placeholder="123" required>
-      </div>
+        <section class="pq-form-step is-active" data-form-step="1">
+          <div class="pq-auth-kicker">Passo 1 de 2</div>
+          <h2>Seus dados</h2>
+          <p class="pq-auth-sub">Use dados reais para a farmácia identificar seu pedido.</p>
 
-      <div class="auth-field">
-        <label for="f_complemento">Complemento <span style="font-weight:400;text-transform:none">(opcional)</span></label>
-        <input id="f_complemento" type="text" placeholder="Apto 4, Bloco B">
-      </div>
+          {% if google_signup %}
+          <button class="pq-google-btn" type="button" disabled title="Conta Google conectada">
+            <svg class="pq-google-icon" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.94v2.34A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.18.28-1.72V4.94H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.06l3.02-2.34z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.34l2.59-2.59C13.46.88 11.43 0 9 0A9 9 0 0 0 .94 4.94l3.02 2.34C4.67 5.16 6.66 3.58 9 3.58z"/>
+            </svg>
+            <span>Conta Google conectada</span>
+          </button>
+          {% else %}
+          <a class="pq-google-btn" href="{{ url_for('consumidor_google_start', next=next_url) }}">
+            <svg class="pq-google-icon" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.94v2.34A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.18.28-1.72V4.94H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.06l3.02-2.34z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.34l2.59-2.59C13.46.88 11.43 0 9 0A9 9 0 0 0 .94 4.94l3.02 2.34C4.67 5.16 6.66 3.58 9 3.58z"/>
+            </svg>
+            <span>Criar conta com Google</span>
+          </a>
+          {% endif %}
+          <div class="pq-google-note">O Google não envia CPF nem endereço. Depois da autenticação esses dados continuam obrigatórios para entrega e emissão do pedido.</div>
 
-      <div class="auth-field full">
-        <label for="f_bairro">Bairro</label>
-        <input id="f_bairro" type="text" placeholder="Centro" required>
-      </div>
+          <div class="pq-auth-sep">ou com e-mail</div>
 
-      <div class="auth-field">
-        <label for="f_cidade">Cidade</label>
-        <input id="f_cidade" type="text" placeholder="São Paulo" required>
-      </div>
+          <div class="pq-grid">
+            <div class="pq-field full">
+              <label for="nome">Nome completo</label>
+              <input id="nome" name="nome" type="text" autocomplete="name" placeholder="Nome e sobrenome" value="{{ google_signup.get('nome', '') }}" required>
+              <div class="pq-hint" data-hint-for="nome"></div>
+            </div>
+            <div class="pq-field">
+              <label for="telefone">WhatsApp</label>
+              <input id="telefone" name="telefone" type="tel" autocomplete="tel" inputmode="numeric" placeholder="(11) 99999-9999" required>
+              <div class="pq-hint" data-hint-for="telefone"></div>
+            </div>
+            <div class="pq-field">
+              <label for="documento">CPF ou CNPJ</label>
+              <input id="documento" name="documento" type="text" inputmode="numeric" placeholder="000.000.000-00" required>
+              <div class="pq-hint" data-hint-for="documento"></div>
+            </div>
+            <div class="pq-field full">
+              <label for="email">E-mail</label>
+              <input id="email" name="email" type="email" autocomplete="email" placeholder="voce@email.com" value="{{ google_signup.get('email', '') }}" {% if google_signup %}readonly{% endif %} required>
+              <div class="pq-hint" id="email-hint" data-hint-for="email"></div>
+            </div>
+            <div class="pq-field full" {% if google_signup %}style="display:none"{% endif %}>
+              <label for="senha">Senha</label>
+              <input id="senha" name="senha" type="password" autocomplete="new-password" placeholder="Crie uma senha segura" {% if not google_signup %}required{% endif %}>
+              <div class="pq-hint" data-hint-for="senha"></div>
+            </div>
+          </div>
 
-      <div class="auth-field" style="max-width:90px">
-        <label for="f_uf">UF</label>
-        <select id="f_uf" required>
-          <option value="">—</option>
-          {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
-          <option value="{{ uf }}">{{ uf }}</option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
+          <div class="pq-actions single">
+            <button class="pq-auth-submit" type="button" id="btnContinuar">Continuar</button>
+          </div>
+          <div class="pq-auth-footer">Já tem conta? <a href="{{ url_for('consumidor_login', next=next_url) }}">Entrar</a></div>
+        </section>
 
-    <label class="auth-check">
-      <input type="checkbox" name="lembrar" checked>
-      Manter conectado neste dispositivo
-    </label>
-    <button class="auth-btn" type="submit" id="btnCadastrar">Criar conta</button>
-    <a class="auth-link" href="{{ url_for('consumidor_login', next=next_url) }}">Já tenho conta</a>
-  </form>
+        <section class="pq-form-step" data-form-step="2">
+          <div class="pq-auth-kicker">Passo 2 de 2</div>
+          <h2>Endereço</h2>
+          <p class="pq-auth-sub">Digite o CEP para preencher rua, bairro, cidade e UF automaticamente.</p>
+
+          <div class="pq-grid">
+            <div class="pq-field">
+              <label for="f_cep">CEP</label>
+              <input id="f_cep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000" required>
+              <div class="pq-hint" id="cep_hint" data-hint-for="f_cep"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_numero">Número</label>
+              <input id="f_numero" type="text" inputmode="numeric" placeholder="123" required>
+              <div class="pq-hint" data-hint-for="f_numero"></div>
+            </div>
+            <div class="pq-field full">
+              <label for="f_rua">Rua / Avenida</label>
+              <input id="f_rua" type="text" placeholder="Rua das Flores" required>
+              <div class="pq-hint" data-hint-for="f_rua"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_bairro">Bairro</label>
+              <input id="f_bairro" type="text" placeholder="Centro" required>
+              <div class="pq-hint" data-hint-for="f_bairro"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_complemento">Complemento</label>
+              <input id="f_complemento" type="text" placeholder="Apto, bloco, referência">
+              <div class="pq-hint"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_cidade">Cidade</label>
+              <input id="f_cidade" type="text" placeholder="São Paulo" required>
+              <div class="pq-hint" data-hint-for="f_cidade"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_uf">UF</label>
+              <select id="f_uf" required>
+                <option value="">Selecione</option>
+                {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+                <option value="{{ uf }}">{{ uf }}</option>
+                {% endfor %}
+              </select>
+              <div class="pq-hint" data-hint-for="f_uf"></div>
+            </div>
+          </div>
+
+          <label class="pq-auth-check">
+            <input type="checkbox" name="lembrar" checked>
+            <span>Manter conectado neste dispositivo</span>
+          </label>
+
+          <div class="pq-actions">
+            <button class="pq-auth-secondary" type="button" id="btnVoltar">Voltar</button>
+            <button class="pq-auth-submit" type="submit" id="btnCadastrar">Criar conta</button>
+          </div>
+          <div class="pq-auth-footer">Já tem conta? <a href="{{ url_for('consumidor_login', next=next_url) }}">Entrar</a></div>
+        </section>
+      </form>
+    </main>
+  </section>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-/* ── Preencher campos a partir de uma string de endereço ── */
-function preencherCamposEndereco(raw, lat, lng, forcar) {
-  if (!raw) return;
-  const cepM = raw.match(/(\d{5})-?(\d{3})/);
-  if (cepM) document.getElementById('f_cep').value = cepM[1] + '-' + cepM[2];
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const digits = (v) => (v || '').replace(/\D/g, '');
+let emailBloqueado = false;
+const isGoogleSignup = {{ 'true' if google_signup else 'false' }};
 
-  const ufM = raw.match(/[,\s\-]+([A-Z]{2})\s*(?:,|\d{5}|$)/);
-  if (ufM) document.getElementById('f_uf').value = ufM[1];
-
-  let sem = raw
-    .replace(/,?\s*\d{5}-?\d{3}/, '')
-    .replace(/[,\s\-]+[A-Z]{2}\s*$/, '')
-    .trim().replace(/[,\s]+$/, '');
-
-  const tracos = sem.split(/\s*-\s*/);
-  const ruaParte    = tracos[0] || '';
-  const bairroParte = tracos[1] || '';
-  const cidadeParte = tracos[2] || '';
-
-  if (cidadeParte) {
-    if (forcar || !document.getElementById('f_bairro').value) document.getElementById('f_bairro').value = bairroParte.trim();
-    if (forcar || !document.getElementById('f_cidade').value) document.getElementById('f_cidade').value = cidadeParte.trim();
-  } else if (bairroParte) {
-    if (forcar || !document.getElementById('f_cidade').value) document.getElementById('f_cidade').value = bairroParte.trim();
+function setInvalid(id, msg) {
+  const el = document.getElementById(id);
+  const hint = document.querySelector(`[data-hint-for="${id}"]`);
+  if (el) el.classList.toggle('is-invalid', Boolean(msg));
+  if (hint) {
+    hint.textContent = msg || '';
+    hint.classList.toggle('is-error', Boolean(msg));
   }
-
-  const numM = ruaParte.match(/,\s*(\d+[A-Za-z]?)\s*(.*)?$/);
-  if (numM) {
-    if (forcar || !document.getElementById('f_rua').value)    document.getElementById('f_rua').value    = ruaParte.slice(0, numM.index).trim();
-    if (forcar || !document.getElementById('f_numero').value) document.getElementById('f_numero').value = numM[1];
-    const comp = (numM[2] || '').trim();
-    if (comp && (forcar || !document.getElementById('f_complemento').value)) document.getElementById('f_complemento').value = comp;
-  } else {
-    if (forcar || !document.getElementById('f_rua').value) document.getElementById('f_rua').value = ruaParte.trim();
-  }
-
-  if (lat) document.getElementById('endereco_lat').value = lat;
-  if (lng) document.getElementById('endereco_lng').value = lng;
+  return !msg;
 }
 
-/* Pré-preencher com localização salva */
-const locNome = localStorage.getItem('pq_loc_nome') || '';
-const locLat  = localStorage.getItem('pq_lat') || '';
-const locLng  = localStorage.getItem('pq_lng') || '';
-if (locNome) preencherCamposEndereco(locNome, locLat, locLng, false);
-
-/* ── ViaCEP ── */
-const cepEl    = document.getElementById('f_cep');
-const cepHint  = document.getElementById('cep_hint');
+function formatPhone(v) {
+  const d = digits(v).slice(0, 11);
+  if (d.length <= 10) return d.replace(/^(\d{0,2})(\d{0,4})(\d{0,4}).*/, (_, a, b, c) => [a && `(${a}`, a && a.length === 2 ? ') ' : '', b, c && `-${c}`].join(''));
+  return d.replace(/^(\d{2})(\d{0,5})(\d{0,4}).*/, (_, a, b, c) => `(${a}) ${b}${c ? '-' + c : ''}`);
+}
 
 function formatCEP(v) {
-  v = v.replace(/\D/g,'').slice(0,8);
-  return v.length > 5 ? v.slice(0,5)+'-'+v.slice(5) : v;
+  const d = digits(v).slice(0, 8);
+  return d.length > 5 ? d.slice(0, 5) + '-' + d.slice(5) : d;
 }
-cepEl.addEventListener('input', function(){ this.value = formatCEP(this.value); });
 
-const docEl = document.getElementById('documento');
 function formatDoc(v) {
-  v = (v || '').replace(/\D/g,'').slice(0,14);
-  if (v.length > 11) return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2}).*/, '$1.$2.$3/$4-$5');
-  return v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2}).*/, function(_, a, b, c, d){ return d ? `${a}.${b}.${c}-${d}` : `${a}.${b}.${c}`; });
+  const d = digits(v).slice(0, 14);
+  if (d.length > 11) {
+    return d.replace(/^(\d{2})(\d{0,3})(\d{0,3})(\d{0,4})(\d{0,2}).*/, (_, a, b, c, e, f) => `${a}${b ? '.' + b : ''}${c ? '.' + c : ''}${e ? '/' + e : ''}${f ? '-' + f : ''}`);
+  }
+  return d.replace(/^(\d{3})(\d{0,3})(\d{0,3})(\d{0,2}).*/, (_, a, b, c, e) => `${a}${b ? '.' + b : ''}${c ? '.' + c : ''}${e ? '-' + e : ''}`);
 }
-docEl.addEventListener('input', function(){ this.value = formatDoc(this.value); });
 
-async function buscarCEP(cep) {
-  cep = cep.replace(/\D/g,'');
+function validCPF(value) {
+  const d = digits(value);
+  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+  const n = d.split('').map(Number);
+  let s1 = 0;
+  for (let i = 0; i < 9; i++) s1 += n[i] * (10 - i);
+  let v1 = (s1 * 10) % 11;
+  if (v1 === 10) v1 = 0;
+  let s2 = 0;
+  for (let i = 0; i < 10; i++) s2 += n[i] * (11 - i);
+  let v2 = (s2 * 10) % 11;
+  if (v2 === 10) v2 = 0;
+  return n[9] === v1 && n[10] === v2;
+}
+
+function validCNPJ(value) {
+  const d = digits(value);
+  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+  const n = d.split('').map(Number);
+  const p1 = [5,4,3,2,9,8,7,6,5,4,3,2];
+  const p2 = [6,5,4,3,2,9,8,7,6,5,4,3,2];
+  const s1 = p1.reduce((sum, p, i) => sum + n[i] * p, 0);
+  const v1 = s1 % 11 < 2 ? 0 : 11 - (s1 % 11);
+  const s2 = p2.reduce((sum, p, i) => sum + n[i] * p, 0);
+  const v2 = s2 % 11 < 2 ? 0 : 11 - (s2 % 11);
+  return n[12] === v1 && n[13] === v2;
+}
+
+function validDocumento(value) {
+  const d = digits(value);
+  return d.length === 11 ? validCPF(d) : d.length === 14 ? validCNPJ(d) : false;
+}
+
+function goStep(step) {
+  $$('[data-form-step]').forEach(el => el.classList.toggle('is-active', el.dataset.formStep === String(step)));
+  $$('[data-side-step]').forEach(el => {
+    const n = Number(el.dataset.sideStep);
+    el.classList.toggle('is-active', n === step);
+    el.classList.toggle('is-done', n < step);
+  });
+}
+
+function validateStep1() {
+  const nome = $('#nome').value.trim();
+  const nomeOk = /^[A-Za-zÀ-ÿ' ]+$/.test(nome) && nome.split(/\s+/).filter(p => p.length >= 2).length >= 2;
+  const telOk = [10, 11].includes(digits($('#telefone').value).length) && new Set(digits($('#telefone').value)).size > 2;
+  const docOk = validDocumento($('#documento').value);
+  const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('#email').value.trim());
+  const senha = $('#senha').value;
+  const senhaOk = isGoogleSignup || (senha.length >= 6 && !/^\d+$/.test(senha) && new Set(senha).size >= 4);
+  const ok = [
+    setInvalid('nome', nomeOk ? '' : 'Informe nome e sobrenome reais.'),
+    setInvalid('telefone', telOk ? '' : 'Informe um WhatsApp válido com DDD.'),
+    setInvalid('documento', docOk ? '' : 'Informe um CPF ou CNPJ válido.'),
+    setInvalid('email', emailOk ? (emailBloqueado ? 'Este e-mail já tem uma conta.' : '') : 'Informe um e-mail válido.'),
+    setInvalid('senha', senhaOk ? '' : 'Use pelo menos 6 caracteres com variedade.')
+  ].every(Boolean);
+  return ok && !emailBloqueado;
+}
+
+function validateStep2() {
+  const cepOk = digits($('#f_cep').value).length === 8;
+  const ruaOk = $('#f_rua').value.trim().length >= 4;
+  const numOk = $('#f_numero').value.trim().length >= 1;
+  const bairroOk = $('#f_bairro').value.trim().length >= 2;
+  const cidadeOk = $('#f_cidade').value.trim().length >= 2;
+  const ufOk = /^[A-Z]{2}$/.test($('#f_uf').value);
+  return [
+    setInvalid('f_cep', cepOk ? '' : 'Informe um CEP válido.'),
+    setInvalid('f_rua', ruaOk ? '' : 'Informe a rua.'),
+    setInvalid('f_numero', numOk ? '' : 'Informe o número.'),
+    setInvalid('f_bairro', bairroOk ? '' : 'Informe o bairro.'),
+    setInvalid('f_cidade', cidadeOk ? '' : 'Informe a cidade.'),
+    setInvalid('f_uf', ufOk ? '' : 'Selecione a UF.')
+  ].every(Boolean);
+}
+
+async function buscarCEP() {
+  const cep = digits($('#f_cep').value);
+  const hint = $('#cep_hint');
   if (cep.length !== 8) return;
-  cepHint.textContent = 'Buscando...';
+  hint.textContent = 'Buscando...';
+  hint.classList.remove('is-error');
   try {
     const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
     const d = await r.json();
-    if (d.erro) { cepHint.textContent = 'CEP não encontrado.'; return; }
-    if (d.logradouro) document.getElementById('f_rua').value    = d.logradouro;
-    if (d.bairro)     document.getElementById('f_bairro').value = d.bairro;
-    if (d.localidade) document.getElementById('f_cidade').value = d.localidade;
-    if (d.uf)         document.getElementById('f_uf').value     = d.uf;
-    cepHint.textContent = '';
-    document.getElementById('f_numero').focus();
-  } catch { cepHint.textContent = 'Erro ao buscar CEP.'; }
-}
-
-cepEl.addEventListener('blur', function(){ buscarCEP(this.value); });
-
-/* ── Submit: monta endereço e geocodifica ── */
-document.getElementById('frmCadastro').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const btn = document.getElementById('btnCadastrar');
-
-  const cep  = cepEl.value.replace(/\D/g,'');
-  const rua  = document.getElementById('f_rua').value.trim();
-  const num  = document.getElementById('f_numero').value.trim();
-  const comp = document.getElementById('f_complemento').value.trim();
-  const bairro = document.getElementById('f_bairro').value.trim();
-  const cidade = document.getElementById('f_cidade').value.trim();
-  const uf   = document.getElementById('f_uf').value.trim();
-
-  if (!cep || cep.length !== 8 || !rua || !num || !bairro || !cidade || !uf) {
-    alert('Preencha todos os campos do endereço: CEP, rua, número, bairro, cidade e UF.');
-    return;
-  }
-
-  const cepFmt = cep.slice(0,5) + '-' + cep.slice(5);
-  const compPart = comp ? ' ' + comp : '';
-  const enderecoStr = `${rua}, ${num}${compPart} - ${bairro}, ${cidade} - ${uf}, ${cepFmt}`;
-
-  btn.disabled = true;
-  btn.textContent = 'Verificando localização...';
-
-  try {
-    const geo = await fetch('/api/localizacao?q=' + encodeURIComponent(enderecoStr));
-    const gd  = await geo.json();
-    const res = (gd.results || [])[0];
-    if (!res) {
-      alert('Não foi possível confirmar a localização. Verifique o endereço e tente novamente.');
-      btn.disabled = false; btn.textContent = 'Criar conta';
+    if (d.erro) {
+      hint.textContent = 'CEP não encontrado.';
+      hint.classList.add('is-error');
       return;
     }
-    document.getElementById('endereco').value     = enderecoStr;
-    document.getElementById('endereco_lat').value = res.lat;
-    document.getElementById('endereco_lng').value = res.lon;
-    this.submit();
-  } catch {
-    alert('Erro ao verificar localização. Tente novamente.');
-    btn.disabled = false; btn.textContent = 'Criar conta';
+    if (d.logradouro) $('#f_rua').value = d.logradouro;
+    if (d.bairro) $('#f_bairro').value = d.bairro;
+    if (d.localidade) $('#f_cidade').value = d.localidade;
+    if (d.uf) $('#f_uf').value = d.uf;
+    hint.textContent = '';
+    $('#f_numero').focus();
+  } catch (err) {
+    hint.textContent = 'Erro ao buscar CEP.';
+    hint.classList.add('is-error');
   }
-});
+}
 
-/* ── Verificação de e-mail duplicado em tempo real ─── */
-let _emailTimer = null;
-document.getElementById('email').addEventListener('blur', function() {
-  const email = this.value.trim();
-  const hint  = document.getElementById('email-hint');
-  if (!email || !email.includes('@')) return;
-  clearTimeout(_emailTimer);
-  _emailTimer = setTimeout(() => {
+function montarEndereco() {
+  const cep = digits($('#f_cep').value);
+  const cepFmt = cep.slice(0, 5) + '-' + cep.slice(5);
+  const rua = $('#f_rua').value.trim();
+  const num = $('#f_numero').value.trim();
+  const comp = $('#f_complemento').value.trim();
+  const bairro = $('#f_bairro').value.trim();
+  const cidade = $('#f_cidade').value.trim();
+  const uf = $('#f_uf').value;
+  return `${rua}, ${num}${comp ? ' ' + comp : ''} - ${bairro}, ${cidade} - ${uf}, ${cepFmt}`;
+}
+
+$('#telefone').addEventListener('input', e => e.target.value = formatPhone(e.target.value));
+$('#documento').addEventListener('input', e => e.target.value = formatDoc(e.target.value));
+$('#f_cep').addEventListener('input', e => e.target.value = formatCEP(e.target.value));
+$('#f_cep').addEventListener('blur', buscarCEP);
+$('#btnContinuar').addEventListener('click', () => {
+  if (validateStep1()) goStep(2);
+});
+$('#btnVoltar').addEventListener('click', () => goStep(1));
+
+let emailTimer = null;
+$('#email').addEventListener('input', () => {
+  emailBloqueado = false;
+  setInvalid('email', '');
+});
+$('#email').addEventListener('blur', () => {
+  const email = $('#email').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+  clearTimeout(emailTimer);
+  emailTimer = setTimeout(() => {
     fetch(`/api/verificar-email-existe?email=${encodeURIComponent(email)}`)
       .then(r => r.json())
       .then(d => {
-        if (d.existe) {
-          hint.innerHTML = '<span style="color:#c8102e;font-weight:700">⚠ Este e-mail já tem uma conta. <a href="/entrar" style="color:#c8102e">Fazer login</a> ou <a href="/recuperar-senha" style="color:#c8102e">recuperar senha</a>.</span>';
-          document.getElementById('email').style.borderColor = '#c8102e';
-          document.getElementById('btnCadastrar').disabled = true;
-        } else {
-          hint.innerHTML = '';
-          document.getElementById('email').style.borderColor = '';
-          document.getElementById('btnCadastrar').disabled = false;
-        }
+        emailBloqueado = Boolean(d.existe);
+        if (emailBloqueado) setInvalid('email', 'Este e-mail já tem uma conta. Entre ou recupere a senha.');
       })
       .catch(() => {});
-  }, 400);
+  }, 250);
 });
-document.getElementById('email').addEventListener('input', function() {
-  document.getElementById('email-hint').innerHTML = '';
-  this.style.borderColor = '';
-  document.getElementById('btnCadastrar').disabled = false;
+
+const locNome = localStorage.getItem('pq_loc_nome') || '';
+const locLat = localStorage.getItem('pq_lat') || '';
+const locLng = localStorage.getItem('pq_lng') || '';
+if (locNome) {
+  const cepMatch = locNome.match(/(\d{5})-?(\d{3})/);
+  if (cepMatch) $('#f_cep').value = cepMatch[1] + '-' + cepMatch[2];
+  if (locLat) $('#endereco_lat').value = locLat;
+  if (locLng) $('#endereco_lng').value = locLng;
+}
+
+$('#frmCadastro').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  if (!validateStep1()) {
+    goStep(1);
+    return;
+  }
+  if (!validateStep2()) return;
+
+  const btn = $('#btnCadastrar');
+  const enderecoStr = montarEndereco();
+  $('#endereco').value = enderecoStr;
+  btn.disabled = true;
+  btn.textContent = 'Verificando endereço...';
+
+  try {
+    const geo = await fetch('/api/localizacao?q=' + encodeURIComponent(enderecoStr));
+    const gd = await geo.json();
+    const res = (gd.results || [])[0];
+    if (!res) {
+      setInvalid('f_cep', 'Não foi possível confirmar esse endereço.');
+      btn.disabled = false;
+      btn.textContent = 'Criar conta';
+      return;
+    }
+    $('#endereco_lat').value = res.lat;
+    $('#endereco_lng').value = res.lon;
+    $$('[data-side-step]').forEach(el => {
+      const n = Number(el.dataset.sideStep);
+      el.classList.toggle('is-active', n === 3);
+      el.classList.toggle('is-done', n < 3);
+    });
+    this.submit();
+  } catch (err) {
+    setInvalid('f_cep', 'Erro ao verificar a localização. Tente novamente.');
+    btn.disabled = false;
+    btn.textContent = 'Criar conta';
+  }
 });
 </script>
 {% endblock %}
