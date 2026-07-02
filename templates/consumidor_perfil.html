@@ -3,121 +3,323 @@
 
 {% block extra_style %}
 <style>
-.profile-wrap { max-width:540px; margin:0 auto; padding:32px 16px 70px; }
-.profile-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:26px; }
-.profile-card h1 { font-size:1.35rem; font-weight:900; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
-.profile-card p { color:var(--pq-muted); font-size:.9rem; margin:0 0 20px; }
-.pg { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-.field { margin-bottom:14px; }
-.field.full { grid-column:1 / -1; }
-.field label { display:block; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:5px; }
-.field input, .field select { width:100%; padding:12px 14px; border:1.5px solid var(--pq-border); border-radius:10px; outline:none; font-family:inherit; box-sizing:border-box; background:#fff; }
-.field input:focus, .field select:focus { border-color:var(--pq-red); }
-.field input:read-only { background:#f8f8f8; color:var(--pq-muted); }
-.addr-section { grid-column:1 / -1; font-size:.76rem; font-weight:900; color:var(--pq-muted); text-transform:uppercase; letter-spacing:.5px; padding:6px 0 2px; border-top:1px solid var(--pq-border); margin-top:4px; }
-.cep-hint { font-size:.72rem; color:var(--pq-muted); margin-top:4px; }
-.profile-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
-.btn-save { border:0; background:var(--pq-red); color:#fff; border-radius:10px; padding:12px 18px; font-weight:900; font-family:inherit; cursor:pointer; }
-.btn-link { color:var(--pq-red); font-weight:900; text-decoration:none; padding:12px 0; }
-@media(max-width:560px){ .pg { grid-template-columns:1fr; } .field.full { grid-column:auto; } .addr-section { grid-column:auto; } }
+  body { background:#f3f3f3; }
+  .pq-auth-shell { display:flex; justify-content:center; align-items:flex-start; padding:34px 24px 48px; }
+  .pq-auth-card { width:min(948px,100%); min-height:680px; display:grid; grid-template-columns:334px 1fr; overflow:hidden; background:#fff; border-radius:22px; box-shadow:0 18px 46px rgba(0,0,0,.14); }
+  .pq-auth-side { position:relative; isolation:isolate; background:#b70d2d; color:#fff; padding:40px 32px; display:flex; flex-direction:column; }
+  .pq-auth-side:before, .pq-auth-side:after { content:""; position:absolute; border-radius:999px; background:rgba(255,255,255,.08); z-index:-1; }
+  .pq-auth-side:before { width:220px; height:220px; right:-58px; top:-30px; }
+  .pq-auth-side:after { width:180px; height:180px; left:-70px; bottom:-85px; }
+  .pq-auth-logo { width:78px; height:auto; margin-bottom:24px; }
+  .pq-auth-side h1 { margin:0 0 11px; font-size:1.48rem; line-height:1.15; font-weight:900; letter-spacing:0; }
+  .pq-auth-side p { margin:0; color:rgba(255,255,255,.88); font-size:.86rem; line-height:1.5; font-weight:600; }
+  .pq-auth-steps { margin:30px 0 0; display:grid; gap:0; }
+  .pq-side-step { position:relative; display:grid; grid-template-columns:42px 1fr; gap:10px; min-height:56px; color:rgba(255,255,255,.58); }
+  .pq-side-step:after { content:""; position:absolute; left:20px; top:38px; bottom:2px; width:1px; background:rgba(255,255,255,.35); }
+  .pq-side-step:last-child:after { display:none; }
+  .pq-side-step b { width:38px; height:38px; border-radius:50%; display:grid; place-items:center; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.08); color:inherit; font-size:.9rem; }
+  .pq-side-step strong { display:block; color:inherit; font-size:.86rem; font-weight:900; }
+  .pq-side-step span { display:block; margin-top:2px; font-size:.76rem; font-weight:600; }
+  .pq-side-step.is-active, .pq-side-step.is-done { color:#fff; }
+  .pq-side-step.is-active b, .pq-side-step.is-done b { background:#d11035; border-color:rgba(255,255,255,.2); box-shadow:0 0 0 5px rgba(255,255,255,.08); }
+  .pq-auth-benefits { margin:28px 0 0; padding:24px 0 0; border-top:1px solid rgba(255,255,255,.22); display:grid; gap:13px; }
+  .pq-auth-benefit { display:flex; align-items:center; gap:11px; font-size:.8rem; font-weight:800; }
+  .pq-auth-benefit i { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; background:rgba(255,255,255,.18); font-size:.62rem; }
+  .pq-auth-security { margin-top:auto; display:flex; align-items:center; gap:10px; color:rgba(255,255,255,.86); font-size:.72rem; line-height:1.25; font-weight:700; }
+  .pq-auth-security i { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; background:rgba(255,255,255,.13); }
+  .pq-auth-main { padding:36px 44px; display:flex; align-items:center; }
+  .pq-auth-form { width:100%; max-width:526px; margin:0 auto; }
+  .pq-auth-kicker { color:var(--pq-red); font-size:.7rem; font-weight:900; text-transform:uppercase; letter-spacing:1.2px; margin-bottom:8px; }
+  .pq-auth-form h2 { margin:0 0 3px; font-size:1.58rem; line-height:1.1; font-weight:900; letter-spacing:0; color:#08090d; }
+  .pq-auth-sub { margin:0 0 25px; color:#7b8190; font-size:.88rem; font-weight:500; }
+  .pq-form-step { display:none; }
+  .pq-form-step.is-active { display:block; }
+  .pq-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .pq-field { min-width:0; }
+  .pq-field.full { grid-column:1 / -1; }
+  .pq-field label { display:block; margin-bottom:7px; color:#8a8f9d; font-size:.68rem; font-weight:900; text-transform:uppercase; letter-spacing:.7px; }
+  .pq-field input, .pq-field select { width:100%; height:48px; border:1px solid #dedfe4; border-radius:10px; padding:0 14px; color:#20242f; background:#fff; font:600 .88rem Montserrat,system-ui,sans-serif; outline:none; box-sizing:border-box; }
+  .pq-field input::placeholder { color:#b2b6c2; }
+  .pq-field input:focus, .pq-field select:focus { border-color:var(--pq-red); box-shadow:0 0 0 3px rgba(200,16,46,.08); }
+  .pq-field input.is-invalid, .pq-field select.is-invalid { border-color:#c8102e; }
+  .pq-hint { min-height:16px; margin-top:4px; color:#8a8f9d; font-size:.68rem; font-weight:600; }
+  .pq-hint.is-error { color:#c8102e; font-weight:800; }
+  .pq-actions { display:grid; grid-template-columns:132px 1fr; gap:12px; margin-top:26px; }
+  .pq-actions.single { grid-template-columns:1fr; }
+  .pq-auth-submit, .pq-auth-secondary { width:100%; height:52px; border-radius:10px; font:900 .95rem Montserrat,system-ui,sans-serif; cursor:pointer; text-align:center; display:grid; place-items:center; text-decoration:none; }
+  .pq-auth-submit { border:0; background:#d11035; color:#fff; box-shadow:0 10px 20px rgba(209,16,53,.22); }
+  .pq-auth-secondary { border:1px solid #dedfe4; background:#fff; color:#343948; }
+  .pq-auth-footer { margin-top:20px; text-align:center; color:#8a8f9d; font-size:.82rem; }
+  .pq-auth-footer a { color:var(--pq-red); font-weight:900; text-decoration:none; }
+  @media (max-width:860px) {
+    .pq-auth-shell { padding:16px 14px 32px; }
+    .pq-auth-card { grid-template-columns:1fr; min-height:0; border-radius:18px; }
+    .pq-auth-side { padding:28px 24px; min-height:330px; }
+    .pq-auth-main { padding:30px 22px 34px; }
+  }
+  @media (max-width:560px) {
+    .pq-grid, .pq-actions { grid-template-columns:1fr; }
+    .pq-field.full { grid-column:auto; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="profile-wrap">
-  <form class="profile-card" id="frmPerfil" method="post" action="{{ url_for('consumidor_perfil_post') }}">
-    <!-- campos combinados enviados ao backend -->
-    <input type="hidden" id="endereco"     name="endereco"     value="{{ user.endereco or '' }}">
-    <input type="hidden" id="endereco_lat" name="endereco_lat" value="{{ user.endereco_lat or '' }}">
-    <input type="hidden" id="endereco_lng" name="endereco_lng" value="{{ user.endereco_lng or '' }}">
+<div class="pq-auth-shell">
+  <section class="pq-auth-card" aria-label="Editar perfil Poupaqui">
+    <aside class="pq-auth-side">
+      <img class="pq-auth-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
+      <h1>Seu perfil<br>Poupaqui</h1>
+      <p>Mantenha seus dados atualizados para agilizar pedidos, entrega e identificacao na farmacia.</p>
 
-    <h1><i class="fa fa-user-pen" style="color:var(--pq-red)"></i>Editar perfil</h1>
-    <p>Esses dados serão usados nos próximos pedidos e para a farmácia identificar você.</p>
-
-    <div class="pg">
-      <div class="field full">
-        <label for="nome">Nome completo</label>
-        <input id="nome" name="nome" value="{{ user.nome }}" required minlength="6">
-      </div>
-      <div class="field">
-        <label for="telefone">WhatsApp</label>
-        <input id="telefone" name="telefone" value="{{ user.telefone }}" required minlength="10">
-      </div>
-      <div class="field">
-        <label for="documento">CPF ou CNPJ</label>
-        <input id="documento" name="documento" value="{{ user.documento or '' }}" inputmode="numeric" maxlength="18" required>
-      </div>
-      <div class="field">
-        <label for="email">E-mail</label>
-        <input id="email" name="email" type="email" value="{{ user.email }}" required>
+      <div class="pq-auth-steps">
+        <div class="pq-side-step is-active" data-side-step="1"><b>1</b><div><strong>Seus dados</strong><span>Nome, contato e documento</span></div></div>
+        <div class="pq-side-step" data-side-step="2"><b>2</b><div><strong>Endereco</strong><span>Onde vamos entregar</span></div></div>
+        <div class="pq-side-step" data-side-step="3"><b>3</b><div><strong>Seguranca</strong><span>Senha opcional</span></div></div>
       </div>
 
-      <!-- Endereço -->
-      <div class="addr-section">Endereço de entrega</div>
-
-      <div class="field" style="max-width:160px">
-        <label for="f_cep">CEP</label>
-        <input id="f_cep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000">
-        <div class="cep-hint" id="cep_hint"></div>
+      <div class="pq-auth-benefits">
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Entrega no endereco correto</span></div>
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Pedidos identificados pela farmacia</span></div>
+        <div class="pq-auth-benefit"><i class="fa fa-check"></i><span>Historico salvo na sua conta</span></div>
       </div>
+      <div class="pq-auth-security"><i class="fa fa-lock"></i><span>Seus dados sao protegidos.<br>Nao compartilhamos com terceiros.</span></div>
+    </aside>
 
-      <div class="field full">
-        <label for="f_rua">Rua / Avenida</label>
-        <input id="f_rua" type="text" placeholder="Rua das Flores">
-      </div>
+    <main class="pq-auth-main">
+      <form class="pq-auth-form" id="frmPerfil" method="post" action="{{ url_for('consumidor_perfil_post') }}" novalidate>
+        <input type="hidden" id="endereco" name="endereco" value="{{ user.endereco or '' }}">
+        <input type="hidden" id="endereco_lat" name="endereco_lat" value="{{ user.endereco_lat or '' }}">
+        <input type="hidden" id="endereco_lng" name="endereco_lng" value="{{ user.endereco_lng or '' }}">
 
-      <div class="field" style="max-width:120px">
-        <label for="f_numero">Número</label>
-        <input id="f_numero" type="text" inputmode="numeric" placeholder="123" required>
-      </div>
+        <section class="pq-form-step is-active" data-form-step="1">
+          <div class="pq-auth-kicker">Passo 1 de 3</div>
+          <h2>Editar perfil</h2>
+          <p class="pq-auth-sub">Esses dados serao usados nos proximos pedidos.</p>
 
-      <div class="field">
-        <label for="f_complemento">Complemento <span style="font-weight:400;text-transform:none">(opcional)</span></label>
-        <input id="f_complemento" type="text" placeholder="Apto 4, Bloco B">
-      </div>
+          <div class="pq-grid">
+            <div class="pq-field full">
+              <label for="nome">Nome completo</label>
+              <input id="nome" name="nome" type="text" autocomplete="name" value="{{ user.nome or '' }}" required minlength="6">
+              <div class="pq-hint" data-hint-for="nome"></div>
+            </div>
+            <div class="pq-field">
+              <label for="telefone">WhatsApp</label>
+              <input id="telefone" name="telefone" type="tel" autocomplete="tel" inputmode="numeric" value="{{ user.telefone or '' }}" required>
+              <div class="pq-hint" data-hint-for="telefone"></div>
+            </div>
+            <div class="pq-field">
+              <label for="documento">CPF ou CNPJ</label>
+              <input id="documento" name="documento" type="text" inputmode="numeric" maxlength="18" value="{{ user.documento or '' }}" required>
+              <div class="pq-hint" data-hint-for="documento"></div>
+            </div>
+            <div class="pq-field full">
+              <label for="email">E-mail</label>
+              <input id="email" name="email" type="email" autocomplete="email" value="{{ user.email or '' }}" required>
+              <div class="pq-hint" data-hint-for="email"></div>
+            </div>
+          </div>
 
-      <div class="field full">
-        <label for="f_bairro">Bairro</label>
-        <input id="f_bairro" type="text" placeholder="Centro">
-      </div>
+          <div class="pq-actions single">
+            <button class="pq-auth-submit" type="button" id="btnContinuar">Continuar</button>
+          </div>
+        </section>
 
-      <div class="field">
-        <label for="f_cidade">Cidade</label>
-        <input id="f_cidade" type="text" placeholder="São Paulo">
-      </div>
+        <section class="pq-form-step" data-form-step="2">
+          <div class="pq-auth-kicker">Passo 2 de 3</div>
+          <h2>Endereco</h2>
+          <p class="pq-auth-sub">Digite o CEP para preencher rua, bairro, cidade e UF automaticamente.</p>
 
-      <div class="field" style="max-width:90px">
-        <label for="f_uf">UF</label>
-        <select id="f_uf">
-          <option value="">—</option>
-          {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
-          <option value="{{ uf }}">{{ uf }}</option>
-          {% endfor %}
-        </select>
-      </div>
+          <div class="pq-grid">
+            <div class="pq-field">
+              <label for="f_cep">CEP</label>
+              <input id="f_cep" type="text" inputmode="numeric" maxlength="9" placeholder="00000-000" required>
+              <div class="pq-hint" id="cep_hint" data-hint-for="f_cep"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_numero">Numero</label>
+              <input id="f_numero" type="text" inputmode="numeric" placeholder="123" required>
+              <div class="pq-hint" data-hint-for="f_numero"></div>
+            </div>
+            <div class="pq-field full">
+              <label for="f_rua">Rua / Avenida</label>
+              <input id="f_rua" type="text" placeholder="Rua das Flores" required>
+              <div class="pq-hint" data-hint-for="f_rua"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_bairro">Bairro</label>
+              <input id="f_bairro" type="text" placeholder="Centro" required>
+              <div class="pq-hint" data-hint-for="f_bairro"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_complemento">Complemento</label>
+              <input id="f_complemento" type="text" placeholder="Apto, bloco, referencia">
+              <div class="pq-hint"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_cidade">Cidade</label>
+              <input id="f_cidade" type="text" placeholder="Sao Paulo" required>
+              <div class="pq-hint" data-hint-for="f_cidade"></div>
+            </div>
+            <div class="pq-field">
+              <label for="f_uf">UF</label>
+              <select id="f_uf" required>
+                <option value="">Selecione</option>
+                {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+                <option value="{{ uf }}">{{ uf }}</option>
+                {% endfor %}
+              </select>
+              <div class="pq-hint" data-hint-for="f_uf"></div>
+            </div>
+          </div>
 
-      <!-- Senha -->
-      <div class="field full" style="margin-top:8px">
-        <label for="senha">Nova senha</label>
-        <input id="senha" name="senha" type="password" minlength="6" placeholder="Deixe em branco para manter a senha atual">
-      </div>
-    </div>
+          <div class="pq-actions">
+            <button class="pq-auth-secondary" type="button" data-step-back>Voltar</button>
+            <button class="pq-auth-submit" type="button" id="btnEndereco">Continuar</button>
+          </div>
+        </section>
 
-    <div class="profile-actions">
-      <button class="btn-save" type="submit" id="btnSalvar">Salvar alterações</button>
-      <a class="btn-link" href="{{ url_for('meus_pedidos') }}">Voltar aos pedidos</a>
-    </div>
-  </form>
+        <section class="pq-form-step" data-form-step="3">
+          <div class="pq-auth-kicker">Passo 3 de 3</div>
+          <h2>Seguranca</h2>
+          <p class="pq-auth-sub">Preencha a senha apenas se quiser trocar a atual.</p>
+
+          <div class="pq-grid">
+            <div class="pq-field full">
+              <label for="senha">Nova senha</label>
+              <input id="senha" name="senha" type="password" autocomplete="new-password" minlength="6" placeholder="Deixe em branco para manter">
+              <div class="pq-hint" data-hint-for="senha"></div>
+            </div>
+          </div>
+
+          <div class="pq-actions">
+            <button class="pq-auth-secondary" type="button" data-step-back>Voltar</button>
+            <button class="pq-auth-submit" type="submit" id="btnSalvar">Salvar alteracoes</button>
+          </div>
+          <div class="pq-auth-footer"><a href="{{ url_for('meus_pedidos') }}">Voltar aos pedidos</a></div>
+        </section>
+      </form>
+    </main>
+  </section>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-/* ── Preencher campos a partir de uma string de endereço ── */
+const steps = Array.from(document.querySelectorAll('.pq-form-step'));
+const sideSteps = Array.from(document.querySelectorAll('.pq-side-step'));
+let currentStep = 1;
+
+function setStep(n) {
+  currentStep = Math.max(1, Math.min(3, n));
+  steps.forEach(step => step.classList.toggle('is-active', Number(step.dataset.formStep) === currentStep));
+  sideSteps.forEach(step => {
+    const sn = Number(step.dataset.sideStep);
+    step.classList.toggle('is-active', sn === currentStep);
+    step.classList.toggle('is-done', sn < currentStep);
+  });
+}
+
+function setHint(id, msg) {
+  const field = document.getElementById(id);
+  const hint = document.querySelector(`[data-hint-for="${id}"]`);
+  if (field) field.classList.toggle('is-invalid', !!msg);
+  if (hint) {
+    hint.textContent = msg || '';
+    hint.classList.toggle('is-error', !!msg);
+  }
+  return !msg;
+}
+
+function onlyDigits(v) { return String(v || '').replace(/\D/g, ''); }
+function validEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim()); }
+function validNome(v) { return String(v || '').trim().split(/\s+/).filter(Boolean).length >= 2; }
+function validPhone(v) { return onlyDigits(v).length >= 10; }
+function validCPF(cpf) {
+  cpf = onlyDigits(cpf);
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += Number(cpf[i]) * (10 - i);
+  let d1 = 11 - (soma % 11);
+  d1 = d1 >= 10 ? 0 : d1;
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += Number(cpf[i]) * (11 - i);
+  let d2 = 11 - (soma % 11);
+  d2 = d2 >= 10 ? 0 : d2;
+  return d1 === Number(cpf[9]) && d2 === Number(cpf[10]);
+}
+function validCNPJ(cnpj) {
+  cnpj = onlyDigits(cnpj);
+  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
+  const calc = (base, pesos) => {
+    const soma = base.split('').reduce((s, n, i) => s + Number(n) * pesos[i], 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+  const d1 = calc(cnpj.slice(0, 12), [5,4,3,2,9,8,7,6,5,4,3,2]);
+  const d2 = calc(cnpj.slice(0, 13), [6,5,4,3,2,9,8,7,6,5,4,3,2]);
+  return d1 === Number(cnpj[12]) && d2 === Number(cnpj[13]);
+}
+function validDoc(v) {
+  const d = onlyDigits(v);
+  return d.length === 11 ? validCPF(d) : d.length === 14 ? validCNPJ(d) : false;
+}
+
+function formatDoc(v) {
+  v = onlyDigits(v).slice(0,14);
+  if (v.length > 11) return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2}).*/, '$1.$2.$3/$4-$5');
+  return v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2}).*/, function(_, a, b, c, d){ return d ? `${a}.${b}.${c}-${d}` : `${a}.${b}.${c}`; });
+}
+
+function formatCEP(v) {
+  v = onlyDigits(v).slice(0,8);
+  return v.length > 5 ? v.slice(0,5) + '-' + v.slice(5) : v;
+}
+
+const docEl = document.getElementById('documento');
+docEl.value = formatDoc(docEl.value);
+docEl.addEventListener('input', function(){ this.value = formatDoc(this.value); });
+
+const cepEl = document.getElementById('f_cep');
+const cepHint = document.getElementById('cep_hint');
+cepEl.addEventListener('input', function(){ this.value = formatCEP(this.value); });
+
+function validateStep1() {
+  const okNome = setHint('nome', validNome(document.getElementById('nome').value) ? '' : 'Informe nome e sobrenome.');
+  const okTel = setHint('telefone', validPhone(document.getElementById('telefone').value) ? '' : 'Informe WhatsApp com DDD.');
+  const okDoc = setHint('documento', validDoc(document.getElementById('documento').value) ? '' : 'Informe CPF ou CNPJ valido.');
+  const okEmail = setHint('email', validEmail(document.getElementById('email').value) ? '' : 'Informe um e-mail valido.');
+  return okNome && okTel && okDoc && okEmail;
+}
+
+function validateStep2() {
+  const cep = onlyDigits(cepEl.value);
+  const okCep = setHint('f_cep', cep.length === 8 ? '' : 'Informe um CEP valido.');
+  const okRua = setHint('f_rua', document.getElementById('f_rua').value.trim() ? '' : 'Informe a rua.');
+  const okNum = setHint('f_numero', document.getElementById('f_numero').value.trim() ? '' : 'Informe o numero.');
+  const okBairro = setHint('f_bairro', document.getElementById('f_bairro').value.trim() ? '' : 'Informe o bairro.');
+  const okCidade = setHint('f_cidade', document.getElementById('f_cidade').value.trim() ? '' : 'Informe a cidade.');
+  const okUf = setHint('f_uf', document.getElementById('f_uf').value.trim() ? '' : 'Selecione a UF.');
+  return okCep && okRua && okNum && okBairro && okCidade && okUf;
+}
+
+function validateStep3() {
+  const senha = document.getElementById('senha').value;
+  return setHint('senha', !senha || senha.length >= 6 ? '' : 'Use pelo menos 6 caracteres.');
+}
+
+document.getElementById('btnContinuar').addEventListener('click', () => {
+  if (validateStep1()) setStep(2);
+});
+document.getElementById('btnEndereco').addEventListener('click', () => {
+  if (validateStep2()) setStep(3);
+});
+document.querySelectorAll('[data-step-back]').forEach(btn => btn.addEventListener('click', () => setStep(currentStep - 1)));
+
 function preencherCamposEndereco(raw, lat, lng, forcar) {
   if (!raw) return;
   const cepM = raw.match(/(\d{5})-?(\d{3})/);
-  if (cepM) document.getElementById('f_cep').value = cepM[1] + '-' + cepM[2];
+  if (cepM) cepEl.value = cepM[1] + '-' + cepM[2];
 
   const ufM = raw.match(/[,\s\-]+([A-Z]{2})\s*(?:,|\d{5}|$)/);
   if (ufM) document.getElementById('f_uf').value = ufM[1];
@@ -128,7 +330,7 @@ function preencherCamposEndereco(raw, lat, lng, forcar) {
     .trim().replace(/[,\s]+$/, '');
 
   const tracos = sem.split(/\s*-\s*/);
-  const ruaParte    = tracos[0] || '';
+  const ruaParte = tracos[0] || '';
   const bairroParte = tracos[1] || '';
   const cidadeParte = tracos[2] || '';
 
@@ -141,7 +343,7 @@ function preencherCamposEndereco(raw, lat, lng, forcar) {
 
   const numM = ruaParte.match(/,\s*(\d+[A-Za-z]?)\s*(.*)?$/);
   if (numM) {
-    if (forcar || !document.getElementById('f_rua').value)    document.getElementById('f_rua').value    = ruaParte.slice(0, numM.index).trim();
+    if (forcar || !document.getElementById('f_rua').value) document.getElementById('f_rua').value = ruaParte.slice(0, numM.index).trim();
     if (forcar || !document.getElementById('f_numero').value) document.getElementById('f_numero').value = numM[1];
     const comp = (numM[2] || '').trim();
     if (comp && (forcar || !document.getElementById('f_complemento').value)) document.getElementById('f_complemento').value = comp;
@@ -153,71 +355,52 @@ function preencherCamposEndereco(raw, lat, lng, forcar) {
   if (lng) document.getElementById('endereco_lng').value = lng;
 }
 
-/* 1º: endereço salvo no banco (prioridade) */
 preencherCamposEndereco(document.getElementById('endereco').value.trim(), null, null, true);
-
-/* 2º: se algum campo ainda vazio, tenta localStorage */
 const locNome = localStorage.getItem('pq_loc_nome') || '';
-const locLat  = localStorage.getItem('pq_lat') || '';
-const locLng  = localStorage.getItem('pq_lng') || '';
+const locLat = localStorage.getItem('pq_lat') || '';
+const locLng = localStorage.getItem('pq_lng') || '';
 if (locNome) preencherCamposEndereco(locNome, locLat, locLng, false);
 
-/* ── ViaCEP ── */
-const cepEl   = document.getElementById('f_cep');
-const cepHint = document.getElementById('cep_hint');
-
-function formatCEP(v) {
-  v = v.replace(/\D/g,'').slice(0,8);
-  return v.length > 5 ? v.slice(0,5)+'-'+v.slice(5) : v;
-}
-cepEl.addEventListener('input', function(){ this.value = formatCEP(this.value); });
-
-const docEl = document.getElementById('documento');
-function formatDoc(v) {
-  v = (v || '').replace(/\D/g,'').slice(0,14);
-  if (v.length > 11) return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2}).*/, '$1.$2.$3/$4-$5');
-  return v.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2}).*/, function(_, a, b, c, d){ return d ? `${a}.${b}.${c}-${d}` : `${a}.${b}.${c}`; });
-}
-docEl.value = formatDoc(docEl.value);
-docEl.addEventListener('input', function(){ this.value = formatDoc(this.value); });
-
 async function buscarCEP(cep) {
-  cep = cep.replace(/\D/g,'');
+  cep = onlyDigits(cep);
   if (cep.length !== 8) return;
   cepHint.textContent = 'Buscando...';
+  cepHint.classList.remove('is-error');
   try {
     const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
     const d = await r.json();
-    if (d.erro) { cepHint.textContent = 'CEP não encontrado.'; return; }
-    if (d.logradouro) document.getElementById('f_rua').value    = d.logradouro;
-    if (d.bairro)     document.getElementById('f_bairro').value = d.bairro;
+    if (d.erro) {
+      cepHint.textContent = 'CEP nao encontrado.';
+      cepHint.classList.add('is-error');
+      return;
+    }
+    if (d.logradouro) document.getElementById('f_rua').value = d.logradouro;
+    if (d.bairro) document.getElementById('f_bairro').value = d.bairro;
     if (d.localidade) document.getElementById('f_cidade').value = d.localidade;
-    if (d.uf)         document.getElementById('f_uf').value     = d.uf;
+    if (d.uf) document.getElementById('f_uf').value = d.uf;
     cepHint.textContent = '';
     document.getElementById('f_numero').focus();
-  } catch { cepHint.textContent = 'Erro ao buscar CEP.'; }
+  } catch {
+    cepHint.textContent = 'Erro ao buscar CEP.';
+    cepHint.classList.add('is-error');
+  }
 }
-
 cepEl.addEventListener('blur', function(){ buscarCEP(this.value); });
 
-/* ── Submit: monta endereço e geocodifica ── */
 document.getElementById('frmPerfil').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const btn = document.getElementById('btnSalvar');
+  if (!validateStep1()) { setStep(1); return; }
+  if (!validateStep2()) { setStep(2); return; }
+  if (!validateStep3()) { setStep(3); return; }
 
-  const cep    = cepEl.value.replace(/\D/g,'');
-  const rua    = document.getElementById('f_rua').value.trim();
-  const num    = document.getElementById('f_numero').value.trim();
-  const comp   = document.getElementById('f_complemento').value.trim();
+  const btn = document.getElementById('btnSalvar');
+  const cep = onlyDigits(cepEl.value);
+  const rua = document.getElementById('f_rua').value.trim();
+  const num = document.getElementById('f_numero').value.trim();
+  const comp = document.getElementById('f_complemento').value.trim();
   const bairro = document.getElementById('f_bairro').value.trim();
   const cidade = document.getElementById('f_cidade').value.trim();
-  const uf     = document.getElementById('f_uf').value.trim();
-
-  if (!cep || cep.length !== 8 || !rua || !num || !bairro || !cidade || !uf) {
-    alert('Preencha todos os campos do endereço: CEP, rua, número, bairro, cidade e UF.');
-    return;
-  }
-
+  const uf = document.getElementById('f_uf').value.trim();
   const cepFmt = cep.slice(0,5) + '-' + cep.slice(5);
   const compPart = comp ? ' ' + comp : '';
   const enderecoStr = `${rua}, ${num}${compPart} - ${bairro}, ${cidade} - ${uf}, ${cepFmt}`;
@@ -225,32 +408,31 @@ document.getElementById('frmPerfil').addEventListener('submit', async function(e
   const latAtual = document.getElementById('endereco_lat').value;
   const lngAtual = document.getElementById('endereco_lng').value;
   const endAtual = document.getElementById('endereco').value;
-
-  /* Se o endereço não mudou e já tem coordenadas, não precisa geocodificar */
   if (enderecoStr === endAtual && latAtual && lngAtual) {
     this.submit();
     return;
   }
 
   btn.disabled = true;
-  btn.textContent = 'Verificando localização...';
-
+  btn.textContent = 'Verificando...';
   try {
     const geo = await fetch('/api/localizacao?q=' + encodeURIComponent(enderecoStr));
-    const gd  = await geo.json();
+    const gd = await geo.json();
     const res = (gd.results || [])[0];
     if (!res) {
-      alert('Não foi possível confirmar a localização. Verifique o endereço e tente novamente.');
-      btn.disabled = false; btn.textContent = 'Salvar alterações';
+      alert('Nao foi possivel confirmar a localizacao. Verifique o endereco e tente novamente.');
+      btn.disabled = false;
+      btn.textContent = 'Salvar alteracoes';
       return;
     }
-    document.getElementById('endereco').value     = enderecoStr;
+    document.getElementById('endereco').value = enderecoStr;
     document.getElementById('endereco_lat').value = res.lat;
     document.getElementById('endereco_lng').value = res.lon;
     this.submit();
   } catch {
-    alert('Erro ao verificar localização. Tente novamente.');
-    btn.disabled = false; btn.textContent = 'Salvar alterações';
+    alert('Erro ao verificar localizacao. Tente novamente.');
+    btn.disabled = false;
+    btn.textContent = 'Salvar alteracoes';
   }
 });
 </script>

@@ -3,32 +3,48 @@
 
 {% block extra_style %}
 <style>
-.cart-wrap { max-width:820px; margin:0 auto; padding:28px 16px 60px; }
-.cart-title { font-size:1.5rem; font-weight:900; margin-bottom:24px; display:flex; align-items:center; gap:10px; }
+.cart-wrap { max-width:1180px; margin:0 auto; padding:24px 18px 64px; }
+.cart-title { font-size:1.45rem; font-weight:900; margin-bottom:18px; display:flex; align-items:center; gap:10px; }
 .cart-title img { width:34px; height:34px; object-fit:contain; }
+.cart-title small { color:var(--pq-muted); font-size:.72rem; font-weight:700; margin-left:2px; }
+.cart-layout { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:22px; align-items:start; }
+.cart-main { min-width:0; display:flex; flex-direction:column; gap:16px; }
+#cart-container { display:flex; flex-direction:column; gap:16px; }
+@media(max-width:920px){ .cart-layout { grid-template-columns:1fr; } }
+@media(max-width:560px){
+  .cart-item { align-items:flex-start; }
+  .cart-item-right { align-items:flex-start; }
+}
 
 /* GRUPO FARMÁCIA */
 .cart-group {
   background:#fff;
   border:1px solid var(--pq-border);
-  border-radius:16px;
+  border-radius:14px;
   box-shadow:var(--pq-shadow);
-  margin-bottom:20px;
   overflow:hidden;
 }
 .cart-group-hd {
-  padding:14px 18px;
+  padding:13px 18px;
   background:#fafafa;
   border-bottom:1px solid var(--pq-border);
   display:flex; align-items:center; gap:10px;
   font-weight:800; font-size:.92rem;
 }
 .cart-group-hd i { color:var(--pq-red); }
+.cart-store-status { margin-left:auto; display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:4px 10px; background:#f1f5f9; color:#64748b; font-size:.68rem; font-weight:900; white-space:nowrap; }
+.cart-store-status:before { content:""; width:6px; height:6px; border-radius:50%; background:#94a3b8; }
+.cart-store-status.is-open { background:#ecfdf3; color:#16a34a; }
+.cart-store-status.is-open:before { background:#22c55e; }
+.cart-store-status.is-closed { background:#fff1f2; color:#be123c; }
+.cart-store-status.is-closed:before { background:#e11d48; }
+.cart-store-status.is-neutral { background:#f8fafc; color:#64748b; }
+.cart-store-status.is-neutral:before { background:#94a3b8; }
 
 /* ITEM */
 .cart-item {
   display:flex; align-items:center; gap:14px;
-  padding:14px 18px;
+  padding:18px;
   border-bottom:1px solid var(--pq-border);
 }
 .cart-item:last-child { border-bottom:none; }
@@ -51,7 +67,7 @@
 .cart-item-info { flex:1; min-width:0; }
 .cart-item-nome { font-weight:800; font-size:.88rem; line-height:1.3; }
 .cart-item-preco { color:var(--pq-red); font-weight:900; font-size:1rem; margin-top:2px; }
-.cart-item-sub { font-size:.75rem; color:var(--pq-muted); margin-top:2px; }
+.cart-item-sub { font-size:.73rem; color:var(--pq-muted); margin-top:3px; }
 .cart-item-right { display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex-shrink:0; }
 
 .qty-ctrl { display:flex; align-items:center; gap:6px; }
@@ -74,20 +90,21 @@
 
 /* PAGAMENTO */
 .pay-section {
-  padding:14px 18px;
-  background:#f9fafb;
+  padding:16px 18px;
+  background:#fff;
   border-top:1px solid var(--pq-border);
 }
-.pay-label { font-size:.75rem; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--pq-muted); margin-bottom:8px; }
+.pay-label { font-size:.68rem; font-weight:900; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:9px; }
 .pay-options { display:flex; gap:8px; flex-wrap:wrap; }
 .pay-opt {
   display:flex; align-items:center; gap:6px;
-  padding:8px 14px;
-  border:2px solid var(--pq-border);
+  min-width:150px; justify-content:center;
+  padding:9px 14px;
+  border:1.5px solid var(--pq-border);
   border-radius:10px;
   cursor:pointer;
-  font-size:.84rem;
-  font-weight:700;
+  font-size:.8rem;
+  font-weight:800;
   background:#fff;
   transition:border-color .15s, background .15s;
   user-select:none;
@@ -96,7 +113,14 @@
 .pay-opt.selected { border-color:var(--pq-red); background:#fff5f7; color:var(--pq-red); }
 .pay-opt:hover { border-color:var(--pq-red); }
 .delivery-note { font-size:.78rem; color:var(--pq-muted); margin-top:8px; }
-.delivery-address { font-size:.82rem; font-weight:800; color:var(--pq-text); margin-top:6px; display:flex; gap:6px; align-items:center; }
+.delivery-address { font-size:.78rem; font-weight:800; color:var(--pq-text); margin-top:10px; display:flex; gap:7px; align-items:flex-start; line-height:1.35; }
+.address-choice { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+.address-choice label { border:1.5px solid var(--pq-border); border-radius:10px; padding:9px 10px; cursor:pointer; display:flex; gap:8px; align-items:flex-start; background:#fff; min-width:0; }
+.address-choice label.selected { border-color:var(--pq-red); background:#fff5f7; }
+.address-choice input { margin-top:2px; accent-color:var(--pq-red); }
+.address-choice strong { display:block; font-size:.74rem; font-weight:900; color:#111827; }
+.address-choice span { display:block; margin-top:2px; font-size:.7rem; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@media(max-width:560px){ .address-choice { grid-template-columns:1fr; } }
 
 /* SUBTOTAL */
 .cart-subtotal {
@@ -112,10 +136,9 @@
 .checkout-card {
   background:#fff;
   border:1px solid var(--pq-border);
-  border-radius:16px;
+  border-radius:14px;
   box-shadow:var(--pq-shadow);
-  padding:24px;
-  margin-bottom:20px;
+  padding:22px;
 }
 .checkout-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:18px; display:flex; align-items:center; gap:8px; }
 .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -134,32 +157,39 @@
 .form-field input:focus { border-color:var(--pq-red); }
 
 /* GRAND TOTAL */
-.grand-total-card {
+.cart-side { position:sticky; top:90px; align-self:start; }
+.order-summary-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:0 14px 34px rgba(15,23,42,.10); padding:20px; }
+.order-summary-card h3 { margin:0 0 16px; font-size:.98rem; font-weight:900; color:#111827; }
+.summary-free { background:#fff7f8; border:1px solid #ffe0e5; border-radius:10px; padding:10px 12px; color:#9f1239; font-size:.74rem; font-weight:800; margin-bottom:14px; }
+.summary-free-bar { height:5px; border-radius:99px; background:#ffd5de; overflow:hidden; margin-top:7px; }
+.summary-free-bar span { display:block; height:100%; width:24%; background:var(--pq-red); border-radius:99px; }
+.summary-row { display:flex; justify-content:space-between; gap:12px; font-size:.82rem; color:#64748b; margin:10px 0; }
+.summary-row strong { color:#111827; font-weight:900; }
+.summary-total { display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eef2f7; padding-top:16px; margin-top:14px; font-size:.95rem; font-weight:900; }
+.summary-total strong { color:var(--pq-red); font-size:1.45rem; }
+.summary-secure { text-align:center; color:#9ca3af; font-size:.68rem; font-weight:700; margin-top:10px; }
+.summary-continue { display:block; text-align:center; margin-top:16px; color:#64748b; font-size:.78rem; font-weight:800; text-decoration:none; }
+.grand-total-card { background:transparent; color:#111827; border-radius:0; padding:0; display:block; }
+.grand-total-label, .grand-total-value { display:none; }
+.btn-finalizar {
+  width:100%;
   background:var(--pq-red);
   color:#fff;
-  border-radius:16px;
-  padding:20px 24px;
-  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
-}
-.grand-total-label { font-size:.88rem; opacity:.85; }
-.grand-total-value { font-size:1.8rem; font-weight:900; }
-.btn-finalizar {
-  background:#fff;
-  color:var(--pq-red);
   border:none;
   border-radius:12px;
-  padding:14px 28px;
-  font-size:1rem;
+  padding:14px 18px;
+  font-size:.94rem;
   font-weight:900;
   cursor:pointer;
   font-family:inherit;
-  transition:background .15s;
+  transition:filter .15s;
+  box-shadow:0 10px 22px rgba(200,16,46,.22);
 }
-.btn-finalizar:hover { background:#f5f5f5; }
+.btn-finalizar:hover { filter:brightness(.96); }
 .btn-finalizar:disabled { opacity:.5; cursor:not-allowed; }
 
 /* EMPTY */
-.cart-empty { text-align:center; padding:64px 20px; color:var(--pq-muted); background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); }
+.cart-empty { text-align:center; padding:64px 20px; color:var(--pq-muted); background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); }
 .cart-empty > i { font-size:4rem; opacity:.18; display:block; margin-bottom:18px; color:#777; }
 .cart-empty .empty-title { font-size:1.15rem; font-weight:900; margin-bottom:8px; color:var(--pq-text); }
 .cart-empty .empty-btn { display:inline-flex; align-items:center; gap:8px; background:var(--pq-red); color:#fff; padding:12px 22px; border-radius:10px; font-weight:800; text-decoration:none; }
@@ -205,7 +235,7 @@
 .account-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .account-info { display:flex; gap:12px; flex-wrap:wrap; color:var(--pq-muted); font-size:.88rem; }
 .account-info strong { color:var(--pq-text); }
-.cart-recs-wrap { margin-bottom:20px; }
+.cart-recs-wrap { margin:0; }
 </style>
 {% endblock %}
 
@@ -213,95 +243,107 @@
 <div class="cart-wrap">
   <div class="cart-title">
     <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="">
-    Minha cesta
+    Minha cesta <small id="cart-title-count"></small>
   </div>
 
-  <div id="cart-container">
-    <!-- skeleton exibido enquanto o JS carrega os itens -->
-    <div class="cart-skeleton">
-      <div class="cart-skeleton-hd">
-        <div class="skel" style="width:20px;height:20px;border-radius:50%;flex-shrink:0"></div>
-        <div class="skel" style="width:180px;height:14px"></div>
-      </div>
-      <div class="cart-skeleton-row">
-        <div class="skel" style="width:64px;height:64px;border-radius:10px;flex-shrink:0"></div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-          <div class="skel" style="width:70%;height:13px"></div>
-          <div class="skel" style="width:40%;height:13px"></div>
-          <div class="skel" style="width:30%;height:11px"></div>
+  <div class="cart-layout">
+    <main class="cart-main">
+      <div id="cart-container">
+        <!-- skeleton exibido enquanto o JS carrega os itens -->
+        <div class="cart-skeleton">
+          <div class="cart-skeleton-hd">
+            <div class="skel" style="width:20px;height:20px;border-radius:50%;flex-shrink:0"></div>
+            <div class="skel" style="width:180px;height:14px"></div>
+          </div>
+          <div class="cart-skeleton-row">
+            <div class="skel" style="width:64px;height:64px;border-radius:10px;flex-shrink:0"></div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+              <div class="skel" style="width:70%;height:13px"></div>
+              <div class="skel" style="width:40%;height:13px"></div>
+              <div class="skel" style="width:30%;height:11px"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+              <div class="skel" style="width:88px;height:28px;border-radius:6px"></div>
+              <div class="skel" style="width:60px;height:11px"></div>
+            </div>
+          </div>
+          <div class="cart-skeleton-row">
+            <div class="skel" style="width:64px;height:64px;border-radius:10px;flex-shrink:0"></div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+              <div class="skel" style="width:55%;height:13px"></div>
+              <div class="skel" style="width:35%;height:13px"></div>
+              <div class="skel" style="width:25%;height:11px"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+              <div class="skel" style="width:88px;height:28px;border-radius:6px"></div>
+              <div class="skel" style="width:60px;height:11px"></div>
+            </div>
+          </div>
+          <div class="cart-skeleton-foot" style="display:flex;gap:10px">
+            <div class="skel" style="width:110px;height:36px;border-radius:10px"></div>
+            <div class="skel" style="width:110px;height:36px;border-radius:10px"></div>
+          </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-          <div class="skel" style="width:88px;height:28px;border-radius:6px"></div>
-          <div class="skel" style="width:60px;height:11px"></div>
-        </div>
       </div>
-      <div class="cart-skeleton-row">
-        <div class="skel" style="width:64px;height:64px;border-radius:10px;flex-shrink:0"></div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-          <div class="skel" style="width:55%;height:13px"></div>
-          <div class="skel" style="width:35%;height:13px"></div>
-          <div class="skel" style="width:25%;height:11px"></div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-          <div class="skel" style="width:88px;height:28px;border-radius:6px"></div>
-          <div class="skel" style="width:60px;height:11px"></div>
-        </div>
-      </div>
-      <div class="cart-skeleton-foot" style="display:flex;gap:10px">
-        <div class="skel" style="width:110px;height:36px;border-radius:10px"></div>
-        <div class="skel" style="width:110px;height:36px;border-radius:10px"></div>
-      </div>
-    </div>
-  </div>
 
-  <div class="cart-recs-wrap">
-    <section id="cart-recs" class="pq-recs-section" style="display:none">
-      <div class="pq-recs-header">
-        <div class="pq-recs-title-block">
-          <div class="pq-recs-title"><i class="fa fa-basket-shopping"></i><span id="cart-recs-title">Complete sua compra</span></div>
-          <div class="pq-recs-sub" id="cart-recs-sub">Sugestões relacionadas aos itens da sua cesta.</div>
-        </div>
-        <div class="pq-recs-nav">
-          <button class="pq-nav-btn" id="cart-recs-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
-          <button class="pq-nav-btn" id="cart-recs-next" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
-        </div>
+      <div class="cart-recs-wrap">
+        <section id="cart-recs" class="pq-recs-section" style="display:none">
+          <div class="pq-recs-header">
+            <div class="pq-recs-title-block">
+              <div class="pq-recs-title"><i class="fa fa-basket-shopping"></i><span id="cart-recs-title">Complete sua compra</span></div>
+              <div class="pq-recs-sub" id="cart-recs-sub">Sugestões relacionadas aos itens da sua cesta.</div>
+            </div>
+            <div class="pq-recs-nav">
+              <button class="pq-nav-btn" id="cart-recs-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+              <button class="pq-nav-btn" id="cart-recs-next" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+            </div>
+          </div>
+          <div class="pq-recs-track-wrap">
+            <div class="pq-recs-track" id="cart-recs-track"></div>
+          </div>
+        </section>
       </div>
-      <div class="pq-recs-track-wrap">
-        <div class="pq-recs-track" id="cart-recs-track"></div>
-      </div>
-    </section>
-  </div>
 
-  <div id="checkout-section" style="display:none">
-    {% if consumidor %}
-    <div class="account-card">
-      <h3><i class="fa fa-user-check" style="color:var(--pq-red)"></i>Pedido em nome de {{ consumidor.nome }}</h3>
-      <div class="account-info">
-        <span><strong>WhatsApp:</strong> {{ consumidor.telefone }}</span>
-        <span><strong>E-mail:</strong> {{ consumidor.email }}</span>
+      <div id="account-section" style="display:none">
+        {% if consumidor %}
+        <div class="account-card">
+          <h3><i class="fa fa-user-check" style="color:var(--pq-red)"></i>Pedido em nome de {{ consumidor.nome }}</h3>
+          <div class="account-info">
+            <span><strong>WhatsApp:</strong> {{ consumidor.telefone }}</span>
+            <span><strong>E-mail:</strong> {{ consumidor.email }}</span>
+          </div>
+        </div>
+        {% else %}
+        <div class="login-required-card">
+          <h3><i class="fa fa-user-lock" style="color:var(--pq-red)"></i>Faça login para enviar o pedido</h3>
+          <p>Entre ou crie uma conta rápida para salvar seus dados, acompanhar o status e consultar seu histórico.</p>
+          <div class="login-actions">
+            <a class="login-primary" href="{{ url_for('consumidor_login', next=request.path) }}"><i class="fa fa-right-to-bracket"></i>Fazer login</a>
+            <a class="login-secondary" href="{{ url_for('consumidor_criar_conta', next=request.path) }}"><i class="fa fa-user-plus"></i>Criar conta</a>
+          </div>
+        </div>
+        {% endif %}
       </div>
-    </div>
-    {% else %}
-    <div class="login-required-card">
-      <h3><i class="fa fa-user-lock" style="color:var(--pq-red)"></i>Faça login para enviar o pedido</h3>
-      <p>Entre ou crie uma conta rápida para salvar seus dados, acompanhar o status e consultar seu histórico.</p>
-      <div class="login-actions">
-        <a class="login-primary" href="{{ url_for('consumidor_login', next=request.path) }}"><i class="fa fa-right-to-bracket"></i>Fazer login</a>
-        <a class="login-secondary" href="{{ url_for('consumidor_criar_conta', next=request.path) }}"><i class="fa fa-user-plus"></i>Criar conta</a>
-      </div>
-    </div>
-    {% endif %}
+    </main>
 
-    <!-- Total geral + botão -->
-    <div class="grand-total-card">
-      <div>
-        <div class="grand-total-label">Total do pedido</div>
-        <div class="grand-total-value" id="grand-total">R$ 0,00</div>
+    <aside id="checkout-section" class="cart-side" style="display:none">
+      <div class="order-summary-card">
+        <h3>Resumo do pedido</h3>
+        <div class="summary-free" id="summary-free">
+          Falta pouco para finalizar sua compra.
+          <div class="summary-free-bar"><span id="summary-free-bar"></span></div>
+        </div>
+        <div class="summary-row"><span>Itens</span><strong id="summary-items">0 itens</strong></div>
+        <div class="summary-row"><span>Subtotal</span><strong id="summary-subtotal">R$ 0,00</strong></div>
+        <div class="summary-row"><span>Recebimento</span><strong id="summary-delivery">Retirada</strong></div>
+        <div class="summary-total"><span>Total</span><strong id="grand-total">R$ 0,00</strong></div>
+        <button class="btn-finalizar" id="btn-finalizar" onclick="finalizarPedido()" {% if not consumidor %}disabled{% endif %}>
+          <i class="fa fa-lock me-2"></i>Finalizar pedido
+        </button>
+        <div class="summary-secure"><i class="fa fa-lock me-1"></i>Compra 100% segura e criptografada</div>
+        <a class="summary-continue" href="{{ url_for('index') }}">‹ Continuar comprando</a>
       </div>
-      <button class="btn-finalizar" id="btn-finalizar" onclick="finalizarPedido()" {% if not consumidor %}disabled{% endif %}>
-        <i class="fa fa-lock me-2"></i>Finalizar pedido
-      </button>
-    </div>
+    </aside>
   </div>
 </div>
 
@@ -378,6 +420,7 @@ const CONSUMIDOR_LAT = {{ (consumidor.lat if consumidor else none)|tojson }};
 const CONSUMIDOR_LNG = {{ (consumidor.lng if consumidor else none)|tojson }};
 const CONSUMIDOR_EMAIL = {{ (consumidor.email if consumidor else '')|tojson }};
 let _mpBrickController = null;
+let DELIVERY_ADDRESS_MODE = localStorage.getItem('pq_cart_addr_mode') || (localStorage.getItem('pq_loc_nome') ? 'current' : 'profile');
 
 const asaasStyle = document.createElement('style');
 asaasStyle.textContent = '.asaas-input{width:100%;height:42px;border:1px solid #d1d5db;border-radius:8px;padding:0 12px;font:inherit;color:#111827;box-sizing:border-box;background:#fff}';
@@ -391,12 +434,64 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 function distanciaParaLoja(cfg) {
-  const uLat = parseFloat(CONSUMIDOR_LAT || localStorage.getItem('pq_lat'));
-  const uLng = parseFloat(CONSUMIDOR_LNG || localStorage.getItem('pq_lng'));
+  const addr = getDeliveryAddressChoice();
+  const uLat = parseFloat(addr.lat);
+  const uLng = parseFloat(addr.lng);
   const lLat = parseFloat(cfg.loja_lat);
   const lLng = parseFloat(cfg.loja_lng);
   if (!uLat || !uLng || !lLat || !lLng) return undefined;
   return haversineKm(uLat, uLng, lLat, lLng);
+}
+
+function getCurrentLocationAddress() {
+  return {
+    label: localStorage.getItem('pq_loc_nome') || '',
+    lat: localStorage.getItem('pq_lat') || '',
+    lng: localStorage.getItem('pq_lng') || '',
+  };
+}
+
+function getProfileAddress() {
+  return {
+    label: CONSUMIDOR_ENDERECO || '',
+    lat: CONSUMIDOR_LAT || '',
+    lng: CONSUMIDOR_LNG || '',
+  };
+}
+
+function getDeliveryAddressChoice() {
+  const current = getCurrentLocationAddress();
+  const profile = getProfileAddress();
+  if (DELIVERY_ADDRESS_MODE === 'current' && current.label) return current;
+  if (DELIVERY_ADDRESS_MODE === 'profile' && profile.label) return profile;
+  return current.label ? current : profile;
+}
+
+function setDeliveryAddressMode(mode) {
+  DELIVERY_ADDRESS_MODE = mode;
+  localStorage.setItem('pq_cart_addr_mode', mode);
+  renderCart();
+}
+
+function shortAddr(text) {
+  return text || 'Não informado';
+}
+
+function addressChoiceHtml(cnpj) {
+  const current = getCurrentLocationAddress();
+  const profile = getProfileAddress();
+  const selected = getDeliveryAddressChoice();
+  const activeMode = selected.label === current.label && current.label ? 'current' : 'profile';
+  return `<div class="address-choice" role="radiogroup" aria-label="Endereço de entrega">
+    <label class="${activeMode === 'current' ? 'selected' : ''}">
+      <input type="radio" name="addr-${esc(cnpj)}" value="current" ${activeMode === 'current' ? 'checked' : ''} ${current.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('current')">
+      <div><strong>Usar localização atual</strong><span>${esc(shortAddr(current.label))}</span></div>
+    </label>
+    <label class="${activeMode === 'profile' ? 'selected' : ''}">
+      <input type="radio" name="addr-${esc(cnpj)}" value="profile" ${activeMode === 'profile' ? 'checked' : ''} ${profile.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('profile')">
+      <div><strong>Usar endereço do cadastro</strong><span>${esc(shortAddr(profile.label))}</span></div>
+    </label>
+  </div>`;
 }
 
 function brl(v) {
@@ -758,6 +853,10 @@ function renderCart() {
   const cart = getCart();
   const container = document.getElementById('cart-container');
   const checkoutSec = document.getElementById('checkout-section');
+  const accountSec = document.getElementById('account-section');
+  const titleCount = document.getElementById('cart-title-count');
+  const itemCount = cart.reduce((s, i) => s + (parseInt(i.qty || 1, 10) || 1), 0);
+  if (titleCount) titleCount.textContent = itemCount ? `${itemCount} ${itemCount === 1 ? 'item' : 'itens'}` : '';
 
   if (!cart.length) {
     document.getElementById('cart-recs').style.display = 'none'; // esconde seção de recs
@@ -770,6 +869,7 @@ function renderCart() {
       </a>
     </div>`;
     checkoutSec.style.display = 'none';
+    if (accountSec) accountSec.style.display = 'none';
     return;
   }
 
@@ -913,6 +1013,7 @@ function renderCart() {
     html += `<div class="cart-group">
       <div class="cart-group-hd">
         <i class="fa fa-store"></i>${esc(g.razao)}
+        <span class="cart-store-status" id="cart-store-status-${esc(cnpj)}">Verificando...</span>
       </div>
       ${itensHtml}
       ${receitaAviso}
@@ -925,7 +1026,8 @@ function renderCart() {
         <div class="pay-options" id="delivery-opts-${esc(cnpj)}">${entregaOpts}</div>
         ${entregaMsg ? `<div class="delivery-note">${entregaMsg}</div>` : ''}
         ${minPedidoAvisoHtml}
-        <div class="delivery-address"><i class="fa fa-location-dot"></i>${esc(CONSUMIDOR_ENDERECO || localStorage.getItem('pq_loc_nome') || 'Endereço não informado')}</div>
+        ${addressChoiceHtml(cnpj)}
+        <div class="delivery-address"><i class="fa fa-location-dot"></i><span>${esc(getDeliveryAddressChoice().label || 'Endereço não informado')}</span></div>
       </div>
       ${receitaUploadHtml}
       ${renderDescontoQuantidade(cnpj, g.itens)}
@@ -961,8 +1063,13 @@ function renderCart() {
   });
 
   container.innerHTML = html;
+  const summarySubtotal = document.getElementById('summary-subtotal');
+  const summaryItems = document.getElementById('summary-items');
+  if (summarySubtotal) summarySubtotal.textContent = brl(grandTotal);
+  if (summaryItems) summaryItems.textContent = `${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
   document.getElementById('grand-total').textContent = brl(grandTotal);
   checkoutSec.style.display = '';
+  if (accountSec) accountSec.style.display = '';
 
   // Inicializa seleção de pagamento
   document.querySelectorAll('.pay-opt').forEach(el => {
@@ -974,7 +1081,11 @@ function renderCart() {
       atualizarTotaisComFrete();
     });
   });
+  document.querySelectorAll('.pay-options[id^="delivery-opts-"] .pay-opt').forEach(el => {
+    el.addEventListener('click', atualizarTotaisComFrete);
+  });
   atualizarTotaisComFrete();
+  atualizarStatusHorarioCarrinho(cnpjs);
   carregarRecomendacoesCarrinho();
 }
 
@@ -986,17 +1097,71 @@ function atualizarTotaisComFrete() {
     groups[item.cnpjloja].itens.push(item);
   });
   let total = 0;
+  let subtotalTotal = 0;
+  let freteTotal = 0;
+  let entregaCount = 0;
   Object.keys(groups).forEach(cnpj => {
     const sub = groups[cnpj].itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
     const cfg = _configLojas[cnpj] || {};
     const delivery = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
     const frete = delivery === 'entrega' && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
     const desconto = _cupomAplicado[cnpj]?.desconto || 0;
+    subtotalTotal += sub;
+    freteTotal += frete;
+    if (delivery === 'entrega') entregaCount++;
     total += Math.max(0, sub - desconto) + frete;
     const el = document.getElementById(`subtotal-${cnpj}`);
     if (el) el.textContent = frete ? `${brl(sub)} + frete ${brl(frete)}` : brl(sub);
   });
+  const summarySubtotal = document.getElementById('summary-subtotal');
+  const summaryDelivery = document.getElementById('summary-delivery');
+  const summaryFree = document.getElementById('summary-free');
+  const summaryFreeBar = document.getElementById('summary-free-bar');
+  if (summarySubtotal) summarySubtotal.textContent = brl(subtotalTotal);
+  if (summaryDelivery) {
+    summaryDelivery.textContent = entregaCount
+      ? (freteTotal ? `Entrega ${brl(freteTotal)}` : 'Entrega grátis')
+      : 'Retirada na loja';
+    summaryDelivery.style.color = entregaCount && !freteTotal ? '#16a34a' : '';
+  }
+  if (summaryFree && summaryFreeBar) {
+    const falta = Math.max(0, 42.01 - total);
+    summaryFree.innerHTML = falta > 0
+      ? `Faltam ${brl(falta)} para frete grátis na entrega.<div class="summary-free-bar"><span id="summary-free-bar" style="width:${Math.min(100, Math.round((total/42.01)*100))}%"></span></div>`
+      : `Pedido elegível para benefícios de entrega.<div class="summary-free-bar"><span id="summary-free-bar" style="width:100%"></span></div>`;
+  }
   document.getElementById('grand-total').textContent = brl(total);
+}
+
+async function atualizarStatusHorarioCarrinho(cnpjs) {
+  await Promise.all((cnpjs || []).map(async cnpj => {
+    const el = document.getElementById(`cart-store-status-${cnpj}`);
+    if (!el) return;
+    el.className = 'cart-store-status';
+    el.textContent = 'Verificando...';
+    try {
+      const r = await fetch(`/api/loja/${encodeURIComponent(cnpj)}/horario-status`);
+      const d = await r.json();
+      el.className = 'cart-store-status';
+      if (!d.configurado) {
+        el.classList.add('is-neutral');
+        el.textContent = 'Horário não configurado';
+        return;
+      }
+      if (d.aberta) {
+        el.classList.add('is-open');
+        el.textContent = d.hora_fechamento ? `Aberta até ${d.hora_fechamento}` : 'Aberta agora';
+        return;
+      }
+      el.classList.add('is-closed');
+      el.textContent = d.proximo
+        ? `Fechada, abre ${d.proximo.nome_dia} ${d.proximo.hora_abertura}`
+        : 'Fechada agora';
+    } catch (err) {
+      el.className = 'cart-store-status is-neutral';
+      el.textContent = 'Horário indisponível';
+    }
+  }));
 }
 
 function payOptHtml(cnpj, val, label, checked) {
@@ -1298,14 +1463,15 @@ async function finalizarPedido() {
     const cupomInp = document.getElementById(`cupom-inp-${g.cnpjloja}`);
     const cupomCodigo = (cupomInp?.value || '').trim().toUpperCase();
     const tipoEntrega = delivery ? delivery.value : 'retirada';
+    const entregaAddr = getDeliveryAddressChoice();
     return {
       cnpjloja: g.cnpjloja,
       razao: g.razao,
       pagamento: radio ? radio.value : 'pix',
       tipo_entrega: tipoEntrega,
-      endereco_entrega: CONSUMIDOR_ENDERECO || localStorage.getItem('pq_loc_nome') || '',
-      entrega_lat: CONSUMIDOR_LAT || localStorage.getItem('pq_lat') || '',
-      entrega_lng: CONSUMIDOR_LNG || localStorage.getItem('pq_lng') || '',
+      endereco_entrega: entregaAddr.label || '',
+      entrega_lat: entregaAddr.lat || '',
+      entrega_lng: entregaAddr.lng || '',
       frete_valor: frete,
       cupom_codigo: cupomCodigo,
       receita_urls: tipoEntrega === 'entrega' ? (_receitaUrl[g.cnpjloja] || []).map(f => f.url) : [],

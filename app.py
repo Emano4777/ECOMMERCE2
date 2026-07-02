@@ -11081,7 +11081,7 @@ def consumidor_perfil_post():
     if not _valid_phone(telefone):
         flash("Informe um WhatsApp válido com DDD.", "error")
         return redirect(url_for("consumidor_perfil"))
-    if len(documento) not in {11, 14}:
+    if not _valid_documento(documento):
         flash("Informe CPF ou CNPJ válido.", "error")
         return redirect(url_for("consumidor_perfil"))
     if not _valid_email(email):
