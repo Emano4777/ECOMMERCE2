@@ -478,8 +478,9 @@
 
       <!-- Meta + ANVISA badge -->
       <div class="pd-meta" style="flex-wrap:wrap;gap:8px">
-        {% if med.marca or med.laboratorio or anvisa.laboratorio %}
-          <span><i class="fa fa-flask"></i>{{ med.marca or med.laboratorio or anvisa.laboratorio }}</span>
+        {% set _lab_flask = med.laboratorio or anvisa.laboratorio or med.marca %}
+        {% if _lab_flask and _lab_flask != med.marca %}
+          <span><i class="fa fa-flask"></i>{{ _lab_flask }}</span>
         {% endif %}
         {% if ean %}
           <span><i class="fa fa-barcode"></i>EAN {{ ean }}</span>
