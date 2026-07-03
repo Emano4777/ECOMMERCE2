@@ -5317,7 +5317,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
             CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
-            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+            COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
             b.fonte_estoque
         FROM base b
         LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
@@ -5326,6 +5326,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
         LEFT JOIN medicamentos5 m5 ON m5.barra = b.ean
+        LEFT JOIN ecommerce_alpha_produtos apimg ON apimg.cnpjloja = b.cnpjloja AND LTRIM(COALESCE(apimg.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN LATERAL (
             SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
             FROM vendageral
@@ -5503,7 +5504,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
             COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
             b.qty,
             CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
-            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+            COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
             b.fonte_estoque
         FROM base b
         LEFT JOIN medicamentos m           ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
@@ -5513,6 +5514,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         LEFT JOIN ecommerce_precos ep      ON ep.cnpjloja = b.cnpjloja AND ep.ean = b.ean
         LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = b.cnpjloja AND epi.ean = b.ean
         LEFT JOIN medicamentos5 m5 ON m5.barra = b.ean
+        LEFT JOIN ecommerce_alpha_produtos apimg ON apimg.cnpjloja = b.cnpjloja AND LTRIM(COALESCE(apimg.ean, ''), '0') = LTRIM(COALESCE(b.ean_join, b.ean, ''), '0')
         LEFT JOIN LATERAL (
             SELECT ROUND(total_vendasgeral / NULLIF(itens, 0), 2) AS preco_venda
             FROM vendageral
