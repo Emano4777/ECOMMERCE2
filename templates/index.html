@@ -1070,6 +1070,14 @@ function productCategory(p) {
   return 'varejo';
 }
 
+// "medicamento" é superset dos subtipos de remédio; subtipos filtram exato.
+const _MED_TIPOS = new Set(['medicamento', 'generico', 'similar', 'referencia']);
+function catMatches(pcat, sel) {
+  if (!sel) return true;
+  if (sel === 'medicamento') return _MED_TIPOS.has(pcat);
+  return pcat === sel;
+}
+
 function priceOf(p) {
   return parseFloat(p.preco) || 0;
 }
@@ -1408,7 +1416,7 @@ function filterAndRender(resetPage=false) {
       : (!productExcludedForSymptomQuery(q, hay) && qTerms.some(term => hay.includes(term))));
     return passaTexto &&
            (!store || p.cnpjloja === store) &&
-           (!cat || productCategory(p) === cat) &&
+           catMatches(productCategory(p), cat) &&
            temOferta &&
            (!precoMax || priceOf(p) <= precoMax);
   });

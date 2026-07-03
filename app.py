@@ -4878,7 +4878,7 @@ _SQL_ALPHA_A7_BATCH = """
         COALESCE(m.descricao, pc.descricao_canon, el.nome) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
-        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+        COALESCE(m.tipo_ia, pc.categoria) AS categoria,
         el.qty,
         el.preco_atual AS preco,
         COALESCE(el.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -4951,7 +4951,7 @@ _SQL_ALPHA_BATCH = """
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)              AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
-        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)  AS categoria,
+        COALESCE(m.tipo_ia, pc.categoria)  AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, vg.preco_venda, el.preco_referencial) AS preco,
         COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
@@ -5016,7 +5016,7 @@ _SQL_AUTO_BATCH = """
         COALESCE(m.descricao, pc.descricao_canon, el.descricao)                   AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)               AS laboratorio,
         m.marca                                                                   AS marca,
-        COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END)        AS categoria,
+        COALESCE(m.tipo_ia, pc.categoria)        AS categoria,
         el.qty,
         COALESCE(ep.preco_customizado, el.valor_final_produto)                    AS preco,
         COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), ''))  AS imagem
@@ -5156,7 +5156,7 @@ def get_dns_products_batch(cnpjs):
                        COALESCE(m.descricao, pc.descricao_canon, e.descricao) AS nome,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
-                       COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+                       COALESCE(m.tipo_ia, pc.categoria) AS categoria,
                        CAST(e.estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, vg.preco_venda, vg_market.preco_venda, e.preco_referencial) AS preco,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
@@ -5196,7 +5196,7 @@ def get_dns_products_batch(cnpjs):
                        COALESCE(m.descricao, pc.descricao_canon, ae.descricao_produto) AS nome,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
-                       COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+                       COALESCE(m.tipo_ia, pc.categoria) AS categoria,
                        CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                        COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                        COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem
@@ -5314,7 +5314,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             COALESCE(m.descricao, pc.descricao_canon, b.nome_raw) AS nome,
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
-            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            COALESCE(m.tipo_ia, pc.categoria) AS categoria,
             b.qty,
             CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
             COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -5501,7 +5501,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
             COALESCE(m.descricao, pc.descricao_canon, b.nome_raw) AS nome,
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
-            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            COALESCE(m.tipo_ia, pc.categoria) AS categoria,
             b.qty,
             CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
             COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -5602,7 +5602,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
-            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            COALESCE(m.tipo_ia, pc.categoria) AS categoria,
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_atual AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -5658,7 +5658,7 @@ def get_alpha_products_direct(cnpjs, limit=200):
             COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
-            COALESCE(m.tipo_ia, CASE WHEN m.id IS NOT NULL THEN 'medicamento' ELSE pc.categoria END) AS categoria,
+            COALESCE(m.tipo_ia, pc.categoria) AS categoria,
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_atual AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -7386,9 +7386,15 @@ def api_produtos_proximos():
             "correlato": "varejo", "outros": "varejo",
             "alimento": "nutricao",
         }
+        # "medicamento" é superset dos subtipos de remédio; os subtipos
+        # (generico/similar/referencia) continuam filtrando de forma exata.
+        _MED_TIPOS = {"medicamento", "generico", "similar", "referencia"}
         def _cat_ok(p):
             c = (p.get("categoria") or "").lower()
-            return _CAT_ALIAS_SRV.get(c, c) == cat_filter
+            c = _CAT_ALIAS_SRV.get(c, c)
+            if cat_filter == "medicamento":
+                return c in _MED_TIPOS
+            return c == cat_filter
         produtos_raw = [p for p in produtos_raw if _cat_ok(p)]
 
     produtos_view = []
