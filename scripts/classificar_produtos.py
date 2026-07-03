@@ -113,7 +113,11 @@ WITH inv AS (
 )
 SELECT DISTINCT ON (inv.ean_key)
     inv.ean_key                                                      AS ean,
-    COALESCE(m.descricao, pc.descricao_canon, inv.descricao)        AS nome,
+    -- pc.descricao_canon vem de match por IA (fonte='ia') e pode estar ligado
+    -- ao EAN errado (ex: EAN de desodorante casado com "Vitamina E 400mg").
+    -- O nome real do estoque/catálogo (inv.descricao) é mais confiável que
+    -- esse "canônico" adivinhado, então entra antes dele na prioridade.
+    COALESCE(m.descricao, NULLIF(inv.descricao, ''), pc.descricao_canon) AS nome,
     COALESCE(m.laboratorio, pc.laboratorio, '')                     AS laboratorio,
     COALESCE(m.classe, '')                                           AS classe_med
 FROM inv

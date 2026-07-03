@@ -3921,6 +3921,16 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             if _tipo_fill in _TIPOS_NAO_MEDICAMENTO:
                 cached_url = None
         image_url = image_url or cached_url
+        # Imagem própria Vitnatu (upload manual do fabricante) — mais confiável que busca externa
+        if not image_url:
+            cur.execute(
+                "SELECT imagem_url FROM vitnatu_imagens WHERE LTRIM(ean, '0') = LTRIM(%s, '0') "
+                "AND imagem_url IS NOT NULL AND TRIM(imagem_url) <> '' LIMIT 1",
+                (ean_digits,),
+            )
+            vitnatu_row = cur.fetchone()
+            if vitnatu_row:
+                image_url = _first_valid_url(vitnatu_row["imagem_url"])
         # Tenta imagem do cosmos já indexada pelo script de sincronização
         if not image_url:
             cur.execute(
@@ -14460,6 +14470,10 @@ def painel_produto_imagem(ean):
             return jsonify({"ok": False, "erro": "Erro no upload. Verifique o arquivo e tente novamente."}), 500
         flash("Erro no upload da imagem. Verifique o arquivo e tente novamente.", "error")
         return redirect(url_for("precificador"))
+    # x-upsert sobrescreve o mesmo path/URL no Storage — sem isso, um reenvio
+    # (ex: corrigir a foto) manteria a URL idêntica e ficaria preso em cache
+    # de CDN/navegador de quem já viu o produto antes.
+    img_url = f"{img_url}?v={int(time.time())}"
 
     conn = db()
     cur  = conn.cursor()
@@ -14771,6 +14785,8 @@ def precificador():
         dedupe_display=False,
     )
     _publicados, bloqueados_sem_imagem = _split_catalog_image_status(produtos)
+    for _p in bloqueados_sem_imagem:
+        _p["sem_imagem"] = True
 
     # Carrega preços concorrentes cacheados no banco
     eans = [p["ean"] for p in produtos if p.get("ean")]

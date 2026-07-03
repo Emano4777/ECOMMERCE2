@@ -294,6 +294,11 @@
   font-size: .82rem; color: var(--pk-muted);
 }
 .pf-stat strong { color: var(--pk-yellow); }
+.pf-stat-btn { cursor: pointer; font-family: inherit; transition: background .15s, border-color .15s; }
+.pf-stat-btn:hover { background: rgba(220,53,69,.1); border-color: #dc3545; }
+.pf-stat-btn.ativo { background: rgba(220,53,69,.18); border-color: #dc3545; }
+.pf-stat-btn.ativo strong { color: #dc3545; }
+.pf-filtro-vazio { text-align:center; padding:40px 20px; color:var(--pk-muted); font-size:.9rem; }
 .badge-extra {
   display: inline-flex; align-items: center; gap: 4px;
   background: rgba(59,130,246,.15); color: #60a5fa;
@@ -418,7 +423,10 @@
   <div class="pf-stat"><strong>{{ com_img }}</strong> com imagem</div>
   {% set sem_img = bloqueados_sem_imagem | default([]) | length %}
   {% if sem_img %}
-  <div class="pf-stat"><strong>{{ sem_img }}</strong> sem imagem / não publicados</div>
+  <button type="button" id="btn-filtro-sem-imagem" class="pf-stat pf-stat-btn" onclick="pfToggleFiltroSemImagem(this)"
+          title="Clique para listar só os produtos sem imagem">
+    <strong>{{ sem_img }}</strong> sem imagem / não publicados
+  </button>
   {% endif %}
   {% set extras = produtos | selectattr('is_extra') | list | length %}
   {% if extras %}
@@ -512,7 +520,7 @@
       </thead>
       <tbody>
         {% for p in produtos %}
-        <tr id="row-{{ p.ean }}" {% if p.oculto %}class="row-hidden"{% endif %}>
+        <tr id="row-{{ p.ean }}" {% if p.oculto %}class="row-hidden"{% endif %} data-sem-imagem="{{ 'true' if p.sem_imagem else 'false' }}">
           <!-- THUMB -->
           <td style="text-align:center">
             {% if p.imagem %}
@@ -670,7 +678,7 @@
   <!-- CARDS MOBILE -->
   <div class="pf-cards-list">
     {% for p in produtos %}
-    <div class="pf-card {% if p.oculto %}card-hidden{% endif %}" id="card-{{ p.ean }}">
+    <div class="pf-card {% if p.oculto %}card-hidden{% endif %}" id="card-{{ p.ean }}" data-sem-imagem="{{ 'true' if p.sem_imagem else 'false' }}">
       <div class="pf-card-top">
         {% if p.imagem %}
           <img src="{{ p.imagem }}" class="prod-thumb" loading="lazy"
@@ -960,6 +968,33 @@ function _pfToast(msg, tipo) {
   t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;padding:12px 18px;border-radius:10px;font-size:.88rem;font-weight:700;color:#fff;background:${tipo==='success'?'#16a34a':'#dc2626'};box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .4s`;
   document.body.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 3000);
+}
+
+// ── Filtro: só produtos sem imagem ───────────────────────────────────────────
+let pfFiltroSemImagemAtivo = false;
+
+function pfToggleFiltroSemImagem(btn) {
+  pfFiltroSemImagemAtivo = !pfFiltroSemImagemAtivo;
+  btn.classList.toggle('ativo', pfFiltroSemImagemAtivo);
+
+  document.querySelectorAll('[data-sem-imagem]').forEach(el => {
+    const semImagem = el.dataset.semImagem === 'true';
+    el.style.display = (!pfFiltroSemImagemAtivo || semImagem) ? '' : 'none';
+  });
+
+  let vazio = document.getElementById('pf-filtro-vazio');
+  if (pfFiltroSemImagemAtivo && document.querySelectorAll('[data-sem-imagem="true"]').length === 0) {
+    if (!vazio) {
+      vazio = document.createElement('div');
+      vazio.id = 'pf-filtro-vazio';
+      vazio.className = 'pf-filtro-vazio';
+      vazio.innerHTML = '<i class="fa fa-circle-check fa-2x mb-2" style="color:#22c55e;display:block"></i>Nenhum produto sem imagem por aqui.';
+      document.getElementById('form-salvar')?.prepend(vazio);
+    }
+    vazio.style.display = '';
+  } else if (vazio) {
+    vazio.style.display = 'none';
+  }
 }
 
 // ── Ocultar / Restaurar ──────────────────────────────────────────────────────
