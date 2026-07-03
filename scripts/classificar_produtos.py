@@ -129,7 +129,7 @@ ORDER BY inv.ean_key, (m.id IS NOT NULL) DESC
 """
 
 
-def fetch_products(conn, force=False, limit=None, ean_filter=None):
+def fetch_products(conn, force=False, limit=None, ean_filter=None, alpha_only=True):
     parts = []
     if not force and ean_filter is None:
         parts.append(
@@ -138,6 +138,15 @@ def fetch_products(conn, force=False, limit=None, ean_filter=None):
     if ean_filter:
         safe = ean_filter.lstrip("0")
         parts.append(f"AND inv.ean_key = '{safe}'")
+    elif alpha_only:
+        # Só produtos que estão no catálogo público (fluxo novo do Alpha).
+        parts.append(
+            "AND inv.ean_key IN ("
+            "  SELECT LTRIM(COALESCE(ean,''),'0') FROM ecommerce_alpha_produtos"
+            "  WHERE COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0"
+            "    AND COALESCE(ean,'')<>''"
+            ")"
+        )
 
     sql = FETCH_SQL.format(
         extra_where=" ".join(parts),
@@ -374,6 +383,8 @@ def main():
     parser.add_argument("--dry-run",    action="store_true", help="Não grava no banco de dados")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help=f"Produtos por chamada API (padrão: {BATCH_SIZE})")
     parser.add_argument("--ean",        type=str, default=None, help="Classifica um EAN específico")
+    parser.add_argument("--todas-fontes", action="store_true",
+                        help="Inclui catálogo legado (estoque/automatiza/omie); por padrão só produtos do Alpha (catálogo público)")
     args = parser.parse_args()
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
@@ -388,6 +399,7 @@ def main():
         force=args.force or bool(args.ean),
         limit=args.limit,
         ean_filter=args.ean,
+        alpha_only=not args.todas_fontes,
     )
 
     if args.skip:
