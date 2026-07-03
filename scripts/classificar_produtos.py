@@ -35,7 +35,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 DATABASE_URL  = os.environ["DATABASE_URL"]
 ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
-MODEL         = "claude-haiku-4-5-20251001"   # rápido e barato para classificação em lote
+MODEL         = "claude-sonnet-5"   # mais preciso para classificação (evita erros do haiku)
 BATCH_SIZE    = 30
 
 # ── SCHEMA ──────────────────────────────────────────────────────────────────
@@ -327,7 +327,10 @@ def classify_batch(client, batch):
         }],
     )
 
-    raw = msg.content[0].text.strip()
+    # Sonnet pode retornar blocos de "thinking" antes do texto — pega o bloco de texto.
+    raw = "".join(
+        getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text"
+    ).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
