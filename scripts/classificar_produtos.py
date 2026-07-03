@@ -99,6 +99,17 @@ WITH inv AS (
               WHERE barra_norm IS NOT NULL AND barra_norm != ''
           )
       )
+
+    UNION
+
+    -- Fluxo novo (Alpha): EANs do catálogo público puxados do Alpha. Aqui NÃO
+    -- exigimos vínculo com omie/medicamentos — são exatamente os produtos que
+    -- o ecommerce exibe hoje e precisam de categoria (ex: NARIX, REPELENTE).
+    SELECT LTRIM(COALESCE(ap.ean, ''), '0') AS ean_key, ap.nome AS descricao
+    FROM ecommerce_alpha_produtos ap
+    WHERE COALESCE(ap.inativo, false) = false
+      AND COALESCE(ap.estoque, 0) > 0
+      AND COALESCE(ap.ean, '') != ''
 )
 SELECT DISTINCT ON (inv.ean_key)
     inv.ean_key                                                      AS ean,

@@ -3616,8 +3616,11 @@ _OTHER_PHARMACY_BRANDS_RE = re.compile(
     r"|drogaria\s+santa|drogariasantaterezinha|farmacias?\s+heroos|farmaciasheroos|farmais|nova\s*farmais"
     r"|meu\s+mundo\s+fit|formosa|farmasesi|drogaria\s+canabrava"
     r"|farmalan|avante\s+farm[aá]cia"
-    r"|drogarias?|farm[aá]cias?|(?<!consulta)remedios|(?<!farma)c[eê]utic"
-    r"|(?<!farma)farma(?!c[eê]utic)",
+    r"|drogarias?|farm[aá]cias?|(?<!consulta)remedios|(?<!farma)c[eê]utic",
+    # Removido o token genérico "farma": casava com nomes de fornecedores/pastas
+    # legítimos (ex: MAXIFARMA no caminho da imagem do Alpha) e bloqueava fotos
+    # válidas no detalhe do produto. Marcas concorrentes específicas continuam
+    # cobertas acima (ultrafarma, farmalan, farmais, farm[aá]cias? etc).
     re.IGNORECASE,
 )
 
@@ -5028,6 +5031,47 @@ _SQL_AUTO_BATCH = """
 """
 
 
+def _apply_saved_categories(produtos, cur=None):
+    """Reaproveita as categorias ja definidas em ecommerce_classificacao_ean.
+
+    O app nunca lia essa tabela — a categoria vinha so de medicamentos.tipo_ia /
+    produto_canon. Produtos do fluxo novo (Alpha) que nao estao em medicamentos
+    ficavam sem categoria. Aqui, quando existe uma classificacao salva para o EAN,
+    ela prevalece (mesmo vocabulario de tipo_ia: generico, similar, suplemento,
+    perfumaria, nutricao, varejo, dermocosmetico, etc.)."""
+    if not produtos:
+        return produtos
+    por_key: dict = {}
+    for p in produtos:
+        ean = (p.get("ean") or "").strip()
+        key = ean.lstrip("0") or ean
+        if key:
+            por_key.setdefault(key, []).append(p)
+    if not por_key:
+        return produtos
+    own = cur is None
+    try:
+        if own:
+            cur = db().cursor()
+        cur.execute(
+            "SELECT ean, tipo FROM ecommerce_classificacao_ean "
+            "WHERE ean = ANY(%s) AND COALESCE(tipo, '') <> ''",
+            (list(por_key.keys()),),
+        )
+        for r in cur.fetchall():
+            for p in por_key.get(r["ean"], []):
+                p["categoria"] = r["tipo"]
+    except Exception as exc:
+        app.logger.warning("apply saved categories error: %s", exc)
+    finally:
+        if own and cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+    return produtos
+
+
 def get_dns_products_batch(cnpjs):
     """Fetch DNS products for multiple CNPJs in two batch queries."""
     if not cnpjs:
@@ -5191,6 +5235,7 @@ def get_dns_products_batch(cnpjs):
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
                 _p["imagem_bloqueada_anvisa"] = True
+    _apply_saved_categories(combined, cur)
     cur.close()
     try:
         conn.close()
@@ -5592,6 +5637,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         conn2.close()
     except Exception:
         pass
+    _apply_saved_categories(rows)
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
 
@@ -5644,6 +5690,7 @@ def get_alpha_products_direct(cnpjs, limit=200):
         conn2.close()
     except Exception:
         pass
+    _apply_saved_categories(rows)
     rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)

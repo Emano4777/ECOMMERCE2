@@ -513,6 +513,60 @@ def _catalogo_sql(recorte_antigo=False, cnpj=None, min_estoque=0):
     """
 
 
+def _catalogo_sql_alpha(cnpj=None, min_estoque=0):
+    """Catalogo a partir do fluxo NOVO (Alpha): tabela ecommerce_alpha_produtos.
+
+    Considera apenas itens que aparecem no catalogo publico do ecommerce
+    (ativos e com estoque) — que sao exatamente os produtos puxados do Alpha.
+    Produz as mesmas colunas de _catalogo_sql (ean, nome, tipo_ia, estoque_total).
+    A tabela vive no mesmo banco (DATABASE_URL), entao nao exige credencial do Alpha.
+    """
+    filtro_loja = "AND ap.cnpjloja = %(cnpj)s" if cnpj else ""
+    return f"""
+        WITH catalogo AS (
+            SELECT
+                LTRIM(COALESCE(ap.ean, ''), '0') AS ean,
+                COALESCE(m.descricao, ap.nome) AS nome,
+                COALESCE(cls.tipo, m.tipo_ia) AS tipo_ia,
+                CASE WHEN m.id IS NOT NULL THEN 1 ELSE 0 END AS tem_medicamento,
+                ap.estoque AS qtd
+            FROM ecommerce_alpha_produtos ap
+            LEFT JOIN medicamentos m
+                   ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+            LEFT JOIN ecommerce_classificacao_ean cls
+                   ON cls.ean = LTRIM(COALESCE(ap.ean, ''), '0')
+            WHERE COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > %(min_estoque)s
+              AND COALESCE(ap.ean, '') <> ''
+              {filtro_loja}
+              AND COALESCE(m.descricao, ap.nome) IS NOT NULL
+        )
+        SELECT DISTINCT ON (ean)
+               ean,
+               nome,
+               tipo_ia,
+               SUM(COALESCE(qtd, 0)) OVER (PARTITION BY ean) AS estoque_total
+        FROM catalogo
+        WHERE ean <> '' AND nome IS NOT NULL AND TRIM(nome) <> ''
+        ORDER BY ean,
+                 tem_medicamento DESC,
+                 CASE WHEN nome ~* '(\\d+\\s*(mg|mcg|ml|g|ui)|comprim|caps|cpr|drg|amp|xarope|pomada|creme|gel|gotas|colirio|spray)' THEN 0 ELSE 1 END,
+                 LENGTH(nome) DESC
+    """
+
+
+def _alpha_tem_produtos(cur):
+    """True se ha produtos Alpha ativos com estoque (catalogo novo em uso)."""
+    try:
+        cur.execute(
+            "SELECT 1 FROM ecommerce_alpha_produtos "
+            "WHERE COALESCE(inativo, false) = false AND COALESCE(estoque, 0) > 0 LIMIT 1"
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 def _placeholder_tarja(tarja):
     tarja = (tarja or "").strip().lower()
     if tarja == "preta":
@@ -565,6 +619,18 @@ def _aplicar_restricoes_imagem(chaves=None, page_size=200):
         FROM automatiza_estoque ae
         LEFT JOIN medicamentos m ON m.barra_norm = ae.ean
         WHERE ae.quantidade_estoque > 0 AND COALESCE(ae.ean, '') <> ''
+
+        UNION ALL
+
+        -- Fluxo novo (Alpha): garante que a caixa de tarja tambem se aplica aos
+        -- produtos do catalogo publico puxados do Alpha.
+        SELECT ap.cnpjloja AS cnpjloja, ap.ean, COALESCE(m.descricao, ap.nome) AS nome
+        FROM ecommerce_alpha_produtos ap
+        LEFT JOIN medicamentos m
+               ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        WHERE COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND COALESCE(ap.ean, '') <> ''
     """)
     upserts = []
     seen = set()
@@ -648,6 +714,10 @@ def main():
                     help="Restringe a sincronizacao aos produtos desta loja")
     ap.add_argument("--min-estoque", type=int, default=0,
                     help="Exige estoque estritamente maior que este valor")
+    ap.add_argument("--fonte", choices=["auto", "alpha", "estoque"], default="auto",
+                    help="Fonte do catalogo: 'alpha' = fluxo novo (ecommerce_alpha_produtos, "
+                         "itens do catalogo publico); 'estoque' = fluxo antigo (estoque/automatiza_estoque); "
+                         "'auto' (padrao) = usa Alpha se houver produtos Alpha, senao cai no antigo")
     args = ap.parse_args()
     db_batch = max(1, min(int(args.db_batch or 40), 200))
 
@@ -692,18 +762,23 @@ def main():
     """)
     conn.commit()
 
-    # Produtos DNS/Vitnatu visíveis + extras adicionados manualmente pelas lojas
-    cur.execute(
-        _catalogo_sql(
+    # Decide a fonte do catalogo: fluxo novo (Alpha) x fluxo antigo (estoque).
+    _fonte = args.fonte
+    if _fonte == "auto":
+        _fonte = "alpha" if _alpha_tem_produtos(cur) else "estoque"
+    print(f"Fonte do catalogo: {_fonte}"
+          + (" (ecommerce_alpha_produtos)" if _fonte == "alpha" else " (estoque/automatiza_estoque)"))
+
+    _min_estoque = max(0, int(args.min_estoque or 0))
+    if _fonte == "alpha":
+        _catalogo_query = _catalogo_sql_alpha(cnpj=args.cnpj, min_estoque=_min_estoque)
+    else:
+        _catalogo_query = _catalogo_sql(
             recorte_antigo=args.recorte_antigo,
             cnpj=args.cnpj,
-            min_estoque=max(0, int(args.min_estoque or 0)),
-        ),
-        {
-            "cnpj": args.cnpj,
-            "min_estoque": max(0, int(args.min_estoque or 0)),
-        },
-    )
+            min_estoque=_min_estoque,
+        )
+    cur.execute(_catalogo_query, {"cnpj": args.cnpj, "min_estoque": _min_estoque})
     catalogo_rows = [dict(r) for r in cur.fetchall() if r.get("ean") and r.get("nome")]
 
     # Chaves ja em cache dentro do TTL configurado.
