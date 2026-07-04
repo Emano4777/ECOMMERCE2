@@ -1246,8 +1246,8 @@ function cardHtml(p, idx) {
         if (!plano) return '';
         if (plano.ja_assina) return `<div onclick="event.stopPropagation()" style="border-top:1px solid #bbf7d0;background:#f0fdf4;padding:6px 12px;font-size:.68rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:5px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante desta farmácia</div>`;
         if (!plano.frete_gratis_primeira_entrega) return '';
-        return `<a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:6px 12px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;text-decoration:none;font-size:.66rem;color:var(--pq-red);font-weight:800">
-          <i class="fa fa-truck-fast" style="font-size:.58rem"></i>1ª entrega grátis · outras também podem sair grátis com o clube
+        return `<a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:6px 12px;display:flex;align-items:center;gap:5px;text-decoration:none;font-size:.64rem;line-height:1.25;color:var(--pq-red);font-weight:800">
+          <i class="fa fa-truck-fast" style="font-size:.58rem;flex-shrink:0;margin-top:1px"></i><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">1ª e outras entregas grátis com o clube</span>
         </a>`;
       })()}
     </div>`;
