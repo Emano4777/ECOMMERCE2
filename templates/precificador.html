@@ -27,37 +27,6 @@
 }
 .pf-search input:focus { outline: none; border-color: var(--pk-yellow); }
 
-/* ── PAINEL DE AÇÕES ── */
-.pf-actions-bar {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-  align-items: center;
-}
-.pf-pct-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #0d1016;
-  border: 1px solid var(--pk-line);
-  border-radius: 8px;
-  padding: 6px 12px;
-}
-.pf-pct-form label { font-size: .82rem; color: var(--pk-muted); white-space: nowrap; }
-.pf-pct-inp {
-  width: 80px;
-  padding: 5px 8px;
-  background: #080b11;
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  color: var(--pk-txt);
-  font-family: inherit;
-  font-size: .9rem;
-  text-align: right;
-}
-.pf-pct-inp:focus { outline: none; border-color: var(--pk-yellow); }
-
 /* ── TABELA DESKTOP ── */
 .pf-table-wrap { overflow-x: auto; }
 .pf-table { width: 100%; border-collapse: collapse; font-size: .88rem; min-width: 680px; }
@@ -93,19 +62,6 @@
   color: #3a4255; font-size: 1.2rem;
 }
 .preco-ref  { color: var(--pk-muted); font-size: .8rem; }
-.preco-custom { color: var(--pk-yellow); font-weight: 700; }
-.inp-preco {
-  width: 110px;
-  padding: 7px 10px;
-  background: #0d1016;
-  border: 1px solid var(--pk-line);
-  border-radius: 7px;
-  color: var(--pk-txt);
-  font-family: inherit;
-  font-size: .9rem;
-  text-align: right;
-}
-.inp-preco:focus { outline: none; border-color: var(--pk-yellow); }
 .qty-ok   { color: #22c55e; }
 .qty-low  { color: #e8760a; }
 .qty-zero { color: var(--pk-red); }
@@ -125,8 +81,6 @@
 .btn-ocultar:hover { background: rgba(239,68,68,.22); }
 .btn-restaurar { background: rgba(34,197,94,.12); color: #22c55e; border-color: rgba(34,197,94,.25); }
 .btn-restaurar:hover { background: rgba(34,197,94,.22); }
-.btn-extra-rm { background: rgba(239,68,68,.12); color: #ef4444; border-color: rgba(239,68,68,.25); }
-.btn-extra-rm:hover { background: rgba(239,68,68,.22); }
 .btn-ml      { background:rgba(255,242,0,.1);  color:#fff200;  border-color:rgba(255,242,0,.3); }
 .btn-ml:hover { background:rgba(255,242,0,.2); }
 .btn-ml-pause { background:rgba(34,197,94,.08); color:#22c55e;  border-color:rgba(34,197,94,.35); }
@@ -135,9 +89,6 @@
 .btn-ml-warn:hover  { background:rgba(245,200,66,.15); }
 .btn-ml-err   { background:rgba(240,128,144,.08); color:#f08090; border-color:rgba(240,128,144,.35); }
 .btn-ml-err:hover   { background:rgba(240,128,144,.15); }
-.btn-promo    { background:rgba(251,146,60,.1);  color:#fb923c;  border-color:rgba(251,146,60,.3); }
-.btn-promo:hover { background:rgba(251,146,60,.2); }
-.btn-promo.ativo { background:rgba(251,146,60,.2); border-color:#fb923c; }
 .pf-share-wrap { position: relative; }
 .btn-share {
   background: linear-gradient(135deg, rgba(34,197,94,.18), rgba(14,165,233,.14));
@@ -184,16 +135,6 @@
 .pf-share-menu .wa i { color:#22c55e; }
 .pf-share-menu .ig i { color:#fb7185; }
 .pf-share-menu .copy i { color:var(--pk-yellow); }
-/* modal promoção */
-.pf-promo-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:1000; align-items:center; justify-content:center; padding:16px; }
-.pf-promo-overlay.open { display:flex; }
-.pf-promo-box { background:#131720; border:1px solid var(--pk-line); border-radius:14px; padding:28px; width:min(460px,96vw); max-height:88vh; overflow-y:auto; }
-.pf-promo-title { font-weight:900; font-size:1.05rem; margin-bottom:18px; color:var(--pk-txt); display:flex; align-items:center; gap:8px; }
-.pf-promo-field { margin-bottom:14px; }
-.pf-promo-field label { display:block; font-size:.76rem; color:var(--pk-muted); font-weight:700; margin-bottom:5px; }
-.pf-promo-toggle { display:flex; align-items:center; gap:9px; padding:10px 13px; background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; cursor:pointer; }
-.pf-promo-toggle input[type=checkbox] { width:16px; height:16px; accent-color:var(--pk-yellow); flex-shrink:0; }
-.pf-promo-toggle span { font-size:.82rem; color:var(--pk-txt); font-weight:700; }
 /* modal ML */
 .ml-modal-overlay {
   display:none; position:fixed; inset:0; background:rgba(0,0,0,.7);
@@ -207,49 +148,6 @@
 .ml-field label { display:block; font-size:.78rem; color:var(--pk-muted); font-weight:700; margin-bottom:4px; }
 .ml-field input, .ml-field select { width:100%; }
 .ml-field { margin-bottom:14px; }
-
-/* ── MODAL ADICIONAR ── */
-.pf-modal-bg {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.7);
-  z-index: 1000;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-.pf-modal-bg.open { display: flex; }
-.pf-modal {
-  background: #131720;
-  border: 1px solid var(--pk-line);
-  border-radius: 14px;
-  width: 100%;
-  max-width: 560px;
-  max-height: 80vh;
-  overflow-y: auto;
-  padding: 24px;
-}
-.pf-modal-title { font-weight: 900; font-size: 1.1rem; margin-bottom: 16px; }
-.pf-modal-search {
-  display: flex; gap: 8px; margin-bottom: 12px;
-}
-.pf-modal-search input {
-  flex: 1; padding: 9px 12px;
-  background: #0d1016; border: 1px solid var(--pk-line);
-  border-radius: 8px; color: var(--pk-txt);
-  font-family: inherit; font-size: .9rem;
-}
-.pf-modal-search input:focus { outline: none; border-color: var(--pk-yellow); }
-.pf-result-list { display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
-.pf-result-item {
-  display: flex; align-items: center; gap: 12px;
-  background: #0d1016; border: 1px solid var(--pk-line);
-  border-radius: 8px; padding: 10px 12px;
-}
-.pf-result-item .ri-nome { flex: 1; font-size: .88rem; font-weight: 600; }
-.pf-result-item .ri-preco { font-size: .82rem; color: var(--pk-yellow); white-space: nowrap; }
-.pf-result-item .ri-qty { font-size: .76rem; color: var(--pk-muted); }
-.pf-result-loading { text-align: center; color: var(--pk-muted); font-size: .85rem; padding: 20px; }
 
 /* ── CARDS MOBILE ── */
 @media (max-width: 700px) {
@@ -273,18 +171,6 @@
   .pf-cards-list { display: none; }
 }
 
-/* IMPORT AREA */
-.import-zone {
-  border: 2px dashed var(--pk-line);
-  border-radius: 10px;
-  padding: 22px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color .2s;
-}
-.import-zone:hover { border-color: var(--pk-yellow); }
-.import-zone input[type=file] { display: none; }
-
 .pf-stats {
   display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px;
 }
@@ -294,10 +180,15 @@
   font-size: .82rem; color: var(--pk-muted);
 }
 .pf-stat strong { color: var(--pk-yellow); }
-.pf-stat-btn { cursor: pointer; font-family: inherit; transition: background .15s, border-color .15s; }
-.pf-stat-btn:hover { background: rgba(220,53,69,.1); border-color: #dc3545; }
-.pf-stat-btn.ativo { background: rgba(220,53,69,.18); border-color: #dc3545; }
-.pf-stat-btn.ativo strong { color: #dc3545; }
+.pf-stat-btn {
+  cursor: pointer; font-family: inherit;
+  border: 1px dashed #dc3545; background: rgba(220,53,69,.08); color: #dc3545;
+  transition: background .15s, border-color .15s;
+}
+.pf-stat-btn strong { color: #dc3545; }
+.pf-stat-btn:hover { background: rgba(220,53,69,.16); }
+.pf-stat-btn.ativo { background: rgba(220,53,69,.26); border-style: solid; }
+.pf-stat-btn-hint { font-size: .68rem; opacity: .75; margin-left: 4px; }
 .pf-filtro-vazio { text-align:center; padding:40px 20px; color:var(--pk-muted); font-size:.9rem; }
 .badge-extra {
   display: inline-flex; align-items: center; gap: 4px;
@@ -355,15 +246,6 @@
     <small>{{ razao }}</small>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <button form="form-salvar" type="submit" class="btn-pk-yellow">
-      <i class="fa fa-floppy-disk me-1"></i>Salvar preços
-    </button>
-    <button type="button" onclick="abrirModalAdicionar()" class="btn-pk">
-      <i class="fa fa-plus me-1"></i>Adicionar produto
-    </button>
-    <button onclick="document.getElementById('import-panel').classList.toggle('d-none')" class="btn-pk-ghost">
-      <i class="fa fa-file-excel me-1"></i>Importar planilha
-    </button>
     <button class="btn-conc" id="btn-conc" onclick="handleConcBtn(this)">
       <i class="fa fa-magnifying-glass-dollar"></i>Consultar concorrentes
     </button>
@@ -395,27 +277,6 @@
   <pre id="conc-debug-pre" style="color:#a3e635;font-size:.72rem;white-space:pre-wrap;margin:8px 0 0;max-height:200px;overflow:auto"></pre>
 </div>
 
-<!-- IMPORT PANEL -->
-<div id="import-panel" class="pk-card d-none">
-  <div class="pk-card-title"><i class="fa fa-file-arrow-up"></i>Importar Preços (CSV ou XLSX)</div>
-  <p style="font-size:.85rem;color:var(--pk-muted);margin-bottom:14px">
-    Formato: <code style="color:var(--pk-yellow)">EAN ; Preço</code> por linha.
-  </p>
-  <form method="post" action="{{ url_for('precificador_importar') }}" enctype="multipart/form-data">
-    <div class="import-zone" id="drop-zone" onclick="document.getElementById('arq').click()">
-      <i class="fa fa-cloud-arrow-up fa-2x mb-2" style="color:var(--pk-muted)"></i>
-      <div style="color:var(--pk-muted);font-size:.88rem">Clique para selecionar arquivo <br/><span style="font-size:.75rem">CSV, TXT ou XLSX</span></div>
-      <div id="arq-nome" style="margin-top:8px;color:var(--pk-yellow);font-size:.82rem;font-weight:700"></div>
-      <input type="file" id="arq" name="arquivo" accept=".csv,.txt,.xlsx,.xls"
-             onchange="document.getElementById('arq-nome').textContent = this.files[0]?.name || ''"/>
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px">
-      <button type="submit" class="btn-pk"><i class="fa fa-upload me-1"></i>Importar</button>
-      <button type="button" onclick="document.getElementById('import-panel').classList.add('d-none')" class="btn-pk-ghost">Cancelar</button>
-    </div>
-  </form>
-</div>
-
 <!-- STATS -->
 <div class="pf-stats">
   <div class="pf-stat"><strong>{{ produtos | length }}</strong> produtos no catálogo</div>
@@ -425,7 +286,8 @@
   {% if sem_img %}
   <button type="button" id="btn-filtro-sem-imagem" class="pf-stat pf-stat-btn" onclick="pfToggleFiltroSemImagem(this)"
           title="Clique para listar só os produtos sem imagem">
-    <strong>{{ sem_img }}</strong> sem imagem / não publicados
+    <i class="fa fa-filter me-1"></i><strong>{{ sem_img }}</strong> sem imagem / não publicados
+    <span class="pf-stat-btn-hint">clique para filtrar</span>
   </button>
   {% endif %}
   {% set extras = produtos | selectattr('is_extra') | list | length %}
@@ -461,23 +323,6 @@
 </div>
 {% endif %}
 
-<!-- AÇÕES: AJUSTE PERCENTUAL -->
-<div class="pf-actions-bar">
-  <form method="post" action="{{ url_for('precificador_ajuste_percentual') }}"
-        class="pf-pct-form"
-        onsubmit="return confirm('Aplicar ajuste de ' + document.getElementById('pct-inp').value + '% em todos os produtos?')">
-    <label><i class="fa fa-percent me-1"></i>Ajuste geral:</label>
-    <input type="number" id="pct-inp" name="percentual" step="0.1" placeholder="ex: -5 ou +10"
-           class="pf-pct-inp" required/>
-    <button type="submit" class="btn-pk" style="padding:5px 12px;font-size:.82rem">
-      Aplicar %
-    </button>
-  </form>
-  <span style="font-size:.78rem;color:var(--pk-muted)">
-    Use valor negativo para reduzir. Afeta todos os produtos visíveis.
-  </span>
-</div>
-
 <!-- SEARCH -->
 <form class="pf-search" method="get">
   <input type="text" name="q" value="{{ q }}" placeholder="Buscar produto por nome…"/>
@@ -501,7 +346,7 @@
   {% endfor %}
 </div>
 
-<form id="form-salvar" method="post" action="{{ url_for('precificador_salvar') }}">
+<div id="form-salvar">
 
   <!-- TABELA DESKTOP -->
   <div class="pk-card pf-table-wrap" style="padding:0">
@@ -513,7 +358,6 @@
           <th>EAN</th>
           <th>Estoque</th>
           <th>Preço base</th>
-          <th>Preço ecommerce</th>
           <th class="conc-cell">Concorrentes <span style="font-size:.68rem;opacity:.5;font-weight:400">Raia · SP</span></th>
           <th style="width:120px">Ações</th>
         </tr>
@@ -570,23 +414,6 @@
             {% endif %}
           </td>
 
-          <!-- PREÇO CUSTOMIZADO -->
-          <td>
-            <input type="number"
-                   class="inp-preco"
-                   name="preco_{{ p.ean }}"
-                   step="0.01"
-                   min="0.01"
-                   {% if p.preco_custom %}value="{{ '%.2f'|format(p.preco_custom|float) }}"{% endif %}
-                   placeholder="{{ '%.2f'|format(p.preco_ref|float) if p.preco_ref else '0.00' }}"
-                   title="Deixe vazio para usar o preço base"/>
-            {% if p.preco_custom %}
-              <div style="font-size:.7rem;color:var(--pk-yellow);margin-top:2px">
-                <i class="fa fa-check me-1"></i>personalizado
-              </div>
-            {% endif %}
-          </td>
-
           <!-- CONCORRENTES -->
           {% set cp = competitor_map.get(p.ean, {}) %}
           <td class="conc-cell" id="conc-{{ p.ean }}"
@@ -633,12 +460,6 @@
                   </button>
                 {% endif %}
               {% endif %}
-              {% if p.is_extra %}
-                <button type="button" class="btn-row-act btn-extra-rm"
-                        onclick="removerExtra('{{ p.ean }}', this)">
-                  <i class="fa fa-trash me-1"></i>Remover
-                </button>
-              {% endif %}
               <button type="button" class="btn-row-act btn-ml" id="btn-ml-{{ p.ean }}"
                       data-ean="{{ p.ean }}" data-nome="{{ p.nome|e }}"
                       data-preco="{{ p.preco or p.preco_ref or 0 }}"
@@ -646,12 +467,6 @@
                       onclick="abrirModalML(this)">
                 <svg width="11" height="11" viewBox="0 0 48 48" style="vertical-align:-1px"><rect width="48" height="48" rx="3" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>
                 ML
-              </button>
-              <button type="button" class="btn-row-act btn-promo"
-                      data-ean="{{ p.ean }}" data-nome="{{ p.nome|e }}"
-                      data-preco="{{ p.preco or p.preco_ref or 0 }}"
-                      onclick="abrirModalPromoItem(this)">
-                <i class="fa fa-bolt me-1"></i>Promoção
               </button>
               <div class="pf-share-wrap">
                 <button type="button" class="btn-row-act btn-share"
@@ -708,17 +523,6 @@
           <div style="font-size:.72rem;color:var(--pk-muted)">Preço base</div>
           <div class="preco-ref">{% if p.preco_ref %}{{ money(p.preco_ref) }}{% else %}—{% endif %}</div>
         </div>
-        <div>
-          <div style="font-size:.72rem;color:var(--pk-muted)">Ecommerce</div>
-          <input type="number"
-                 class="inp-preco"
-                 name="preco_{{ p.ean }}"
-                 step="0.01"
-                 min="0.01"
-                 style="width:100px"
-                 {% if p.preco_custom %}value="{{ '%.2f'|format(p.preco_custom|float) }}"{% endif %}
-                 placeholder="{{ '%.2f'|format(p.preco_ref|float) if p.preco_ref else '0.00' }}"/>
-        </div>
       </div>
 
       {# Concorrentes mobile #}
@@ -760,12 +564,6 @@
             </button>
           {% endif %}
         {% endif %}
-        {% if p.is_extra %}
-          <button type="button" class="btn-row-act btn-extra-rm"
-                  onclick="removerExtra('{{ p.ean }}', this)">
-            <i class="fa fa-trash me-1"></i>Remover
-          </button>
-        {% endif %}
         <button type="button"
                 onclick="document.getElementById('img-inp-{{ p.ean }}').click()"
                 class="btn-pk-ghost"
@@ -790,119 +588,14 @@
     </div>
     {% endfor %}
   </div>
-
-  <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px">
-    <button type="submit" class="btn-pk-yellow">
-      <i class="fa fa-floppy-disk me-1"></i>Salvar todos os preços
-    </button>
-  </div>
-</form>
+</div>
 
 {% else %}
 <div class="pk-card" style="text-align:center;padding:60px 20px;color:var(--pk-muted)">
   <i class="fa fa-box-open fa-3x mb-3" style="opacity:.3"></i>
   <div style="font-weight:700">Nenhum produto DNS encontrado no estoque desta loja.</div>
-  <div style="font-size:.82rem;margin-top:6px">
-    Use o botão <strong>Adicionar produto</strong> para incluir itens do seu estoque.
-  </div>
-  <button type="button" onclick="abrirModalAdicionar()"
-          class="btn-pk" style="margin-top:16px">
-    <i class="fa fa-plus me-1"></i>Adicionar produto
-  </button>
 </div>
 {% endif %}
-
-<!-- MODAL ADICIONAR PRODUTO -->
-<div class="pf-modal-bg" id="modal-adicionar" onclick="if(event.target===this)fecharModalAdicionar()">
-  <div class="pf-modal">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div class="pf-modal-title"><i class="fa fa-plus me-2" style="color:var(--pk-yellow)"></i>Adicionar produto ao catálogo</div>
-      <button type="button" onclick="fecharModalAdicionar()" class="btn-pk-ghost" style="padding:4px 10px">&times;</button>
-    </div>
-    <p style="font-size:.82rem;color:var(--pk-muted);margin-bottom:12px">
-      Busque um produto do seu estoque para incluir no ecommerce.
-    </p>
-    <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px;margin-bottom:14px">
-      <div style="font-size:.76rem;font-weight:900;color:var(--pk-txt);margin-bottom:6px">
-        <i class="fa fa-layer-group me-1" style="color:var(--pk-yellow)"></i>Incluir varios por EAN
-      </div>
-      <textarea id="modal-eans-lote" class="pk-input" rows="4"
-                placeholder="Cole um EAN por linha ou separados por espaco"
-                style="resize:vertical;margin-bottom:8px"></textarea>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button type="button" class="btn-pk" onclick="carregarEstoqueDisponivel(this)">
-          <i class="fa fa-download me-1"></i>Carregar estoque disponível
-        </button>
-        <button type="button" class="btn-pk-yellow" onclick="incluirExtrasLote(this)">
-          <i class="fa fa-plus me-1"></i>Incluir lote
-        </button>
-      </div>
-      <div id="modal-lote-msg" style="font-size:.75rem;color:var(--pk-muted);margin-top:8px"></div>
-    </div>
-    <div class="pf-modal-search">
-      <input type="text" id="modal-busca" placeholder="Digite o nome do produto…"
-             oninput="buscarEstoque(this.value)" autocomplete="off"/>
-    </div>
-    <div class="pf-result-list" id="modal-resultados">
-      <div class="pf-result-loading" id="modal-placeholder">
-        <i class="fa fa-magnifying-glass me-1"></i>Digite pelo menos 2 caracteres para buscar
-      </div>
-    </div>
-    <div style="margin-top:16px;display:flex;justify-content:flex-end">
-      <button type="button" onclick="fecharModalAdicionar()" class="btn-pk-ghost">Fechar</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal promoção por produto -->
-<div class="pf-promo-overlay" id="pf-promo-overlay">
-  <div class="pf-promo-box">
-    <div class="pf-promo-title"><i class="fa fa-bolt" style="color:#fb923c"></i>Criar promoção</div>
-    <form method="post" action="{{ url_for('painel_promocoes_criar') }}">
-      <input type="hidden" id="pf-promo-ean" name="ean">
-      <input type="hidden" id="pf-promo-nome" name="nome">
-
-      <div style="background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:12px 14px;margin-bottom:16px">
-        <div style="font-size:.72rem;color:var(--pk-muted);font-weight:700">PRODUTO</div>
-        <div id="pf-promo-prod-nome" style="font-weight:800;color:var(--pk-txt);margin-top:3px"></div>
-        <div id="pf-promo-prod-ean"  style="font-size:.74rem;color:var(--pk-muted);font-family:monospace"></div>
-      </div>
-
-      <div class="pf-promo-field">
-        <label>Preço atual</label>
-        <div id="pf-promo-preco-atual" style="font-size:1rem;font-weight:700;color:var(--pk-yellow)"></div>
-      </div>
-
-      <div class="pf-promo-field">
-        <label>Preço promocional (R$) *</label>
-        <input type="number" name="preco_promo" id="pf-promo-preco" class="pk-input"
-               step="0.01" min="0.01" required placeholder="Ex: 24.90">
-      </div>
-
-      <div class="pf-promo-field">
-        <label>Encerramento (opcional — deixe em branco para sem prazo)</label>
-        <input type="datetime-local" name="data_fim" class="pk-input">
-      </div>
-
-      <div class="pf-promo-field">
-        <label class="pf-promo-toggle" style="cursor:pointer">
-          <input type="checkbox" name="so_assinantes" value="1" id="pf-promo-assin">
-          <span><i class="fa fa-star me-1" style="color:var(--pk-yellow)"></i>Exclusivo para assinantes</span>
-        </label>
-        <div style="font-size:.71rem;color:var(--pk-muted);margin-top:5px;padding-left:2px">
-          Só consumidores com assinatura ativa da sua loja verão esse preço.
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;margin-top:18px">
-        <button type="submit" class="btn-pk-yellow" style="flex:1">
-          <i class="fa fa-bolt me-1"></i>Criar promoção
-        </button>
-        <button type="button" class="btn-pk-ghost" onclick="fecharModalPromoItem()">Cancelar</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -1112,190 +805,6 @@ function restaurarProduto(ean, btn) {
       btn.innerHTML = '<i class="fa fa-eye-slash me-1"></i>Ocultar';
       btn.onclick = () => ocultarProduto(ean, btn);
     }
-  });
-}
-
-function removerExtra(ean, btn) {
-  if (!confirm('Remover este produto do catálogo manual?')) return;
-  fetch('/painel/precificador/remover-extra', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'ean=' + encodeURIComponent(ean),
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (!d.ok) { alert(d.msg); return; }
-    const row = document.getElementById('row-' + ean);
-    if (row) row.remove();
-    const card = document.getElementById('card-' + ean);
-    if (card) card.remove();
-  });
-}
-
-// ── Modal Adicionar ──────────────────────────────────────────────────────────
-function abrirModalAdicionar() {
-  document.getElementById('modal-adicionar').classList.add('open');
-  document.getElementById('modal-busca').focus();
-}
-
-function fecharModalAdicionar() {
-  document.getElementById('modal-adicionar').classList.remove('open');
-  document.getElementById('modal-busca').value = '';
-  document.getElementById('modal-resultados').innerHTML =
-    '<div class="pf-result-loading" id="modal-placeholder">' +
-    '<i class="fa fa-magnifying-glass me-1"></i>Digite pelo menos 2 caracteres para buscar</div>';
-}
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') fecharModalAdicionar();
-});
-
-let _buscarTimer = null;
-function buscarEstoque(val) {
-  clearTimeout(_buscarTimer);
-  if (val.length < 2) {
-    document.getElementById('modal-resultados').innerHTML =
-      '<div class="pf-result-loading"><i class="fa fa-magnifying-glass me-1"></i>Digite pelo menos 2 caracteres</div>';
-    return;
-  }
-  document.getElementById('modal-resultados').innerHTML =
-    '<div class="pf-result-loading"><i class="fa fa-spinner fa-spin me-1"></i>Buscando…</div>';
-  _buscarTimer = setTimeout(() => {
-    fetch('/api/painel/buscar-estoque?q=' + encodeURIComponent(val))
-      .then(r => r.json())
-      .then(items => renderResultados(items));
-  }, 350);
-}
-
-function renderResultados(items) {
-  const el = document.getElementById('modal-resultados');
-  if (!items.length) {
-    el.innerHTML = '<div class="pf-result-loading">Nenhum produto encontrado no estoque.</div>';
-    return;
-  }
-  el.innerHTML = items.map(it => {
-    const jaIncluido = it.ja_incluido;
-    const preco = it.preco_ref ? 'R$ ' + it.preco_ref.toFixed(2).replace('.', ',') : '—';
-    return `
-      <div class="pf-result-item" id="ri-${it.ean}">
-        <div>
-          <div class="ri-nome">${it.nome}</div>
-          <div class="ri-qty">
-            <code style="font-size:.72rem">${it.ean}</code> &nbsp;·&nbsp; Estoque: ${it.qty}
-          </div>
-        </div>
-        <div class="ri-preco">${preco}</div>
-        ${jaIncluido
-          ? `<button type="button" class="btn-row-act btn-extra-rm" onclick="removerExtraModal('${it.ean}', this)">
-               <i class="fa fa-trash me-1"></i>Remover
-             </button>`
-          : `<button type="button" class="btn-pk" style="padding:6px 12px;font-size:.8rem"
-                     onclick="incluirExtra('${it.ean}', this)">
-               <i class="fa fa-plus me-1"></i>Incluir
-             </button>`
-        }
-      </div>`;
-  }).join('');
-}
-
-function incluirExtra(ean, btn) {
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-  fetch('/painel/precificador/incluir-extra', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'ean=' + encodeURIComponent(ean),
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (!d.ok) { alert(d.msg); btn.disabled = false; return; }
-    btn.outerHTML = `<button type="button" class="btn-row-act btn-extra-rm"
-                             onclick="removerExtraModal('${ean}', this)">
-                       <i class="fa fa-check me-1"></i>Adicionado
-                     </button>`;
-    // Recarrega a página para mostrar o produto na lista
-    setTimeout(() => location.reload(), 800);
-  });
-}
-
-function carregarEstoqueDisponivel(btn) {
-  const msg = document.getElementById('modal-lote-msg');
-  const ta = document.getElementById('modal-eans-lote');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Carregando...';
-  msg.textContent = 'Buscando produtos com estoque da loja...';
-  fetch('/api/painel/estoque-disponivel?somente_novos=1&limit=5000')
-    .then(r => r.json())
-    .then(d => {
-      if (!d.ok) {
-        msg.innerHTML = '<span style="color:#f87171">Erro ao carregar estoque.</span>';
-        return;
-      }
-      const linhas = (d.itens || []).map(it => {
-        const preco = it.preco_ref ? ' - R$ ' + Number(it.preco_ref).toFixed(2).replace('.', ',') : '';
-        return `${it.ean} - ${it.nome || 'Produto sem descricao'} - estoque ${it.qty}${preco}`;
-      });
-      ta.value = linhas.join('\n');
-      msg.innerHTML = `<span style="color:#22c55e">${linhas.length} produtos carregados. Revise a lista e clique em Incluir lote.</span>`;
-    })
-    .catch(() => {
-      msg.innerHTML = '<span style="color:#f87171">Erro ao carregar estoque.</span>';
-    })
-    .finally(() => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-download me-1"></i>Carregar estoque disponível';
-    });
-}
-
-function incluirExtrasLote(btn) {
-  const txt = document.getElementById('modal-eans-lote').value;
-  const msg = document.getElementById('modal-lote-msg');
-  const eans = [...new Set((txt.match(/\d{5,}/g) || []))];
-  if (!eans.length) {
-    msg.innerHTML = '<span style="color:#f87171">Cole ao menos um EAN valido.</span>';
-    return;
-  }
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Incluindo...';
-  fetch('/painel/precificador/incluir-extra-lote', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({eans}),
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (!d.ok) {
-      msg.innerHTML = '<span style="color:#f87171">' + (d.msg || 'Erro ao incluir lote.') + '</span>';
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-plus me-1"></i>Incluir lote';
-      return;
-    }
-    msg.innerHTML = `<span style="color:#22c55e">Lote processado: ${d.inseridos} incluidos, ${d.ja_existiam || 0} ja existiam, ${d.ignorados} ignorados fora do estoque.</span>`;
-    setTimeout(() => location.reload(), 900);
-  })
-  .catch(() => {
-    msg.innerHTML = '<span style="color:#f87171">Erro ao processar lote.</span>';
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa fa-plus me-1"></i>Incluir lote';
-  });
-}
-
-function removerExtraModal(ean, btn) {
-  btn.disabled = true;
-  fetch('/painel/precificador/remover-extra', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'ean=' + encodeURIComponent(ean),
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (!d.ok) { alert(d.msg); btn.disabled = false; return; }
-    const ri = document.getElementById('ri-' + ean);
-    if (ri) ri.remove();
-    const row = document.getElementById('row-' + ean);
-    if (row) row.remove();
-    const card = document.getElementById('card-' + ean);
-    if (card) card.remove();
   });
 }
 
@@ -1983,27 +1492,4 @@ function renderConcorrentes(precos, lastUpdate, keepSearching) {
     </div>
   </div>
 </div>
-
-<script>
-// ── Modal promoção por produto ───────────────────────────────────────────────
-function abrirModalPromoItem(btn){
-  const ean   = btn.dataset.ean;
-  const nome  = btn.dataset.nome;
-  const preco = parseFloat(btn.dataset.preco)||0;
-  document.getElementById('pf-promo-ean').value  = ean;
-  document.getElementById('pf-promo-nome').value = nome;
-  document.getElementById('pf-promo-prod-nome').textContent = nome;
-  document.getElementById('pf-promo-prod-ean').textContent  = 'EAN: ' + ean;
-  document.getElementById('pf-promo-preco-atual').textContent = preco > 0 ? 'R$ ' + preco.toFixed(2).replace('.', ',') : '—';
-  document.getElementById('pf-promo-preco').value = '';
-  document.getElementById('pf-promo-assin').checked = false;
-  document.getElementById('pf-promo-overlay').classList.add('open');
-}
-function fecharModalPromoItem(){
-  document.getElementById('pf-promo-overlay').classList.remove('open');
-}
-document.getElementById('pf-promo-overlay').addEventListener('click', function(e){
-  if(e.target === this) fecharModalPromoItem();
-});
-</script>
 {% endblock %}
