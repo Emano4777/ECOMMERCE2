@@ -535,6 +535,7 @@ def inject_globals():
     consumidor_rec_abertas = 0
     consumidor_notif_nao_lidas = 0
     consumidor_encomendas_abertas = 0
+    consumidor_tem_assinatura = False
     if session.get("consumidor_id"):
         consumidor = {
             "id": session.get("consumidor_id"),
@@ -570,6 +571,17 @@ def inject_globals():
                 consumidor_encomendas_abertas = (cur.fetchone() or {}).get("n", 0) or 0
             except Exception:
                 consumidor_encomendas_abertas = 0
+            try:
+                _ensure_assinatura_schema()
+                cur.execute(
+                    """SELECT 1 FROM ecommerce_assinantes
+                       WHERE consumidor_id=%s AND status='ativo' AND pagamento_status='aprovado'
+                         AND (data_fim IS NULL OR data_fim > NOW()) LIMIT 1""",
+                    (session["consumidor_id"],),
+                )
+                consumidor_tem_assinatura = cur.fetchone() is not None
+            except Exception:
+                consumidor_tem_assinatura = False
             cur.close()
         except Exception:
             consumidor_rec_abertas = 0
@@ -582,6 +594,7 @@ def inject_globals():
         "consumidor_rec_abertas": consumidor_rec_abertas,
         "consumidor_notif_nao_lidas": consumidor_notif_nao_lidas,
         "consumidor_encomendas_abertas": consumidor_encomendas_abertas,
+        "consumidor_tem_assinatura": consumidor_tem_assinatura,
         "SUPABASE_URL": SUPABASE_URL,
         "SUPABASE_ANON": SUPABASE_ANON,
         "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),
