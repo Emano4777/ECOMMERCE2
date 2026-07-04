@@ -235,6 +235,12 @@
 .account-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .account-info { display:flex; gap:12px; flex-wrap:wrap; color:var(--pq-muted); font-size:.88rem; }
 .account-info strong { color:var(--pq-text); }
+.summary-login-hint {
+  background:#fff5f6; border:1px solid #ffd0d8; border-radius:10px;
+  padding:10px 12px; margin-bottom:12px; font-size:.78rem; color:var(--pq-red);
+  font-weight:700; display:flex; align-items:flex-start; gap:7px; line-height:1.4;
+}
+.summary-login-hint a { color:var(--pq-red); text-decoration:underline; font-weight:900; }
 .cart-recs-wrap { margin:0; }
 </style>
 {% endblock %}
@@ -334,6 +340,12 @@
         <div class="summary-row"><span>Subtotal</span><strong id="summary-subtotal">R$ 0,00</strong></div>
         <div class="summary-row"><span>Recebimento</span><strong id="summary-delivery">Retirada</strong></div>
         <div class="summary-total"><span>Total</span><strong id="grand-total">R$ 0,00</strong></div>
+        {% if not consumidor %}
+        <div class="summary-login-hint">
+          <i class="fa fa-circle-info" style="margin-top:1px"></i>
+          <span>Faça <a href="{{ url_for('consumidor_login', next=request.path) }}">login</a> ou <a href="{{ url_for('consumidor_criar_conta', next=request.path) }}">crie uma conta</a> para finalizar o pedido.</span>
+        </div>
+        {% endif %}
         <button class="btn-finalizar" id="btn-finalizar" onclick="finalizarPedido()" {% if not consumidor %}disabled{% endif %}>
           <i class="fa fa-lock me-2"></i>Finalizar pedido
         </button>
