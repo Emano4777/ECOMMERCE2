@@ -1245,16 +1245,10 @@ function cardHtml(p, idx) {
         const plano = _planosIndex[p.cnpjloja];
         if (!plano) return '';
         if (plano.ja_assina) return `<div onclick="event.stopPropagation()" style="border-top:1px solid #bbf7d0;background:#f0fdf4;padding:6px 12px;font-size:.68rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:5px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante desta farmácia</div>`;
-        const freteGratisLine = plano.frete_gratis_primeira_entrega
-          ? `<div style="font-size:.64rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:4px;margin-top:3px"><i class="fa fa-truck-fast" style="font-size:.58rem"></i>1ª entrega grátis pra quem assinar</div>`
-          : '';
-        return `<div onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:6px 12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap">
-            <span style="font-size:.68rem;color:var(--pq-red);font-weight:800;display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>Clube disponível</span>
-            <a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="font-size:.65rem;font-weight:900;color:var(--pq-red);text-decoration:none;border:1px solid #ffd0d8;border-radius:5px;padding:2px 7px;background:#fff;white-space:nowrap">R$ ${parseFloat(plano.preco||0).toFixed(2).replace('.',',')}/mês</a>
-          </div>
-          ${freteGratisLine}
-        </div>`;
+        if (!plano.frete_gratis_primeira_entrega) return '';
+        return `<a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:6px 12px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;text-decoration:none;font-size:.66rem;color:var(--pq-red);font-weight:800">
+          <i class="fa fa-truck-fast" style="font-size:.58rem"></i>1ª entrega grátis · outras também podem sair grátis com o clube
+        </a>`;
       })()}
     </div>`;
 }
