@@ -1,0 +1,73 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Config Admin{% endblock %}
+
+{% block extra_style %}
+<style>
+.cfg-section { margin-bottom:24px; }
+.cfg-section-title {
+  font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--pk-yellow); margin-bottom:14px; padding-bottom:8px;
+  border-bottom:1px solid var(--pk-line);
+  display:flex; align-items:center; gap:8px;
+}
+.cfg-field { margin-bottom:14px; }
+.cfg-field label { display:block; font-size:.78rem; font-weight:700; color:var(--pk-muted); margin-bottom:6px; }
+.cfg-help { font-size:.74rem; color:var(--pk-muted); margin-top:4px; line-height:1.45; }
+.cfg-warn { font-size:.74rem; color:var(--pk-yellow); margin-top:4px; line-height:1.45; }
+#admin-mp-test-result { font-size:.78rem; margin-top:12px; padding:12px 14px; border-radius:8px; background:#0d1016; border:1px solid var(--pk-line); display:none; white-space:pre-wrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:8px">
+  <i class="fa fa-shield-halved me-2" style="color:var(--pk-yellow)"></i>Conta Mercado Pago do admin
+</div>
+<p style="color:var(--pk-muted);font-size:.85rem;margin-bottom:24px">
+  Essa conta recebe <strong>todo</strong> pagamento de assinatura, de qualquer loja — não é mais a conta MP de cada loja.
+  Pedidos normais de produto continuam indo para a conta de cada loja individualmente, isso aqui é só para assinaturas.
+</p>
+
+<form method="post" action="{{ url_for('admin_config_salvar') }}">
+  <div class="pk-card cfg-section">
+    <div class="cfg-section-title"><i class="fa fa-key"></i>Mercado Pago</div>
+    <div class="cfg-field">
+      <label>Access Token</label>
+      <input class="pk-input" type="password" name="mp_access_token"
+             value="{{ config.mp_access_token or '' }}"
+             placeholder="APP_USR-..."/>
+      <div class="cfg-warn">
+        Necessário para cobrar assinaturas por PIX/cartão e ativar automaticamente via webhook.
+      </div>
+    </div>
+    <div class="cfg-field">
+      <label>Public Key</label>
+      <input class="pk-input" type="password" name="mp_public_key"
+             value="{{ config.mp_public_key or '' }}"
+             placeholder="APP_USR-... ou TEST-..."/>
+      <div class="cfg-help">
+        Necessária para o checkout transparente de cartão na tela de assinatura.
+      </div>
+    </div>
+    <button type="submit" class="btn-pk-yellow"><i class="fa fa-floppy-disk me-1"></i>Salvar</button>
+    <button type="button" class="btn-pk-ghost" onclick="testarMpAdmin(this)"><i class="fa fa-vial me-1"></i>Testar conexão</button>
+  </div>
+</form>
+
+<pre id="admin-mp-test-result"></pre>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function testarMpAdmin(btn) {
+  const out = document.getElementById('admin-mp-test-result');
+  btn.disabled = true;
+  out.style.display = 'block';
+  out.textContent = 'Testando...';
+  fetch('{{ url_for("admin_mp_test") }}')
+    .then(r => r.json())
+    .then(d => { out.textContent = JSON.stringify(d, null, 2); })
+    .catch(() => { out.textContent = 'Erro ao testar.'; })
+    .finally(() => { btn.disabled = false; });
+}
+</script>
+{% endblock %}

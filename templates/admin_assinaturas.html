@@ -1,0 +1,130 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Assinaturas{% endblock %}
+
+{% block extra_style %}
+<style>
+.aa-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.aa-table thead tr { background: #0d1016; }
+.aa-table th {
+  padding: 9px 12px;
+  text-align: left;
+  color: var(--pk-muted);
+  font-weight: 700;
+  font-size: .78rem;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--pk-line);
+}
+.aa-table td { padding: 9px 12px; border-bottom: 1px solid var(--pk-line); vertical-align: middle; }
+.aa-table tr:hover td { background: rgba(255,255,255,.02); }
+.aa-stats { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.aa-stat {
+  background: #0d1016; border: 1px solid var(--pk-line);
+  border-radius: 8px; padding: 8px 14px;
+  font-size: .82rem; color: var(--pk-muted);
+}
+.aa-stat strong { color: var(--pk-yellow); }
+.aa-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:3px 9px; font-size:.72rem; font-weight:800; }
+.aa-badge.on { color:#6ee79a; border:1px solid rgba(34,197,94,.35); background:#0d2d1a; }
+.aa-badge.off { color:#f08090; border:1px solid rgba(240,128,144,.35); background:#2a0810; }
+.aa-tools { margin-top:8px; padding:12px; background:#0d1016; border:1px solid var(--pk-line); border-radius:8px; min-width:320px; }
+.aa-tools summary { cursor:pointer; color:var(--pk-yellow); font-weight:900; font-size:.78rem; }
+.aa-grid { display:grid; grid-template-columns:120px minmax(180px,1fr); gap:8px; align-items:center; margin-top:10px; }
+.aa-grid label { color:var(--pk-muted); font-size:.74rem; font-weight:800; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:18px">
+  <i class="fa fa-star me-2" style="color:var(--pk-yellow)"></i>Assinaturas por loja
+</div>
+
+{% set ativos = lojas | selectattr('ativo') | list | length %}
+<div class="aa-stats">
+  <div class="aa-stat"><strong>{{ lojas | length }}</strong> lojas</div>
+  <div class="aa-stat"><strong style="color:#22c55e">{{ ativos }}</strong> com plano ativo</div>
+</div>
+
+<div class="pk-card" style="margin-bottom:18px">
+  <div class="pk-card-title"><i class="fa fa-layer-group"></i>Aplicar o mesmo plano em todas as lojas</div>
+  <p style="font-size:.82rem;color:var(--pk-muted);margin:-6px 0 14px">
+    Cria/atualiza o plano com os mesmos valores em todas as lojas de uma vez. Cada consumidor continua assinando
+    uma loja específica — só o conteúdo do plano (nome, preço, benefícios) fica idêntico em todas.
+  </p>
+  <form method="post" action="{{ url_for('admin_assinaturas_aplicar_todas') }}"
+        onsubmit="return confirm('Aplicar este plano em TODAS as ' + {{ lojas | length }} + ' lojas? Isso sobrescreve o plano atual de cada uma.')">
+    <div class="aa-grid">
+      <label>Nome</label>
+      <input type="text" name="nome" class="pk-input" value="Clube Fidelidade" maxlength="80" required>
+      <label>Valor (R$)</label>
+      <input type="number" name="preco_mensal" class="pk-input" step="0.01" min="0" value="19.90" required>
+      <label>Descrição</label>
+      <textarea name="descricao" class="pk-input" rows="2" style="resize:vertical"></textarea>
+      <label>Benefícios</label>
+      <textarea name="beneficios" class="pk-input" rows="3" style="resize:vertical" placeholder="Um por linha"></textarea>
+      <label>Ativo</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;color:var(--pk-txt)">
+        <input type="checkbox" name="ativo" value="1" checked> Plano visível para consumidores em todas as lojas
+      </label>
+    </div>
+    <button type="submit" class="btn-pk-yellow" style="margin-top:12px">
+      <i class="fa fa-layer-group me-1"></i>Aplicar em todas as {{ lojas | length }} lojas
+    </button>
+  </form>
+</div>
+
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <table class="aa-table">
+    <thead>
+      <tr>
+        <th>Razão social</th>
+        <th>Plano</th>
+        <th>Valor</th>
+        <th>Status</th>
+        <th>Assinantes</th>
+        <th style="width:340px">Editar</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lojas %}
+      <tr>
+        <td>{{ l.razao }}</td>
+        <td>{{ l.nome or '—' }}</td>
+        <td>{% if l.preco_mensal %}R$ {{ '%.2f'|format(l.preco_mensal|float) }}{% else %}—{% endif %}</td>
+        <td>
+          {% if l.ativo %}<span class="aa-badge on"><i class="fa fa-check"></i>Ativo</span>
+          {% else %}<span class="aa-badge off"><i class="fa fa-xmark"></i>Inativo</span>{% endif %}
+        </td>
+        <td>{{ l.total_assinantes or 0 }}</td>
+        <td>
+          <details class="aa-tools">
+            <summary><i class="fa fa-pen me-1"></i>Editar plano</summary>
+            <form method="post" action="{{ url_for('admin_assinaturas_salvar') }}">
+              <input type="hidden" name="cnpjloja" value="{{ l.cnpjloja }}">
+              <div class="aa-grid">
+                <label>Nome</label>
+                <input type="text" name="nome" class="pk-input" value="{{ l.nome or 'Clube Fidelidade' }}" maxlength="80" required>
+                <label>Valor (R$)</label>
+                <input type="number" name="preco_mensal" class="pk-input" step="0.01" min="0"
+                       value="{{ '%.2f'|format(l.preco_mensal|float) if l.preco_mensal else '19.90' }}" required>
+                <label>Descrição</label>
+                <textarea name="descricao" class="pk-input" rows="2" style="resize:vertical">{{ l.descricao or '' }}</textarea>
+                <label>Benefícios</label>
+                <textarea name="beneficios" class="pk-input" rows="3" style="resize:vertical"
+                          placeholder="Um por linha">{{ l.beneficios or '' }}</textarea>
+                <label>Ativo</label>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:400;color:var(--pk-txt)">
+                  <input type="checkbox" name="ativo" value="1" {% if l.ativo %}checked{% endif %}> Plano visível para consumidores
+                </label>
+              </div>
+              <button type="submit" class="btn-pk-yellow" style="margin-top:10px">
+                <i class="fa fa-floppy-disk me-1"></i>Salvar
+              </button>
+            </form>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1242,6 +1242,43 @@ def _ensure_assinatura_schema():
         _mark_migration_done("assinaturas")
 
 
+def _ensure_config_admin_schema():
+    """Config global do admin — usada para cobrar TODAS as assinaturas de TODAS
+    as lojas na mesma conta Mercado Pago (dinheiro de assinatura nao vai mais
+    pra conta MP de cada loja individual)."""
+    if "config_admin" in _schema_ready:
+        return
+    with _schema_lock:
+        if "config_admin" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_config_admin (
+                id              INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                mp_access_token TEXT,
+                mp_public_key   TEXT,
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add("config_admin")
+        _mark_migration_done("config_admin")
+
+
+def _admin_mp_config():
+    """Retorna {mp_access_token, mp_public_key} da conta MP central do admin,
+    usada para cobrar assinaturas (independente da loja assinada)."""
+    _ensure_config_admin_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT mp_access_token, mp_public_key FROM ecommerce_config_admin WHERE id=1")
+    row = cur.fetchone()
+    cur.close()
+    return dict(row) if row else {}
+
+
 def _ensure_receita_schema():
     _ensure_delivery_schema()
     if "receita" in _schema_ready:
@@ -3014,6 +3051,28 @@ def _assinatura_vigente_row(row) -> bool:
         return True
     now = datetime.now(fim.tzinfo) if getattr(fim, "tzinfo", None) else datetime.now()
     return fim > now
+
+
+def _consumidor_e_assinante(consumidor_id, cnpjloja) -> bool:
+    """Checagem ao vivo (sem cache) — corta benefício de assinante no instante
+    em que status/pagamento/data_fim deixam de valer, sem depender de nenhum
+    job rodar antes."""
+    if not consumidor_id or not cnpjloja:
+        return False
+    try:
+        _ensure_assinatura_schema()
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            """SELECT 1 FROM ecommerce_assinantes
+               WHERE consumidor_id=%s AND cnpjloja=%s
+                 AND status='ativo' AND pagamento_status='aprovado'
+                 AND (data_fim IS NULL OR data_fim > NOW())
+               LIMIT 1""",
+            (str(consumidor_id), cnpjloja),
+        )
+        return bool(cur.fetchone())
+    except Exception:
+        return False
 
 
 def _preco_produto_com_promocao(cnpjloja: str, ean: str, preco_base, consumidor_id: str | None = None) -> tuple[float, dict | None]:
@@ -11361,15 +11420,18 @@ def api_checkout():
         _ensure_cupons_schema()
         cupom_id_aplicado = None
         desconto_cupom = 0.0
+        consumidor_id_checkout = session.get("consumidor_id")
+        is_assinante_checkout = _consumidor_e_assinante(consumidor_id_checkout, cnpjloja)
         cupom_codigo = (fp.get("cupom_codigo") or "").strip().upper()
         if cupom_codigo:
-            consumidor_id_checkout = session.get("consumidor_id")
             cur.execute(
                 """
-                SELECT * FROM ecommerce_cupons c
-                WHERE c.cnpjloja=%(cnpjloja)s AND upper(c.codigo)=%(codigo)s AND c.ativo=TRUE
+                SELECT c.* FROM ecommerce_cupons c
+                JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %(cnpjloja)s
+                WHERE upper(c.codigo)=%(codigo)s AND c.ativo=TRUE
                   AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
-                  AND (c.uso_maximo = 0 OR c.usos_count < c.uso_maximo)
+                  AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+                  AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %(is_assinante)s)
                   AND (
                     c.publico = 'todos'
                     OR (c.publico = 'especifico' AND EXISTS (
@@ -11378,18 +11440,19 @@ def api_checkout():
                     ))
                     OR (c.publico = 'primeira_compra' AND NOT EXISTS (
                         SELECT 1 FROM ecommerce_pedidos prev
-                        WHERE prev.cnpjloja = c.cnpjloja AND prev.consumidor_id = %(consumidor_id)s
+                        WHERE prev.cnpjloja = %(cnpjloja)s AND prev.consumidor_id = %(consumidor_id)s
                         AND prev.status NOT IN ('cancelado')
                     ))
                     OR (c.publico = 'frequente' AND (
                         SELECT COUNT(*) FROM ecommerce_pedidos prev
-                        WHERE prev.cnpjloja = c.cnpjloja AND prev.consumidor_id = %(consumidor_id)s
+                        WHERE prev.cnpjloja = %(cnpjloja)s AND prev.consumidor_id = %(consumidor_id)s
                         AND prev.status NOT IN ('cancelado')
                     ) >= c.min_compras)
                   )
                 LIMIT 1
                 """,
-                {"cnpjloja": cnpjloja, "codigo": cupom_codigo, "consumidor_id": consumidor_id_checkout},
+                {"cnpjloja": cnpjloja, "codigo": cupom_codigo, "consumidor_id": consumidor_id_checkout,
+                 "is_assinante": is_assinante_checkout},
             )
             cupom = cur.fetchone()
             if cupom:
@@ -11419,18 +11482,20 @@ def api_checkout():
         # Desconto automático por quantidade comprada
         total_itens_qty = sum(int(i.get("qty", 1)) for i in itens)
         cur.execute("""
-            SELECT id, desconto_tipo, desconto_valor, escopo,
-                   COALESCE(escopo_categorias,'') AS escopo_categorias,
-                   COALESCE(escopo_eans,'') AS escopo_eans,
-                   COALESCE(qtd_minima,0) AS qtd_minima
-            FROM ecommerce_cupons
-            WHERE cnpjloja=%s AND ativo=TRUE
-              AND COALESCE(tipo_regra,'codigo')='quantidade'
-              AND qtd_minima > 0 AND %s >= qtd_minima
-              AND (valido_ate IS NULL OR valido_ate >= CURRENT_DATE)
-              AND (uso_maximo = 0 OR usos_count < uso_maximo)
-            ORDER BY qtd_minima DESC, desconto_valor DESC
-        """, (cnpjloja, total_itens_qty))
+            SELECT c.id, c.desconto_tipo, c.desconto_valor, c.escopo,
+                   COALESCE(c.escopo_categorias,'') AS escopo_categorias,
+                   COALESCE(c.escopo_eans,'') AS escopo_eans,
+                   COALESCE(c.qtd_minima,0) AS qtd_minima
+            FROM ecommerce_cupons c
+            JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+            WHERE c.ativo=TRUE
+              AND COALESCE(c.tipo_regra,'codigo')='quantidade'
+              AND c.qtd_minima > 0 AND %s >= c.qtd_minima
+              AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+              AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+              AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %s)
+            ORDER BY c.qtd_minima DESC, c.desconto_valor DESC
+        """, (cnpjloja, total_itens_qty, is_assinante_checkout))
         desconto_qtd = 0.0
         cupom_qtd_id = None
         for qr in cur.fetchall():
@@ -11456,17 +11521,19 @@ def api_checkout():
         desconto_pag = 0.0
         cupom_pag_id = None
         cur.execute("""
-            SELECT id, desconto_tipo, desconto_valor, escopo,
-                   COALESCE(escopo_categorias,'') AS escopo_categorias,
-                   COALESCE(escopo_eans,'') AS escopo_eans
-            FROM ecommerce_cupons
-            WHERE cnpjloja=%s AND ativo=TRUE
-              AND COALESCE(tipo_regra,'codigo')='pagamento'
-              AND (forma_pagamento = %s OR forma_pagamento = 'todos')
-              AND (valido_ate IS NULL OR valido_ate >= CURRENT_DATE)
-              AND (uso_maximo = 0 OR usos_count < uso_maximo)
-            ORDER BY desconto_valor DESC LIMIT 1
-        """, (cnpjloja, pagamento))
+            SELECT c.id, c.desconto_tipo, c.desconto_valor, c.escopo,
+                   COALESCE(c.escopo_categorias,'') AS escopo_categorias,
+                   COALESCE(c.escopo_eans,'') AS escopo_eans
+            FROM ecommerce_cupons c
+            JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+            WHERE c.ativo=TRUE
+              AND COALESCE(c.tipo_regra,'codigo')='pagamento'
+              AND (c.forma_pagamento = %s OR c.forma_pagamento = 'todos')
+              AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+              AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+              AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %s)
+            ORDER BY c.desconto_valor DESC LIMIT 1
+        """, (cnpjloja, pagamento, is_assinante_checkout))
         pag_rule = cur.fetchone()
         if pag_rule:
             escopo_p = pag_rule.get("escopo") or "todos"
@@ -11576,16 +11643,17 @@ def api_checkout():
                 ),
             )
 
-        # Incrementa contagem de uso para cada regra aplicada
+        # Incrementa contagem de uso para cada regra aplicada — contador e
+        # limite sao por loja (ecommerce_cupons_lojas), nao global da regra.
         if cupom_id_aplicado:
             cur.execute(
-                "UPDATE ecommerce_cupons SET usos_count = usos_count + 1 WHERE id=%s",
-                (cupom_id_aplicado,),
+                "UPDATE ecommerce_cupons_lojas SET usos_count = usos_count + 1 WHERE cupom_id=%s AND cnpjloja=%s",
+                (cupom_id_aplicado, cnpjloja),
             )
         if cupom_pag_id:
             cur.execute(
-                "UPDATE ecommerce_cupons SET usos_count = usos_count + 1 WHERE id=%s",
-                (cupom_pag_id,),
+                "UPDATE ecommerce_cupons_lojas SET usos_count = usos_count + 1 WHERE cupom_id=%s AND cnpjloja=%s",
+                (cupom_pag_id, cnpjloja),
             )
 
         conn.commit()
@@ -12618,54 +12686,39 @@ def _aplicar_webhook_pagamento(payment_id):
 
 
 def _ativar_assinatura_mp(payment_id: str):
-    """Ativa assinatura quando MP confirma pagamento com external_reference=assinatura:<id>."""
+    """Ativa assinatura quando MP confirma pagamento com external_reference=assinatura:<id>.
+
+    Assinatura usa sempre a conta MP central do admin (nao a de cada loja),
+    entao basta um unico token pra consultar o pagamento."""
     try:
         _ensure_assinatura_schema()
+        token = _admin_mp_config().get("mp_access_token") or ""
+        if not token:
+            return
         conn = db(); cur = conn.cursor()
-        # Busca access_token de qualquer loja que tenha esse payment_id pendente
         cur.execute(
-            """SELECT a.id, a.cnpjloja, c.mp_access_token
-               FROM ecommerce_assinantes a
-               LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
-               WHERE a.mp_payment_id=%s AND a.status='aguardando_pagamento'
-               LIMIT 1""",
+            "SELECT id FROM ecommerce_assinantes WHERE mp_payment_id=%s AND status='aguardando_pagamento' LIMIT 1",
             (str(payment_id),),
         )
         row = cur.fetchone()
-        payment_status = None
+        try:
+            data = _mp_request(token, f"/v1/payments/{payment_id}", method="GET")
+        except Exception:
+            cur.close(); return
+        payment_status = (data.get("status") or "").lower()
         if not row:
-            cur.execute("SELECT cnpjloja, mp_access_token FROM ecommerce_config_loja WHERE COALESCE(mp_access_token,'')<>''")
-            configs = cur.fetchall()
-            for cfg in configs:
-                try:
-                    data = _mp_request(cfg["mp_access_token"], f"/v1/payments/{payment_id}", method="GET")
-                except Exception:
-                    continue
-                payment_status = (data.get("status") or "").lower()
-                ext_ref = str(data.get("external_reference") or "")
-                if not ext_ref.startswith("assinatura:"):
-                    continue
-                assinatura_id = ext_ref.split(":", 1)[1]
-                cur.execute(
-                    """
-                    SELECT id FROM ecommerce_assinantes
-                    WHERE id=%s AND cnpjloja=%s AND status='aguardando_pagamento'
-                    LIMIT 1
-                    """,
-                    (assinatura_id, cfg["cnpjloja"]),
-                )
-                row = cur.fetchone()
-                if row:
-                    cur.execute("UPDATE ecommerce_assinantes SET mp_payment_id=%s WHERE id=%s", (str(payment_id), row["id"]))
-                    break
+            ext_ref = str(data.get("external_reference") or "")
+            if not ext_ref.startswith("assinatura:"):
+                cur.close(); return
+            assinatura_id = ext_ref.split(":", 1)[1]
+            cur.execute(
+                "SELECT id FROM ecommerce_assinantes WHERE id=%s AND status='aguardando_pagamento' LIMIT 1",
+                (assinatura_id,),
+            )
+            row = cur.fetchone()
             if not row:
                 cur.close(); return
-        elif row.get("mp_access_token"):
-            try:
-                data = _mp_request(row["mp_access_token"], f"/v1/payments/{payment_id}", method="GET")
-                payment_status = (data.get("status") or "").lower()
-            except Exception:
-                pass
+            cur.execute("UPDATE ecommerce_assinantes SET mp_payment_id=%s WHERE id=%s", (str(payment_id), row["id"]))
         if payment_status != "approved":
             cur.close(); return
         _ativar_assinatura_row(cur, row["id"], recorrente=False)
@@ -12675,24 +12728,22 @@ def _ativar_assinatura_mp(payment_id: str):
 
 
 def _sincronizar_assinatura_preapproval(preapproval_id: str):
+    """Assinatura recorrente sempre criada na conta MP central do admin."""
     try:
         _ensure_assinatura_schema()
+        token = _admin_mp_config().get("mp_access_token") or ""
+        if not token:
+            return None
         conn = db(); cur = conn.cursor()
         cur.execute(
-            """
-            SELECT a.id, a.cnpjloja, c.mp_access_token
-            FROM ecommerce_assinantes a
-            JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
-            WHERE a.mp_preapproval_id=%s
-            LIMIT 1
-            """,
+            "SELECT id FROM ecommerce_assinantes WHERE mp_preapproval_id=%s LIMIT 1",
             (str(preapproval_id),),
         )
         row = cur.fetchone()
-        if not row or not row.get("mp_access_token"):
+        if not row:
             cur.close()
             return None
-        data = _mp_request(row["mp_access_token"], f"/preapproval/{preapproval_id}", method="GET")
+        data = _mp_request(token, f"/preapproval/{preapproval_id}", method="GET")
         status = (data.get("status") or "").lower()
         if status in {"authorized", "active"}:
             _ativar_assinatura_row(cur, row["id"], recorrente=True)
@@ -12708,6 +12759,22 @@ def _sincronizar_assinatura_preapproval(preapproval_id: str):
         return None
 
 
+def _sincronizar_authorized_payment(authorized_payment_id: str):
+    """Busca a cobranca recorrente individual no MP pra achar o preapproval_id
+    dela e resincronizar aquela assinatura (detecta cobranca recusada rapido,
+    sem esperar o proximo passo manual do consumidor ou o job periodico)."""
+    try:
+        token = _admin_mp_config().get("mp_access_token") or ""
+        if not token:
+            return
+        data = _mp_request(token, f"/authorized_payments/{authorized_payment_id}", method="GET")
+        preapproval_id = data.get("preapproval_id")
+        if preapproval_id:
+            _sincronizar_assinatura_preapproval(str(preapproval_id))
+    except Exception:
+        pass
+
+
 @app.route("/api/mercadopago/webhook", methods=["GET", "POST"])
 def mercado_pago_webhook():
     body = request.get_json(silent=True) or {}
@@ -12721,6 +12788,16 @@ def mercado_pago_webhook():
     )
     if event_type and "preapproval" in str(event_type).lower() and payment_id:
         _sincronizar_assinatura_preapproval(str(payment_id))
+        return jsonify({"ok": True})
+    if event_type and "authorized_payment" in str(event_type).lower() and payment_id:
+        # Cada cobranca recorrente (aprovada ou recusada) do MP gera esse evento —
+        # é o jeito mais rapido de detectar quando alguem "parou de pagar":
+        # se a cobranca falhar, o MP eventualmente pausa/cancela o preapproval,
+        # e essa checagem propaga isso pro nosso banco na hora.
+        threading.Thread(
+            target=lambda: _sincronizar_authorized_payment(str(payment_id)),
+            daemon=True,
+        ).start()
         return jsonify({"ok": True})
     if event_type and event_type not in {"payment", "merchant_order"}:
         return jsonify({"ok": True})
@@ -14326,6 +14403,91 @@ def painel_config_salvar():
     cur.close()
     flash("Configurações salvas com sucesso.", "success")
     return redirect(url_for("painel_config"))
+
+
+@app.get("/painel/admin/config")
+@admin_required
+def admin_config():
+    """Conta Mercado Pago central do admin — usada para cobrar todas as assinaturas."""
+    cfg = _admin_mp_config()
+    return render_template("admin_config.html", config=cfg)
+
+
+@app.post("/painel/admin/config")
+@admin_required
+def admin_config_salvar():
+    _ensure_config_admin_schema()
+    f = request.form
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ecommerce_config_admin (id, mp_access_token, mp_public_key, updated_at)
+        VALUES (1, %s, %s, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          mp_access_token = EXCLUDED.mp_access_token,
+          mp_public_key   = EXCLUDED.mp_public_key,
+          updated_at      = NOW()
+        """,
+        (
+            (f.get("mp_access_token") or "").strip(),
+            (f.get("mp_public_key") or "").strip(),
+        ),
+    )
+    conn.commit()
+    cur.close()
+    flash("Configuração Mercado Pago do admin salva com sucesso.", "success")
+    return redirect(url_for("admin_config"))
+
+
+@app.get("/painel/admin/config/mp-test")
+@admin_required
+def admin_mp_test():
+    """Testa o token Mercado Pago do admin — conta + criação de PIX real."""
+    cfg = _admin_mp_config()
+    token = cfg.get("mp_access_token") or ""
+    if not token:
+        return jsonify({"ok": False, "erro": "Token não configurado."})
+
+    resultado = {"token_prefixo": token[:20] + "..."}
+
+    try:
+        me = _mp_request(token, "/users/me", method="GET")
+        resultado["conta"] = {
+            "ok": True,
+            "id": me.get("id"),
+            "email": me.get("email"),
+            "site_id": me.get("site_id"),
+            "pix_habilitado": me.get("site_id") == "MLB",
+        }
+    except Exception as exc:
+        resultado["conta"] = {"ok": False, "erro": str(exc)}
+
+    try:
+        pix_payload = {
+            "transaction_amount": 1.00,
+            "description": "Teste PIX Poupaqui (admin)",
+            "payment_method_id": "pix",
+            "external_reference": "mp-test-admin",
+            "payer": {"email": f"teste.{int(time.time())}@poupaqui.com.br",
+                      "first_name": "Teste", "last_name": "Poupaqui"},
+        }
+        pix_data = _mp_request(token, "/v1/payments", pix_payload,
+                               idempotency_key=f"mp-test-admin-pix-{int(time.time())}")
+        tx = (pix_data.get("point_of_interaction") or {}).get("transaction_data") or {}
+        resultado["pix_teste"] = {
+            "ok": True,
+            "payment_id": pix_data.get("id"),
+            "status": pix_data.get("status"),
+            "tem_qr_code": bool(tx.get("qr_code")),
+            "tem_qr_base64": bool(tx.get("qr_code_base64")),
+        }
+    except Exception as exc:
+        resultado["pix_teste"] = {"ok": False, "erro": str(exc)}
+
+    resultado["ok"] = (resultado.get("conta", {}).get("ok") and
+                       resultado.get("pix_teste", {}).get("ok"))
+    return jsonify(resultado)
 
 
 def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
@@ -17026,9 +17188,61 @@ def _ensure_cupons_schema():
                 UNIQUE(cupom_id, consumidor_id)
             )
         """)
+        # Regras de desconto agora sao geridas pelo admin e podem valer para
+        # varias lojas de uma vez — cnpjloja na tabela principal deixa de ser
+        # obrigatorio; quem participa da regra mora em ecommerce_cupons_lojas.
+        try:
+            cur.execute("ALTER TABLE ecommerce_cupons ALTER COLUMN cnpjloja DROP NOT NULL")
+        except Exception:
+            conn.rollback()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_cupons_lojas (
+                id SERIAL PRIMARY KEY,
+                cupom_id UUID NOT NULL REFERENCES ecommerce_cupons(id) ON DELETE CASCADE,
+                cnpjloja TEXT NOT NULL,
+                codigo_upper TEXT NOT NULL DEFAULT '',
+                usos_count INTEGER NOT NULL DEFAULT 0,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(cupom_id, cnpjloja)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cupons_lojas_cnpj ON ecommerce_cupons_lojas(cnpjloja)")
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cupons_lojas_cnpj_codigo
+            ON ecommerce_cupons_lojas (cnpjloja, codigo_upper) WHERE codigo_upper <> ''
+        """)
+        # Backfill idempotente: todo cupom ja existente (1 loja) ganha sua
+        # entrada na juncao automaticamente, preservando o contador de uso.
+        cur.execute("""
+            INSERT INTO ecommerce_cupons_lojas (cupom_id, cnpjloja, codigo_upper, usos_count)
+            SELECT id, cnpjloja, upper(COALESCE(codigo,'')), COALESCE(usos_count,0)
+            FROM ecommerce_cupons WHERE cnpjloja IS NOT NULL
+            ON CONFLICT (cupom_id, cnpjloja) DO NOTHING
+        """)
         conn.commit()
         cur.close()
         _schema_ready.add("cupons")
+
+
+def _sync_cupom_lojas(cur, cupom_id, cnpjlojas, codigo_upper=""):
+    """Replace-all das lojas participantes de uma regra de desconto.
+
+    Preserva usos_count das lojas que continuam na regra (so faz UPSERT do
+    codigo_upper), remove quem foi desmarcado e adiciona quem for novo."""
+    cnpjlojas = list(dict.fromkeys(c for c in cnpjlojas if c))
+    cur.execute(
+        "DELETE FROM ecommerce_cupons_lojas WHERE cupom_id=%s AND cnpjloja <> ALL(%s)",
+        (cupom_id, cnpjlojas or [""]),
+    )
+    for cnpj in cnpjlojas:
+        cur.execute(
+            """
+            INSERT INTO ecommerce_cupons_lojas (cupom_id, cnpjloja, codigo_upper)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (cupom_id, cnpjloja) DO UPDATE SET codigo_upper = EXCLUDED.codigo_upper
+            """,
+            (cupom_id, cnpj, codigo_upper),
+        )
 
 
 def _ensure_favoritos_schema():
@@ -17068,23 +17282,44 @@ def _ensure_favoritos_schema():
         _schema_ready.add("favoritos")
 
 
-@app.get("/painel/cupons")
-@painel_required
-def painel_cupons():
+@app.get("/painel/admin/cupons")
+@admin_required
+def admin_cupons():
     _ensure_cupons_schema()
-    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM ecommerce_cupons WHERE cnpjloja=%s ORDER BY criado_em DESC", (cnpjloja,))
-    cupons = cur.fetchall(); cur.close()
-    return render_template("painel_cupons.html", cupons=cupons)
+    cur.execute("""
+        SELECT c.*,
+               COALESCE(
+                 (SELECT string_agg(u.razao, ', ' ORDER BY u.razao)
+                  FROM ecommerce_cupons_lojas cl
+                  JOIN users u ON u.cnpjloja = cl.cnpjloja
+                  WHERE cl.cupom_id = c.id),
+                 '—'
+               ) AS lojas_nomes,
+               COALESCE(
+                 (SELECT array_agg(cl.cnpjloja) FROM ecommerce_cupons_lojas cl WHERE cl.cupom_id = c.id),
+                 ARRAY[]::text[]
+               ) AS lojas_cnpjs,
+               (SELECT COALESCE(SUM(cl.usos_count),0) FROM ecommerce_cupons_lojas cl WHERE cl.cupom_id = c.id) AS usos_total
+        FROM ecommerce_cupons c
+        ORDER BY c.criado_em DESC
+    """)
+    cupons = cur.fetchall()
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin=FALSE ORDER BY razao")
+    lojas = cur.fetchall()
+    cur.close()
+    return render_template("admin_cupons.html", cupons=cupons, lojas=lojas)
 
 
-@app.post("/painel/cupons/novo")
-@painel_required
-def painel_cupons_novo():
+@app.post("/painel/admin/cupons/novo")
+@admin_required
+def admin_cupons_novo():
     _ensure_cupons_schema()
-    cnpjloja = session.get("cnpjloja")
     f = request.form
+    lojas_sel = request.form.getlist("lojas")
+    if not lojas_sel:
+        flash("Selecione ao menos uma loja.", "error")
+        return redirect(url_for("admin_cupons"))
     tipo_regra = f.get("tipo_regra") or "codigo"
     if tipo_regra not in ("codigo", "pagamento", "quantidade"):
         tipo_regra = "codigo"
@@ -17097,19 +17332,19 @@ def painel_cupons_novo():
     qtd_minima = int(f.get("qtd_minima") or 0)
     if tipo_regra == "codigo" and not codigo:
         flash("Informe o código do cupom.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if desconto_valor <= 0:
         flash("Informe o valor do desconto.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if desconto_tipo == "pct" and desconto_valor > 100:
         flash("Desconto percentual não pode passar de 100%.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if tipo_regra == "pagamento" and not forma_pagamento:
         flash("Selecione a forma de pagamento.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if tipo_regra == "quantidade" and qtd_minima < 1:
         flash("Informe a quantidade mínima (mínimo 1).", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if tipo_regra != "codigo":
         codigo = ""
     publico = f.get("publico") or "todos"
@@ -17125,8 +17360,9 @@ def painel_cupons_novo():
         cats = request.form.getlist("escopo_categorias")
         escopo_categorias = ",".join(c.strip() for c in cats if c.strip())
     elif escopo == "produto":
-        eans = request.form.getlist("escopo_eans")
-        escopo_eans = ",".join(e.strip() for e in eans if e.strip())
+        eans_raw = request.form.getlist("escopo_eans")
+        eans_split = [e for raw in eans_raw for e in re.split(r"[,\s]+", raw.strip()) if e]
+        escopo_eans = ",".join(dict.fromkeys(eans_split))
     so_assinantes = f.get("so_assinantes") == "1"
     conn = db(); cur = conn.cursor()
     try:
@@ -17134,13 +17370,13 @@ def painel_cupons_novo():
             INSERT INTO ecommerce_cupons (cnpjloja, codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
               tipo_regra, forma_pagamento, qtd_minima, so_assinantes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (cnpjloja, codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
+        """, (codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
               tipo_regra, forma_pagamento, qtd_minima, so_assinantes))
-        cupom_row = cur.fetchone()
-        cupom_id = str(cupom_row["id"])
+        cupom_id = str(cur.fetchone()["id"])
+        _sync_cupom_lojas(cur, cupom_id, lojas_sel, codigo)
         consumidores_ids = request.form.getlist("consumidores_ids")
         if publico == "especifico" and consumidores_ids:
             for cid in consumidores_ids:
@@ -17150,20 +17386,23 @@ def painel_cupons_novo():
                     pass
         conn.commit()
         labels = {"codigo": f"Cupom {codigo}", "pagamento": "Desconto por pagamento", "quantidade": "Desconto por quantidade"}
-        flash(f"{labels.get(tipo_regra,'Regra')} criado com sucesso.", "success")
+        flash(f"{labels.get(tipo_regra,'Regra')} criado com sucesso para {len(lojas_sel)} loja(s).", "success")
     except Exception:
         conn.rollback()
-        flash("Código de cupom já existe." if tipo_regra == "codigo" else "Erro ao criar regra de desconto.", "error")
+        flash("Código de cupom já existe em uma das lojas selecionadas." if tipo_regra == "codigo" else "Erro ao criar regra de desconto.", "error")
     cur.close()
-    return redirect(url_for("painel_cupons"))
+    return redirect(url_for("admin_cupons"))
 
 
-@app.post("/painel/cupons/<cupom_id>/editar")
-@painel_required
-def painel_cupom_editar(cupom_id):
+@app.post("/painel/admin/cupons/<cupom_id>/editar")
+@admin_required
+def admin_cupom_editar(cupom_id):
     _ensure_cupons_schema()
-    cnpjloja = session.get("cnpjloja")
     f = request.form
+    lojas_sel = request.form.getlist("lojas")
+    if not lojas_sel:
+        flash("Selecione ao menos uma loja.", "error")
+        return redirect(url_for("admin_cupons"))
     tipo_regra = f.get("tipo_regra") or "codigo"
     if tipo_regra not in ("codigo", "pagamento", "quantidade"):
         tipo_regra = "codigo"
@@ -17176,13 +17415,13 @@ def painel_cupom_editar(cupom_id):
     qtd_minima = int(f.get("qtd_minima") or 0)
     if tipo_regra == "codigo" and not codigo:
         flash("Informe o código do cupom.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if desconto_valor <= 0:
         flash("Informe o valor do desconto.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if desconto_tipo == "pct" and desconto_valor > 100:
         flash("Desconto percentual não pode passar de 100%.", "error")
-        return redirect(url_for("painel_cupons"))
+        return redirect(url_for("admin_cupons"))
     if tipo_regra != "codigo":
         codigo = ""
     publico = f.get("publico") or "todos"
@@ -17198,8 +17437,10 @@ def painel_cupom_editar(cupom_id):
         cats = request.form.getlist("escopo_categorias")
         escopo_categorias = ",".join(c.strip() for c in cats if c.strip())
     elif escopo == "produto":
-        eans = request.form.getlist("escopo_eans")
-        escopo_eans = ",".join(e.strip() for e in eans if e.strip())
+        eans_raw = request.form.getlist("escopo_eans")
+        eans_split = [e for raw in eans_raw for e in re.split(r"[,\s]+", raw.strip()) if e]
+        escopo_eans = ",".join(dict.fromkeys(eans_split))
+    so_assinantes = f.get("so_assinantes") == "1"
     conn = db(); cur = conn.cursor()
     try:
         cur.execute("""
@@ -17207,58 +17448,55 @@ def painel_cupom_editar(cupom_id):
               codigo=%s, desconto_tipo=%s, desconto_valor=%s, valido_ate=%s,
               uso_maximo=%s, publico=%s, min_compras=%s,
               escopo=%s, escopo_categorias=%s, escopo_eans=%s,
-              tipo_regra=%s, forma_pagamento=%s, qtd_minima=%s
-            WHERE id=%s AND cnpjloja=%s
+              tipo_regra=%s, forma_pagamento=%s, qtd_minima=%s, so_assinantes=%s
+            WHERE id=%s
         """, (codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
-              tipo_regra, forma_pagamento, qtd_minima,
-              cupom_id, cnpjloja))
+              tipo_regra, forma_pagamento, qtd_minima, so_assinantes,
+              cupom_id))
         if cur.rowcount == 0:
             flash("Regra não encontrada.", "error")
         else:
+            _sync_cupom_lojas(cur, cupom_id, lojas_sel, codigo)
             conn.commit()
             flash("Regra de desconto atualizada.", "success")
     except Exception:
         conn.rollback()
-        flash("Código já existe em outro cupom.", "error")
+        flash("Código já existe em uma das lojas selecionadas.", "error")
     cur.close()
-    return redirect(url_for("painel_cupons"))
+    return redirect(url_for("admin_cupons"))
 
 
-@app.post("/painel/cupons/<cupom_id>/toggle")
-@painel_required
-def painel_cupom_toggle(cupom_id):
+@app.post("/painel/admin/cupons/<cupom_id>/toggle")
+@admin_required
+def admin_cupom_toggle(cupom_id):
     _ensure_cupons_schema()
-    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
-    cur.execute("UPDATE ecommerce_cupons SET ativo = NOT ativo WHERE id=%s AND cnpjloja=%s", (cupom_id, cnpjloja))
+    cur.execute("UPDATE ecommerce_cupons SET ativo = NOT ativo WHERE id=%s", (cupom_id,))
     conn.commit(); cur.close()
-    return redirect(url_for("painel_cupons"))
+    return redirect(url_for("admin_cupons"))
 
 
-@app.post("/painel/cupons/<cupom_id>/excluir")
-@painel_required
-def painel_cupom_excluir(cupom_id):
+@app.post("/painel/admin/cupons/<cupom_id>/excluir")
+@admin_required
+def admin_cupom_excluir(cupom_id):
     _ensure_cupons_schema()
-    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
-    cur.execute("DELETE FROM ecommerce_cupons WHERE id=%s AND cnpjloja=%s", (cupom_id, cnpjloja))
+    cur.execute("DELETE FROM ecommerce_cupons WHERE id=%s", (cupom_id,))
     conn.commit(); cur.close()
     flash("Cupom removido.", "success")
-    return redirect(url_for("painel_cupons"))
+    return redirect(url_for("admin_cupons"))
 
 
-@app.post("/painel/cupons/<cupom_id>/clientes")
-@painel_required
-def painel_cupom_clientes(cupom_id):
+@app.post("/painel/admin/cupons/<cupom_id>/clientes")
+@admin_required
+def admin_cupom_clientes(cupom_id):
     _ensure_cupons_schema()
-    cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
-    # Verify ownership
-    cur.execute("SELECT id FROM ecommerce_cupons WHERE id=%s AND cnpjloja=%s LIMIT 1", (cupom_id, cnpjloja))
+    cur.execute("SELECT id FROM ecommerce_cupons WHERE id=%s LIMIT 1", (cupom_id,))
     if not cur.fetchone():
         flash("Cupom não encontrado.", "error")
-        cur.close(); return redirect(url_for("painel_cupons"))
+        cur.close(); return redirect(url_for("admin_cupons"))
     # Replace all assigned consumers
     cur.execute("DELETE FROM ecommerce_cupons_clientes WHERE cupom_id=%s", (cupom_id,))
     consumidores_ids = request.form.getlist("consumidores_ids")
@@ -17266,7 +17504,7 @@ def painel_cupom_clientes(cupom_id):
         cur.execute("INSERT INTO ecommerce_cupons_clientes (cupom_id, consumidor_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (cupom_id, cid))
     conn.commit(); cur.close()
     flash("Clientes do cupom atualizados.", "success")
-    return redirect(url_for("painel_cupons"))
+    return redirect(url_for("admin_cupons"))
 
 
 @app.get("/api/cupom/validar")
@@ -17277,15 +17515,18 @@ def api_cupom_validar():
     total    = _to_float_or_none(request.args.get("total")) or 0
     if not cnpjloja or not codigo:
         return jsonify({"valido": False, "msg": "Dados incompletos."})
+    is_assinante = _consumidor_e_assinante(session.get("consumidor_id"), cnpjloja)
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        SELECT * FROM ecommerce_cupons
-        WHERE cnpjloja=%s AND upper(codigo)=%s AND ativo=TRUE
-          AND COALESCE(tipo_regra,'codigo')='codigo'
-          AND (valido_ate IS NULL OR valido_ate >= CURRENT_DATE)
-          AND (uso_maximo = 0 OR usos_count < uso_maximo)
+        SELECT c.* FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+        WHERE upper(c.codigo)=%s AND c.ativo=TRUE
+          AND COALESCE(c.tipo_regra,'codigo')='codigo'
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+          AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+          AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %s)
         LIMIT 1
-    """, (cnpjloja, codigo))
+    """, (cnpjloja, codigo, is_assinante))
     cupom = cur.fetchone(); cur.close()
     if not cupom:
         return jsonify({"valido": False, "msg": "Cupom inválido ou expirado."})
@@ -17318,21 +17559,24 @@ def api_descontos_auto():
     cnpjloja = (request.args.get("cnpj") or "").strip()
     if not cnpjloja:
         return jsonify({"pagamento": [], "quantidade": []})
+    is_assinante = _consumidor_e_assinante(session.get("consumidor_id"), cnpjloja)
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        SELECT tipo_regra, COALESCE(forma_pagamento,'') AS forma_pagamento,
-               desconto_tipo, desconto_valor,
-               COALESCE(qtd_minima,0) AS qtd_minima,
-               COALESCE(escopo,'todos') AS escopo,
-               COALESCE(escopo_categorias,'') AS escopo_categorias,
-               COALESCE(escopo_eans,'') AS escopo_eans
-        FROM ecommerce_cupons
-        WHERE cnpjloja=%s AND ativo=TRUE
-          AND COALESCE(tipo_regra,'codigo') IN ('pagamento','quantidade')
-          AND (valido_ate IS NULL OR valido_ate >= CURRENT_DATE)
-          AND (uso_maximo = 0 OR usos_count < uso_maximo)
-        ORDER BY desconto_valor DESC
-    """, (cnpjloja,))
+        SELECT c.tipo_regra, COALESCE(c.forma_pagamento,'') AS forma_pagamento,
+               c.desconto_tipo, c.desconto_valor,
+               COALESCE(c.qtd_minima,0) AS qtd_minima,
+               COALESCE(c.escopo,'todos') AS escopo,
+               COALESCE(c.escopo_categorias,'') AS escopo_categorias,
+               COALESCE(c.escopo_eans,'') AS escopo_eans
+        FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+        WHERE c.ativo=TRUE
+          AND COALESCE(c.tipo_regra,'codigo') IN ('pagamento','quantidade')
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+          AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+          AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %s)
+        ORDER BY c.desconto_valor DESC
+    """, (cnpjloja, is_assinante))
     rows = cur.fetchall(); cur.close()
     pagamento_rules = []
     quantidade_rules = []
@@ -17468,11 +17712,11 @@ def api_cupons_disponiveis():
                COALESCE(c.escopo_eans,'') AS escopo_eans,
                COALESCE(c.so_assinantes, FALSE) AS so_assinantes
         FROM ecommerce_cupons c
-        WHERE c.cnpjloja = %s
-          AND c.ativo = TRUE
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+        WHERE c.ativo = TRUE
           AND COALESCE(c.tipo_regra,'codigo') = 'codigo'
           AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
-          AND (c.uso_maximo = 0 OR c.usos_count < c.uso_maximo)
+          AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
           {assin_filter}
           AND (
             c.publico = 'todos'
@@ -17522,11 +17766,11 @@ def consumidor_cupons():
                    COALESCE(c.escopo_categorias,'') AS escopo_categorias,
                    COALESCE(c.escopo_eans,'') AS escopo_eans
             FROM ecommerce_cupons c
-            WHERE c.cnpjloja = %s
-              AND c.ativo = TRUE
+            JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+            WHERE c.ativo = TRUE
               AND COALESCE(c.tipo_regra,'codigo') = 'codigo'
               AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
-              AND (c.uso_maximo = 0 OR c.usos_count < c.uso_maximo)
+              AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
               AND (
                 c.publico = 'todos'
                 OR (c.publico = 'especifico' AND EXISTS (
@@ -20163,32 +20407,36 @@ def api_promocao():
 
 # ─── ASSINATURAS ──────────────────────────────────────────────────────────────
 
-@app.get("/painel/assinatura")
-@painel_required
-def painel_assinatura():
+@app.get("/painel/admin/assinaturas")
+@admin_required
+def admin_assinaturas():
     _ensure_assinatura_schema()
-    cnpj = session["cnpjloja"]
     conn = db()
     cur  = conn.cursor()
-    cur.execute("SELECT * FROM ecommerce_planos_assinatura WHERE cnpjloja=%s LIMIT 1", (cnpj,))
-    plano = cur.fetchone()
-    cur.execute(
-        """SELECT COUNT(*) AS total FROM ecommerce_assinantes
-           WHERE cnpjloja=%s
-             AND status='ativo' AND pagamento_status='aprovado'
-             AND (data_fim IS NULL OR data_fim > NOW())""",
-        (cnpj,),
-    )
-    total_assinantes = cur.fetchone()["total"]
+    cur.execute("""
+        SELECT u.cnpjloja, u.razao,
+               p.id AS plano_id, p.nome, p.descricao, p.preco_mensal, p.beneficios, p.ativo,
+               (SELECT COUNT(*) FROM ecommerce_assinantes a
+                 WHERE a.cnpjloja = u.cnpjloja AND a.status='ativo' AND a.pagamento_status='aprovado'
+                   AND (a.data_fim IS NULL OR a.data_fim > NOW())) AS total_assinantes
+        FROM users u
+        LEFT JOIN ecommerce_planos_assinatura p ON p.cnpjloja = u.cnpjloja
+        WHERE u.is_admin = FALSE
+        ORDER BY u.razao
+    """)
+    lojas = cur.fetchall()
     cur.close()
-    return render_template("painel_assinatura.html", plano=plano, total_assinantes=total_assinantes)
+    return render_template("admin_assinaturas.html", lojas=lojas)
 
 
-@app.post("/painel/assinatura/salvar")
-@painel_required
-def painel_assinatura_salvar():
+@app.post("/painel/admin/assinaturas/salvar")
+@admin_required
+def admin_assinaturas_salvar():
     _ensure_assinatura_schema()
-    cnpj         = session["cnpjloja"]
+    cnpj = (request.form.get("cnpjloja") or "").strip()
+    if not cnpj:
+        flash("Loja inválida.", "error")
+        return redirect(url_for("admin_assinaturas"))
     nome         = request.form.get("nome", "Clube Fidelidade").strip()
     descricao    = request.form.get("descricao", "").strip()
     preco_mensal = request.form.get("preco_mensal", "")
@@ -20201,7 +20449,7 @@ def painel_assinatura_salvar():
             raise ValueError
     except (ValueError, TypeError):
         flash("Preço mensal inválido.", "error")
-        return redirect(url_for("painel_assinatura"))
+        return redirect(url_for("admin_assinaturas"))
 
     conn = db()
     cur  = conn.cursor()
@@ -20218,7 +20466,50 @@ def painel_assinatura_salvar():
     conn.commit()
     cur.close()
     flash("Plano de assinatura salvo com sucesso!", "success")
-    return redirect(url_for("painel_assinatura"))
+    return redirect(url_for("admin_assinaturas"))
+
+
+@app.post("/painel/admin/assinaturas/aplicar-todas")
+@admin_required
+def admin_assinaturas_aplicar_todas():
+    """Cria/atualiza o mesmo plano de assinatura (nome, preco, beneficios) em
+    todas as lojas de uma vez — cada loja continua com sua propria linha em
+    ecommerce_planos_assinatura (assinante ainda assina uma loja especifica),
+    só o CONTEUDO do plano fica identico em todas."""
+    _ensure_assinatura_schema()
+    nome         = request.form.get("nome", "Clube Fidelidade").strip()
+    descricao    = request.form.get("descricao", "").strip()
+    preco_mensal = request.form.get("preco_mensal", "")
+    beneficios   = request.form.get("beneficios", "").strip()
+    ativo        = request.form.get("ativo") == "1"
+
+    try:
+        preco_mensal = float(preco_mensal)
+        if preco_mensal < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash("Preço mensal inválido.", "error")
+        return redirect(url_for("admin_assinaturas"))
+
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute("SELECT cnpjloja FROM users WHERE is_admin = FALSE")
+    cnpjs = [r["cnpjloja"] for r in cur.fetchall()]
+    for cnpj in cnpjs:
+        cur.execute("""
+            INSERT INTO ecommerce_planos_assinatura (cnpjloja, nome, descricao, preco_mensal, beneficios, ativo)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (cnpjloja) DO UPDATE SET
+                nome         = EXCLUDED.nome,
+                descricao    = EXCLUDED.descricao,
+                preco_mensal = EXCLUDED.preco_mensal,
+                beneficios   = EXCLUDED.beneficios,
+                ativo        = EXCLUDED.ativo
+        """, (cnpj, nome, descricao or None, preco_mensal, beneficios or None, ativo))
+    conn.commit()
+    cur.close()
+    flash(f"Plano aplicado em {len(cnpjs)} loja(s) com sucesso!", "success")
+    return redirect(url_for("admin_assinaturas"))
 
 
 @app.get("/minhas-assinaturas")
@@ -20264,19 +20555,15 @@ def assinar_loja(cnpjloja):
     conn = db()
     cur  = conn.cursor()
 
-    # Busca plano + config de pagamento da loja
+    # Busca plano (pagamento de assinatura usa a conta MP central do admin,
+    # nao a config da loja — ver _admin_mp_config)
     cur.execute("""
-        SELECT p.id AS plano_id, p.nome AS plano_nome, p.preco_mensal,
-               c.mp_access_token, c.mp_public_key, c.pix_chave, c.pix_nome,
-               COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo,
-               c.asaas_api_key, c.pagbank_token, c.pagbank_public_key,
-               u.razao
+        SELECT p.id AS plano_id, p.nome AS plano_nome, p.preco_mensal, u.razao
         FROM ecommerce_planos_assinatura p
         JOIN users u ON u.cnpjloja = %s
-        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = %s
         WHERE p.cnpjloja = %s AND p.ativo = TRUE
         LIMIT 1
-    """, (cnpjloja, cnpjloja, cnpjloja))
+    """, (cnpjloja, cnpjloja))
     plano = cur.fetchone()
     if not plano:
         flash("Esta farmácia não tem plano de assinatura ativo no momento.", "error")
@@ -20308,24 +20595,9 @@ def assinar_loja(cnpjloja):
         flash("Assinatura ativada! Agora você tem acesso a benefícios exclusivos.", "success")
         return redirect(url_for("minhas_assinaturas"))
 
-    gateway_assinatura = (plano.get("gateway_alternativo") or "mercadopago").strip()
-    if gateway_assinatura != "mercadopago":
-        gateway_ok = gateway_assinatura == "asaas" and bool(plano.get("asaas_api_key"))
-        session["assinatura_pix"] = {
-            "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
-            "qr_code": None, "qr_code_base64": None, "mp_payment_id": None,
-            "mp_public_key": "",
-            "gateway_pagamento": gateway_assinatura,
-            "gateway_aviso": "" if gateway_ok else f"Gateway {gateway_assinatura} configurado, mas a credencial ou a integração deste provedor ainda não está ativa.",
-            "plano_nome": plano["plano_nome"], "razao": plano["razao"],
-            "preco": preco,
-            "pix_chave": plano.get("pix_chave") or "",
-            "pix_nome":  plano.get("pix_nome")  or plano["razao"],
-        }
-        return redirect(url_for("assinatura_pagamento", cnpjloja=cnpjloja))
-
-    # Tenta criar pagamento no MP se token disponível
-    mp_token = plano.get("mp_access_token") or ""
+    # Toda assinatura paga usa a conta Mercado Pago central do admin
+    admin_cfg = _admin_mp_config()
+    mp_token = admin_cfg.get("mp_access_token") or ""
     if mp_token:
         cliente = _consumidor_from_session() or {}
         item = [{"nome": f"Assinatura {plano['plano_nome']} — {plano['razao']}", "qty": 1, "preco": preco}]
@@ -20370,7 +20642,7 @@ def assinar_loja(cnpjloja):
                     "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
                     "qr_code": qr, "qr_code_base64": qr64,
                     "mp_payment_id": mp_pid,
-                    "mp_public_key": plano.get("mp_public_key") or "",
+                    "mp_public_key": admin_cfg.get("mp_public_key") or "",
                     "mp_preapproval_id": str(recorrencia.get("id") or "") if assinatura_recorrente_link else "",
                     "assinatura_recorrente_link": assinatura_recorrente_link,
                     "cartao_link": None,
@@ -20420,24 +20692,17 @@ def assinar_loja(cnpjloja):
         }
         info.update({
             "mp_preapproval_id": str(recorrencia.get("id") or "") if assinatura_recorrente_link else "",
-            "mp_public_key": plano.get("mp_public_key") or "",
+            "mp_public_key": admin_cfg.get("mp_public_key") or "",
             "assinatura_recorrente_link": assinatura_recorrente_link,
             "cartao_link": cartao_link,
         })
         session["assinatura_pix"] = info
         return redirect(url_for("assinatura_pagamento", cnpjloja=cnpjloja))
 
-    # Sem integração de pagamento: mostra info Pix manual
-    session["assinatura_pix"] = {
-        "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
-        "qr_code": None, "qr_code_base64": None, "mp_payment_id": None,
-        "mp_public_key": "",
-        "plano_nome": plano["plano_nome"], "razao": plano["razao"],
-        "preco": preco,
-        "pix_chave": plano.get("pix_chave") or "",
-        "pix_nome":  plano.get("pix_nome")  or plano["razao"],
-    }
-    return redirect(url_for("assinatura_pagamento", cnpjloja=cnpjloja))
+    # Sem token MP do admin configurado: assinatura paga fica indisponivel
+    # (nao ha mais fallback de Pix manual/gateway alternativo por loja)
+    flash("Pagamento de assinatura temporariamente indisponível. Tente novamente mais tarde.", "error")
+    return redirect(request.referrer or url_for("index"))
 
 
 @app.get("/assinatura/pagamento/<cnpjloja>")
@@ -20456,12 +20721,10 @@ def assinatura_pagamento(cnpjloja):
             SELECT a.id, a.mp_payment_id, a.mp_preapproval_id, a.mp_preapproval_init_point,
                    a.mp_init_point, a.status, a.pagamento_status, a.data_fim,
                    p.nome AS plano_nome, p.preco_mensal,
-                   u.razao,
-                   c.pix_chave, c.pix_nome, c.mp_public_key
+                   u.razao
             FROM ecommerce_assinantes a
             JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
             JOIN users u ON u.cnpjloja = a.cnpjloja
-            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
             WHERE a.consumidor_id = %s AND a.cnpjloja = %s
             LIMIT 1
         """, (consumidor_id, cnpjloja))
@@ -20480,17 +20743,14 @@ def assinatura_pagamento(cnpjloja):
         mp_row = cur.fetchone()
         if mp_row:
             mp_customer_id = mp_row["mp_customer_id"]
+        admin_cfg = _admin_mp_config()
         # Tenta re-buscar QR code do MP se o pagamento ainda existir
-        if mp_pid:
+        if mp_pid and admin_cfg.get("mp_access_token"):
             try:
-                conn5 = db(); cur5 = conn5.cursor()
-                cur5.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
-                cfg5 = cur5.fetchone(); cur5.close()
-                if cfg5 and cfg5.get("mp_access_token"):
-                    pdata = _mp_request(cfg5["mp_access_token"], f"/v1/payments/{mp_pid}", method="GET")
-                    tx = (pdata.get("point_of_interaction") or {}).get("transaction_data") or {}
-                    qr_code = tx.get("qr_code")
-                    qr_code_base64 = tx.get("qr_code_base64")
+                pdata = _mp_request(admin_cfg["mp_access_token"], f"/v1/payments/{mp_pid}", method="GET")
+                tx = (pdata.get("point_of_interaction") or {}).get("transaction_data") or {}
+                qr_code = tx.get("qr_code")
+                qr_code_base64 = tx.get("qr_code_base64")
             except Exception:
                 pass
         info = {
@@ -20499,7 +20759,7 @@ def assinatura_pagamento(cnpjloja):
             "qr_code": qr_code,
             "qr_code_base64": qr_code_base64,
             "mp_payment_id": mp_pid,
-            "mp_public_key": row.get("mp_public_key") or "",
+            "mp_public_key": admin_cfg.get("mp_public_key") or "",
             "mp_customer_id": mp_customer_id or "",
             "mp_preapproval_id": row.get("mp_preapproval_id") or "",
             "assinatura_recorrente_link": row.get("mp_preapproval_init_point") or "",
@@ -20507,8 +20767,6 @@ def assinatura_pagamento(cnpjloja):
             "plano_nome": row["plano_nome"],
             "razao": row["razao"],
             "preco": float(row["preco_mensal"] or 0),
-            "pix_chave": row.get("pix_chave") or "",
-            "pix_nome": row.get("pix_nome") or row["razao"],
         }
         cur.close()
 
@@ -20547,15 +20805,16 @@ def assinatura_cartao_transparente(cnpjloja):
     doc_type = (identification.get("type") or ("CNPJ" if len(doc_number) == 14 else "CPF")).upper()
     if doc_type not in {"CPF", "CNPJ"} or len(doc_number) not in {11, 14}:
         return jsonify({"error": "Informe CPF ou CNPJ valido do pagador."}), 400
+    admin_token = _admin_mp_config().get("mp_access_token") or ""
+    if not admin_token:
+        return jsonify({"error": "Pagamento de assinatura indisponível no momento."}), 400
     conn = db(); cur = conn.cursor()
     cur.execute(
         """
-        SELECT a.id, a.status, p.nome AS plano_nome, p.preco_mensal, u.razao,
-               c.mp_access_token
+        SELECT a.id, a.status, p.nome AS plano_nome, p.preco_mensal, u.razao
         FROM ecommerce_assinantes a
         JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
         JOIN users u ON u.cnpjloja = a.cnpjloja
-        JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
         WHERE a.consumidor_id=%s AND a.cnpjloja=%s
         LIMIT 1
         """,
@@ -20565,17 +20824,14 @@ def assinatura_cartao_transparente(cnpjloja):
     if not row:
         cur.close()
         return jsonify({"error": "Assinatura não encontrada."}), 404
-    if not row.get("mp_access_token"):
-        cur.close()
-        return jsonify({"error": "Loja sem Mercado Pago configurado."}), 400
     cliente = _consumidor_from_session() or {}
     plano = {
         "plano_nome": row["plano_nome"],
         "preco_mensal": float(row["preco_mensal"] or 0),
         "razao": row["razao"],
     }
-    _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
-    pre = _criar_assinatura_recorrente_cartao_mp(row["mp_access_token"], row["id"], plano, cliente, card_token)
+    _obter_ou_criar_mp_customer(admin_token, consumidor_id, cnpjloja, cliente)
+    pre = _criar_assinatura_recorrente_cartao_mp(admin_token, row["id"], plano, cliente, card_token)
     erro = pre.get("_erro") if isinstance(pre, dict) else None
     if erro:
         cur.close()
@@ -20598,65 +20854,9 @@ def assinatura_cartao_transparente(cnpjloja):
 
 @app.post("/assinatura/pagamento/<cnpjloja>/asaas-cartao")
 def assinatura_asaas_cartao(cnpjloja):
-    _ensure_assinatura_schema()
-    _ensure_gateway_alt_columns()
-    consumidor_id = str(session.get("consumidor_id") or "")
-    if not consumidor_id:
-        return jsonify({"error": "Faça login para assinar."}), 401
-    data = request.get_json(force=True) or {}
-    holder = data.get("holder") or {}
-    doc = _digits(holder.get("cpfCnpj") or "")
-    cep = _digits(holder.get("postalCode") or "")
-    if len(doc) not in {11, 14}:
-        return jsonify({"error": "Informe CPF ou CNPJ válido do pagador."}), 400
-    if len(cep) != 8:
-        return jsonify({"error": "Informe CEP válido do titular do cartão."}), 400
-    conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT a.id, p.nome AS plano_nome, p.preco_mensal, u.razao,
-               c.asaas_api_key, COALESCE(c.gateway_alternativo, 'mercadopago') AS gateway_alternativo
-        FROM ecommerce_assinantes a
-        JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
-        JOIN users u ON u.cnpjloja = a.cnpjloja
-        JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
-        WHERE a.consumidor_id=%s AND a.cnpjloja=%s
-        LIMIT 1
-        """,
-        (consumidor_id, cnpjloja),
-    )
-    row = cur.fetchone()
-    if not row:
-        cur.close()
-        return jsonify({"error": "Assinatura não encontrada."}), 404
-    if row.get("gateway_alternativo") != "asaas":
-        cur.close()
-        return jsonify({"error": "Esta loja não está configurada para Asaas."}), 400
-    if not row.get("asaas_api_key"):
-        cur.close()
-        return jsonify({"error": "Loja sem API Key Asaas configurada."}), 400
-    cliente = _consumidor_from_session() or {}
-    if not holder.get("email"):
-        holder["email"] = cliente.get("email") or ""
-    if not holder.get("phone"):
-        holder["phone"] = cliente.get("telefone") or ""
-    data["holder"] = holder
-    plano = {"plano_nome": row["plano_nome"], "preco_mensal": float(row["preco_mensal"] or 0), "razao": row["razao"]}
-    try:
-        sub = _criar_assinatura_cartao_asaas(row["asaas_api_key"], row["id"], cnpjloja, plano, cliente, consumidor_id, data)
-    except Exception as exc:
-        cur.close()
-        return jsonify({"error": str(exc)}), 400
-    sub_id = str(sub.get("id") or "")
-    cur.execute(
-        "UPDATE ecommerce_assinantes SET mp_preapproval_id=%s, assinatura_recorrente=TRUE WHERE id=%s",
-        (sub_id, row["id"]),
-    )
-    _ativar_assinatura_row(cur, row["id"], recorrente=True)
-    conn.commit()
-    cur.close()
-    return jsonify({"status": "ativo", "subscription_id": sub_id})
+    # Assinatura agora só é cobrada via Mercado Pago (conta central do admin) —
+    # Asaas por loja não é mais uma opção de pagamento de assinatura.
+    return jsonify({"error": "Pagamento de assinatura via Asaas não está mais disponível. Use Mercado Pago."}), 400
 
 
 @app.get("/assinatura/pagamento/<cnpjloja>/status")
@@ -20696,14 +20896,9 @@ def assinatura_pagamento_status(cnpjloja):
             return jsonify({"status": "cancelado", "pagamento": row["pagamento_status"]})
     if mp_pid:
         try:
-            conn2 = db(); cur2 = conn2.cursor()
-            cur2.execute(
-                "SELECT c.mp_access_token FROM ecommerce_config_loja c WHERE c.cnpjloja=%s LIMIT 1",
-                (cnpjloja,),
-            )
-            cfg = cur2.fetchone(); cur2.close()
-            if cfg and cfg.get("mp_access_token"):
-                data = _mp_request(cfg["mp_access_token"], f"/v1/payments/{mp_pid}", method="GET")
+            admin_token = _admin_mp_config().get("mp_access_token") or ""
+            if admin_token:
+                data = _mp_request(admin_token, f"/v1/payments/{mp_pid}", method="GET")
                 mp_status = (data.get("status") or "").lower()
                 if mp_status == "approved":
                     conn3 = db(); cur3 = conn3.cursor()
@@ -20731,20 +20926,15 @@ def cancelar_assinatura(cnpjloja):
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        """
-        SELECT a.mp_preapproval_id, c.mp_access_token
-        FROM ecommerce_assinantes a
-        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
-        WHERE a.consumidor_id=%s AND a.cnpjloja=%s
-        LIMIT 1
-        """,
+        "SELECT mp_preapproval_id FROM ecommerce_assinantes WHERE consumidor_id=%s AND cnpjloja=%s LIMIT 1",
         (consumidor_id, cnpjloja),
     )
     row = cur.fetchone()
-    if row and row.get("mp_preapproval_id") and row.get("mp_access_token"):
+    admin_token = _admin_mp_config().get("mp_access_token") or ""
+    if row and row.get("mp_preapproval_id") and admin_token:
         try:
             _mp_request(
-                row["mp_access_token"],
+                admin_token,
                 f"/preapproval/{row['mp_preapproval_id']}",
                 {"status": "cancelled"},
                 method="PUT",
