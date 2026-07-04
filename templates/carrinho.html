@@ -224,13 +224,6 @@
   padding:14px 18px; border-top:1px solid var(--pq-border);
   background:#f9fafb;
 }
-.login-required-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:24px; margin-bottom:20px; }
-.login-required-card h3 { font-weight:900; font-size:1.08rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
-.login-required-card p { color:var(--pq-muted); font-size:.9rem; margin-bottom:16px; }
-.login-actions { display:flex; gap:10px; flex-wrap:wrap; }
-.login-actions a { display:inline-flex; align-items:center; gap:8px; border-radius:10px; padding:11px 16px; font-weight:900; text-decoration:none; }
-.login-primary { background:var(--pq-red); color:#fff; }
-.login-secondary { background:#fff; color:var(--pq-red); border:1.5px solid var(--pq-red); }
 .account-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); padding:20px 24px; margin-bottom:20px; }
 .account-card h3 { font-weight:900; font-size:1.05rem; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
 .account-info { display:flex; gap:12px; flex-wrap:wrap; color:var(--pq-muted); font-size:.88rem; }
@@ -317,15 +310,6 @@
           <div class="account-info">
             <span><strong>WhatsApp:</strong> {{ consumidor.telefone }}</span>
             <span><strong>E-mail:</strong> {{ consumidor.email }}</span>
-          </div>
-        </div>
-        {% else %}
-        <div class="login-required-card">
-          <h3><i class="fa fa-user-lock" style="color:var(--pq-red)"></i>Faça login para enviar o pedido</h3>
-          <p>Entre ou crie uma conta rápida para salvar seus dados, acompanhar o status e consultar seu histórico.</p>
-          <div class="login-actions">
-            <a class="login-primary" href="{{ url_for('consumidor_login', next=request.path) }}"><i class="fa fa-right-to-bracket"></i>Fazer login</a>
-            <a class="login-secondary" href="{{ url_for('consumidor_criar_conta', next=request.path) }}"><i class="fa fa-user-plus"></i>Criar conta</a>
           </div>
         </div>
         {% endif %}
