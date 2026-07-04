@@ -38,6 +38,46 @@
 .total-row { padding:14px 18px; border-top:1px solid var(--pq-border); display:flex; justify-content:space-between; font-weight:900; }
 .total-row strong { color:var(--pq-red); font-size:1.15rem; }
 .back-link { color:var(--pq-red); font-weight:900; text-decoration:none; }
+
+/* ── Chips de informação (previsão, agendamento, códigos, endereço) ── */
+.info-chips { display:flex; flex-direction:column; gap:10px; margin-top:12px; }
+.info-chip {
+  display:flex; align-items:flex-start; gap:12px;
+  border-radius:14px; padding:13px 16px;
+  border:1px solid transparent;
+}
+.info-chip-icon {
+  width:34px; height:34px; border-radius:10px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:.92rem;
+}
+.info-chip-label { font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
+.info-chip-value { font-weight:800; font-size:.95rem; line-height:1.35; }
+.info-chip-sub { font-size:.78rem; margin-top:3px; line-height:1.4; font-weight:500; }
+.info-chip-code { font-size:1.6rem; font-weight:900; letter-spacing:6px; margin:2px 0 4px; }
+.info-chip-action {
+  display:inline-flex; align-items:center; gap:7px; text-decoration:none;
+  border-radius:8px; padding:8px 14px; font-weight:800; font-size:.82rem; margin-top:8px;
+}
+
+.info-chip-blue   { background:#eff6ff; border-color:#bfdbfe; }
+.info-chip-blue .info-chip-icon  { background:#dbeafe; color:#1d4ed8; }
+.info-chip-blue .info-chip-label { color:#1e40af; }
+.info-chip-blue .info-chip-value { color:#1e3a8a; }
+.info-chip-blue .info-chip-sub   { color:#3b5bab; }
+
+.info-chip-amber  { background:#fff7dd; border-color:#fde68a; }
+.info-chip-amber .info-chip-icon  { background:#fef3c7; color:#b45309; }
+.info-chip-amber .info-chip-label { color:#92400e; }
+.info-chip-amber .info-chip-code  { color:#b45309; }
+.info-chip-amber .info-chip-sub   { color:#92400e; }
+
+.info-chip-green  { background:#ecfdf5; border-color:#a7f3d0; }
+.info-chip-green .info-chip-icon  { background:#d1fae5; color:#065f46; }
+.info-chip-green .info-chip-label { color:#065f46; }
+.info-chip-green .info-chip-value { color:#065f46; }
+.info-chip-green .info-chip-action { background:#065f46; color:#fff; }
+
+@media(max-width:480px){ .info-chip-code { font-size:1.3rem; letter-spacing:4px; } }
 @media(max-width:620px){ .item { align-items:flex-start; } .item-total { font-size:.9rem; } .order-timeline { grid-template-columns:repeat(2,1fr); row-gap:8px; } .tl-step:nth-child(3):before { display:none; } }
 </style>
 {% endblock %}
@@ -107,63 +147,73 @@
         {% set status_labels = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
         <div class="status-title">Status: {{ status_labels.get(pedido.status, pedido.status|capitalize) }}</div>
         <div class="status-text">{{ status_msg.get(pedido.status, 'A farmácia está atualizando o andamento do pedido.') }}</div>
-        {% if pedido.previsao_entrega and pedido.status in ['pronto_retirada','enviado'] %}
-        <div style="margin-top:10px;display:inline-flex;align-items:center;gap:10px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:10px 16px">
-          <i class="fa fa-clock" style="color:#1d4ed8;flex-shrink:0"></i>
-          <div>
-            <div style="font-size:.7rem;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.4px">
-              {% if pedido.tipo_entrega == 'entrega' %}Previsão de entrega{% else %}Previsão de retirada{% endif %}
+        <div class="info-chips">
+          {% if pedido.data_entrega_agendada %}
+          <div class="info-chip info-chip-blue">
+            <div class="info-chip-icon"><i class="fa fa-calendar-check"></i></div>
+            <div>
+              <div class="info-chip-label">Entrega agendada</div>
+              <div class="info-chip-value">{{ pedido.data_entrega_agendada_label }}</div>
+              <div class="info-chip-sub">Esta loja não entrega hoje (feriado/horário) — sua entrega ficou programada para esta data.</div>
             </div>
-            <div style="font-weight:800;color:#1e40af;font-size:.92rem">{{ pedido.previsao_entrega }}</div>
           </div>
-        </div>
-        {% endif %}
-        {% if pedido.status in ['pago','pronto_retirada'] and pedido.tipo_entrega == 'retirada' and pedido.codigo_retirada %}
-        <div style="margin-top:10px;background:#fff7dd;border:1.5px solid #fde68a;border-radius:12px;padding:12px 16px;display:inline-flex;gap:12px;align-items:flex-start">
-          <i class="fa fa-key" style="color:#b45309;margin-top:3px;flex-shrink:0"></i>
-          <div>
-            <div style="font-size:.7rem;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.4px">Código de retirada</div>
-            <div style="font-size:1.8rem;font-weight:900;letter-spacing:8px;color:#b45309;margin:4px 0">{{ pedido.codigo_retirada }}</div>
-            <div style="font-size:.76rem;color:#92400e">
-              {% if pedido.status == 'pronto_retirada' %}
-                Mostre este código ao balcão ao retirar seu pedido.
+          {% elif pedido.previsao_entrega and pedido.status in ['pronto_retirada','enviado'] %}
+          <div class="info-chip info-chip-blue">
+            <div class="info-chip-icon"><i class="fa fa-clock"></i></div>
+            <div>
+              <div class="info-chip-label">
+                {% if pedido.tipo_entrega == 'entrega' %}Previsão de entrega{% else %}Previsão de retirada{% endif %}
+              </div>
+              <div class="info-chip-value">{{ pedido.previsao_entrega }}</div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if pedido.status in ['pago','pronto_retirada'] and pedido.tipo_entrega == 'retirada' and pedido.codigo_retirada %}
+          <div class="info-chip info-chip-amber">
+            <div class="info-chip-icon"><i class="fa fa-key"></i></div>
+            <div>
+              <div class="info-chip-label">Código de retirada</div>
+              <div class="info-chip-code">{{ pedido.codigo_retirada }}</div>
+              <div class="info-chip-sub">
+                {% if pedido.status == 'pronto_retirada' %}
+                  Mostre este código ao balcão ao retirar seu pedido.
+                {% else %}
+                  Pagamento confirmado. A farmácia ainda está separando o pedido; use este código quando for retirar.
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if pedido.status == 'pronto_retirada' and pedido.tipo_entrega == 'retirada' %}
+          <div class="info-chip info-chip-green">
+            <div class="info-chip-icon"><i class="fa fa-store"></i></div>
+            <div>
+              <div class="info-chip-label">Retire em — {{ pedido.razao }}</div>
+              {% if pedido.loja_endereco %}
+              <div class="info-chip-value" style="font-weight:600;font-size:.9rem">{{ pedido.loja_endereco }}</div>
+              <a class="info-chip-action" href="https://www.google.com/maps/search/?api=1&query={{ pedido.loja_endereco | urlencode }}" target="_blank" rel="noopener">
+                <i class="fa fa-map-location-dot"></i>Como chegar
+              </a>
               {% else %}
-                Pagamento confirmado. A farmácia ainda está separando o pedido; use este código quando for retirar.
+              <div class="info-chip-value">{{ pedido.razao }}</div>
               {% endif %}
             </div>
           </div>
-        </div>
-        {% endif %}
-        {% if pedido.status == 'pronto_retirada' and pedido.tipo_entrega == 'retirada' %}
-        <div style="margin-top:10px;background:#d1fae5;border:1.5px solid #6ee7b7;border-radius:12px;padding:12px 16px">
-          <div style="font-size:.7rem;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">
-            <i class="fa fa-store me-1"></i>Retire em — {{ pedido.razao }}
+          {% endif %}
+
+          {% if pedido.tipo_entrega == 'entrega' and pedido.codigo_entrega and pedido.receita_status != 'pendente' %}
+          <div class="info-chip info-chip-amber">
+            <div class="info-chip-icon"><i class="fa fa-key"></i></div>
+            <div>
+              <div class="info-chip-label">Código de entrega</div>
+              <div class="info-chip-code" style="font-size:1.4rem;letter-spacing:5px">{{ pedido.codigo_entrega }}</div>
+              <div class="info-chip-sub">Informe ao entregador <strong>somente quando receber</strong> o pedido.</div>
+            </div>
           </div>
-          {% if pedido.loja_endereco %}
-          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px">
-            <i class="fa fa-location-dot" style="color:#065f46;margin-top:3px;flex-shrink:0"></i>
-            <span style="font-weight:700;color:#065f46;font-size:.9rem;line-height:1.4">{{ pedido.loja_endereco }}</span>
-          </div>
-          <a href="https://www.google.com/maps/search/?api=1&query={{ pedido.loja_endereco | urlencode }}"
-             target="_blank" rel="noopener"
-             style="display:inline-flex;align-items:center;gap:7px;background:#065f46;color:#fff;border-radius:8px;padding:8px 14px;font-weight:800;font-size:.82rem;text-decoration:none">
-            <i class="fa fa-map-location-dot"></i>Como chegar
-          </a>
-          {% else %}
-          <div style="font-weight:700;color:#065f46;font-size:.9rem">{{ pedido.razao }}</div>
           {% endif %}
         </div>
-        {% endif %}
-        {% if pedido.tipo_entrega == 'entrega' and pedido.codigo_entrega and pedido.receita_status != 'pendente' %}
-        <div style="margin-top:10px;display:inline-flex;gap:10px;align-items:center;background:#fff7dd;border:1.5px solid #fde68a;border-radius:12px;padding:10px 16px">
-          <i class="fa fa-key" style="color:#b45309"></i>
-          <div>
-            <div style="font-size:.72rem;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.4px">Código de entrega</div>
-            <div style="font-size:1.4rem;font-weight:900;letter-spacing:5px;color:#b45309">{{ pedido.codigo_entrega }}</div>
-            <div style="font-size:.72rem;color:#92400e;margin-top:2px">Informe ao entregador <strong>somente quando receber</strong> o pedido.</div>
-          </div>
-        </div>
-        {% endif %}
       </div>
     </div>
 

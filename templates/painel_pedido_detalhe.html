@@ -129,6 +129,11 @@
     {% if pedido.tipo_entrega == 'entrega' %}
       {% if pedido.endereco_entrega %}<div style="font-size:.8rem;color:var(--pk-muted);margin-top:4px">{{ pedido.endereco_entrega }}</div>{% endif %}
       {% if pedido.entrega_distancia_km is not none %}<div style="font-size:.8rem;color:var(--pk-muted)">Distância: {{ pedido.entrega_distancia_km }} km</div>{% endif %}
+      {% if pedido.data_entrega_agendada %}
+      <div style="font-size:.8rem;color:#60a5fa;font-weight:800;margin-top:6px;display:flex;align-items:center;gap:6px">
+        <i class="fa fa-calendar-check"></i>Agendada para {{ pedido.data_entrega_agendada_label }}
+      </div>
+      {% endif %}
     {% endif %}
   </div>
 </div>

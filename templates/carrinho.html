@@ -935,8 +935,13 @@ function renderCart() {
     const dentroRaio = distanciaConhecida && dist <= raio;
     const atingiuMinimo = minPedido === 0 || sub >= minPedido;
     const dentroHorarioEntrega = cfg.entrega_disponivel_horario !== false;
-    const entregaOk = cfg.aceita_entrega === true && dentroRaio && atingiuMinimo && dentroHorarioEntrega;
-    const frete = entregaOk && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    // Elegibilidade "de base" (endereço/mínimo), sem entrar em horário —
+    // usada pra saber se vale oferecer agendamento quando só o horário barra.
+    const entregaOkBase = cfg.aceita_entrega === true && dentroRaio && atingiuMinimo;
+    const entregaOk = entregaOkBase && dentroHorarioEntrega;
+    const proximoDiaEntrega = cfg.proximo_dia_entrega;
+    const podeAgendar = !entregaOk && entregaOkBase && !dentroHorarioEntrega && !!proximoDiaEntrega;
+    const frete = (entregaOk || podeAgendar) && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
     grandTotal += sub;
     let payOpts = '';
     if (showWpp) payOpts += payOptHtml(cnpj, 'whatsapp', '<i class="fa-brands fa-whatsapp"></i>WhatsApp', true);
@@ -945,6 +950,9 @@ function renderCart() {
 
     let entregaOpts = deliveryOptHtml(cnpj, 'retirada', '<i class="fa fa-store"></i>Retirada na loja', true);
     if (entregaOk) entregaOpts += deliveryOptHtml(cnpj, 'entrega', '<i class="fa fa-motorcycle"></i>Entrega', false);
+    if (podeAgendar) {
+      entregaOpts += deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, '<i class="fa fa-calendar-check"></i>Agendar entrega');
+    }
     let entregaMsg = 'Esta loja não oferece entrega. Disponível apenas retirada.';
     let minPedidoAvisoHtml = '';
     if (cfg.aceita_entrega === true) {
@@ -959,7 +967,14 @@ function renderCart() {
       } else if (!dentroRaio) {
         entregaMsg = `Entrega fora do raio desta loja${raio ? ` (${dist.toFixed(1)} km de distância; raio de ${raio} km)` : ''}. Disponível apenas retirada.`;
       } else if (!dentroHorarioEntrega) {
-        entregaMsg = 'Fora do horário de entrega desta loja no momento. Disponível apenas retirada.';
+        const motivo = cfg.feriado_hoje
+          ? `Fechado hoje (feriado: ${esc(cfg.feriado_hoje)})`
+          : (cfg.loja_aberta === false ? 'Fora do horário de funcionamento da loja' : 'Fora do horário de entrega desta loja');
+        if (proximoDiaEntrega) {
+          entregaMsg = `${motivo} no momento — mas você pode agendar a entrega para <strong>${diaEntregaLabel(proximoDiaEntrega)}</strong> selecionando a opção abaixo.`;
+        } else {
+          entregaMsg = `${motivo} no momento. Disponível apenas retirada.`;
+        }
       } else if (!atingiuMinimo) {
         entregaMsg = '';
         minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px">
@@ -1184,6 +1199,20 @@ function deliveryOptHtml(cnpj, val, label, checked) {
     onclick="onDeliveryChange('${esc(cnpj)}','${val}')">
     <input type="radio" name="delivery-${esc(cnpj)}" value="${val}"${checked?' checked':''}/>
     ${label}
+  </label>`;
+}
+
+function diaEntregaLabel(proximoDiaEntrega) {
+  if (!proximoDiaEntrega || !proximoDiaEntrega.data) return '';
+  const [, mes, dia] = proximoDiaEntrega.data.split('-');
+  return `${proximoDiaEntrega.nome_dia}, ${dia}/${mes}`;
+}
+
+function deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, label) {
+  return `<label class="pay-opt" id="delivery-${esc(cnpj)}-entrega-agendada"
+    onclick="onDeliveryChange('${esc(cnpj)}','entrega')">
+    <input type="radio" name="delivery-${esc(cnpj)}" value="entrega" data-agendada-data="${esc(proximoDiaEntrega.data)}"/>
+    ${label} — ${diaEntregaLabel(proximoDiaEntrega)}
   </label>`;
 }
 
@@ -1466,12 +1495,14 @@ async function finalizarPedido() {
     const cupomInp = document.getElementById(`cupom-inp-${g.cnpjloja}`);
     const cupomCodigo = (cupomInp?.value || '').trim().toUpperCase();
     const tipoEntrega = delivery ? delivery.value : 'retirada';
+    const dataEntregaAgendada = delivery?.dataset.agendadaData || '';
     const entregaAddr = getDeliveryAddressChoice();
     return {
       cnpjloja: g.cnpjloja,
       razao: g.razao,
       pagamento: radio ? radio.value : 'pix',
       tipo_entrega: tipoEntrega,
+      data_entrega_agendada: dataEntregaAgendada,
       endereco_entrega: entregaAddr.label || '',
       entrega_lat: entregaAddr.lat || '',
       entrega_lng: entregaAddr.lng || '',

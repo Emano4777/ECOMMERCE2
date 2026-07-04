@@ -932,9 +932,11 @@ def _ensure_delivery_schema():
                 cur.close()
                 _schema_ready.add("delivery")
                 _mark_migration_done("delivery")
-    _ensure_loja_email_column()       # sempre chamado, independente do delivery já estar marcado
-    _ensure_codigo_retirada_column()  # idem
-    _ensure_previsao_entrega_column() # idem
+    _ensure_loja_email_column()          # sempre chamado, independente do delivery já estar marcado
+    _ensure_codigo_retirada_column()     # idem
+    _ensure_previsao_entrega_column()    # idem
+    _ensure_entrega_agendada_column()    # idem
+    _ensure_agendamento_entrega_column() # idem
 
 
 def _ensure_codigo_retirada_column():
@@ -970,6 +972,49 @@ def _ensure_previsao_entrega_column():
         conn = db()
         cur = conn.cursor()
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS previsao_entrega TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_entrega_agendada_column():
+    """Data agendada de entrega — quando o cliente pede entrega num dia em que
+    ela nao esta disponivel agora (feriado/fora do horario de entrega), mas
+    esta disponivel num proximo dia, ele pode agendar pra essa data."""
+    key = "entrega_agendada_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS data_entrega_agendada DATE")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_agendamento_entrega_column():
+    """Opt-in da loja pra oferecer 'agendar entrega pra outro dia' quando a
+    entrega nao esta disponivel hoje (feriado/fora do horario de entrega)."""
+    key = "agendamento_entrega_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS permite_agendamento_entrega BOOLEAN DEFAULT FALSE")
         conn.commit()
         cur.close()
         _schema_ready.add(key)
@@ -8717,7 +8762,11 @@ def api_config_lojas():
     for r in rows:
         item = dict(r)
         item["razao"] = _public_store_name(item)
-        item["entrega_disponivel_horario"] = _status_horario_entrega(r["cnpjloja"]).get("entrega_disponivel_horario", True)
+        _hs = _status_horario_entrega(r["cnpjloja"])
+        item["entrega_disponivel_horario"] = _hs.get("entrega_disponivel_horario", True)
+        item["loja_aberta"] = _hs.get("aberta", True)
+        item["feriado_hoje"] = _hs.get("feriado_hoje")
+        item["proximo_dia_entrega"] = _hs.get("proximo_dia_entrega")
         data[r["cnpjloja"]] = item
     return jsonify(data)
 
@@ -10796,9 +10845,15 @@ def meu_pedido_detalhe(pedido_id):
     avaliacao_feita = cur2.fetchone()
     cur2.close()
     cur.close()
+    pedido = dict(pedido)
+    if pedido.get("data_entrega_agendada"):
+        _data_ag = pedido["data_entrega_agendada"]
+        _dia_ag = (_data_ag.weekday() + 1) % 7
+        _nome_dia_ag = next((n for d, n in _DIAS_SEMANA if d == _dia_ag), "")
+        pedido["data_entrega_agendada_label"] = f"{_nome_dia_ag}, {_data_ag.strftime('%d/%m/%Y')}"
     return render_template(
         "meu_pedido_detalhe.html",
-        pedido=dict(pedido),
+        pedido=pedido,
         itens=itens,
         reclamacao=dict(reclamacao) if reclamacao else None,
         motivos=_MOTIVOS_RECLAMACAO,
@@ -11435,12 +11490,36 @@ def api_checkout():
         entrega_dist = None
         if entrega_lat is not None and entrega_lng is not None and loja.get("loja_lat") is not None and loja.get("loja_lng") is not None:
             entrega_dist = round(haversine(entrega_lat, entrega_lng, float(loja["loja_lat"]), float(loja["loja_lng"])), 1)
-        entrega_ok = (
+        entrega_ok_base = (
             bool(loja.get("aceita_entrega"))
             and entrega_dist is not None
             and entrega_dist <= float(loja.get("raio_entrega_km") or 0)
-            and _status_horario_entrega(cnpjloja).get("entrega_disponivel_horario", True)
         )
+        entrega_ok = entrega_ok_base and _status_horario_entrega(cnpjloja).get("entrega_disponivel_horario", True)
+
+        data_entrega_agendada = None
+        if (
+            tipo_entrega == "entrega" and not entrega_ok and entrega_ok_base
+            and fp.get("data_entrega_agendada")
+            and _loja_permite_agendamento_entrega(cnpjloja)
+        ):
+            # Loja aceita entrega, habilitou agendamento e o endereço está no
+            # raio — só não está disponível agora (feriado/fora do horário de
+            # entrega). Cliente pediu pra agendar pra outro dia; revalida a
+            # data no servidor, não confia só no que o carrinho mandou.
+            try:
+                _data_agendada = datetime.strptime(fp["data_entrega_agendada"], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                _data_agendada = None
+            _hoje = _data_hoje_br()
+            if (
+                _data_agendada
+                and _hoje < _data_agendada <= _hoje + timedelta(days=14)
+                and _entrega_disponivel_na_data(cnpjloja, _data_agendada)
+            ):
+                data_entrega_agendada = _data_agendada
+                entrega_ok = True  # segue como pedido de entrega, só que agendado
+
         if tipo_entrega == "entrega" and not entrega_ok:
             tipo_entrega = "retirada"
         # Validate minimum order for delivery
@@ -11636,8 +11715,8 @@ def api_checkout():
             INSERT INTO ecommerce_pedidos
               (cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_documento, cliente_email, forma_pagamento, total,
                tipo_entrega, endereco_entrega, entrega_lat, entrega_lng, entrega_distancia_km, codigo_entrega, frete_valor,
-               cupom_id, desconto_cupom, receita_url, receita_status, receita_declaracao_digital_valida)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               cupom_id, desconto_cupom, receita_url, receita_status, receita_declaracao_digital_valida, data_entrega_agendada)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -11661,6 +11740,7 @@ def api_checkout():
                 receita_url,
                 receita_status,
                 bool(receita_declaracao_ok),
+                data_entrega_agendada,
             ),
         )
         pedido_id = str(cur.fetchone()["id"])
@@ -13194,6 +13274,11 @@ def painel_pedido_detalhe(pedido_id):
         receita_urls = [u for u in _parsed if u]
     else:
         receita_urls = [_ru] if _ru else []
+    if pedido_dict.get("data_entrega_agendada"):
+        _data_ag = pedido_dict["data_entrega_agendada"]
+        _dia_ag = (_data_ag.weekday() + 1) % 7
+        _nome_dia_ag = next((n for d, n in _DIAS_SEMANA if d == _dia_ag), "")
+        pedido_dict["data_entrega_agendada_label"] = f"{_nome_dia_ag}, {_data_ag.strftime('%d/%m/%Y')}"
     return render_template(
         "painel_pedido_detalhe.html",
         pedido=pedido_dict,
@@ -21098,6 +21183,71 @@ def _proximo_dia_abertura(cnpjloja: str, horarios: list, dia_hoje: int, data_hoj
     return None
 
 
+def _proximo_dia_entrega_disponivel(cnpjloja: str, horarios: list, dia_hoje: int, data_hoje) -> dict | None:
+    """Retorna o próximo dia (a partir de amanhã, até 14 dias à frente) em que
+    a ENTREGA especificamente estará disponível — pula feriados fechados e
+    dias com entrega_habilitada=False, mesmo que a loja abra normalmente
+    nesse dia só para retirada."""
+    feriados = _feriados_periodo(cnpjloja, data_hoje + timedelta(days=1), data_hoje + timedelta(days=14))
+    for delta in range(1, 15):
+        data = data_hoje + timedelta(days=delta)
+        dia = (dia_hoje + delta) % 7
+        nome_dia = next((n for d, n in _DIAS_SEMANA if d == dia), str(dia))
+        feriado = feriados.get(data)
+        h = next((h for h in horarios if h["dia_semana"] == dia), None)
+        if feriado and feriado.get("fechado"):
+            continue
+        if feriado and not feriado.get("fechado"):
+            ab = _time_from_db(feriado.get("hora_abertura")) or (_time_from_db(h["hora_abertura"]) if h else None)
+            if ab and (not h or h.get("entrega_habilitada") is not False):
+                return {"dia": dia, "nome_dia": nome_dia, "hora_abertura": str(ab)[:5], "data": data.isoformat()}
+            continue
+        if not h or h.get("fechado") or not h.get("hora_abertura"):
+            continue
+        entrega_habilitada = True if h.get("entrega_habilitada") is None else bool(h.get("entrega_habilitada"))
+        if not entrega_habilitada:
+            continue
+        e_ab = _time_from_db(h.get("entrega_hora_abertura")) or _time_from_db(h["hora_abertura"])
+        return {"dia": dia, "nome_dia": nome_dia, "hora_abertura": str(e_ab)[:5], "data": data.isoformat()}
+    return None
+
+
+def _loja_permite_agendamento_entrega(cnpjloja: str) -> bool:
+    """Loja precisa marcar explicitamente que quer oferecer 'agendar entrega
+    para outro dia' — por padrão vem desligado."""
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT permite_agendamento_entrega FROM ecommerce_config_loja WHERE cnpjloja=%s", (cnpjloja,))
+    row = cur.fetchone()
+    cur.close()
+    return bool(row and row.get("permite_agendamento_entrega"))
+
+
+def _entrega_disponivel_na_data(cnpjloja: str, data) -> bool:
+    """Verifica se a entrega estaria disponível numa data futura específica —
+    usado para revalidar no servidor um pedido de agendamento de entrega
+    vindo do carrinho (não confia só no que o cliente mandou)."""
+    _ensure_horario_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """SELECT dia_semana, hora_abertura, fechado, entrega_habilitada
+           FROM ecommerce_config_horario WHERE cnpjloja=%s""",
+        (cnpjloja,),
+    )
+    horarios = {r["dia_semana"]: r for r in cur.fetchall()}
+    cur.close()
+    if not horarios:
+        return True  # sem configuração de horário = sem restrição
+    feriado = _feriados_periodo(cnpjloja, data, data).get(data)
+    if feriado:
+        return not feriado.get("fechado")
+    dia = (data.weekday() + 1) % 7  # mesmo mapeamento de _dia_semana_br
+    h = horarios.get(dia)
+    if not h or h.get("fechado") or not h.get("hora_abertura"):
+        return False
+    entrega_habilitada = h.get("entrega_habilitada")
+    return True if entrega_habilitada is None else bool(entrega_habilitada)
+
+
 def _status_horario_entrega(cnpjloja):
     """Status de funcionamento E de entrega da loja agora, considerando
     horário semanal + feriado do dia + horário específico de entrega.
@@ -21163,6 +21313,8 @@ def _status_horario_entrega(cnpjloja):
             "nome_dia_hoje": nome_dia_hoje,
             "proximo": _proximo_dia_abertura(cnpjloja, horarios, dia_hoje, data_hoje),
         })
+    if not entrega_disponivel_horario and _loja_permite_agendamento_entrega(cnpjloja):
+        result["proximo_dia_entrega"] = _proximo_dia_entrega_disponivel(cnpjloja, horarios, dia_hoje, data_hoje)
     return result
 
 
@@ -21170,8 +21322,12 @@ def _status_horario_entrega(cnpjloja):
 @painel_required
 def painel_horario():
     _ensure_horario_schema()
+    _ensure_delivery_schema()
     cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
+    cur.execute("SELECT permite_agendamento_entrega FROM ecommerce_config_loja WHERE cnpjloja=%s", (cnpjloja,))
+    _cfg_row = cur.fetchone()
+    permite_agendamento_entrega = bool(_cfg_row and _cfg_row.get("permite_agendamento_entrega"))
     cur.execute(
         """SELECT dia_semana, hora_abertura, hora_fechamento, fechado,
                   entrega_habilitada, entrega_hora_abertura, entrega_hora_fechamento
@@ -21203,16 +21359,24 @@ def painel_horario():
             "entrega_hora_abertura": str(r["entrega_hora_abertura"])[:5] if r.get("entrega_hora_abertura") else "",
             "entrega_hora_fechamento": str(r["entrega_hora_fechamento"])[:5] if r.get("entrega_hora_fechamento") else "",
         })
-    return render_template("painel_horario.html", horarios=horarios, feriados=feriados)
+    return render_template("painel_horario.html", horarios=horarios, feriados=feriados,
+                           permite_agendamento_entrega=permite_agendamento_entrega)
 
 
 @app.post("/painel/horario")
 @painel_required
 def painel_horario_salvar():
     _ensure_horario_schema()
+    _ensure_delivery_schema()
     cnpjloja = session.get("cnpjloja")
     f = request.form
     conn = db(); cur = conn.cursor()
+    permite_agendamento_entrega = f.get("permite_agendamento_entrega") == "1"
+    cur.execute("""
+        INSERT INTO ecommerce_config_loja (cnpjloja, permite_agendamento_entrega)
+        VALUES (%s, %s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET permite_agendamento_entrega = EXCLUDED.permite_agendamento_entrega
+    """, (cnpjloja, permite_agendamento_entrega))
     for dia, _ in _DIAS_SEMANA:
         fechado = f.get(f"fechado_{dia}") == "1"
         abertura  = (f.get(f"abertura_{dia}")  or "08:00").strip() or "08:00"

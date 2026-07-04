@@ -96,6 +96,19 @@
   </div>
 
   <form method="POST" action="{{ url_for('painel_horario_salvar') }}">
+    <label class="hr-agenda-toggle" style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:#0d1016;border:1px solid var(--pk-line);border-radius:10px;margin-bottom:18px;cursor:pointer">
+      <input type="checkbox" name="permite_agendamento_entrega" value="1"
+             {% if permite_agendamento_entrega %}checked{% endif %}
+             style="width:18px;height:18px;accent-color:var(--pk-yellow);flex-shrink:0">
+      <span>
+        <span style="font-weight:800;font-size:.9rem;color:var(--pk-txt)"><i class="fa fa-calendar-check me-1" style="color:var(--pk-yellow)"></i>Permitir agendamento de entrega</span>
+        <span style="display:block;font-size:.76rem;color:var(--pk-muted);font-weight:400;margin-top:2px">
+          Quando a entrega não estiver disponível no dia (feriado ou fora do horário de entrega), o consumidor poderá
+          escolher agendar a entrega para o próximo dia disponível. Se desmarcado, essa opção não aparece pro cliente.
+        </span>
+      </span>
+    </label>
+
     <div class="hr-grid" id="hrGrid">
       {% for h in horarios %}
       <div class="hr-block">
