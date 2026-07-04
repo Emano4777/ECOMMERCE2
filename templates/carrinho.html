@@ -934,7 +934,8 @@ function renderCart() {
     const distanciaConhecida = dist !== undefined && Number.isFinite(dist);
     const dentroRaio = distanciaConhecida && dist <= raio;
     const atingiuMinimo = minPedido === 0 || sub >= minPedido;
-    const entregaOk = cfg.aceita_entrega === true && dentroRaio && atingiuMinimo;
+    const dentroHorarioEntrega = cfg.entrega_disponivel_horario !== false;
+    const entregaOk = cfg.aceita_entrega === true && dentroRaio && atingiuMinimo && dentroHorarioEntrega;
     const frete = entregaOk && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
     grandTotal += sub;
     let payOpts = '';
@@ -957,6 +958,8 @@ function renderCart() {
         entregaMsg = 'Informe sua localização/endereço para verificar se a entrega está disponível.';
       } else if (!dentroRaio) {
         entregaMsg = `Entrega fora do raio desta loja${raio ? ` (${dist.toFixed(1)} km de distância; raio de ${raio} km)` : ''}. Disponível apenas retirada.`;
+      } else if (!dentroHorarioEntrega) {
+        entregaMsg = 'Fora do horário de entrega desta loja no momento. Disponível apenas retirada.';
       } else if (!atingiuMinimo) {
         entregaMsg = '';
         minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px">

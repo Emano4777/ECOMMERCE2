@@ -878,6 +878,27 @@ def _ensure_horario_schema():
                         PRIMARY KEY (cnpjloja, dia_semana)
                     )
                 """)
+                # Horario de entrega — pode ser um subconjunto do horario de
+                # funcionamento (loja aberta pra retirada nao implica entrega
+                # disponivel no mesmo horario). NULL nos horarios de entrega
+                # = usa o mesmo horario da loja nesse dia.
+                cur.execute("ALTER TABLE ecommerce_config_horario ADD COLUMN IF NOT EXISTS entrega_habilitada BOOLEAN DEFAULT TRUE")
+                cur.execute("ALTER TABLE ecommerce_config_horario ADD COLUMN IF NOT EXISTS entrega_hora_abertura TIME")
+                cur.execute("ALTER TABLE ecommerce_config_horario ADD COLUMN IF NOT EXISTS entrega_hora_fechamento TIME")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ecommerce_config_feriado (
+                        id              SERIAL PRIMARY KEY,
+                        cnpjloja        TEXT NOT NULL,
+                        data            DATE NOT NULL,
+                        descricao       TEXT,
+                        fechado         BOOLEAN DEFAULT TRUE,
+                        hora_abertura   TIME,
+                        hora_fechamento TIME,
+                        criado_em       TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(cnpjloja, data)
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_config_feriado_cnpj_data ON ecommerce_config_feriado(cnpjloja, data)")
                 conn.commit()
                 cur.close()
                 _schema_ready.add("horario")
@@ -7146,6 +7167,11 @@ def api_produtos_destaque():
 def api_produtos_proximos():
     _ensure_delivery_schema()
     _ensure_catalog_admin_schema()
+    _entrega_horario_cache: dict = {}
+    def _entrega_disponivel_horario_cached(cnpj):
+        if cnpj not in _entrega_horario_cache:
+            _entrega_horario_cache[cnpj] = _status_horario_entrega(cnpj).get("entrega_disponivel_horario", True)
+        return _entrega_horario_cache[cnpj]
     try:
         lat_usr = float(request.args["lat"])
         lng_usr = float(request.args["lng"])
@@ -7478,7 +7504,10 @@ def api_produtos_proximos():
         razao = _public_store_name(info)
         aceita_entrega = bool(info.get("aceita_entrega"))
         raio_entrega = float(info.get("raio_entrega_km") or 0)
-        entrega_disponivel = bool(aceita_entrega and dist is not None and dist <= raio_entrega)
+        entrega_disponivel = bool(
+            aceita_entrega and dist is not None and dist <= raio_entrega
+            and _entrega_disponivel_horario_cached(p["cnpjloja"])
+        )
         frete_valor = float(info.get("valor_frete") or 0) if entrega_disponivel and info.get("cobra_frete") else 0.0
         entrega_meta = {
             "aceita_entrega": aceita_entrega,
@@ -7596,7 +7625,10 @@ def api_produtos_proximos():
                 dist = info.get("distancia_km")
                 aceita_entrega = bool(info.get("aceita_entrega"))
                 raio_entrega = float(info.get("raio_entrega_km") or 0)
-                entrega_disponivel = bool(aceita_entrega and dist is not None and dist <= raio_entrega)
+                entrega_disponivel = bool(
+                    aceita_entrega and dist is not None and dist <= raio_entrega
+                    and _entrega_disponivel_horario_cached(p["cnpjloja"])
+                )
                 result.append({
                     **p,
                     "razao": _public_store_name(info),
@@ -8685,6 +8717,7 @@ def api_config_lojas():
     for r in rows:
         item = dict(r)
         item["razao"] = _public_store_name(item)
+        item["entrega_disponivel_horario"] = _status_horario_entrega(r["cnpjloja"]).get("entrega_disponivel_horario", True)
         data[r["cnpjloja"]] = item
     return jsonify(data)
 
@@ -11402,7 +11435,12 @@ def api_checkout():
         entrega_dist = None
         if entrega_lat is not None and entrega_lng is not None and loja.get("loja_lat") is not None and loja.get("loja_lng") is not None:
             entrega_dist = round(haversine(entrega_lat, entrega_lng, float(loja["loja_lat"]), float(loja["loja_lng"])), 1)
-        entrega_ok = bool(loja.get("aceita_entrega")) and entrega_dist is not None and entrega_dist <= float(loja.get("raio_entrega_km") or 0)
+        entrega_ok = (
+            bool(loja.get("aceita_entrega"))
+            and entrega_dist is not None
+            and entrega_dist <= float(loja.get("raio_entrega_km") or 0)
+            and _status_horario_entrega(cnpjloja).get("entrega_disponivel_horario", True)
+        )
         if tipo_entrega == "entrega" and not entrega_ok:
             tipo_entrega = "retirada"
         # Validate minimum order for delivery
@@ -21010,19 +21048,122 @@ def _hora_atual_br():
     return datetime.now(tz_br).time()
 
 
-def _proximo_dia_abertura(horarios: list[dict], dia_hoje: int) -> dict | None:
-    """Retorna o próximo dia aberto a partir de amanhã (até 7 dias à frente)."""
-    for delta in range(1, 8):
+def _data_hoje_br():
+    tz_br = timezone(timedelta(hours=-3))
+    return datetime.now(tz_br).date()
+
+
+def _time_from_db(val):
+    """psycopg2 pode devolver TIME como timedelta em algumas versões/setups."""
+    if val is None:
+        return None
+    if hasattr(val, "seconds") and not hasattr(val, "hour"):
+        return (datetime.min + val).time()
+    return val
+
+
+def _feriados_periodo(cnpjloja, data_inicio, data_fim):
+    """Feriados cadastrados pela loja no intervalo [data_inicio, data_fim], por data."""
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """SELECT data, descricao, fechado, hora_abertura, hora_fechamento
+           FROM ecommerce_config_feriado
+           WHERE cnpjloja=%s AND data BETWEEN %s AND %s""",
+        (cnpjloja, data_inicio, data_fim),
+    )
+    rows = {r["data"]: dict(r) for r in cur.fetchall()}
+    cur.close()
+    return rows
+
+
+def _proximo_dia_abertura(cnpjloja: str, horarios: list, dia_hoje: int, data_hoje) -> dict | None:
+    """Retorna o próximo dia aberto a partir de amanhã (até 14 dias à frente),
+    pulando datas marcadas como feriado fechado."""
+    feriados = _feriados_periodo(cnpjloja, data_hoje + timedelta(days=1), data_hoje + timedelta(days=14))
+    for delta in range(1, 15):
+        data = data_hoje + timedelta(days=delta)
         dia = (dia_hoje + delta) % 7
-        for h in horarios:
-            if h["dia_semana"] == dia and not h.get("fechado") and h.get("hora_abertura"):
-                nome_dia = next((n for d, n in _DIAS_SEMANA if d == dia), str(dia))
-                return {
-                    "dia": dia,
-                    "nome_dia": nome_dia,
-                    "hora_abertura": str(h["hora_abertura"])[:5],
-                }
+        nome_dia = next((n for d, n in _DIAS_SEMANA if d == dia), str(dia))
+        feriado = feriados.get(data)
+        if feriado:
+            if feriado.get("fechado"):
+                continue
+            ab = _time_from_db(feriado.get("hora_abertura"))
+            if ab:
+                return {"dia": dia, "nome_dia": nome_dia, "hora_abertura": str(ab)[:5], "data": data.isoformat()}
+            continue
+        h = next((h for h in horarios if h["dia_semana"] == dia), None)
+        if h and not h.get("fechado") and h.get("hora_abertura"):
+            return {"dia": dia, "nome_dia": nome_dia, "hora_abertura": str(_time_from_db(h["hora_abertura"]))[:5], "data": data.isoformat()}
     return None
+
+
+def _status_horario_entrega(cnpjloja):
+    """Status de funcionamento E de entrega da loja agora, considerando
+    horário semanal + feriado do dia + horário específico de entrega.
+    Usado no endpoint público de status e em toda checagem de elegibilidade
+    de entrega (catálogo e checkout) — uma loja aberta não implica entrega
+    disponível no mesmo horário."""
+    _ensure_horario_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """SELECT dia_semana, hora_abertura, hora_fechamento, fechado,
+                  entrega_habilitada, entrega_hora_abertura, entrega_hora_fechamento
+           FROM ecommerce_config_horario WHERE cnpjloja=%s ORDER BY dia_semana""",
+        (cnpjloja,),
+    )
+    horarios = [dict(r) for r in cur.fetchall()]
+    cur.close()
+
+    if not horarios:
+        return {"aberta": True, "configurado": False, "entrega_disponivel_horario": True}
+
+    data_hoje = _data_hoje_br()
+    dia_hoje = _dia_semana_br()
+    hora_agora = _hora_atual_br()
+
+    h_hoje = next((h for h in horarios if h["dia_semana"] == dia_hoje), None)
+    feriado_hoje = _feriados_periodo(cnpjloja, data_hoje, data_hoje).get(data_hoje)
+
+    if feriado_hoje:
+        fechado_hoje = bool(feriado_hoje.get("fechado"))
+        ab = _time_from_db(feriado_hoje.get("hora_abertura")) or (_time_from_db(h_hoje["hora_abertura"]) if h_hoje else None)
+        fech = _time_from_db(feriado_hoje.get("hora_fechamento")) or (_time_from_db(h_hoje["hora_fechamento"]) if h_hoje else None)
+    else:
+        fechado_hoje = bool(h_hoje.get("fechado")) if h_hoje else True
+        ab = _time_from_db(h_hoje.get("hora_abertura")) if h_hoje else None
+        fech = _time_from_db(h_hoje.get("hora_fechamento")) if h_hoje else None
+
+    aberta = bool(not fechado_hoje and ab and fech and ab <= hora_agora <= fech)
+
+    entrega_disponivel_horario = False
+    if aberta and h_hoje and not feriado_hoje:
+        entrega_habilitada_hoje = h_hoje.get("entrega_habilitada")
+        entrega_habilitada_hoje = True if entrega_habilitada_hoje is None else bool(entrega_habilitada_hoje)
+        if entrega_habilitada_hoje:
+            e_ab = _time_from_db(h_hoje.get("entrega_hora_abertura")) or ab
+            e_fech = _time_from_db(h_hoje.get("entrega_hora_fechamento")) or fech
+            entrega_disponivel_horario = bool(e_ab and e_fech and e_ab <= hora_agora <= e_fech)
+    elif aberta and feriado_hoje:
+        # Aberta num feriado com horário especial: entrega segue o mesmo horário especial
+        entrega_disponivel_horario = True
+
+    result = {
+        "aberta": aberta,
+        "configurado": True,
+        "entrega_disponivel_horario": entrega_disponivel_horario,
+        "hora_abertura": str(ab)[:5] if ab else None,
+        "hora_fechamento": str(fech)[:5] if fech else None,
+        "feriado_hoje": feriado_hoje.get("descricao") if feriado_hoje else None,
+    }
+    if not aberta:
+        nome_dia_hoje = next((n for d, n in _DIAS_SEMANA if d == dia_hoje), "hoje")
+        result.update({
+            "fechado_hoje": True,
+            "nome_dia_hoje": nome_dia_hoje,
+            "proximo": _proximo_dia_abertura(cnpjloja, horarios, dia_hoje, data_hoje),
+        })
+    return result
 
 
 @app.get("/painel/horario")
@@ -21032,11 +21173,21 @@ def painel_horario():
     cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
     cur.execute(
-        "SELECT dia_semana, hora_abertura, hora_fechamento, fechado "
-        "FROM ecommerce_config_horario WHERE cnpjloja=%s ORDER BY dia_semana",
+        """SELECT dia_semana, hora_abertura, hora_fechamento, fechado,
+                  entrega_habilitada, entrega_hora_abertura, entrega_hora_fechamento
+           FROM ecommerce_config_horario WHERE cnpjloja=%s ORDER BY dia_semana""",
         (cnpjloja,),
     )
     rows = {r["dia_semana"]: r for r in cur.fetchall()}
+    cur.execute(
+        """SELECT id, data, descricao, fechado, hora_abertura, hora_fechamento
+           FROM ecommerce_config_feriado WHERE cnpjloja=%s ORDER BY data""",
+        (cnpjloja,),
+    )
+    feriados = [dict(r) for r in cur.fetchall()]
+    for fer in feriados:
+        fer["hora_abertura_fmt"] = str(fer["hora_abertura"])[:5] if fer.get("hora_abertura") else ""
+        fer["hora_fechamento_fmt"] = str(fer["hora_fechamento"])[:5] if fer.get("hora_fechamento") else ""
     cur.close()
     # Garante todos os 7 dias presentes
     horarios = []
@@ -21048,8 +21199,11 @@ def painel_horario():
             "hora_abertura":  str(r.get("hora_abertura") or "08:00")[:5],
             "hora_fechamento": str(r.get("hora_fechamento") or "18:00")[:5],
             "fechado": bool(r.get("fechado", False)),
+            "entrega_habilitada": True if r.get("entrega_habilitada") is None else bool(r.get("entrega_habilitada")),
+            "entrega_hora_abertura": str(r["entrega_hora_abertura"])[:5] if r.get("entrega_hora_abertura") else "",
+            "entrega_hora_fechamento": str(r["entrega_hora_fechamento"])[:5] if r.get("entrega_hora_fechamento") else "",
         })
-    return render_template("painel_horario.html", horarios=horarios)
+    return render_template("painel_horario.html", horarios=horarios, feriados=feriados)
 
 
 @app.post("/painel/horario")
@@ -21063,71 +21217,79 @@ def painel_horario_salvar():
         fechado = f.get(f"fechado_{dia}") == "1"
         abertura  = (f.get(f"abertura_{dia}")  or "08:00").strip() or "08:00"
         fechamento = (f.get(f"fechamento_{dia}") or "18:00").strip() or "18:00"
+        entrega_habilitada = f.get(f"entrega_habilitada_{dia}", "1") != "0"
+        entrega_abertura = (f.get(f"entrega_abertura_{dia}") or "").strip() or None
+        entrega_fechamento = (f.get(f"entrega_fechamento_{dia}") or "").strip() or None
         cur.execute("""
             INSERT INTO ecommerce_config_horario
-              (cnpjloja, dia_semana, hora_abertura, hora_fechamento, fechado)
-            VALUES (%s, %s, %s, %s, %s)
+              (cnpjloja, dia_semana, hora_abertura, hora_fechamento, fechado,
+               entrega_habilitada, entrega_hora_abertura, entrega_hora_fechamento)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cnpjloja, dia_semana) DO UPDATE SET
-              hora_abertura   = EXCLUDED.hora_abertura,
-              hora_fechamento = EXCLUDED.hora_fechamento,
-              fechado         = EXCLUDED.fechado
-        """, (cnpjloja, dia, abertura, fechamento, fechado))
+              hora_abertura           = EXCLUDED.hora_abertura,
+              hora_fechamento         = EXCLUDED.hora_fechamento,
+              fechado                 = EXCLUDED.fechado,
+              entrega_habilitada      = EXCLUDED.entrega_habilitada,
+              entrega_hora_abertura   = EXCLUDED.entrega_hora_abertura,
+              entrega_hora_fechamento = EXCLUDED.entrega_hora_fechamento
+        """, (cnpjloja, dia, abertura, fechamento, fechado,
+              entrega_habilitada, entrega_abertura, entrega_fechamento))
     conn.commit()
     cur.close()
     flash("Horário de funcionamento salvo com sucesso.", "success")
     return redirect(url_for("painel_horario"))
 
 
+@app.post("/painel/horario/feriado/novo")
+@painel_required
+def painel_feriado_novo():
+    _ensure_horario_schema()
+    cnpjloja = session.get("cnpjloja")
+    f = request.form
+    data = (f.get("data") or "").strip()
+    if not data:
+        flash("Informe a data do feriado.", "error")
+        return redirect(url_for("painel_horario"))
+    descricao = (f.get("descricao") or "").strip() or None
+    fechado = f.get("fechado", "1") != "0"
+    hora_abertura = None if fechado else ((f.get("hora_abertura") or "").strip() or None)
+    hora_fechamento = None if fechado else ((f.get("hora_fechamento") or "").strip() or None)
+    conn = db(); cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO ecommerce_config_feriado (cnpjloja, data, descricao, fechado, hora_abertura, hora_fechamento)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (cnpjloja, data) DO UPDATE SET
+              descricao = EXCLUDED.descricao, fechado = EXCLUDED.fechado,
+              hora_abertura = EXCLUDED.hora_abertura, hora_fechamento = EXCLUDED.hora_fechamento
+        """, (cnpjloja, data, descricao, fechado, hora_abertura, hora_fechamento))
+        conn.commit()
+        flash("Feriado cadastrado com sucesso.", "success")
+    except Exception:
+        conn.rollback()
+        flash("Data inválida.", "error")
+    cur.close()
+    return redirect(url_for("painel_horario"))
+
+
+@app.post("/painel/horario/feriado/<int:feriado_id>/excluir")
+@painel_required
+def painel_feriado_excluir(feriado_id):
+    _ensure_horario_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute("DELETE FROM ecommerce_config_feriado WHERE id=%s AND cnpjloja=%s", (feriado_id, cnpjloja))
+    conn.commit()
+    cur.close()
+    flash("Feriado removido.", "success")
+    return redirect(url_for("painel_horario"))
+
+
 @app.get("/api/loja/<cnpjloja>/horario-status")
 def api_horario_status(cnpjloja):
-    """Retorna se a loja está aberta agora e, se fechada, quando abre."""
-    _ensure_horario_schema()
-    conn = db(); cur = conn.cursor()
-    cur.execute(
-        "SELECT dia_semana, hora_abertura, hora_fechamento, fechado "
-        "FROM ecommerce_config_horario WHERE cnpjloja=%s ORDER BY dia_semana",
-        (cnpjloja,),
-    )
-    horarios = [dict(r) for r in cur.fetchall()]
-    cur.close()
-
-    # Sem configuração = loja sem restrição de horário
-    if not horarios:
-        return jsonify({"aberta": True, "configurado": False})
-
-    dia_hoje = _dia_semana_br()
-    hora_agora = _hora_atual_br()
-
-    config_hoje = next((h for h in horarios if h["dia_semana"] == dia_hoje), None)
-
-    if config_hoje and not config_hoje.get("fechado"):
-        ab  = config_hoje.get("hora_abertura")
-        fech = config_hoje.get("hora_fechamento")
-        if ab and fech:
-            # Converte timedelta (psycopg2) para time se necessário
-            if hasattr(ab, "seconds"):
-                import datetime as _dt
-                ab   = (_dt.datetime.min + ab).time()
-                fech = (_dt.datetime.min + fech).time()
-            if ab <= hora_agora <= fech:
-                return jsonify({
-                    "aberta": True,
-                    "configurado": True,
-                    "hora_abertura": str(ab)[:5],
-                    "hora_fechamento": str(fech)[:5],
-                })
-
-    # Loja fechada agora — busca próxima abertura
-    proximo = _proximo_dia_abertura(horarios, dia_hoje)
-    nome_dia_hoje = next((n for d, n in _DIAS_SEMANA if d == dia_hoje), "hoje")
-
-    return jsonify({
-        "aberta": False,
-        "configurado": True,
-        "fechado_hoje": True,
-        "nome_dia_hoje": nome_dia_hoje,
-        "proximo": proximo,
-    })
+    """Retorna se a loja está aberta agora, se a entrega está disponível
+    neste horário e, se fechada, quando abre."""
+    return jsonify(_status_horario_entrega(cnpjloja))
 
 
 if __name__ == "__main__":

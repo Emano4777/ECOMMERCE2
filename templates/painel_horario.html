@@ -3,7 +3,7 @@
 
 {% block extra_style %}
 <style>
-.hr-grid { display:flex; flex-direction:column; gap:10px; max-width:620px; }
+.hr-grid { display:flex; flex-direction:column; gap:10px; max-width:760px; }
 .hr-row {
   display:grid;
   grid-template-columns: 120px 1fr 1fr 130px;
@@ -12,9 +12,11 @@
   padding:14px 16px;
   background:#0d1016;
   border:1px solid var(--pk-line);
-  border-radius:10px;
+  border-top-left-radius:10px;
+  border-top-right-radius:10px;
   transition:opacity .2s;
 }
+.hr-block { border:1px solid var(--pk-line); border-radius:10px; overflow:hidden; }
 .hr-row.fechado-row { opacity:.55; }
 .hr-dia { font-weight:700; font-size:.87rem; color:var(--pk-txt); }
 .hr-time input {
@@ -23,6 +25,7 @@
   color-scheme: dark;
 }
 .hr-time input:focus { outline:none; border-color:var(--pk-yellow); }
+.hr-time input:disabled { opacity:.4; }
 .hr-time label { display:block; font-size:.72rem; color:var(--pk-muted); margin-bottom:4px; }
 .hr-toggle-btn {
   display:flex; align-items:center; gap:8px; cursor:pointer;
@@ -43,54 +46,121 @@
 .fechado-ativo .hr-switch { background:#c8102e; border-color:#e03030; }
 .fechado-ativo .hr-switch::after { transform:translateX(18px); background:#fff; }
 .fechado-ativo .hr-toggle-btn .hr-label { color:#e03030; }
+.hr-entrega-row {
+  display:grid;
+  grid-template-columns: 120px 1fr 1fr 130px;
+  align-items:center;
+  gap:12px;
+  padding:10px 16px 14px;
+  background:#0a0d13;
+  border-bottom-left-radius:10px;
+  border-bottom-right-radius:10px;
+}
+.hr-entrega-row.hidden-row { display:none; }
+.hr-entrega-label { font-size:.76rem; color:var(--pk-muted); display:flex; align-items:center; gap:6px; }
+.hr-entrega-label i { color:#60a5fa; }
 @media(max-width:560px){
   .hr-row { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
   .hr-dia { grid-column:1/3; }
   .hr-toggle-btn { grid-column:1/3; justify-content:flex-end; }
+  .hr-entrega-row { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto; }
+  .hr-entrega-label { grid-column:1/3; }
 }
+
+/* Feriados */
+.fer-list { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+.fer-item {
+  display:flex; align-items:center; gap:12px; padding:10px 14px;
+  background:#0d1016; border:1px solid var(--pk-line); border-radius:8px;
+}
+.fer-item .fer-data { font-weight:800; font-size:.85rem; color:var(--pk-yellow); min-width:90px; }
+.fer-item .fer-desc { flex:1; font-size:.85rem; color:var(--pk-txt); }
+.fer-item .fer-badge { font-size:.72rem; font-weight:700; padding:2px 8px; border-radius:6px; }
+.fer-item .fer-badge.fechado { background:#2a0810; color:#f08090; }
+.fer-item .fer-badge.aberto { background:#0d2d1a; color:#22c55e; }
+.fer-form { display:grid; grid-template-columns:150px 1fr 120px 120px 120px; gap:10px; align-items:end; }
+.fer-form label { display:block; font-size:.72rem; color:var(--pk-muted); margin-bottom:4px; }
+.fer-form input { width:100%; background:#161b27; border:1px solid var(--pk-line); color:var(--pk-txt); border-radius:7px; padding:7px 10px; font-size:.86rem; color-scheme:dark; }
+@media(max-width:700px){ .fer-form { grid-template-columns:1fr 1fr; } }
 </style>
 {% endblock %}
 
 {% block content %}
-<div style="max-width:680px">
+<div style="max-width:780px">
   <div style="margin-bottom:20px">
     <h5 style="font-weight:900;color:var(--pk-txt);margin:0 0 6px">Horário de Funcionamento</h5>
     <p style="font-size:.82rem;color:var(--pk-muted);margin:0">
-      Configure os horários em que sua farmácia recebe pedidos. Quando fechada, o consumidor verá um aviso com a previsão de reabertura antes de finalizar a compra.
+      Configure os horários em que sua farmácia recebe pedidos. Estar aberta não significa que a entrega esteja disponível
+      no mesmo horário — configure abaixo o horário de entrega de cada dia.
     </p>
   </div>
 
   <form method="POST" action="{{ url_for('painel_horario_salvar') }}">
     <div class="hr-grid" id="hrGrid">
       {% for h in horarios %}
-      <div class="hr-row {% if h.fechado %}fechado-row{% endif %}" id="hrRow{{ h.dia_semana }}">
-        <div class="hr-dia">{{ h.nome }}</div>
+      <div class="hr-block">
+        <div class="hr-row {% if h.fechado %}fechado-row{% endif %}" id="hrRow{{ h.dia_semana }}">
+          <div class="hr-dia">{{ h.nome }}</div>
 
-        <div class="hr-time">
-          <label>Abertura</label>
-          <input type="time" name="abertura_{{ h.dia_semana }}"
-                 value="{{ h.hora_abertura }}"
-                 {% if h.fechado %}disabled{% endif %}>
+          <div class="hr-time">
+            <label>Abertura</label>
+            <input type="time" name="abertura_{{ h.dia_semana }}"
+                   value="{{ h.hora_abertura }}"
+                   {% if h.fechado %}disabled{% endif %}>
+          </div>
+
+          <div class="hr-time">
+            <label>Fechamento</label>
+            <input type="time" name="fechamento_{{ h.dia_semana }}"
+                   value="{{ h.hora_fechamento }}"
+                   {% if h.fechado %}disabled{% endif %}>
+          </div>
+
+          <div>
+            <button type="button"
+                    class="hr-toggle-btn {% if h.fechado %}fechado-ativo{% endif %}"
+                    onclick="toggleFechado({{ h.dia_semana }})"
+                    id="hrBtn{{ h.dia_semana }}">
+              <span class="hr-switch"></span>
+              <span class="hr-label">{% if h.fechado %}Fechado{% else %}Aberto{% endif %}</span>
+            </button>
+            <input type="hidden" name="fechado_{{ h.dia_semana }}"
+                   id="fechadoHidden{{ h.dia_semana }}"
+                   value="{{ '1' if h.fechado else '0' }}">
+          </div>
         </div>
 
-        <div class="hr-time">
-          <label>Fechamento</label>
-          <input type="time" name="fechamento_{{ h.dia_semana }}"
-                 value="{{ h.hora_fechamento }}"
-                 {% if h.fechado %}disabled{% endif %}>
-        </div>
+        <div class="hr-entrega-row {% if h.fechado %}hidden-row{% endif %}" id="hrEntregaRow{{ h.dia_semana }}">
+          <div class="hr-entrega-label"><i class="fa fa-motorcycle"></i>Entrega</div>
 
-        <div>
-          <button type="button"
-                  class="hr-toggle-btn {% if h.fechado %}fechado-ativo{% endif %}"
-                  onclick="toggleFechado({{ h.dia_semana }})"
-                  id="hrBtn{{ h.dia_semana }}">
-            <span class="hr-switch"></span>
-            <span class="hr-label">{% if h.fechado %}Fechado{% else %}Aberto{% endif %}</span>
-          </button>
-          <input type="hidden" name="fechado_{{ h.dia_semana }}"
-                 id="fechadoHidden{{ h.dia_semana }}"
-                 value="{{ '1' if h.fechado else '0' }}">
+          <div class="hr-time">
+            <label>Entrega das <span style="font-weight:400">(vazio = mesmo da loja)</span></label>
+            <input type="time" name="entrega_abertura_{{ h.dia_semana }}"
+                   value="{{ h.entrega_hora_abertura }}"
+                   placeholder="{{ h.hora_abertura }}"
+                   {% if not h.entrega_habilitada %}disabled{% endif %}>
+          </div>
+
+          <div class="hr-time">
+            <label>até</label>
+            <input type="time" name="entrega_fechamento_{{ h.dia_semana }}"
+                   value="{{ h.entrega_hora_fechamento }}"
+                   placeholder="{{ h.hora_fechamento }}"
+                   {% if not h.entrega_habilitada %}disabled{% endif %}>
+          </div>
+
+          <div>
+            <button type="button"
+                    class="hr-toggle-btn {% if not h.entrega_habilitada %}fechado-ativo{% endif %}"
+                    onclick="toggleEntrega({{ h.dia_semana }})"
+                    id="hrEntregaBtn{{ h.dia_semana }}">
+              <span class="hr-switch"></span>
+              <span class="hr-label">{% if h.entrega_habilitada %}Entrega ok{% else %}Sem entrega{% endif %}</span>
+            </button>
+            <input type="hidden" name="entrega_habilitada_{{ h.dia_semana }}"
+                   id="entregaHabilitadaHidden{{ h.dia_semana }}"
+                   value="{{ '1' if h.entrega_habilitada else '0' }}">
+          </div>
         </div>
       </div>
       {% endfor %}
@@ -103,6 +173,73 @@
       </button>
     </div>
   </form>
+
+  <!-- ── Feriados ─────────────────────────────────────────────────── -->
+  <div style="margin-top:36px">
+    <h5 style="font-weight:900;color:var(--pk-txt);margin:0 0 6px">Feriados e datas especiais</h5>
+    <p style="font-size:.82rem;color:var(--pk-muted);margin:0 0 16px">
+      Cadastre datas específicas em que sua farmácia fica fechada (ou com horário especial), independente do dia da semana.
+    </p>
+
+    {% if feriados %}
+    <div class="fer-list">
+      {% for fer in feriados %}
+      <div class="fer-item">
+        <div class="fer-data">{{ fer.data.strftime('%d/%m/%Y') }}</div>
+        <div class="fer-desc">{{ fer.descricao or '—' }}</div>
+        {% if fer.fechado %}
+          <span class="fer-badge fechado">Fechado</span>
+        {% else %}
+          <span class="fer-badge aberto">{{ fer.hora_abertura_fmt or '?' }} - {{ fer.hora_fechamento_fmt or '?' }}</span>
+        {% endif %}
+        <form method="post" action="{{ url_for('painel_feriado_excluir', feriado_id=fer.id) }}"
+              onsubmit="return confirm('Remover este feriado?')">
+          <button type="submit" class="btn-pk-ghost" style="padding:5px 10px;font-size:.78rem">
+            <i class="fa fa-trash"></i>
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="font-size:.82rem;color:var(--pk-muted);margin-bottom:16px">Nenhum feriado cadastrado ainda.</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('painel_feriado_novo') }}" class="pk-card" style="padding:16px">
+      <div class="fer-form">
+        <div>
+          <label>Data</label>
+          <input type="date" name="data" required>
+        </div>
+        <div>
+          <label>Descrição (opcional)</label>
+          <input type="text" name="descricao" placeholder="Ex: Natal, Ano Novo...">
+        </div>
+        <div>
+          <button type="button"
+                  class="hr-toggle-btn fechado-ativo" id="ferFechadoBtn"
+                  onclick="toggleFerFechado()" style="padding:7px 0">
+            <span class="hr-switch"></span>
+            <span class="hr-label">Fechado</span>
+          </button>
+          <input type="hidden" name="fechado" id="ferFechadoHidden" value="1">
+        </div>
+        <div id="ferAberturaWrap" style="display:none">
+          <label>Abre às</label>
+          <input type="time" name="hora_abertura" id="ferAbertura">
+        </div>
+        <div id="ferFechamentoWrap" style="display:none">
+          <label>Fecha às</label>
+          <input type="time" name="hora_fechamento" id="ferFechamento">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button type="submit" class="btn-pk-yellow" style="font-size:.85rem">
+          <i class="fa fa-plus me-1"></i>Adicionar feriado
+        </button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endblock %}
 
@@ -111,6 +248,7 @@
 function toggleFechado(dia) {
   const btn    = document.getElementById('hrBtn' + dia);
   const row    = document.getElementById('hrRow' + dia);
+  const entregaRow = document.getElementById('hrEntregaRow' + dia);
   const hidden = document.getElementById('fechadoHidden' + dia);
   const inputs = row.querySelectorAll('input[type=time]');
   const label  = btn.querySelector('.hr-label');
@@ -120,14 +258,60 @@ function toggleFechado(dia) {
     hidden.value = '0';
     btn.classList.remove('fechado-ativo');
     row.classList.remove('fechado-row');
+    entregaRow.classList.remove('hidden-row');
     label.textContent = 'Aberto';
     inputs.forEach(i => i.disabled = false);
   } else {
     hidden.value = '1';
     btn.classList.add('fechado-ativo');
     row.classList.add('fechado-row');
+    entregaRow.classList.add('hidden-row');
     label.textContent = 'Fechado';
     inputs.forEach(i => i.disabled = true);
+  }
+}
+
+function toggleEntrega(dia) {
+  const btn    = document.getElementById('hrEntregaBtn' + dia);
+  const row    = document.getElementById('hrEntregaRow' + dia);
+  const hidden = document.getElementById('entregaHabilitadaHidden' + dia);
+  const inputs = row.querySelectorAll('input[type=time]');
+  const label  = btn.querySelector('.hr-label');
+
+  const habilitada = hidden.value === '1';
+  if (habilitada) {
+    hidden.value = '0';
+    btn.classList.add('fechado-ativo');
+    label.textContent = 'Sem entrega';
+    inputs.forEach(i => i.disabled = true);
+  } else {
+    hidden.value = '1';
+    btn.classList.remove('fechado-ativo');
+    label.textContent = 'Entrega ok';
+    inputs.forEach(i => i.disabled = false);
+  }
+}
+
+function toggleFerFechado() {
+  const btn = document.getElementById('ferFechadoBtn');
+  const hidden = document.getElementById('ferFechadoHidden');
+  const abWrap = document.getElementById('ferAberturaWrap');
+  const fechWrap = document.getElementById('ferFechamentoWrap');
+  const label = btn.querySelector('.hr-label');
+
+  const fechado = hidden.value === '1';
+  if (fechado) {
+    hidden.value = '0';
+    btn.classList.remove('fechado-ativo');
+    label.textContent = 'Horário especial';
+    abWrap.style.display = '';
+    fechWrap.style.display = '';
+  } else {
+    hidden.value = '1';
+    btn.classList.add('fechado-ativo');
+    label.textContent = 'Fechado';
+    abWrap.style.display = 'none';
+    fechWrap.style.display = 'none';
   }
 }
 </script>
