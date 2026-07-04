@@ -28,7 +28,11 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+_here = Path(__file__).resolve().parent
+for _candidate in (_here / ".env", _here.parent / ".env"):
+    if _candidate.exists():
+        load_dotenv(_candidate)
+        break
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
