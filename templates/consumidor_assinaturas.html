@@ -36,8 +36,8 @@
       <h1><i class="fa fa-star" style="color:var(--pq-red)"></i>Minhas Assinaturas</h1>
       <div class="asn-sub">Farmácias que você assina e seus benefícios exclusivos.</div>
     </div>
-    <a href="{{ url_for('lojas_vitrine') }}" class="btn" style="background:var(--pq-red);color:#fff;border-radius:10px;padding:10px 18px;text-decoration:none;font-weight:900;font-size:.85rem">
-      <i class="fa fa-store me-1"></i>Ver farmácias
+    <a href="{{ url_for('seja_assinante') }}" class="btn" style="background:var(--pq-red);color:#fff;border-radius:10px;padding:10px 18px;text-decoration:none;font-weight:900;font-size:.85rem">
+      <i class="fa fa-star me-1"></i>Seja assinante
     </a>
   </div>
 
@@ -117,9 +117,9 @@
     <i class="fa fa-star"></i>
     <p><strong>Você ainda não assina nenhuma farmácia.</strong></p>
     <p>Quando uma farmácia tiver um plano de assinatura ativo, você poderá assinar diretamente pela página dela e ter acesso a benefícios exclusivos.</p>
-    <a href="{{ url_for('lojas_vitrine') }}"
+    <a href="{{ url_for('seja_assinante') }}"
        style="display:inline-flex;align-items:center;gap:6px;background:var(--pq-red);color:#fff;border-radius:10px;padding:11px 22px;text-decoration:none;font-weight:900;font-size:.88rem;margin-top:12px">
-      <i class="fa fa-store"></i>Ver farmácias disponíveis
+      <i class="fa fa-star"></i>Ver farmácias disponíveis
     </a>
   </div>
   {% endif %}

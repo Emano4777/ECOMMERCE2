@@ -1078,6 +1078,10 @@
       <img src="{{ url_for('static', filename='icons/store.png') }}" alt="" class="pq-custom-ico">
       <span>Farmácias<br>Próximas</span>
     </a>
+    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('seja_assinante') }}">
+      <i class="fa fa-star" style="font-size:1.1rem"></i>
+      <span>Seja<br>Assinante</span>
+    </a>
     <a class="pq-nav-link" href="{{ url_for('carrinho') }}" onclick="return abrirCestaLateral(event)">
       <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="" class="pq-custom-ico">
       <span>Sua<br>Cesta</span>
@@ -1186,6 +1190,9 @@
     <a class="pq-drawer-item" href="{{ url_for('consumidor_cupons') }}" onclick="fecharDrawer()">
       <i class="fa fa-ticket"></i>Meus cupons
     </a>
+    <a class="pq-drawer-item" href="{{ url_for('minhas_assinaturas') }}" onclick="fecharDrawer()">
+      <i class="fa fa-star"></i>Minhas assinaturas
+    </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_favoritos') }}" onclick="fecharDrawer()">
       <i class="fa fa-heart"></i>Favoritos
     </a>
@@ -1211,6 +1218,9 @@
   </a>
   <a class="pq-drawer-item" href="{{ url_for('lojas_vitrine') }}" onclick="fecharDrawer()">
     <i class="fa fa-store"></i>Nossas lojas
+  </a>
+  <a class="pq-drawer-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()">
+    <i class="fa fa-star"></i>Seja assinante
   </a>
   <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer();return abrirCestaLateral(event)">
     <i class="fa fa-basket-shopping"></i>Minha cesta

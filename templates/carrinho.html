@@ -329,10 +329,7 @@
     <aside id="checkout-section" class="cart-side" style="display:none">
       <div class="order-summary-card">
         <h3>Resumo do pedido</h3>
-        <div class="summary-free" id="summary-free">
-          Falta pouco para finalizar sua compra.
-          <div class="summary-free-bar"><span id="summary-free-bar"></span></div>
-        </div>
+        <div class="summary-free" id="summary-free" style="display:none"></div>
         <div class="summary-row"><span>Itens</span><strong id="summary-items">0 itens</strong></div>
         <div class="summary-row"><span>Subtotal</span><strong id="summary-subtotal">R$ 0,00</strong></div>
         <div class="summary-row"><span>Recebimento</span><strong id="summary-delivery">Retirada</strong></div>
@@ -895,7 +892,7 @@ function renderCart() {
       const precoOriginal = parseFloat(item.preco_original || item.promo?.preco_original || precoItem)||precoItem;
       const promoAplicada = item.promo && item.promo.aplicada && precoItem > 0 && precoItem < precoOriginal;
       const precoHtml = promoAplicada
-        ? `${brl(precoItem)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoOriginal)}</s><div style="font-size:.72rem;color:#16a34a;font-weight:800;margin-top:2px"><i class="fa fa-circle-check me-1"></i>preco de assinante aplicado</div>`
+        ? `${brl(precoItem)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoOriginal)}</s><div style="font-size:.72rem;color:#16a34a;font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-circle-check"></i>Preço de assinante aplicado</div>`
         : brl(precoItem);
       const imgTag = item.imagem
         ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
@@ -941,7 +938,8 @@ function renderCart() {
     const entregaOk = entregaOkBase && dentroHorarioEntrega;
     const proximoDiaEntrega = cfg.proximo_dia_entrega;
     const podeAgendar = !entregaOk && entregaOkBase && !dentroHorarioEntrega && !!proximoDiaEntrega;
-    const frete = (entregaOk || podeAgendar) && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    const freteGratisAssinante = cfg.frete_gratis_assinante_disponivel === true;
+    const frete = (entregaOk || podeAgendar) && cfg.cobra_frete && !freteGratisAssinante ? parseFloat(cfg.valor_frete || 0) : 0;
     grandTotal += sub;
     let payOpts = '';
     if (showWpp) payOpts += payOptHtml(cnpj, 'whatsapp', '<i class="fa-brands fa-whatsapp"></i>WhatsApp', true);
@@ -957,10 +955,13 @@ function renderCart() {
     let minPedidoAvisoHtml = '';
     if (cfg.aceita_entrega === true) {
       if (entregaOk) {
+        const freteTexto = freteGratisAssinante
+          ? ', <strong style="color:#16a34a"><i class="fa fa-gift me-1"></i>frete grátis — benefício da sua assinatura</strong>'
+          : (frete ? `, frete ${brl(frete)}` : ', frete grátis');
         if (temReceitaDigital) {
-          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete grátis'}. <strong>Receita digital original exigida para medicamento com retenção/controle.</strong>`;
+          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${freteTexto}. <strong>Receita digital original exigida para medicamento com retenção/controle.</strong>`;
         } else {
-          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${frete ? `, frete ${brl(frete)}` : ', frete grátis'}.`;
+          entregaMsg = `Entrega disponível${raio ? ` em até ${raio} km` : ''}${freteTexto}.`;
         }
       } else if (!distanciaConhecida) {
         entregaMsg = 'Informe sua localização/endereço para verificar se a entrega está disponível.';
@@ -1118,15 +1119,22 @@ function atualizarTotaisComFrete() {
   let subtotalTotal = 0;
   let freteTotal = 0;
   let entregaCount = 0;
+  const faltasMinimo = [];
   Object.keys(groups).forEach(cnpj => {
     const sub = groups[cnpj].itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
     const cfg = _configLojas[cnpj] || {};
     const delivery = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
-    const frete = delivery === 'entrega' && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    const frete = delivery === 'entrega' && cfg.cobra_frete && !cfg.frete_gratis_assinante_disponivel ? parseFloat(cfg.valor_frete || 0) : 0;
     const desconto = _cupomAplicado[cnpj]?.desconto || 0;
     subtotalTotal += sub;
     freteTotal += frete;
-    if (delivery === 'entrega') entregaCount++;
+    if (delivery === 'entrega') {
+      entregaCount++;
+      const minPedido = parseFloat(cfg.pedido_minimo_entrega || 0);
+      if (minPedido > 0 && sub < minPedido) {
+        faltasMinimo.push({ razao: cfg.razao || '', falta: minPedido - sub });
+      }
+    }
     total += Math.max(0, sub - desconto) + frete;
     const el = document.getElementById(`subtotal-${cnpj}`);
     if (el) el.textContent = frete ? `${brl(sub)} + frete ${brl(frete)}` : brl(sub);
@@ -1134,7 +1142,6 @@ function atualizarTotaisComFrete() {
   const summarySubtotal = document.getElementById('summary-subtotal');
   const summaryDelivery = document.getElementById('summary-delivery');
   const summaryFree = document.getElementById('summary-free');
-  const summaryFreeBar = document.getElementById('summary-free-bar');
   if (summarySubtotal) summarySubtotal.textContent = brl(subtotalTotal);
   if (summaryDelivery) {
     summaryDelivery.textContent = entregaCount
@@ -1142,11 +1149,16 @@ function atualizarTotaisComFrete() {
       : 'Retirada na loja';
     summaryDelivery.style.color = entregaCount && !freteTotal ? '#16a34a' : '';
   }
-  if (summaryFree && summaryFreeBar) {
-    const falta = Math.max(0, 42.01 - total);
-    summaryFree.innerHTML = falta > 0
-      ? `Faltam ${brl(falta)} para frete grátis na entrega.<div class="summary-free-bar"><span id="summary-free-bar" style="width:${Math.min(100, Math.round((total/42.01)*100))}%"></span></div>`
-      : `Pedido elegível para benefícios de entrega.<div class="summary-free-bar"><span id="summary-free-bar" style="width:100%"></span></div>`;
+  if (summaryFree) {
+    if (faltasMinimo.length) {
+      summaryFree.style.display = '';
+      summaryFree.innerHTML = faltasMinimo
+        .map(f => `Faltam ${brl(f.falta)} para o pedido mínimo de entrega${f.razao ? ` em ${esc(f.razao)}` : ''}.`)
+        .join('<br>');
+    } else {
+      summaryFree.style.display = 'none';
+      summaryFree.innerHTML = '';
+    }
   }
   document.getElementById('grand-total').textContent = brl(total);
 }

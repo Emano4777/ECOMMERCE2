@@ -1,0 +1,130 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Financeiro (Repasses){% endblock %}
+
+{% block extra_style %}
+<style>
+.rp-stats { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.rp-stat {
+  background: #0d1016; border: 1px solid var(--pk-line);
+  border-radius: 8px; padding: 8px 14px;
+  font-size: .82rem; color: var(--pk-muted);
+}
+.rp-stat strong { color: var(--pk-yellow); }
+.rp-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.rp-table thead tr { background: #0d1016; }
+.rp-table th {
+  padding: 9px 12px; text-align: left; color: var(--pk-muted);
+  font-weight: 700; font-size: .78rem; text-transform: uppercase;
+  border-bottom: 1px solid var(--pk-line);
+}
+.rp-table td { padding: 9px 12px; border-bottom: 1px solid var(--pk-line); vertical-align: middle; }
+.rp-table tr:hover td { background: rgba(255,255,255,.02); }
+.rp-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:3px 9px; font-size:.72rem; font-weight:800; }
+.rp-badge.on { color:#6ee79a; border:1px solid rgba(34,197,94,.35); background:#0d2d1a; }
+.rp-badge.off { color:#f0b429; border:1px solid rgba(240,180,41,.35); background:#2a1c08; }
+.rp-tipo { font-size:.7rem; font-weight:800; padding:3px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:5px; }
+.rp-tipo.frete_primeira_entrega { background:#0d2138; color:#60a5fa; border:1px solid #3b82f655; }
+.rp-tipo.cupom { background:#1a1200; color:#fbbf24; border:1px solid #fbbf2455; }
+.rp-tipo.promocao { background:#2a0810; color:#f08090; border:1px solid #f0809055; }
+.rp-tabs { display:flex; gap:8px; margin-bottom:16px; }
+.rp-tab { padding:6px 14px; border-radius:8px; font-size:.8rem; font-weight:700; text-decoration:none; border:1px solid var(--pk-line); color:var(--pk-muted); }
+.rp-tab.active { background:var(--pk-yellow); color:#000; border-color:var(--pk-yellow); }
+.rp-btn { border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted); border-radius:8px; padding:5px 10px; font-size:.76rem; font-weight:700; cursor:pointer; font-family:inherit; }
+.rp-btn:hover { background:#0d2d1a; color:#6ee79a; border-color:#22c55e55; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:8px">
+  <i class="fa fa-hand-holding-dollar me-2" style="color:var(--pk-yellow)"></i>Financeiro — Repasses às lojas
+</div>
+<p style="color:var(--pk-muted);font-size:.85rem;margin-bottom:20px">
+  Sempre que um benefício custeado pelo admin (1ª entrega grátis de assinante, cupom/desconto administrado pelo admin)
+  reduz o quanto o consumidor paga, a loja continua com direito ao valor cheio que ela configurou. Aqui fica o
+  extrato do que o admin deve repassar pra cada loja — o pagamento em si (Pix/transferência) é feito manualmente,
+  e você marca aqui como pago depois de acertar com a loja.
+</p>
+
+<div class="rp-stats">
+  <div class="rp-stat">Total pendente: <strong style="color:#f0b429">R$ {{ '%.2f'|format(total_pendente) }}</strong></div>
+  <div class="rp-stat"><strong>{{ pendentes_por_loja | length }}</strong> loja(s) com repasse pendente</div>
+</div>
+
+{% if pendentes_por_loja %}
+<div class="pk-card" style="margin-bottom:18px">
+  <div class="pk-card-title"><i class="fa fa-store"></i>Pendente por loja</div>
+  <table class="rp-table">
+    <thead><tr><th>Loja</th><th>Lançamentos</th><th>Total devido</th><th style="width:160px"></th></tr></thead>
+    <tbody>
+      {% for p in pendentes_por_loja %}
+      <tr>
+        <td>{{ p.razao or p.cnpjloja }}</td>
+        <td>{{ p.qtd }}</td>
+        <td style="color:#f0b429;font-weight:800">R$ {{ '%.2f'|format(p.total|float) }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_repasses_marcar_pago_loja', cnpjloja=p.cnpjloja) }}"
+                onsubmit="return confirm('Marcar todos os repasses pendentes de ' + {{ (p.razao or p.cnpjloja) | tojson }} + ' como pagos? Confirme que você já acertou o valor com a loja antes.')">
+            <button type="submit" class="rp-btn"><i class="fa fa-check me-1"></i>Marcar tudo como pago</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="rp-tabs">
+  <a class="rp-tab {% if status=='pendente' %}active{% endif %}" href="{{ url_for('admin_repasses', status='pendente') }}">Pendentes</a>
+  <a class="rp-tab {% if status=='pago' %}active{% endif %}" href="{{ url_for('admin_repasses', status='pago') }}">Pagos</a>
+  <a class="rp-tab {% if status=='todos' %}active{% endif %}" href="{{ url_for('admin_repasses', status='todos') }}">Todos</a>
+</div>
+
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <table class="rp-table">
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Loja</th>
+        <th>Tipo</th>
+        <th>Descrição</th>
+        <th>Valor</th>
+        <th>Status</th>
+        <th style="width:120px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in repasses %}
+      <tr>
+        <td>{{ r.criado_em.strftime('%d/%m/%Y %H:%M') if r.criado_em else '—' }}</td>
+        <td>{{ r.razao or r.cnpjloja }}</td>
+        <td>
+          {% if r.tipo == 'frete_primeira_entrega' %}
+            <span class="rp-tipo frete_primeira_entrega"><i class="fa fa-truck-fast"></i>1ª entrega grátis</span>
+          {% elif r.tipo == 'promocao' %}
+            <span class="rp-tipo promocao"><i class="fa fa-star"></i>Promoção assinante</span>
+          {% else %}
+            <span class="rp-tipo cupom"><i class="fa fa-ticket"></i>Cupom/desconto</span>
+          {% endif %}
+        </td>
+        <td style="color:var(--pk-muted);font-size:.8rem">{{ r.descricao or '—' }}</td>
+        <td style="font-weight:800">R$ {{ '%.2f'|format(r.valor|float) }}</td>
+        <td>
+          {% if r.pago %}<span class="rp-badge on"><i class="fa fa-check"></i>Pago</span>
+          {% else %}<span class="rp-badge off"><i class="fa fa-clock"></i>Pendente</span>{% endif %}
+        </td>
+        <td>
+          {% if not r.pago %}
+          <form method="post" action="{{ url_for('admin_repasses_marcar_pago', repasse_id=r.id) }}">
+            <button type="submit" class="rp-btn"><i class="fa fa-check me-1"></i>Marcar pago</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="text-align:center;color:var(--pk-muted);padding:20px">Nenhum repasse encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

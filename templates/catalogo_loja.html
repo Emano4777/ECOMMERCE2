@@ -119,6 +119,13 @@
 }
 .prod-qty-ok  { color: #2d8a4e; }
 .prod-qty-low { color: #e8760a; }
+.prod-promo-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 4px; border-radius: 8px; padding: 4px 9px;
+  font-size: .68rem; font-weight: 800; max-width: 100%;
+}
+.prod-promo-tag--applied { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.prod-promo-tag--offer   { background: #fff5f6; color: var(--pq-red); border: 1px solid #ffd0d8; }
 .btn-add-cart {
   background: var(--pq-red);
   color: #fff;
@@ -314,9 +321,23 @@
       </span>
       {% endif %}
 
+      {% set promo = p.promo %}
+      {% set desconto_aplicado = promo and promo.aplicada and promo.preco_original and promo.preco_original|float > p.preco|float %}
+      {% set oferta_nao_aplicada = promo and promo.so_assinantes and not promo.aplicada and promo.preco_promo and promo.preco_promo|float < p.preco|float %}
       <div class="prod-preco">
         {% if p.preco %}
-          {{ money(p.preco) }}
+          {% if desconto_aplicado %}
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span>{{ money(p.preco) }}</span>
+              <s style="font-size:.76rem;color:var(--pq-muted);font-weight:600">{{ money(promo.preco_original) }}</s>
+            </div>
+            <div class="prod-promo-tag prod-promo-tag--applied"><i class="fa fa-circle-check"></i>Preço de assinante aplicado</div>
+          {% elif oferta_nao_aplicada %}
+            {{ money(p.preco) }}
+            <div class="prod-promo-tag prod-promo-tag--offer"><i class="fa fa-star"></i>Assine e pague {{ money(promo.preco_promo) }}</div>
+          {% else %}
+            {{ money(p.preco) }}
+          {% endif %}
         {% else %}
           <span style="font-size:.85rem;color:var(--pq-muted)">Consultar</span>
         {% endif %}
@@ -339,20 +360,27 @@
           <button type="button" onclick="changeCatalogQty('{{ loop.index }}', 1)">+</button>
         </div>
         <button class="btn-add-cart"
-                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }},receita_retida:{{ 'true' if p.receita_retida else 'false' }},tarja:'{{ p.tarja or '' }}'})">
+                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},preco_original:{{ (p.preco_original|float) if p.preco_original else (p.preco|float) }},promo:{% if promo %}{so_assinantes:{{ 'true' if promo.so_assinantes else 'false' }},preco_promo:{{ promo.preco_promo|float }},aplicada:{{ 'true' if promo.aplicada else 'false' }},preco_original:{{ promo.preco_original|float }}}{% else %}null{% endif %},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }},receita_retida:{{ 'true' if p.receita_retida else 'false' }},tarja:'{{ p.tarja or '' }}'})">
           <i class="fa fa-cart-plus me-1"></i>{% if p.requer_receita %}Reservar{% else %}Adicionar{% endif %}
         </button>
       </div>
     </div>
     {% if plano_assinatura and not ja_assina %}
-    <div onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
-      <span style="font-size:.72rem;color:var(--pq-red);font-weight:700;display:flex;align-items:center;gap:5px">
-        <i class="fa fa-star" style="font-size:.6rem"></i>Clube de assinantes disponível
-      </span>
-      <a href="#assinatura-loja" onclick="document.getElementById('assinatura-loja')?.scrollIntoView({behavior:'smooth'})"
-         style="font-size:.7rem;font-weight:800;color:var(--pq-red);text-decoration:none;white-space:nowrap;border:1px solid #ffd0d8;border-radius:6px;padding:3px 8px;background:#fff">
-        Saiba mais
-      </a>
+    <div onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:8px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <span style="font-size:.72rem;color:var(--pq-red);font-weight:700;display:flex;align-items:center;gap:5px">
+          <i class="fa fa-star" style="font-size:.6rem"></i>Clube de assinantes disponível
+        </span>
+        <a href="#assinatura-loja" onclick="document.getElementById('assinatura-loja')?.scrollIntoView({behavior:'smooth'})"
+           style="font-size:.7rem;font-weight:800;color:var(--pq-red);text-decoration:none;white-space:nowrap;border:1px solid #ffd0d8;border-radius:6px;padding:3px 8px;background:#fff">
+          Saiba mais
+        </a>
+      </div>
+      {% if plano_assinatura.frete_gratis_primeira_entrega %}
+      <div style="font-size:.64rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:4px;margin-top:5px">
+        <i class="fa fa-truck-fast" style="font-size:.58rem"></i>1ª entrega grátis pra quem assinar
+      </div>
+      {% endif %}
     </div>
     {% endif %}
   </div>

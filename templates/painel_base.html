@@ -282,7 +282,7 @@
     {% if session.is_admin %}
     <span class="pk-nav-sep"></span>
     <div class="dropdown">
-      <button type="button" class="pk-nav-drop {% if request.endpoint in ('admin_lojas','admin_lojas_vitrine','admin_lojas_vitrine_edit','admin_produto_canon','admin_sugestoes_regiao','admin_config','admin_assinaturas','admin_cupons') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <button type="button" class="pk-nav-drop {% if request.endpoint in ('admin_lojas','admin_lojas_vitrine','admin_lojas_vitrine_edit','admin_produto_canon','admin_sugestoes_regiao','admin_config','admin_assinaturas','admin_cupons','admin_repasses') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fa fa-shield-halved me-1"></i>Admin <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
       </button>
       <ul class="dropdown-menu dropdown-menu-dark">
@@ -315,6 +315,11 @@
         <li>
           <a class="dropdown-item {% if request.endpoint == 'admin_config' %}active{% endif %}" href="{{ url_for('admin_config') }}">
             <i class="fa fa-key me-2"></i>Config Mercado Pago
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint == 'admin_repasses' %}active{% endif %}" href="{{ url_for('admin_repasses') }}">
+            <i class="fa fa-hand-holding-dollar me-2"></i>Financeiro (Repasses)
           </a>
         </li>
         <li><hr class="dropdown-divider"></li>

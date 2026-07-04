@@ -1,0 +1,129 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Seja assinante{% endblock %}
+
+{% block extra_style %}
+<style>
+.sa-hero {
+  background: linear-gradient(135deg,#c8102e,#e8354a);
+  color: #fff;
+  padding: 32px 20px;
+  text-align: center;
+}
+.sa-hero h1 { margin: 0 0 6px; font-size: 1.5rem; font-weight: 900; display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
+.sa-hero p { margin: 0; opacity: .9; font-size: .9rem; max-width: 560px; margin: 0 auto; }
+
+.sa-section { max-width: 1100px; margin: 0 auto; padding: 28px 16px 70px; }
+.sa-hd { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.sa-hd h2 { margin:0; font-size:1.05rem; font-weight:900; }
+.sa-hd-status { font-size:.8rem; color:var(--pq-muted); font-weight:700; }
+
+.sa-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+@media (max-width:480px) { .sa-grid { grid-template-columns:1fr; } }
+
+.sa-card { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; }
+.sa-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:18px; color:#fff; }
+.sa-card-dist { display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.22); border-radius:999px; padding:3px 10px; font-size:.7rem; font-weight:800; margin-bottom:10px; }
+.sa-card-loja { font-size:1.05rem; font-weight:900; margin-bottom:2px; }
+.sa-card-plano { font-size:.8rem; opacity:.85; display:flex; align-items:center; gap:5px; }
+.sa-card-body { padding:16px; display:flex; flex-direction:column; gap:10px; flex:1 }
+.sa-card-preco { font-size:1.4rem; font-weight:900; color:var(--pq-red); }
+.sa-card-preco small { font-size:.8rem; font-weight:400; color:var(--pq-muted); }
+.sa-card-desc { color:#555; font-size:.82rem; line-height:1.5; }
+.sa-bens { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px; }
+.sa-bens li { display:flex; align-items:flex-start; gap:7px; font-size:.8rem; color:#333; }
+.sa-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:var(--pq-red); font-size:.62rem; margin-top:3px; flex-shrink:0; }
+.sa-frete-gratis { display:flex; align-items:center; gap:5px; font-size:.76rem; font-weight:800; color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
+.sa-card-cta { margin-top:auto; display:block; text-align:center; padding:11px; border-radius:10px; border:0; background:var(--pq-red); color:#fff; font-family:inherit; font-weight:900; font-size:.85rem; text-decoration:none; cursor:pointer; }
+.sa-card-cta.ja-assina { background:#f0fdf4; color:#16a34a; border:1.5px solid #bbf7d0; cursor:default; }
+
+.sa-skel { height: 340px; border-radius: 18px; background: linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%); background-size: 200% 100%; animation: sa-shimmer 1.4s infinite; }
+@keyframes sa-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+.sa-empty { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); text-align:center; padding:60px 24px; grid-column: 1 / -1; }
+.sa-empty i { font-size:3rem; opacity:.2; margin-bottom:14px; display:block; color:var(--pq-red); }
+.sa-empty p { color:var(--pq-muted); font-size:.9rem; margin: 0 0 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sa-hero">
+  <h1><i class="fa fa-star"></i>Seja assinante</h1>
+  <p>Assine o clube de fidelidade das farmácias perto de você e garanta preços exclusivos e vantagens em cada compra.</p>
+</div>
+
+<div class="sa-section">
+  <div class="sa-hd">
+    <h2><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>Farmácias com clube de assinantes perto de você</h2>
+    <span class="sa-hd-status" id="sa-status">Carregando…</span>
+  </div>
+
+  <div class="sa-grid" id="sa-skel">
+    {% for _ in range(6) %}<div class="sa-skel"></div>{% endfor %}
+  </div>
+  <div class="sa-grid" id="sa-grid" style="display:none"></div>
+</div>
+
+<script>
+function brl(v) { return 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.', ','); }
+function esc(s) { return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function saCard(p) {
+  const distHtml = (p.distancia_km !== null && p.distancia_km !== undefined)
+    ? `<span class="sa-card-dist"><i class="fa fa-location-dot"></i>${p.distancia_km} km de você</span>`
+    : '';
+  const bensHtml = (p.beneficios || '').split('\n').map(b => b.trim()).filter(Boolean)
+    .map(b => `<li>${esc(b)}</li>`).join('');
+  const freteGratisHtml = p.frete_gratis_primeira_entrega
+    ? `<div class="sa-frete-gratis"><i class="fa fa-truck-fast"></i>1ª entrega grátis pra quem assinar</div>`
+    : '';
+  const cta = p.ja_assina
+    ? `<button type="button" class="sa-card-cta ja-assina" disabled><i class="fa fa-check-circle me-1"></i>Você já é assinante</button>`
+    : `<form method="post" action="/assinar/${encodeURIComponent(p.cnpjloja)}">
+         <button type="submit" class="sa-card-cta"><i class="fa fa-star me-1"></i>Assinar agora</button>
+       </form>`;
+  return `<div class="sa-card">
+    <div class="sa-card-head">
+      ${distHtml}
+      <div class="sa-card-loja">${esc(p.razao)}</div>
+      <div class="sa-card-plano"><i class="fa fa-star" style="font-size:.7rem"></i>${esc(p.plano_nome)}</div>
+    </div>
+    <div class="sa-card-body">
+      <div class="sa-card-preco">${brl(p.preco_mensal)}<small>/mês</small></div>
+      ${p.descricao ? `<div class="sa-card-desc">${esc(p.descricao)}</div>` : ''}
+      ${bensHtml ? `<ul class="sa-bens">${bensHtml}</ul>` : ''}
+      ${freteGratisHtml}
+      ${cta}
+    </div>
+  </div>`;
+}
+
+function saLoad(lat, lng) {
+  fetch(`/api/planos-assinatura-proximos?lat=${lat||0}&lng=${lng||0}`)
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('sa-skel').style.display = 'none';
+      const planos = d.planos || [];
+      document.getElementById('sa-status').textContent = planos.length
+        ? `${planos.length} farmácia(s) com clube disponível`
+        : 'Nenhuma farmácia encontrada';
+      const grid = document.getElementById('sa-grid');
+      grid.innerHTML = planos.length
+        ? planos.map(saCard).join('')
+        : `<div class="sa-empty"><i class="fa fa-star"></i><p><strong>Nenhuma farmácia com clube de assinantes no momento.</strong></p><p>Volte em breve — novas farmácias entram para o clube periodicamente.</p></div>`;
+      grid.style.display = '';
+    })
+    .catch(() => {
+      document.getElementById('sa-skel').style.display = 'none';
+      document.getElementById('sa-status').textContent = 'Erro ao carregar.';
+      document.getElementById('sa-grid').style.display = '';
+    });
+}
+
+(function(){
+  const la = parseFloat(localStorage.getItem('pq_lat')||'0');
+  const ln = parseFloat(localStorage.getItem('pq_lng')||'0');
+  if (la && ln) saLoad(la, ln);
+  else setTimeout(() => saLoad(0,0), 1500);
+})();
+</script>
+{% endblock %}

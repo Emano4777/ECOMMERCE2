@@ -1243,8 +1243,12 @@ def _ensure_promo_schema():
 
 
 def _ensure_assinatura_schema():
-    if "assinaturas" in _schema_ready:
-        return
+    if "assinaturas" not in _schema_ready:
+        _ensure_assinatura_schema_impl()
+    _ensure_repasses_admin_schema()  # sempre chamado, independente de "assinaturas" já estar marcado
+
+
+def _ensure_assinatura_schema_impl():
     with _schema_lock:
         if "assinaturas" in _schema_ready:
             return
@@ -1306,6 +1310,46 @@ def _ensure_assinatura_schema():
         cur.close()
         _schema_ready.add("assinaturas")
         _mark_migration_done("assinaturas")
+
+
+def _ensure_repasses_admin_schema():
+    """Beneficios financiados pelo admin (frete gratis da 1a entrega do
+    assinante, cupons administrados pelo admin) — registra quanto o admin
+    "deve" repassar pra loja, pra ela sempre receber o valor que configurou
+    mesmo quando o cliente pagou menos por causa de um beneficio do admin."""
+    key = "repasses_admin_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_planos_assinatura ADD COLUMN IF NOT EXISTS frete_gratis_primeira_entrega BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_assinantes ADD COLUMN IF NOT EXISTS frete_gratis_primeira_usado BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS frete_gratis_assinante BOOLEAN DEFAULT FALSE")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_repasses_admin (
+                id          SERIAL PRIMARY KEY,
+                cnpjloja    TEXT NOT NULL,
+                pedido_id   UUID,
+                tipo        TEXT NOT NULL,
+                valor       NUMERIC(10,2) NOT NULL,
+                descricao   TEXT,
+                criado_em   TIMESTAMPTZ DEFAULT NOW(),
+                pago        BOOLEAN DEFAULT FALSE,
+                pago_em     TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_repasses_admin_cnpj ON ecommerce_repasses_admin(cnpjloja)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_repasses_admin_pago ON ecommerce_repasses_admin(pago)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _ensure_config_admin_schema():
@@ -3060,8 +3104,6 @@ def _attach_product_promos(produtos):
             assinados = {r["cnpj_key"] for r in cur.fetchall()}
         cur.close()
         for p in produtos:
-            if p.get("fonte_estoque") == "alpha_a7":
-                continue
             cnpj_key = _digits(p.get("cnpjloja"))
             row = promo_map.get((_digits(p.get("ean")).lstrip("0"), cnpj_key))
             if not row:
@@ -3142,31 +3184,12 @@ def _consumidor_e_assinante(consumidor_id, cnpjloja) -> bool:
 
 
 def _preco_produto_com_promocao(cnpjloja: str, ean: str, preco_base, consumidor_id: str | None = None) -> tuple[float, dict | None]:
+    """Aplica, por cima do preco_base (que pode vir do Alpha ou de qualquer
+    outra fonte), a promocao so-assinantes lancada em ecommerce_promocoes —
+    e uma camada de desconto independente do preco base, igual ao cupom."""
     preco = float(preco_base or 0)
     if not cnpjloja or not ean:
         return preco, None
-    if _alpha_enabled():
-        try:
-            _ensure_alpha_schema()
-            conn_alpha = db()
-            cur_alpha = conn_alpha.cursor()
-            cur_alpha.execute(
-                """
-                SELECT 1
-                FROM ecommerce_alpha_produtos
-                WHERE cnpjloja=%s
-                  AND LTRIM(COALESCE(ean, ''), '0') = LTRIM(%s, '0')
-                  AND COALESCE(inativo, false) = false
-                LIMIT 1
-                """,
-                (cnpjloja, ean),
-            )
-            is_alpha_a7 = cur_alpha.fetchone() is not None
-            cur_alpha.close()
-            if is_alpha_a7:
-                return preco, None
-        except Exception:
-            pass
     try:
         _ensure_promo_schema()
         conn = db()
@@ -8725,6 +8748,7 @@ def api_produto(ean):
 def api_config_lojas():
     _ensure_delivery_schema()
     _ensure_gateway_alt_columns()
+    _ensure_assinatura_schema()
     cnpjs = [c.strip() for c in request.args.get("cnpjs", "").split(",") if c.strip()]
     if not cnpjs:
         return jsonify({})
@@ -8757,7 +8781,24 @@ def api_config_lojas():
         (cnpjs,),
     )
     rows = cur.fetchall()
+
+    consumidor_id = session.get("consumidor_id")
+    frete_gratis_disponivel = set()
+    if consumidor_id:
+        cur.execute(
+            """
+            SELECT a.cnpjloja FROM ecommerce_assinantes a
+            JOIN ecommerce_planos_assinatura p ON p.cnpjloja = a.cnpjloja
+            WHERE a.consumidor_id=%s AND a.cnpjloja = ANY(%s)
+              AND a.status='ativo' AND a.pagamento_status='aprovado'
+              AND COALESCE(p.frete_gratis_primeira_entrega, FALSE) = TRUE
+              AND COALESCE(a.frete_gratis_primeira_usado, FALSE) = FALSE
+            """,
+            (consumidor_id, cnpjs),
+        )
+        frete_gratis_disponivel = {r["cnpjloja"] for r in cur.fetchall()}
     cur.close()
+
     data = {}
     for r in rows:
         item = dict(r)
@@ -8767,6 +8808,7 @@ def api_config_lojas():
         item["loja_aberta"] = _hs.get("aberta", True)
         item["feriado_hoje"] = _hs.get("feriado_hoje")
         item["proximo_dia_entrega"] = _hs.get("proximo_dia_entrega")
+        item["frete_gratis_assinante_disponivel"] = r["cnpjloja"] in frete_gratis_disponivel
         data[r["cnpjloja"]] = item
     return jsonify(data)
 
@@ -11483,6 +11525,15 @@ def api_checkout():
             else:
                 item.pop("promo", None)
         produtos_total = sum(float(i.get("preco", 0)) * int(i.get("qty", 1)) for i in itens)
+        # Promocao so-assinantes e sempre custeada pelo admin — a loja recebe
+        # o preco cheio (Alpha) igual, a diferenca vira repasse (mesma logica
+        # do frete gratis da 1a entrega e do cupom admin).
+        desconto_promo_assinante = sum(
+            (float(i["promo"]["preco_original"]) - float(i.get("preco", 0))) * int(i.get("qty", 1))
+            for i in itens
+            if i.get("promo") and i["promo"].get("so_assinantes") and i["promo"].get("aplicada")
+            and float(i["promo"].get("preco_original") or 0) > float(i.get("preco", 0))
+        )
         tipo_entrega = (fp.get("tipo_entrega") or "retirada").strip()
         entrega_lat = _to_float_or_none(fp.get("entrega_lat")) or _to_float_or_none(cliente.get("lat"))
         entrega_lng = _to_float_or_none(fp.get("entrega_lng")) or _to_float_or_none(cliente.get("lng"))
@@ -11530,15 +11581,36 @@ def api_checkout():
                     "error": f"Pedido mínimo para entrega é R$ {pedido_minimo:.2f}. Adicione mais itens ou escolha retirada.",
                     "pedido_minimo_entrega": pedido_minimo,
                 }), 400
-        frete_valor = float(loja.get("valor_frete") or 0) if tipo_entrega == "entrega" and loja.get("cobra_frete") else 0.0
+        consumidor_id_checkout = session.get("consumidor_id")
+        is_assinante_checkout = _consumidor_e_assinante(consumidor_id_checkout, cnpjloja)
+
+        frete_valor_cheio = float(loja.get("valor_frete") or 0) if tipo_entrega == "entrega" and loja.get("cobra_frete") else 0.0
+        frete_gratis_assinante = False
+        assinatura_id_beneficio = None
+        if tipo_entrega == "entrega" and frete_valor_cheio > 0 and is_assinante_checkout:
+            cur.execute(
+                """
+                SELECT a.id FROM ecommerce_assinantes a
+                JOIN ecommerce_planos_assinatura p ON p.cnpjloja = a.cnpjloja
+                WHERE a.consumidor_id=%s AND a.cnpjloja=%s
+                  AND a.status='ativo' AND a.pagamento_status='aprovado'
+                  AND COALESCE(p.frete_gratis_primeira_entrega, FALSE) = TRUE
+                  AND COALESCE(a.frete_gratis_primeira_usado, FALSE) = FALSE
+                LIMIT 1
+                """,
+                (consumidor_id_checkout, cnpjloja),
+            )
+            _ass_beneficio = cur.fetchone()
+            if _ass_beneficio:
+                frete_gratis_assinante = True
+                assinatura_id_beneficio = _ass_beneficio["id"]
+        frete_valor = 0.0 if frete_gratis_assinante else frete_valor_cheio
         total = produtos_total + frete_valor
 
         # Apply coupon if provided
         _ensure_cupons_schema()
         cupom_id_aplicado = None
         desconto_cupom = 0.0
-        consumidor_id_checkout = session.get("consumidor_id")
-        is_assinante_checkout = _consumidor_e_assinante(consumidor_id_checkout, cnpjloja)
         cupom_codigo = (fp.get("cupom_codigo") or "").strip().upper()
         if cupom_codigo:
             cur.execute(
@@ -11715,8 +11787,9 @@ def api_checkout():
             INSERT INTO ecommerce_pedidos
               (cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_documento, cliente_email, forma_pagamento, total,
                tipo_entrega, endereco_entrega, entrega_lat, entrega_lng, entrega_distancia_km, codigo_entrega, frete_valor,
-               cupom_id, desconto_cupom, receita_url, receita_status, receita_declaracao_digital_valida, data_entrega_agendada)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               cupom_id, desconto_cupom, receita_url, receita_status, receita_declaracao_digital_valida, data_entrega_agendada,
+               frete_gratis_assinante)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -11741,9 +11814,36 @@ def api_checkout():
                 receita_status,
                 bool(receita_declaracao_ok),
                 data_entrega_agendada,
+                frete_gratis_assinante,
             ),
         )
         pedido_id = str(cur.fetchone()["id"])
+
+        if frete_gratis_assinante and assinatura_id_beneficio:
+            cur.execute(
+                "UPDATE ecommerce_assinantes SET frete_gratis_primeira_usado=TRUE WHERE id=%s",
+                (assinatura_id_beneficio,),
+            )
+            cur.execute(
+                """INSERT INTO ecommerce_repasses_admin (cnpjloja, pedido_id, tipo, valor, descricao)
+                   VALUES (%s, %s, 'frete_primeira_entrega', %s, %s)""",
+                (cnpjloja, pedido_id, round(frete_valor_cheio, 2),
+                 f"Frete grátis da 1ª entrega do assinante — pedido #{pedido_id[:8].upper()}"),
+            )
+        if desconto_total_aplicado > 0:
+            cur.execute(
+                """INSERT INTO ecommerce_repasses_admin (cnpjloja, pedido_id, tipo, valor, descricao)
+                   VALUES (%s, %s, 'cupom', %s, %s)""",
+                (cnpjloja, pedido_id, round(desconto_total_aplicado, 2),
+                 f"Cupom/desconto aplicado — pedido #{pedido_id[:8].upper()}"),
+            )
+        if desconto_promo_assinante > 0:
+            cur.execute(
+                """INSERT INTO ecommerce_repasses_admin (cnpjloja, pedido_id, tipo, valor, descricao)
+                   VALUES (%s, %s, 'promocao', %s, %s)""",
+                (cnpjloja, pedido_id, round(desconto_promo_assinante, 2),
+                 f"Promoção só-assinantes aplicada — pedido #{pedido_id[:8].upper()}"),
+            )
 
         for item in itens:
             cur.execute(
@@ -14833,6 +14933,8 @@ def catalogo_loja(cnpjloja):
     if loja.get("catalogo_publico") is False:
         produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
+    _attach_product_promos(produtos)
+
     # Plano de assinatura da loja (se ativo)
     plano_assinatura = None
     ja_assina = False
@@ -14841,7 +14943,9 @@ def catalogo_loja(cnpjloja):
         _ensure_assinatura_schema()
         cur2 = conn.cursor()
         cur2.execute(
-            "SELECT id, nome, descricao, preco_mensal, beneficios FROM ecommerce_planos_assinatura WHERE cnpjloja=%s AND ativo=TRUE LIMIT 1",
+            """SELECT id, nome, descricao, preco_mensal, beneficios,
+                      COALESCE(frete_gratis_primeira_entrega, FALSE) AS frete_gratis_primeira_entrega
+               FROM ecommerce_planos_assinatura WHERE cnpjloja=%s AND ativo=TRUE LIMIT 1""",
             (cnpjloja,),
         )
         plano_assinatura = cur2.fetchone()
@@ -17736,7 +17840,8 @@ def api_lojas_com_assinatura():
         placeholders = ",".join(["%s"] * len(cnpj_keys))
         cur.execute(
             f"""SELECT regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') AS cnpj_key,
-                       cnpjloja, nome, preco_mensal
+                       cnpjloja, nome, preco_mensal,
+                       COALESCE(frete_gratis_primeira_entrega, FALSE) AS frete_gratis_primeira_entrega
                 FROM ecommerce_planos_assinatura
                 WHERE regexp_replace(COALESCE(cnpjloja,''), '\\D', '', 'g') IN ({placeholders})
                   AND ativo=TRUE""",
@@ -17749,6 +17854,7 @@ def api_lojas_com_assinatura():
                 "nome": r["nome"],
                 "preco": float(r["preco_mensal"] or 0),
                 "cnpj_key": r["cnpj_key"],
+                "frete_gratis_primeira_entrega": bool(r["frete_gratis_primeira_entrega"]),
             }
             for r in rows
         }
@@ -17775,6 +17881,7 @@ def api_lojas_com_assinatura():
                 "nome": info["nome"],
                 "preco": info["preco"],
                 "ja_assina": info["cnpj_key"] in assinados,
+                "frete_gratis_primeira_entrega": info["frete_gratis_primeira_entrega"],
             }
             for cnpj, info in planos.items()
         }
@@ -20539,6 +20646,7 @@ def admin_assinaturas():
     cur.execute("""
         SELECT u.cnpjloja, u.razao,
                p.id AS plano_id, p.nome, p.descricao, p.preco_mensal, p.beneficios, p.ativo,
+               COALESCE(p.frete_gratis_primeira_entrega, FALSE) AS frete_gratis_primeira_entrega,
                (SELECT COUNT(*) FROM ecommerce_assinantes a
                  WHERE a.cnpjloja = u.cnpjloja AND a.status='ativo' AND a.pagamento_status='aprovado'
                    AND (a.data_fim IS NULL OR a.data_fim > NOW())) AS total_assinantes
@@ -20565,6 +20673,7 @@ def admin_assinaturas_salvar():
     preco_mensal = request.form.get("preco_mensal", "")
     beneficios   = request.form.get("beneficios", "").strip()
     ativo        = request.form.get("ativo") == "1"
+    frete_gratis_primeira_entrega = request.form.get("frete_gratis_primeira_entrega") == "1"
 
     try:
         preco_mensal = float(preco_mensal)
@@ -20577,15 +20686,16 @@ def admin_assinaturas_salvar():
     conn = db()
     cur  = conn.cursor()
     cur.execute("""
-        INSERT INTO ecommerce_planos_assinatura (cnpjloja, nome, descricao, preco_mensal, beneficios, ativo)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO ecommerce_planos_assinatura (cnpjloja, nome, descricao, preco_mensal, beneficios, ativo, frete_gratis_primeira_entrega)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (cnpjloja) DO UPDATE SET
             nome         = EXCLUDED.nome,
             descricao    = EXCLUDED.descricao,
             preco_mensal = EXCLUDED.preco_mensal,
             beneficios   = EXCLUDED.beneficios,
-            ativo        = EXCLUDED.ativo
-    """, (cnpj, nome, descricao or None, preco_mensal, beneficios or None, ativo))
+            ativo        = EXCLUDED.ativo,
+            frete_gratis_primeira_entrega = EXCLUDED.frete_gratis_primeira_entrega
+    """, (cnpj, nome, descricao or None, preco_mensal, beneficios or None, ativo, frete_gratis_primeira_entrega))
     conn.commit()
     cur.close()
     flash("Plano de assinatura salvo com sucesso!", "success")
@@ -20605,6 +20715,7 @@ def admin_assinaturas_aplicar_todas():
     preco_mensal = request.form.get("preco_mensal", "")
     beneficios   = request.form.get("beneficios", "").strip()
     ativo        = request.form.get("ativo") == "1"
+    frete_gratis_primeira_entrega = request.form.get("frete_gratis_primeira_entrega") == "1"
 
     try:
         preco_mensal = float(preco_mensal)
@@ -20620,19 +20731,184 @@ def admin_assinaturas_aplicar_todas():
     cnpjs = [r["cnpjloja"] for r in cur.fetchall()]
     for cnpj in cnpjs:
         cur.execute("""
-            INSERT INTO ecommerce_planos_assinatura (cnpjloja, nome, descricao, preco_mensal, beneficios, ativo)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO ecommerce_planos_assinatura (cnpjloja, nome, descricao, preco_mensal, beneficios, ativo, frete_gratis_primeira_entrega)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (cnpjloja) DO UPDATE SET
                 nome         = EXCLUDED.nome,
                 descricao    = EXCLUDED.descricao,
                 preco_mensal = EXCLUDED.preco_mensal,
                 beneficios   = EXCLUDED.beneficios,
-                ativo        = EXCLUDED.ativo
-        """, (cnpj, nome, descricao or None, preco_mensal, beneficios or None, ativo))
+                ativo        = EXCLUDED.ativo,
+                frete_gratis_primeira_entrega = EXCLUDED.frete_gratis_primeira_entrega
+        """, (cnpj, nome, descricao or None, preco_mensal, beneficios or None, ativo, frete_gratis_primeira_entrega))
     conn.commit()
     cur.close()
     flash(f"Plano aplicado em {len(cnpjs)} loja(s) com sucesso!", "success")
     return redirect(url_for("admin_assinaturas"))
+
+
+# ─── FINANCEIRO (REPASSES A LOJAS) ───────────────────────────────────────────
+# Beneficios que o admin banca (frete gratis da 1a entrega do assinante,
+# cupons administrados pelo admin) reduzem o quanto o consumidor paga, mas a
+# loja sempre recebe o valor que ela mesma configurou — a diferenca vira um
+# repasse que o admin deve pra loja, registrado aqui pra conferencia/pagamento
+# manual (Pix/transferencia), sem depender de split automatico no gateway.
+
+@app.get("/painel/admin/repasses")
+@admin_required
+def admin_repasses():
+    _ensure_repasses_admin_schema()
+    status = (request.args.get("status") or "pendente").strip()
+    cnpj_filtro = (request.args.get("cnpjloja") or "").strip()
+    conn = db()
+    cur = conn.cursor()
+    where = []
+    params: list = []
+    if status == "pendente":
+        where.append("r.pago = FALSE")
+    elif status == "pago":
+        where.append("r.pago = TRUE")
+    if cnpj_filtro:
+        where.append("r.cnpjloja = %s")
+        params.append(cnpj_filtro)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    cur.execute(
+        f"""
+        SELECT r.*, u.razao
+        FROM ecommerce_repasses_admin r
+        LEFT JOIN users u ON u.cnpjloja = r.cnpjloja
+        {where_sql}
+        ORDER BY r.criado_em DESC
+        LIMIT 500
+        """,
+        params,
+    )
+    repasses = cur.fetchall()
+    cur.execute("""
+        SELECT r.cnpjloja, u.razao, COUNT(*) AS qtd, SUM(r.valor) AS total
+        FROM ecommerce_repasses_admin r
+        LEFT JOIN users u ON u.cnpjloja = r.cnpjloja
+        WHERE r.pago = FALSE
+        GROUP BY r.cnpjloja, u.razao
+        ORDER BY total DESC
+    """)
+    pendentes_por_loja = cur.fetchall()
+    cur.execute("SELECT COALESCE(SUM(valor),0) AS total FROM ecommerce_repasses_admin WHERE pago=FALSE")
+    total_pendente = float(cur.fetchone()["total"] or 0)
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin=FALSE ORDER BY razao")
+    lojas = cur.fetchall()
+    cur.close()
+    return render_template(
+        "admin_repasses.html",
+        repasses=repasses,
+        pendentes_por_loja=pendentes_por_loja,
+        total_pendente=total_pendente,
+        lojas=lojas,
+        status=status,
+        cnpj_filtro=cnpj_filtro,
+    )
+
+
+@app.post("/painel/admin/repasses/<int:repasse_id>/marcar-pago")
+@admin_required
+def admin_repasses_marcar_pago(repasse_id):
+    _ensure_repasses_admin_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_repasses_admin SET pago=TRUE, pago_em=NOW() WHERE id=%s AND pago=FALSE",
+        (repasse_id,),
+    )
+    conn.commit()
+    cur.close()
+    flash("Repasse marcado como pago.", "success")
+    return redirect(url_for("admin_repasses"))
+
+
+@app.post("/painel/admin/repasses/loja/<path:cnpjloja>/marcar-pago")
+@admin_required
+def admin_repasses_marcar_pago_loja(cnpjloja):
+    _ensure_repasses_admin_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_repasses_admin SET pago=TRUE, pago_em=NOW() WHERE cnpjloja=%s AND pago=FALSE",
+        (cnpjloja,),
+    )
+    qtd = cur.rowcount
+    conn.commit()
+    cur.close()
+    flash(f"{qtd} repasse(s) da loja marcados como pago.", "success")
+    return redirect(url_for("admin_repasses"))
+
+
+@app.get("/seja-assinante")
+def seja_assinante():
+    return render_template("seja_assinante.html")
+
+
+@app.get("/api/planos-assinatura-proximos")
+def api_planos_assinatura_proximos():
+    """Lista todas as farmacias com plano de assinatura ativo, ordenadas pela
+    distancia do consumidor (mesma logica de /api/vitnatu-produtos)."""
+    try:
+        lat_usr = float(request.args.get("lat", 0))
+        lng_usr = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat_usr, lng_usr = 0.0, 0.0
+    sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
+
+    _ensure_assinatura_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT p.cnpjloja, p.nome AS plano_nome, p.descricao, p.preco_mensal, p.beneficios,
+               COALESCE(p.frete_gratis_primeira_entrega, FALSE) AS frete_gratis_primeira_entrega,
+               u.razao, u.endereco, u.endereco2, u.uf, g.lat, g.lng
+        FROM ecommerce_planos_assinatura p
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = p.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+        WHERE p.ativo = TRUE AND u.is_admin = FALSE
+          AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+
+    for item in rows:
+        item["razao"] = _public_store_name(item)
+        lat_l, lng_l = None, None
+        if not sem_loc:
+            lat_l, lng_l = _geo_override(item.get("endereco"), item.get("endereco2"), item.get("uf"))
+            if not lat_l and item.get("lat") is not None and item.get("lng") is not None:
+                lat_l, lng_l = float(item["lat"]), float(item["lng"])
+        item["distancia_km"] = round(haversine(lat_usr, lng_usr, lat_l, lng_l), 1) if lat_l else None
+        item.pop("lat", None); item.pop("lng", None)
+        item.pop("endereco2", None)
+
+    if sem_loc:
+        rows.sort(key=lambda x: x["razao"] or "")
+    else:
+        rows.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] if x["distancia_km"] is not None else 0))
+
+    consumidor_id = str(session.get("consumidor_id") or "")
+    assinados = set()
+    if consumidor_id and rows:
+        cnpjs = [r["cnpjloja"] for r in rows]
+        placeholders = ",".join(["%s"] * len(cnpjs))
+        cur.execute(
+            f"""SELECT cnpjloja FROM ecommerce_assinantes
+                WHERE consumidor_id=%s AND cnpjloja IN ({placeholders})
+                  AND status='ativo' AND pagamento_status='aprovado'
+                  AND (data_fim IS NULL OR data_fim > NOW())""",
+            [consumidor_id] + cnpjs,
+        )
+        assinados = {r["cnpjloja"] for r in cur.fetchall()}
+    cur.close()
+
+    for item in rows:
+        item["ja_assina"] = item["cnpjloja"] in assinados
+
+    return jsonify({"planos": rows})
 
 
 @app.get("/minhas-assinaturas")

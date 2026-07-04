@@ -65,6 +65,11 @@
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;color:var(--pk-txt)">
         <input type="checkbox" name="ativo" value="1" checked> Plano visível para consumidores em todas as lojas
       </label>
+      <label>1ª entrega grátis</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;color:var(--pk-txt)">
+        <input type="checkbox" name="frete_gratis_primeira_entrega" value="1">
+        Garantir frete grátis na 1ª entrega de quem assinar (custo fica por conta do admin, ver Financeiro)
+      </label>
     </div>
     <button type="submit" class="btn-pk-yellow" style="margin-top:12px">
       <i class="fa fa-layer-group me-1"></i>Aplicar em todas as {{ lojas | length }} lojas
@@ -80,6 +85,7 @@
         <th>Plano</th>
         <th>Valor</th>
         <th>Status</th>
+        <th>1ª entrega grátis</th>
         <th>Assinantes</th>
         <th style="width:340px">Editar</th>
       </tr>
@@ -93,6 +99,10 @@
         <td>
           {% if l.ativo %}<span class="aa-badge on"><i class="fa fa-check"></i>Ativo</span>
           {% else %}<span class="aa-badge off"><i class="fa fa-xmark"></i>Inativo</span>{% endif %}
+        </td>
+        <td>
+          {% if l.frete_gratis_primeira_entrega %}<span class="aa-badge on"><i class="fa fa-truck-fast"></i>Sim</span>
+          {% else %}<span class="aa-badge off"><i class="fa fa-xmark"></i>Não</span>{% endif %}
         </td>
         <td>{{ l.total_assinantes or 0 }}</td>
         <td>
@@ -114,6 +124,11 @@
                 <label>Ativo</label>
                 <label style="display:flex;align-items:center;gap:8px;font-weight:400;color:var(--pk-txt)">
                   <input type="checkbox" name="ativo" value="1" {% if l.ativo %}checked{% endif %}> Plano visível para consumidores
+                </label>
+                <label>1ª entrega grátis</label>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:400;color:var(--pk-txt)">
+                  <input type="checkbox" name="frete_gratis_primeira_entrega" value="1" {% if l.frete_gratis_primeira_entrega %}checked{% endif %}>
+                  Garantir frete grátis na 1ª entrega de quem assinar
                 </label>
               </div>
               <button type="submit" class="btn-pk-yellow" style="margin-top:10px">
