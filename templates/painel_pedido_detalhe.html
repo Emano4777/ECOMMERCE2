@@ -399,6 +399,7 @@
   <div class="pk-card-title"><i class="fa fa-pen-to-square"></i>Alterar status</div>
   <form method="post" action="{{ url_for('painel_pedido_status', pedido_id=pedido.id) }}" id="form-status">
     <input type="hidden" name="previsao_entrega" id="previsao-hidden" value="">
+    <input type="hidden" name="previsao_entrega_em" id="previsao-em-hidden" value="">
     <div class="status-row">
       <button type="submit" name="status" value="pendente"
               class="status-btn {% if pedido.status=='pendente' %}active{% endif %}">
@@ -453,6 +454,11 @@
       <input id="previsao-inp" type="text"
              placeholder="Ex: Hoje às 18h, Amanhã dia 15/06, Em até 2 horas…"
              style="width:100%;background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.85rem;box-sizing:border-box;margin-bottom:10px">
+      <div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:6px">
+        <i class="fa fa-calendar-clock me-1"></i>Horário exato (opcional — usado pra avisar o cliente se o pedido atrasar)
+      </div>
+      <input id="previsao-em-inp" type="datetime-local"
+             style="width:100%;background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.85rem;box-sizing:border-box;margin-bottom:10px">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" id="previsao-confirm-btn"
                 class="status-btn"
@@ -478,7 +484,9 @@
   function confirmarPrevisao() {
     const statusVal = document.getElementById('status-pending').value;
     const previsao  = document.getElementById('previsao-inp').value.trim();
+    const previsaoEm = document.getElementById('previsao-em-inp').value;
     document.getElementById('previsao-hidden').value = previsao;
+    document.getElementById('previsao-em-hidden').value = previsaoEm;
     const form = document.getElementById('form-status');
     // Add status as hidden field
     let hid = document.getElementById('confirm-status-hidden');
@@ -489,6 +497,7 @@
   function cancelarPrevisao() {
     document.getElementById('previsao-box').style.display = 'none';
     document.getElementById('previsao-inp').value = '';
+    document.getElementById('previsao-em-inp').value = '';
     document.getElementById('status-pending').value = '';
   }
   </script>

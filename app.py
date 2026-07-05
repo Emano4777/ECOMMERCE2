@@ -950,6 +950,8 @@ def _ensure_delivery_schema():
     _ensure_previsao_entrega_column()    # idem
     _ensure_entrega_agendada_column()    # idem
     _ensure_agendamento_entrega_column() # idem
+    _ensure_previsao_entrega_em_column() # idem
+    _ensure_pedidos_status_historico_schema() # idem
 
 
 def _ensure_codigo_retirada_column():
@@ -1032,6 +1034,76 @@ def _ensure_agendamento_entrega_column():
         cur.close()
         _schema_ready.add(key)
         _mark_migration_done(key)
+
+
+def _ensure_previsao_entrega_em_column():
+    """Versao com data/hora real da previsao (previsao_entrega e so texto
+    livre, nao da pra comparar com agora() pra saber se atrasou)."""
+    key = "previsao_entrega_em_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS previsao_entrega_em TIMESTAMPTZ")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_pedidos_status_historico_schema():
+    """Registra o horario exato de cada mudanca de status do pedido, pra
+    timeline do consumidor mostrar hora real de cada etapa (nao so o status
+    atual). Pedidos antigos (antes desta migracao) nao tem historico
+    completo — a timeline cai pra uma versao aproximada usando os
+    timestamps legados (criado_em/pagamento_confirmado_em/entregue_em)."""
+    key = "pedidos_status_historico_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_pedidos_status_historico (
+                id        SERIAL PRIMARY KEY,
+                pedido_id UUID NOT NULL,
+                status    TEXT NOT NULL,
+                criado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_pedidos_status_hist_pedido ON ecommerce_pedidos_status_historico(pedido_id)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _registrar_status_pedido(pedido_id, status):
+    """Grava no historico a mudanca de status — best-effort, nunca deve
+    quebrar o fluxo principal do pedido se falhar."""
+    try:
+        _ensure_pedidos_status_historico_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO ecommerce_pedidos_status_historico (pedido_id, status) VALUES (%s, %s)",
+            (pedido_id, status),
+        )
+        conn.commit()
+        cur.close()
+    except Exception:
+        pass
 
 
 def _ensure_loja_email_column():
@@ -10642,11 +10714,13 @@ def consumidor_logout():
 def meus_pedidos():
     _ensure_consumidor_schema()
     _ensure_reclamacao_schema()
+    _ensure_previsao_entrega_em_column()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT p.id, p.cnpjloja, p.forma_pagamento, p.status, p.total, p.criado_em,
+               p.tipo_entrega, p.desconto_cupom, p.previsao_entrega_em,
                u.razao
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
@@ -10656,9 +10730,18 @@ def meus_pedidos():
         """,
         (session["consumidor_id"],),
     )
-    pedidos = cur.fetchall()
-    # Mapa pedido_id → reclamação ativa
+    pedidos = [dict(p) for p in cur.fetchall()]
+    economia_total = sum(float(p.get("desconto_cupom") or 0) for p in pedidos)
+    agora = datetime.now(timezone.utc)
+    for p in pedidos:
+        prev_em = p.get("previsao_entrega_em")
+        p["atrasado"] = bool(
+            prev_em and p.get("status") not in ("entregue", "cancelado") and agora > prev_em
+        )
+
+    # Mapa pedido_id → reclamação ativa + itens (preview de imagens)
     rec_map = {}
+    itens_map = {}
     if pedidos:
         ids = tuple(str(p["id"]) for p in pedidos)
         placeholders = ",".join(["%s"] * len(ids))
@@ -10670,8 +10753,36 @@ def meus_pedidos():
             pid = str(row["pedido_id"])
             if pid not in rec_map:
                 rec_map[pid] = dict(row)
+
+        cur.execute(
+            f"SELECT pedido_id, ean, nome, qty, preco_unitario, imagem FROM ecommerce_pedido_itens WHERE pedido_id IN ({placeholders}) ORDER BY id",
+            ids,
+        )
+        for row in cur.fetchall():
+            pid = str(row["pedido_id"])
+            itens_map.setdefault(pid, []).append(dict(row))
     cur.close()
-    return render_template("meus_pedidos.html", pedidos=pedidos, rec_map=rec_map, motivos=_MOTIVOS_RECLAMACAO)
+    for p in pedidos:
+        _itens_p = itens_map.get(str(p["id"]), [])
+        p["itens_count"] = len(_itens_p)
+        p["itens_preview"] = _itens_p[:3]
+        p["primeiro_item_nome"] = _itens_p[0]["nome"] if _itens_p else ""
+        p["itens_repetir_json"] = json.dumps([
+            {
+                "ean": i.get("ean") or "",
+                "nome": i.get("nome") or "",
+                "qty": int(i.get("qty") or 1),
+                "preco": float(i.get("preco_unitario") or 0),
+                "imagem": i.get("imagem") or "",
+                "cnpjloja": p["cnpjloja"],
+                "razao": p["razao"],
+            }
+            for i in _itens_p
+        ])
+    return render_template(
+        "meus_pedidos.html", pedidos=pedidos, rec_map=rec_map,
+        motivos=_MOTIVOS_RECLAMACAO, economia_total=economia_total,
+    )
 
 
 @app.get("/notificacoes")
@@ -10841,11 +10952,68 @@ def api_favoritos_alertas():
     return jsonify({"ok": True})
 
 
+def _montar_timeline_pedido(pedido):
+    """Monta a timeline vertical do pedido com horario real de cada etapa,
+    usando o historico de status quando existe (pedidos criados depois da
+    migracao) e caindo pros 3 timestamps legados (criado_em/pagamento_
+    confirmado_em/entregue_em) pra pedidos antigos sem historico."""
+    status_atual = pedido.get("status")
+    if status_atual == "cancelado":
+        return None
+    fluxo = (
+        ["pendente", "pago", "pronto_retirada", "entregue"]
+        if (pedido.get("tipo_entrega") or "retirada") == "retirada"
+        else ["pendente", "pago", "enviado", "entregue"]
+    )
+    fluxo_label = {
+        "pendente": "Pedido recebido",
+        "pago": "Pagamento confirmado",
+        "pronto_retirada": "Pronto para retirada",
+        "enviado": "Saiu para entrega",
+        "entregue": "Retirado na loja" if (pedido.get("tipo_entrega") or "retirada") == "retirada" else "Entregue",
+    }
+    atual_idx = fluxo.index(status_atual) if status_atual in fluxo else 0
+
+    _ensure_pedidos_status_historico_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT status, criado_em FROM ecommerce_pedidos_status_historico WHERE pedido_id=%s ORDER BY criado_em ASC",
+        (pedido["id"],),
+    )
+    historico = cur.fetchall()
+    cur.close()
+    primeiro_por_status = {}
+    for row in historico:
+        primeiro_por_status.setdefault(row["status"], row["criado_em"])
+
+    if not primeiro_por_status:
+        if pedido.get("criado_em"):
+            primeiro_por_status["pendente"] = pedido["criado_em"]
+        if pedido.get("pagamento_confirmado_em"):
+            primeiro_por_status["pago"] = pedido["pagamento_confirmado_em"]
+        if pedido.get("entregue_em"):
+            primeiro_por_status["entregue"] = pedido["entregue_em"]
+
+    passos = []
+    for idx, st in enumerate(fluxo):
+        ts = primeiro_por_status.get(st)
+        passos.append({
+            "status": st,
+            "label": fluxo_label[st],
+            "done": idx <= atual_idx,
+            "atual": idx == atual_idx,
+            "timestamp_label": ts.strftime("%d/%m · %H:%M") if ts else None,
+        })
+    return passos
+
+
 @app.get("/meus-pedidos/<pedido_id>")
 @_consumer_required
 def meu_pedido_detalhe(pedido_id):
     _ensure_receita_schema()
     _ensure_reclamacao_schema()
+    _ensure_previsao_entrega_em_column()
     conn = db()
     cur = conn.cursor()
     cur.execute(
@@ -10906,6 +11074,29 @@ def meu_pedido_detalhe(pedido_id):
         _dia_ag = (_data_ag.weekday() + 1) % 7
         _nome_dia_ag = next((n for d, n in _DIAS_SEMANA if d == _dia_ag), "")
         pedido["data_entrega_agendada_label"] = f"{_nome_dia_ag}, {_data_ag.strftime('%d/%m/%Y')}"
+
+    timeline = _montar_timeline_pedido(pedido)
+
+    previsao_em = pedido.get("previsao_entrega_em")
+    pedido["atrasado"] = bool(
+        previsao_em and pedido.get("status") not in ("entregue", "cancelado") and datetime.now(timezone.utc) > previsao_em
+    )
+    if previsao_em:
+        pedido["previsao_entrega_em_label"] = previsao_em.strftime("%d/%m às %H:%M")
+
+    itens_repetir_json = json.dumps([
+        {
+            "ean": i.get("ean") or "",
+            "nome": i.get("nome") or "",
+            "qty": int(i.get("qty") or 1),
+            "preco": float(i.get("preco_unitario") or 0),
+            "imagem": i.get("imagem") or "",
+            "cnpjloja": pedido["cnpjloja"],
+            "razao": pedido["razao"],
+        }
+        for i in itens
+    ])
+
     return render_template(
         "meu_pedido_detalhe.html",
         pedido=pedido,
@@ -10913,6 +11104,8 @@ def meu_pedido_detalhe(pedido_id):
         reclamacao=dict(reclamacao) if reclamacao else None,
         motivos=_MOTIVOS_RECLAMACAO,
         avaliacao_feita=dict(avaliacao_feita) if avaliacao_feita else None,
+        timeline=timeline,
+        itens_repetir_json=itens_repetir_json,
     )
 
 
@@ -11101,6 +11294,7 @@ _MOTIVOS_RECLAMACAO = {
     "produto_errado":   "Produto errado / diferente do pedido",
     "nao_entregue":     "Produto não entregue",
     "entrega_danificada": "Produto chegou danificado",
+    "pedido_atrasado":  "Pedido atrasado",
     "outro":            "Outro motivo",
 }
 
@@ -11898,6 +12092,7 @@ def api_checkout():
             conn=conn,
         )
         conn.commit()
+        _registrar_status_pedido(pedido_id, "pendente")
 
         mp_init = None
         mp_payment = {}
@@ -11953,6 +12148,7 @@ def api_checkout():
                     ),
                 )
                 conn.commit()
+                _registrar_status_pedido(pedido_id, pedido_status)
                 if pedido_status == "pago":
                     _alpha_export_paid_order_safe(pedido_id)
             except Exception as exc:
@@ -12019,6 +12215,7 @@ def api_checkout():
                     ),
                 )
                 conn.commit()
+                _registrar_status_pedido(pedido_id, pedido_status)
                 if pedido_status == "pago":
                     _alpha_export_paid_order_safe(pedido_id)
 
@@ -12148,6 +12345,7 @@ def api_pedido_cartao_transparente(pedido_id):
     )
     conn.commit()
     cur.close()
+    _registrar_status_pedido(pedido_id, pedido_status)
     if pedido_status == "pago":
         _finalizar_pos_pagamento_aprovado_async(pedido_id)
     return jsonify({
@@ -12235,6 +12433,7 @@ def api_pedido_asaas_cartao(pedido_id):
     )
     conn.commit()
     cur.close()
+    _registrar_status_pedido(pedido_id, pedido_status)
     if pedido_status == "pago":
         _auto_pronto_retirada(pedido_id)
         _alpha_export_paid_order_safe(pedido_id)
@@ -12848,6 +13047,8 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
         conn.commit()
         cur.close()
         result = dict(updated) if updated else None
+        if result and result.get("status") != (old_payment_row.get("status") or ""):
+            _registrar_status_pedido(pedido_id, result["status"])
         # auto-avanço para retirada com flag
         status_changed_to_paid = (
             result
@@ -13094,8 +13295,10 @@ def asaas_webhook():
         row = cur.fetchone()
         conn.commit()
         cur.close()
-        if row and pedido_status == "pago":
-            _finalizar_pos_pagamento_aprovado_async(str(row["id"]))
+        if row:
+            _registrar_status_pedido(str(row["id"]), pedido_status)
+            if pedido_status == "pago":
+                _finalizar_pos_pagamento_aprovado_async(str(row["id"]))
     return jsonify({"ok": True})
 
 
@@ -13482,9 +13685,17 @@ def painel_ml_baixar_etiqueta(pedido_id):
 @painel_required
 def painel_pedido_status(pedido_id):
     _ensure_previsao_entrega_column()
+    _ensure_previsao_entrega_em_column()
     cnpjloja   = session.get("cnpjloja")
     novo_status = (request.form.get("status") or "").strip()
     previsao_entrega = (request.form.get("previsao_entrega") or "").strip() or None
+    previsao_entrega_em = None
+    _previsao_raw = (request.form.get("previsao_entrega_em") or "").strip()
+    if _previsao_raw:
+        try:
+            previsao_entrega_em = datetime.strptime(_previsao_raw, "%Y-%m-%dT%H:%M")
+        except ValueError:
+            previsao_entrega_em = None
     if novo_status not in {"pendente", "pago", "pronto_retirada", "enviado", "entregue", "cancelado"}:
         flash("Status inválido.", "error")
         return redirect(url_for("painel_pedidos"))
@@ -13514,17 +13725,20 @@ def painel_pedido_status(pedido_id):
         codigo = _novo_codigo_entrega()
         cur.execute(
             "UPDATE ecommerce_pedidos SET status='pronto_retirada', codigo_retirada=COALESCE(codigo_retirada, %s), "
-            "previsao_entrega=COALESCE(%s, previsao_entrega), atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
-            (codigo, previsao_entrega, pedido_id, cnpjloja),
+            "previsao_entrega=COALESCE(%s, previsao_entrega), previsao_entrega_em=COALESCE(%s, previsao_entrega_em), "
+            "atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (codigo, previsao_entrega, previsao_entrega_em, pedido_id, cnpjloja),
         )
     else:
         cur.execute(
             "UPDATE ecommerce_pedidos SET status=%s, entregue_em=CASE WHEN %s='entregue' THEN NOW() ELSE entregue_em END, "
-            "previsao_entrega=COALESCE(%s, previsao_entrega), atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
-            (novo_status, novo_status, previsao_entrega, pedido_id, cnpjloja),
+            "previsao_entrega=COALESCE(%s, previsao_entrega), previsao_entrega_em=COALESCE(%s, previsao_entrega_em), "
+            "atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (novo_status, novo_status, previsao_entrega, previsao_entrega_em, pedido_id, cnpjloja),
         )
     conn.commit()
     cur.close()
+    _registrar_status_pedido(pedido_id, novo_status)
     if novo_status == "entregue" and ml_order_id:
         _ml_feedback_entregue(ml_order_id, cnpjloja=cnpjloja)
     elif novo_status == "enviado" and is_ml_status:
@@ -13586,6 +13800,8 @@ def painel_confirmar_entrega(pedido_id):
     ok = cur.fetchone()
     conn.commit()
     cur.close()
+    if ok:
+        _registrar_status_pedido(pedido_id, "entregue")
     if ok and is_ml and ok.get("ml_order_id"):
         _ml_feedback_entregue(ok["ml_order_id"], cnpjloja=cnpjloja)
     if ok:
@@ -13621,6 +13837,7 @@ def painel_confirmar_retirada(pedido_id):
     conn.commit()
     cur.close()
     if ok:
+        _registrar_status_pedido(pedido_id, "entregue")
         _email_status_pedido(pedido_id, "entregue")
         _notificar_pedido_evento(
             pedido_id,
@@ -20044,6 +20261,7 @@ def _auto_pronto_retirada(pedido_id: str):
             cur2.close()
             conn2.close()
             if status_email:
+                _registrar_status_pedido(pedido_id, status_email)
                 _email_status_pedido(pedido_id, status_email)
                 _notificar_pedido_evento(
                     pedido_id,

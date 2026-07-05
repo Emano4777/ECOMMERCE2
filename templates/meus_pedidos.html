@@ -45,7 +45,7 @@
 .orders-shop-btn:hover { color:#fff; background:var(--pq-red-dk); }
 .orders-summary {
   display:grid;
-  grid-template-columns:repeat(3, minmax(0, 1fr));
+  grid-template-columns:repeat(4, minmax(0, 1fr));
   gap:10px;
   margin-bottom:16px;
 }
@@ -181,36 +181,33 @@
   white-space:nowrap;
 }
 .order-id { color:var(--pq-muted); font-size:.78rem; font-weight:800; margin-top:2px; }
-.order-meta-grid {
-  display:grid;
-  grid-template-columns:repeat(3, minmax(0, 1fr));
-  gap:8px;
+.order-atraso-flag {
+  display:flex; align-items:center; gap:7px;
+  background:#fff0f0; color:#b00020; border:1px solid #ffd0d0;
+  border-radius:10px; padding:7px 11px; font-size:.78rem; font-weight:900;
+  margin-bottom:12px;
 }
-.order-meta-item {
-  min-width:0;
-  border:1px solid #f0f0f0;
-  border-radius:12px;
-  padding:9px 10px;
-  background:#fbfbfb;
+.order-thumbs-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.order-thumb, .order-thumb-ph {
+  width:38px; height:38px; border-radius:9px; flex:0 0 auto;
+  border:1.5px solid #fff; box-shadow:0 0 0 1px var(--pq-border);
+  object-fit:contain; background:#fff;
 }
-.order-meta-item span {
-  display:block;
-  color:var(--pq-muted);
-  font-size:.66rem;
-  font-weight:900;
-  letter-spacing:.04em;
-  text-transform:uppercase;
+.order-thumb-ph { display:flex; align-items:center; justify-content:center; color:#ccc; background:#f7f7f7; }
+.order-thumbs-label { color:var(--pq-muted); font-size:.8rem; font-weight:800; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.order-progress-bar { height:6px; border-radius:99px; background:#f0f0f0; overflow:hidden; }
+.order-progress-bar span { display:block; height:100%; background:var(--pq-red); border-radius:99px; }
+.order-actions-row { display:flex; gap:10px; padding:0 18px 16px; flex-wrap:wrap; }
+.btn-rastrear, .btn-comprar-de-novo {
+  flex:1; min-width:150px; text-align:center;
+  border-radius:11px; padding:11px 14px; font-weight:900; font-size:.85rem;
+  cursor:pointer; font-family:inherit; text-decoration:none;
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
 }
-.order-meta-item strong {
-  display:block;
-  margin-top:2px;
-  color:#111827;
-  font-size:.84rem;
-  font-weight:900;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
+.btn-rastrear { background:var(--pq-red); color:#fff; border:none; }
+.btn-rastrear:hover { background:var(--pq-red-dk); color:#fff; }
+.btn-comprar-de-novo { background:#fff; color:#374151; border:1.5px solid var(--pq-border); }
+.btn-comprar-de-novo:hover { border-color:#c8c8c8; }
 .order-side {
   min-width:170px;
   display:flex;
@@ -238,14 +235,6 @@
 .status.cancelado { background:#fff0f0; color:#b00020; }
 .order-total-label { color:var(--pq-muted); font-size:.7rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
 .order-total { color:var(--pq-red); font-size:1.35rem; line-height:1.1; font-weight:900; }
-.order-detail {
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  color:var(--pq-red);
-  font-size:.82rem;
-  font-weight:900;
-}
 .rec-strip {
   border-top:1px solid var(--pq-border);
   padding:11px 18px;
@@ -343,12 +332,11 @@
   .orders-page { padding-top:22px; }
   .orders-hero { align-items:flex-start; flex-direction:column; }
   .orders-shop-btn { width:100%; }
-  .orders-summary { grid-template-columns:1fr; }
+  .orders-summary { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .orders-tools { grid-template-columns:1fr; }
   .orders-filter { padding-bottom:6px; }
   .order-link { grid-template-columns:1fr; }
-  .order-side { min-width:0; align-items:flex-start; text-align:left; }
-  .order-meta-grid { grid-template-columns:1fr; }
+  .order-side { min-width:0; align-items:flex-start; text-align:left; flex-direction:row; justify-content:space-between; width:100%; }
   .order-total { font-size:1.2rem; }
 }
 </style>
@@ -378,6 +366,7 @@
     <div class="orders-summary-card"><span>Total de pedidos</span><strong>{{ pedidos|length }}</strong></div>
     <div class="orders-summary-card"><span>Em andamento</span><strong>{{ ns.ativos }}</strong></div>
     <div class="orders-summary-card"><span>Concluídos</span><strong>{{ ns.concluidos }}</strong></div>
+    <div class="orders-summary-card"><span>Economia total</span><strong>{{ money(economia_total) }}</strong></div>
   </div>
 
   <div class="orders-tools" aria-label="Filtros de pedidos">
@@ -407,23 +396,27 @@
             <div class="order-store-icon"><i class="fa fa-store"></i></div>
             <div class="order-store-copy">
               <div class="order-store">{{ p.razao }}</div>
-              <div class="order-id">Pedido #{{ p.id[:8].upper() }}</div>
+              <div class="order-id">Pedido #{{ p.id[:8].upper() }} · {{ p.criado_em.strftime('%d/%m/%Y') if p.criado_em else '-' }}</div>
             </div>
           </div>
-          <div class="order-meta-grid">
-            <div class="order-meta-item">
-              <span>Data</span>
-              <strong>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '-' }}</strong>
-            </div>
-            <div class="order-meta-item">
-              <span>Pagamento</span>
-              <strong>{{ 'Cartão' if p.forma_pagamento == 'mercadopago' else p.forma_pagamento|capitalize }}</strong>
-            </div>
-            <div class="order-meta-item">
-              <span>Atendimento</span>
-              <strong>{{ 'Em análise' if p.status == 'pendente' else 'Atualizado' }}</strong>
+          {% if p.atrasado %}
+          <div class="order-atraso-flag"><i class="fa fa-triangle-exclamation"></i>Pedido atrasado — passou da previsão</div>
+          {% endif %}
+          <div class="order-thumbs-row">
+            {% for it in p.itens_preview %}
+              {% if it.imagem %}<img class="order-thumb" src="{{ it.imagem }}" alt="" onerror="this.outerHTML='<div class=order-thumb-ph><i class=fa fa-pills></i></div>'">
+              {% else %}<div class="order-thumb-ph"><i class="fa fa-pills"></i></div>
+              {% endif %}
+            {% endfor %}
+            <div class="order-thumbs-label">
+              {{ p.itens_count }} {{ 'item' if p.itens_count == 1 else 'itens' }}{% if p.primeiro_item_nome %} · {{ p.primeiro_item_nome }}{% if p.itens_count > 1 %} e mais{% endif %}{% endif %}
             </div>
           </div>
+          {% if grupo == 'andamento' %}
+          {% set fluxo = ['pendente','pago','pronto_retirada','entregue'] if p.tipo_entrega == 'retirada' else ['pendente','pago','enviado','entregue'] %}
+          {% set idx = fluxo.index(p.status) if p.status in fluxo else 0 %}
+          <div class="order-progress-bar"><span style="width:{{ (idx / (fluxo|length - 1) * 100)|round|int }}%"></span></div>
+          {% endif %}
         </div>
         <div class="order-side">
           <div class="status {{ p.status }}"><i class="fa fa-circle"></i>{{ _sl.get(p.status, p.status) }}</div>
@@ -431,9 +424,17 @@
             <div class="order-total-label">Total</div>
             <div class="order-total">{{ money(p.total) }}</div>
           </div>
-          <div class="order-detail">Ver detalhes <i class="fa fa-chevron-right"></i></div>
         </div>
       </a>
+
+      <div class="order-actions-row">
+        <a class="btn-rastrear" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
+          <i class="fa fa-location-arrow"></i>{{ 'Ver detalhes' if p.status == 'cancelado' else 'Rastrear pedido' }}
+        </a>
+        <button type="button" class="btn-comprar-de-novo" onclick='repetirPedido({{ p.itens_repetir_json }})'>
+          <i class="fa fa-rotate"></i>Comprar de novo
+        </button>
+      </div>
 
       {% if rec %}
       <div class="rec-strip rec-strip-{{ rec.status }}">
@@ -488,6 +489,12 @@
 function toggleQuick(id) {
   const el = document.getElementById('qf-' + id);
   el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+function repetirPedido(itens) {
+  if (!itens || !itens.length) return;
+  itens.forEach(it => addToCart(it));
+  window.location.href = "{{ url_for('carrinho') }}";
 }
 
 const orderSearch = document.getElementById('order-search');
