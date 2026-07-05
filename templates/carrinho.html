@@ -1249,6 +1249,7 @@ function deliveryOptHtml(cnpj, val, label, checked) {
 
 function diaEntregaLabel(proximoDiaEntrega) {
   if (!proximoDiaEntrega || !proximoDiaEntrega.data) return '';
+  if (proximoDiaEntrega.hoje) return `Hoje, mais tarde`;
   const [, mes, dia] = proximoDiaEntrega.data.split('-');
   return `${proximoDiaEntrega.nome_dia}, ${dia}/${mes}`;
 }

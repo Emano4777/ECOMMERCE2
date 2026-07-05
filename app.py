@@ -11817,7 +11817,7 @@ def api_checkout():
             _hoje = _data_hoje_br()
             if (
                 _data_agendada
-                and _hoje < _data_agendada <= _hoje + timedelta(days=14)
+                and _hoje <= _data_agendada <= _hoje + timedelta(days=14)
                 and _entrega_disponivel_na_data(cnpjloja, _data_agendada)
             ):
                 data_entrega_agendada = _data_agendada
@@ -21852,6 +21852,8 @@ def _status_horario_entrega(cnpjloja):
         # Aberta num feriado com horário especial: entrega segue o mesmo horário especial
         entrega_disponivel_horario = True
 
+    nome_dia_hoje = next((n for d, n in _DIAS_SEMANA if d == dia_hoje), "hoje")
+
     result = {
         "aberta": aberta,
         "configurado": True,
@@ -21861,7 +21863,6 @@ def _status_horario_entrega(cnpjloja):
         "feriado_hoje": feriado_hoje.get("descricao") if feriado_hoje else None,
     }
     if not aberta:
-        nome_dia_hoje = next((n for d, n in _DIAS_SEMANA if d == dia_hoje), "hoje")
         if not fechado_hoje and ab and hora_agora < ab:
             # Loja abre hoje ainda (so nao chegou a hora) - o "proximo" e hoje
             # mesmo, nao o proximo dia da semana que viria só daqui 7 dias.
@@ -21874,7 +21875,23 @@ def _status_horario_entrega(cnpjloja):
             "proximo": proximo,
         })
     if not entrega_disponivel_horario and _loja_permite_agendamento_entrega(cnpjloja):
-        result["proximo_dia_entrega"] = _proximo_dia_entrega_disponivel(cnpjloja, horarios, dia_hoje, data_hoje)
+        # Mesma logica do "abre hoje mais tarde": se a entrega de hoje ainda
+        # nao comecou (loja/entrega abrem depois), o "proximo dia de entrega"
+        # e hoje mesmo, nao o proximo dia da semana daqui a 7 dias.
+        proximo_entrega_hoje = None
+        if feriado_hoje:
+            if not feriado_hoje.get("fechado"):
+                fer_ab = _time_from_db(feriado_hoje.get("hora_abertura")) or (_time_from_db(h_hoje["hora_abertura"]) if h_hoje else None)
+                entrega_habilitada_fer = (not h_hoje) or (h_hoje.get("entrega_habilitada") is not False)
+                if fer_ab and entrega_habilitada_fer and hora_agora < fer_ab:
+                    proximo_entrega_hoje = {"dia": dia_hoje, "nome_dia": nome_dia_hoje, "hora_abertura": str(fer_ab)[:5], "data": data_hoje.isoformat(), "hoje": True}
+        elif h_hoje and not h_hoje.get("fechado") and h_hoje.get("hora_abertura"):
+            entrega_habilitada_hoje2 = True if h_hoje.get("entrega_habilitada") is None else bool(h_hoje.get("entrega_habilitada"))
+            if entrega_habilitada_hoje2:
+                e_ab_hoje = _time_from_db(h_hoje.get("entrega_hora_abertura")) or ab
+                if e_ab_hoje and hora_agora < e_ab_hoje:
+                    proximo_entrega_hoje = {"dia": dia_hoje, "nome_dia": nome_dia_hoje, "hora_abertura": str(e_ab_hoje)[:5], "data": data_hoje.isoformat(), "hoje": True}
+        result["proximo_dia_entrega"] = proximo_entrega_hoje or _proximo_dia_entrega_disponivel(cnpjloja, horarios, dia_hoje, data_hoje)
     return result
 
 
