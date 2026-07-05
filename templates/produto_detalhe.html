@@ -35,34 +35,90 @@
 .pd-img-side img { max-width:100%; max-height:320px; object-fit:contain; }
 .pd-img-ph { color:#d0d0d0; font-size:5rem; }
 
+.pd-discount-ribbon {
+  position:absolute; top:14px; left:14px; z-index:2;
+  background:var(--pq-red); color:#fff;
+  font-size:.8rem; font-weight:900;
+  padding:5px 12px; border-radius:20px;
+  box-shadow:0 3px 10px rgba(200,16,46,.35);
+}
+.pd-goodprice-badge {
+  position:absolute; top:14px; left:calc(14px + 4.6rem); z-index:2;
+  background:#dcfce7; color:#15803d; border:1px solid #86efac;
+  font-size:.72rem; font-weight:800;
+  padding:5px 10px; border-radius:20px;
+  display:inline-flex; align-items:center; gap:5px;
+}
+.pd-fav-btn {
+  position:absolute; top:14px; right:14px; z-index:2;
+  width:38px; height:38px; border-radius:50%;
+  background:#fff; border:1.5px solid var(--pq-border);
+  color:#9ca3af; font-size:1rem;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.1);
+  transition:color .15s, border-color .15s, transform .12s;
+}
+.pd-fav-btn:hover { transform:scale(1.08); }
+.pd-fav-btn.active { color:var(--pq-red); border-color:#ffd0d8; }
+
 /* INFO SIDE */
 .pd-info-side { padding:32px 28px; display:flex; flex-direction:column; gap:12px; }
 .pd-marca { font-size:.75rem; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--pq-red); }
-.pd-nome { font-size:1.4rem; font-weight:900; line-height:1.3; color:#1a1a1a; }
+
+.pd-badges-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+.pd-nome { font-size:1.4rem; font-weight:900; line-height:1.3; color:#1a1a1a; margin:0; }
 .pd-meta { display:flex; gap:10px; flex-wrap:wrap; font-size:.76rem; color:var(--pq-muted); }
 .pd-meta span { display:flex; align-items:center; gap:4px; }
 
-.pd-price-block { margin-top:4px; }
+.pd-rating-row { display:flex; align-items:center; gap:8px; }
+.pd-rating-stars { display:flex; gap:2px; }
+.pd-rating-stars i { font-size:.85rem; }
+.pd-rating-num { font-weight:800; font-size:.86rem; color:#1a1a1a; }
+.pd-rating-total { font-size:.76rem; color:var(--pq-muted); }
+
+/* PRICE BOX */
+.pd-price-box {
+  border:1.5px solid #ffd0d8;
+  background:linear-gradient(135deg,#fff8f9,#fff);
+  border-radius:14px;
+  padding:16px 18px;
+  margin-top:4px;
+}
+.pd-price-block { margin-top:0; }
 .pd-price { font-size:2.2rem; font-weight:900; color:var(--pq-red); line-height:1; }
 .pd-price-label { font-size:.75rem; color:var(--pq-muted); margin-top:2px; }
 
-.pd-loja-box {
-  background:#f9f9f9;
-  border-radius:10px;
-  padding:10px 14px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  font-size:.85rem;
+.pd-economize-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  background:#16a34a; color:#fff;
+  font-size:.7rem; font-weight:800;
+  padding:3px 9px; border-radius:20px;
 }
-.pd-loja-icon { color:var(--pq-red); font-size:1.1rem; flex-shrink:0; }
-.pd-loja-info { flex:1; min-width:0; }
-.pd-loja-razao { font-weight:800; color:#1a1a1a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.pd-loja-end   { font-size:.72rem; color:var(--pq-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-.pd-stock { font-size:.8rem; font-weight:700; }
+.pd-clube-chip {
+  display:inline-flex; align-items:center; gap:7px;
+  margin-top:12px;
+  background:var(--pq-yellow-lt); color:#7a5800;
+  border:1px solid #fde68a; border-radius:9px;
+  padding:8px 12px; font-size:.8rem; font-weight:800;
+  text-decoration:none; cursor:pointer;
+  transition:filter .15s;
+}
+.pd-clube-chip:hover { filter:brightness(.97); }
+.pd-clube-chip i { color:#d97706; }
+
+.pd-stock-line { font-size:.82rem; font-weight:700; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .pd-stock-ok  { color:#22c55e; }
 .pd-stock-low { color:#e8760a; }
+.pd-stock-line .pd-entrega-hoje { color:var(--pq-muted); font-weight:600; }
+
+.pd-vendido-por {
+  font-size:.85rem; color:#333;
+  display:flex; align-items:center; gap:8px;
+}
+.pd-vendido-por i { color:var(--pq-red); }
+.pd-vendido-por-end { font-size:.72rem; color:var(--pq-muted); margin-top:2px; }
 
 .pd-qty-row { display:flex; align-items:center; gap:10px; }
 .pd-qty-btn {
@@ -100,21 +156,21 @@
 .pd-share-wrap { position:relative; }
 .pd-share-btn {
   width:100%;
-  border:1.5px solid #ffd0d8;
+  border:1.5px solid var(--pq-border);
   border-radius:12px;
   padding:12px 18px;
-  background:linear-gradient(135deg,#fff5f6,#f0fdf4);
-  color:var(--pq-red);
+  background:#fff;
+  color:#374151;
   font-family:inherit;
   font-size:.94rem;
-  font-weight:900;
+  font-weight:800;
   cursor:pointer;
   display:flex;
   align-items:center;
   justify-content:center;
   gap:8px;
 }
-.pd-share-btn:hover { background:linear-gradient(135deg,#ffe9ed,#dcfce7); }
+.pd-share-btn:hover { background:#f9fafb; }
 .pd-share-menu {
   position:static;
   width:100%;
@@ -152,8 +208,33 @@
 .pd-share-menu .copy i { color:#ca8a04; }
 @media(max-width:420px){ .pd-share-menu { grid-template-columns:1fr; } }
 
+/* WARNING CARD (orientação farmacêutica + textos legais) */
+.pd-warning-card {
+  background:#fff8f0;
+  border:1.5px solid #fbbf24;
+  border-radius:12px;
+  padding:14px 16px;
+  display:flex; gap:10px; align-items:flex-start;
+}
+.pd-warning-card i.pd-warning-icon { font-size:1.1rem; color:#d97706; margin-top:2px; flex-shrink:0; }
+.pd-warning-card-body { font-size:.84rem; color:#78350f; display:flex; flex-direction:column; gap:8px; }
+
+/* TRUST ROW */
+.pd-trust-row {
+  display:flex; flex-wrap:wrap; gap:10px;
+  margin-top:22px;
+  background:#fff; border:1px solid var(--pq-border); border-radius:14px;
+  padding:14px 10px;
+}
+.pd-trust-item {
+  flex:1; min-width:120px;
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  font-size:.78rem; font-weight:800; color:#374151; text-align:center;
+}
+.pd-trust-item i { color:var(--pq-red); font-size:1.15rem; }
+
 /* DETAIL SECTIONS */
-.pd-details { margin-top:28px; display:flex; flex-direction:column; gap:0; }
+.pd-details { margin-top:20px; display:flex; flex-direction:column; gap:0; }
 .pd-section {
   border:1px solid var(--pq-border);
   border-radius:14px;
@@ -182,8 +263,19 @@
   color:#444;
   background:#fafafa;
 }
-.pd-section.open .pd-section-body { max-height:600px; padding:14px 18px 18px; }
+.pd-section.open .pd-section-body { max-height:800px; padding:14px 18px 18px; }
 .pd-section-body.warn { background:#fff8f0; color:#7a4400; }
+
+.pd-clube-plan-card {
+  background:linear-gradient(135deg,#fff5f6,#fff);
+  border:1.5px solid #ffd0d8; border-radius:12px;
+  padding:14px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+.pd-clube-plan-icon {
+  width:36px; height:36px; border-radius:50%;
+  background:linear-gradient(135deg,#c8102e,#e8354a);
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
 
 /* NO PHARMACY */
 .pd-no-loja {
@@ -203,13 +295,6 @@
 }
 .anvisa-ativo    { background:#e8f5e9; color:#2e7d32; border:1px solid #a5d6a7; }
 .anvisa-inativo  { background:#fff3e0; color:#e65100; border:1px solid #ffcc80; }
-.anvisa-spinner  { display:inline-block; width:12px; height:12px; border:2px solid #ccc;
-                   border-top-color:var(--pq-red); border-radius:50%; animation:spin .7s linear infinite; }
-@keyframes spin { to { transform:rotate(360deg); } }
-.anvisa-fonte {
-  font-size:.68rem; color:var(--pq-muted);
-  margin-top:6px; text-align:right;
-}
 .badge-ia {
   display:inline-flex; align-items:center; gap:3px;
   font-size:.58rem; font-weight:600; letter-spacing:.02em;
@@ -228,119 +313,25 @@
 .tarja-badge.preta {
   background:#1a1a1a; color:#fff; border-color:#333;
 }
-.receita-box {
-  background:#fff8f0;
-  border:1.5px solid #fbbf24;
-  border-radius:12px;
-  padding:12px 16px;
-  font-size:.84rem;
-  color:#78350f;
-  display:flex;
-  gap:10px;
-  align-items:flex-start;
-}
-.receita-box i { font-size:1.1rem; color:#d97706; margin-top:2px; flex-shrink:0; }
 .pd-legal-warnings {
   display:flex;
   flex-direction:column;
   gap:8px;
 }
 .pd-legal-box {
-  border:1px solid #777;
+  border:1px solid #d8ceb8;
   background:#fff;
-  color:#666;
-  padding:11px 13px;
-  font-size:.8rem;
-  font-weight:900;
-  line-height:1.25;
-  text-transform:uppercase;
-  letter-spacing:.01em;
+  color:#6b5a3a;
+  padding:9px 11px;
+  font-size:.74rem;
+  font-weight:800;
+  line-height:1.3;
 }
 .pd-legal-box.strong {
-  border-color:#555;
-  color:#555;
+  border-color:#e0b23a;
+  color:#7a5800;
 }
-.btn-retirada {
-  width:100%;
-  background:#f97316;
-  color:#fff;
-  border:none;
-  border-radius:12px;
-  padding:14px 20px;
-  font-size:1rem;
-  font-weight:800;
-  cursor:pointer;
-  font-family:inherit;
-  display:flex; align-items:center; justify-content:center; gap:8px;
-  transition:background .15s;
-}
-.btn-retirada:hover { background:#ea6a08; }
-.pd-recs-wrap { margin-top:24px; }
-
-/* ── "Quem viu isso também viu" ─────────────────────────── */
-.pd-qvtv-wrap { margin-top:22px; }
-.pd-qvtv-section {
-  background:linear-gradient(135deg,#0f1117 0%,#1a1a2e 100%);
-  border-radius:20px; padding:20px;
-  border:1.5px solid rgba(124,58,237,.28);
-  box-shadow:0 6px 28px rgba(0,0,0,.18);
-}
-.pd-qvtv-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:16px; }
-.pd-qvtv-left { display:flex; align-items:center; gap:12px; }
-.pd-qvtv-avatar {
-  width:40px; height:40px; flex-shrink:0;
-  background:linear-gradient(135deg,#7c3aed,#a855f7);
-  border-radius:13px; display:flex; align-items:center; justify-content:center;
-  color:#fff; font-size:1rem;
-  box-shadow:0 3px 14px rgba(124,58,237,.45);
-}
-.pd-qvtv-title { font-size:.92rem; font-weight:900; color:#e2e8f0; line-height:1.25; }
-.pd-qvtv-sub { font-size:.74rem; color:rgba(255,255,255,.45); margin-top:2px; }
-.pd-qvtv-nav { display:flex; gap:6px; flex-shrink:0; align-self:center; }
-.pd-qvtv-nav-btn {
-  width:32px; height:32px; border-radius:50%;
-  border:1.5px solid rgba(255,255,255,.15); background:rgba(255,255,255,.06);
-  display:flex; align-items:center; justify-content:center;
-  color:rgba(255,255,255,.6); font-size:.78rem; cursor:pointer;
-  transition:border-color .15s, background .15s, color .15s;
-}
-.pd-qvtv-nav-btn:hover:not(:disabled) { border-color:#a78bfa; background:rgba(124,58,237,.25); color:#fff; }
-.pd-qvtv-nav-btn:disabled { opacity:.25; cursor:default; pointer-events:none; }
-.pd-qvtv-track-wrap { overflow:hidden; }
-.pd-qvtv-track {
-  display:flex; gap:10px; overflow-x:auto;
-  scroll-snap-type:x mandatory; scrollbar-width:none;
-  scroll-behavior:smooth; padding-bottom:2px;
-}
-.pd-qvtv-track::-webkit-scrollbar { display:none; }
-.pd-qvtv-card {
-  flex:0 0 160px; scroll-snap-align:start;
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
-  border-radius:14px; padding:10px; text-decoration:none; color:inherit;
-  display:flex; flex-direction:column; gap:6px;
-  transition:transform .18s, background .15s;
-}
-.pd-qvtv-card:hover { transform:translateY(-3px); background:rgba(255,255,255,.1); }
-@media(max-width:520px){ .pd-qvtv-card { flex:0 0 calc(50vw - 28px); } }
-.pd-qvtv-img-wrap {
-  width:100%; aspect-ratio:1;
-  background:rgba(255,255,255,.08); border-radius:10px;
-  display:flex; align-items:center; justify-content:center; overflow:hidden;
-}
-.pd-qvtv-img-wrap img { width:100%; height:100%; object-fit:contain; padding:6px; }
-.pd-qvtv-img-ph { color:rgba(255,255,255,.25); font-size:2rem; }
-.pd-qvtv-name { font-size:.74rem; font-weight:800; color:#e2e8f0; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.3em; }
-.pd-qvtv-lab { font-size:.64rem; color:rgba(255,255,255,.4); font-weight:700; margin-top:-2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.pd-qvtv-price { font-size:.92rem; font-weight:900; color:var(--pq-yellow); }
-.pd-qvtv-btn-add {
-  width:100%; min-height:32px; border:none; border-radius:8px;
-  background:rgba(124,58,237,.5); color:#fff;
-  font-size:.72rem; font-weight:900; cursor:pointer; font-family:inherit;
-  display:flex; align-items:center; justify-content:center; gap:4px;
-  transition:background .15s; margin-top:auto;
-}
-.pd-qvtv-btn-add:hover { background:rgba(124,58,237,.75); }
-.pd-qvtv-btn-add.added { background:rgba(34,197,94,.45); cursor:default; }
+.pd-recs-wrap { margin-top:22px; }
 
 /* ZOOM BUTTON */
 .pd-img-side:not(.pd-img-nozoom) { cursor:zoom-in; }
@@ -441,6 +432,11 @@
 {% set _tipos_nao_med = ['suplemento','perfumaria','dermocosmetico','nutricao','varejo'] %}
 {% set _eh_medicamento = tipo_produto not in _tipos_nao_med %}
 {% set e_generico = _eh_medicamento and ('generic' in med_classe_norm or 'genéric' in med_classe_norm or 'generico' in nome_norm or 'genérico' in nome_norm) %}
+{% set tem_desconto = produto and produto.promo and produto.promo.aplicada and produto.preco_original and (produto.preco_original|float > produto.preco|float) %}
+{% set desconto_pct = ((1 - (produto.preco|float / produto.preco_original|float)) * 100) | round | int if tem_desconto else 0 %}
+{% set entrega_hoje_ok = status_entrega and status_entrega.entrega_disponivel_horario %}
+{% set tem_bula = anvisa and (anvisa.url_bula_fabricante or anvisa.url_bula) %}
+{% set frete_gratis_clube = plano_assinatura and plano_assinatura.frete_gratis_primeira_entrega and not ja_assina %}
 
 <div class="pd-wrap">
 
@@ -459,6 +455,15 @@
   <div class="pd-card">
     <!-- Imagem -->
     <div class="pd-img-side{% if not imagem %} pd-img-nozoom{% endif %}" id="pd-img-wrap"{% if imagem %} onclick="pdOpenLightbox()"{% endif %}>
+      {% if tem_desconto %}
+      <div class="pd-discount-ribbon">-{{ desconto_pct }}%</div>
+      <div class="pd-goodprice-badge"><i class="fa fa-thumbs-up"></i>Bom preço</div>
+      {% endif %}
+      {% if consumidor %}
+      <button type="button" class="pd-fav-btn" id="pd-fav-btn" title="Favoritar e ativar alertas" onclick="pdToggleFavorito(event)">
+        <i class="fa-regular fa-heart"></i>
+      </button>
+      {% endif %}
       {% if imagem %}
         <img id="pd-main-img" src="{{ imagem }}" alt="{{ nome }}"
              onerror="this.style.display='none';this.nextElementSibling.style.display='flex';this.closest('.pd-img-side').classList.add('pd-img-nozoom')"/>
@@ -474,25 +479,10 @@
     <!-- Informações -->
     <div class="pd-info-side">
       {% if med.marca %}<div class="pd-marca">{{ med.marca }}</div>{% endif %}
-      <h1 class="pd-nome">{{ nome }}</h1>
 
-      <!-- Meta + ANVISA badge -->
-      <div class="pd-meta" style="flex-wrap:wrap;gap:8px">
-        {% set _lab_flask = med.laboratorio or anvisa.laboratorio or med.marca %}
-        {% if _lab_flask and _lab_flask != med.marca %}
-          <span><i class="fa fa-flask"></i>{{ _lab_flask }}</span>
-        {% endif %}
-        {% if ean %}
-          <span><i class="fa fa-barcode"></i>EAN {{ ean }}</span>
-        {% endif %}
-        {% if _eh_medicamento and med.classe %}
-          <span><i class="fa fa-tag"></i>{{ med.classe }}</span>
-        {% endif %}
-        {% if anvisa.principio_ativo %}
-          <span><i class="fa fa-atom"></i>{{ anvisa.principio_ativo }}</span>
-        {% endif %}
+      <!-- Badges -->
+      <div class="pd-badges-row">
         {% if anvisa and anvisa.encontrado %}
-          {# Medicamento encontrado no bulário ANVISA #}
           <span class="anvisa-badge {{ 'anvisa-ativo' if anvisa_ativo else 'anvisa-inativo' }}">
             <i class="fa fa-shield-halved"></i>
             Medicamento ANVISA {{ anvisa.situacao or 'Ativo' }}
@@ -525,127 +515,125 @@
             <i class="fa fa-pills"></i>Medicamento
           </span>
         {% endif %}
+        {% if e_generico %}
+        <span class="anvisa-badge" style="background:#eff6ff;color:#1a56db;border:1px solid #bfdbfe">
+          <i class="fa fa-tag"></i>Genérico
+        </span>
+        {% endif %}
       </div>
+
+      <h1 class="pd-nome">{{ nome }}</h1>
+
+      <!-- Meta -->
+      <div class="pd-meta">
+        {% set _lab_flask = med.laboratorio or anvisa.laboratorio or med.marca %}
+        {% if _lab_flask and _lab_flask != med.marca %}
+          <span><i class="fa fa-flask"></i>{{ _lab_flask }}</span>
+        {% endif %}
+        {% if ean %}
+          <span><i class="fa fa-barcode"></i>EAN {{ ean }}</span>
+        {% endif %}
+        {% if _eh_medicamento and med.classe %}
+          <span><i class="fa fa-tag"></i>{{ med.classe }}</span>
+        {% endif %}
+        {% if anvisa.principio_ativo %}
+          <span><i class="fa fa-atom"></i>{{ anvisa.principio_ativo }}</span>
+        {% endif %}
+      </div>
+
+      {% if reputacao %}
+      <div class="pd-rating-row">
+        <div class="pd-rating-stars">
+          {% for i in range(1,6) %}<i class="fa fa-star" style="color:{% if i <= reputacao.media|round %}#f59e0b{% else %}#d1d5db{% endif %}"></i>{% endfor %}
+        </div>
+        <span class="pd-rating-num">{{ reputacao.media }}</span>
+        <span class="pd-rating-total">· {{ reputacao.total }} avaliação{{ 'ões' if reputacao.total != 1 }}</span>
+      </div>
+      {% endif %}
 
       {% if produto and produto.preco %}
-      <div class="pd-price-block">
-        {% if produto.promo and produto.promo.aplicada and produto.preco_original and produto.preco_original|float > produto.preco|float %}
-        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <div class="pd-price-box">
+        <div class="pd-price-block">
+          {% if produto.promo and produto.promo.aplicada and produto.preco_original and produto.preco_original|float > produto.preco|float %}
+          <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+            <span style="font-size:1.05rem;color:var(--pq-muted);font-weight:700;text-decoration:line-through">R$ {{ "%.2f"|format(produto.preco_original|float) | replace(".", ",") }}</span>
+            <span class="pd-economize-badge"><i class="fa fa-tag"></i>Economize R$ {{ "%.2f"|format((produto.preco_original|float) - (produto.preco|float)) | replace(".", ",") }}</span>
+          </div>
           <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
-          <span style="font-size:1.05rem;color:var(--pq-muted);font-weight:700;text-decoration:line-through">R$ {{ "%.2f"|format(produto.preco_original|float) | replace(".", ",") }}</span>
+          <div class="pd-price-label" id="pd-price-label">preço de assinante aplicado</div>
+          {% elif produto.promo and produto.promo.so_assinantes and produto.promo.preco_promo and produto.promo.preco_promo|float < produto.preco|float %}
+          <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
+          <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+          <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
+            <i class="fa fa-star"></i>Assine e pague R$ {{ "%.2f"|format(produto.promo.preco_promo|float) | replace(".", ",") }}
+          </div>
+          {% else %}
+          <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
+          <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+          {% endif %}
+          <div id="pd-cupom-block" style="display:none;margin-top:8px">
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span id="pd-preco-cupom" style="font-size:1.6rem;font-weight:900;color:#16a34a"></span>
+              <span style="font-size:.82rem;font-weight:700;color:var(--pq-muted)">com cupom</span>
+            </div>
+            <div id="pd-cupom-badge" style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;background:#fff0f2;color:var(--pq-red);border-radius:8px;padding:4px 10px;font-size:.76rem;font-weight:800">
+              <i class="fa fa-tag"></i><span id="pd-cupom-label"></span>
+            </div>
+          </div>
         </div>
-        <div class="pd-price-label" id="pd-price-label">preço de assinante aplicado</div>
-        {% elif produto.promo and produto.promo.so_assinantes and produto.promo.preco_promo and produto.promo.preco_promo|float < produto.preco|float %}
-        <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
-        <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
-        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
-          <i class="fa fa-star"></i>Assine e pague R$ {{ "%.2f"|format(produto.promo.preco_promo|float) | replace(".", ",") }}
-        </div>
-        {% else %}
-        <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
-        <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+        {% if frete_gratis_clube %}
+        <a class="pd-clube-chip" href="{{ url_for('seja_assinante') }}">
+          <i class="fa fa-truck-fast"></i>Sócios clube normalmente não pagam frete
+        </a>
         {% endif %}
-        <div id="pd-cupom-block" style="display:none;margin-top:8px">
-          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-            <span id="pd-preco-cupom" style="font-size:1.6rem;font-weight:900;color:#16a34a"></span>
-            <span style="font-size:.82rem;font-weight:700;color:var(--pq-muted)">com cupom</span>
-          </div>
-          <div id="pd-cupom-badge" style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;background:#fff0f2;color:var(--pq-red);border-radius:8px;padding:4px 10px;font-size:.76rem;font-weight:800">
-            <i class="fa fa-tag"></i><span id="pd-cupom-label"></span>
-          </div>
-        </div>
       </div>
 
-      <div class="pd-stock">
+      <div class="pd-stock-line">
         {% if produto.qty and produto.qty > 5 %}
-          <span class="pd-stock-ok"><i class="fa fa-circle-check me-1"></i>Em estoque ({{ produto.qty }} un)</span>
+          <span class="pd-stock-ok"><i class="fa fa-circle-check me-1"></i>Em estoque</span>
         {% elif produto.qty and produto.qty > 0 %}
           <span class="pd-stock-low"><i class="fa fa-triangle-exclamation me-1"></i>Últimas {{ produto.qty }} unidades</span>
+        {% endif %}
+        {% if entrega_hoje_ok and status_entrega.hora_fechamento %}
+        <span class="pd-entrega-hoje">· entrega hoje até {{ status_entrega.hora_fechamento }}</span>
         {% endif %}
       </div>
 
       {% if loja %}
-      <div class="pd-loja-box">
-        <i class="fa fa-store pd-loja-icon"></i>
-        <div class="pd-loja-info">
-          <div class="pd-loja-razao">{{ loja.razao }}</div>
-          {% if loja.endereco %}<div class="pd-loja-end"><i class="fa fa-map-pin me-1"></i>{{ loja.endereco }}{% if loja.uf %} — {{ loja.uf }}{% endif %}</div>{% endif %}
-          {% if reputacao %}
-          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
-            <div style="display:flex;gap:2px">
-              {% for i in range(1,6) %}<i class="fa fa-star" style="color:{% if i <= reputacao.media|round %}#f59e0b{% else %}#d1d5db{% endif %};font-size:.82rem"></i>{% endfor %}
-            </div>
-            <span style="font-weight:800;font-size:.82rem;color:#1a1a1a">{{ reputacao.media }}</span>
-            <span style="font-size:.76rem;color:#6b7280">({{ reputacao.total }} avaliação{{ 'ões' if reputacao.total != 1 }})</span>
-          </div>
-          {% if reputacao.comentarios %}
-          <div style="margin-top:8px;font-size:.76rem;color:#4b5563;font-style:italic;border-left:3px solid #f59e0b;padding-left:8px;line-height:1.4">
-            "{{ reputacao.comentarios[0].comentario|truncate(120) }}"
-          </div>
-          {% endif %}
-          {% endif %}
-        </div>
-      </div>
-      {% endif %}
-
-      {% if plano_assinatura %}
-      <div style="background:linear-gradient(135deg,#fff5f6,#fff);border:1.5px solid #ffd0d8;border-radius:12px;padding:14px 16px;margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#c8102e,#e8354a);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <i class="fa fa-star" style="color:#fff;font-size:.9rem"></i>
-        </div>
-        <div style="flex:1;min-width:140px">
-          <div style="font-size:.68rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.04em">Clube de assinantes</div>
-          <div style="font-size:.88rem;font-weight:900;color:#1a1a1a">{{ plano_assinatura.nome }}</div>
-          {% if plano_assinatura.descricao %}
-          <div style="font-size:.76rem;color:#555;margin-top:2px">{{ plano_assinatura.descricao|truncate(80) }}</div>
-          {% endif %}
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:1.2rem;font-weight:900;color:var(--pq-red)">R$ {{ '%.2f'|format(plano_assinatura.preco_mensal|float) }}<span style="font-size:.7rem;font-weight:400;color:var(--pq-muted)">/mês</span></div>
-          {% if ja_assina %}
-          <a href="{{ url_for('minhas_assinaturas') }}"
-             style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none">
-            <i class="fa fa-check-circle"></i>Já sou assinante
-          </a>
-          {% elif assinatura_pendente %}
-          <a href="{{ url_for('assinatura_pagamento', cnpjloja=loja.cnpjloja) }}"
-             style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#fef3c7;color:#d97706;border:1px solid #fde68a;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none">
-            <i class="fa fa-clock"></i>Pagamento pendente
-          </a>
-          {% elif consumidor %}
-          <form method="post" action="{{ url_for('assinar_loja', cnpjloja=loja.cnpjloja) }}" style="margin-top:6px">
-            <button type="submit" style="background:var(--pq-red);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:900;font-size:.78rem;cursor:pointer;font-family:inherit">
-              <i class="fa fa-star me-1"></i>Assinar
-            </button>
-          </form>
-          {% else %}
-          <a href="{{ url_for('consumidor_login') }}"
-             style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:var(--pq-red);color:#fff;border-radius:8px;padding:7px 14px;font-weight:900;font-size:.78rem;text-decoration:none">
-            <i class="fa fa-star me-1"></i>Assinar
-          </a>
-          {% endif %}
+      <div class="pd-vendido-por">
+        <i class="fa fa-store"></i>
+        <div>
+          Vendido e entregue por <strong>{{ loja.razao }}</strong>
+          {% if loja.endereco %}<div class="pd-vendido-por-end"><i class="fa fa-map-pin me-1"></i>{{ loja.endereco }}{% if loja.uf %} — {{ loja.uf }}{% endif %}</div>{% endif %}
         </div>
       </div>
       {% endif %}
 
       {% if tarja == 'preta' %}
-      <div class="receita-box">
-        <i class="fa fa-file-prescription"></i>
-        <div>
-          <strong>Medicamento sujeito a controle especial (Tarja Preta).</strong><br>
-          Venda sob prescricao e com retencao/controle da receita, conforme a categoria do medicamento. Para entrega, a farmacia deve conferir e reter a via original ou validar a prescricao eletronica aplicavel antes da dispensacao.
+      <div class="pd-warning-card">
+        <i class="fa fa-file-prescription pd-warning-icon"></i>
+        <div class="pd-warning-card-body">
+          <div><strong>Medicamento sujeito a controle especial (Tarja Preta).</strong> Venda sob prescrição e com retenção/controle da receita, conforme a categoria do medicamento. Para entrega, a farmácia deve conferir e reter a via original ou validar a prescrição eletrônica aplicável antes da dispensação.</div>
         </div>
       </div>
       {% elif tarja == 'vermelha' %}
-      <div class="receita-box">
-        <i class="fa fa-file-prescription"></i>
-        <div>
-          <strong>Venda sob prescricao (Tarja Vermelha).</strong><br>
+      <div class="pd-warning-card">
+        <i class="fa fa-file-prescription pd-warning-icon"></i>
+        <div class="pd-warning-card-body">
+          <div><strong>Venda sob prescrição (Tarja Vermelha).</strong>
           {% if requer_receita %}
-          Este medicamento exige retencao/controle da receita. Para entrega, a farmacia deve conferir e reter a via original ou validar a prescricao eletronica aplicavel antes da dispensacao.
+          Este medicamento exige retenção/controle da receita. Para entrega, a farmácia deve conferir e reter a via original ou validar a prescrição eletrônica aplicável antes da dispensação.
           {% else %}
-          Medicamento sujeito a prescricao simples. A dispensacao deve ocorrer mediante avaliacao do farmaceutico e apresentacao da receita quando aplicavel; nao ha retencao de receita indicada para este item no cadastro atual.
+          Medicamento sujeito a prescrição simples. A dispensação deve ocorrer mediante avaliação do farmacêutico e apresentação da receita quando aplicável; não há retenção de receita indicada para este item no cadastro atual.
           {% endif %}
+          </div>
+        </div>
+      </div>
+      {% elif e_medicamento %}
+      <div class="pd-warning-card">
+        <i class="fa fa-triangle-exclamation pd-warning-icon"></i>
+        <div class="pd-warning-card-body">
+          <div>Venda sob orientação farmacêutica. Ao adquirir você declara ciência da bula. Em caso de dúvida, consulte um médico ou farmacêutico.</div>
         </div>
       </div>
       {% endif %}
@@ -682,7 +670,7 @@
       <button class="btn-add-cart" id="btn-add"
               onclick="handleAddToCart()"
               data-requer-receita="{{ 'true' if requer_receita else 'false' }}">
-        <i class="fa fa-cart-plus"></i>{% if requer_receita %}Reservar com receita{% else %}Adicionar ao carrinho{% endif %}
+        <i class="fa fa-cart-plus"></i>{% if requer_receita %}Reservar com receita{% else %}Adicionar à cesta{% endif %}
       </button>
 
       <div class="pd-share-wrap" id="pd-share-wrap">
@@ -704,7 +692,7 @@
       {% endif %}
 
       <!-- Botão baixar bula -->
-      {% if anvisa and (anvisa.url_bula_fabricante or anvisa.url_bula) %}
+      {% if tem_bula %}
       <a href="{{ url_for('bula_download', chave=anvisa.chave) }}"
          target="_blank" rel="noopener noreferrer"
          style="display:flex;align-items:center;justify-content:center;gap:8px;
@@ -719,48 +707,22 @@
     </div>
   </div>
 
-  <!-- RECOMENDAÇÕES -->
-  <div class="pd-recs-wrap">
-    <section id="pd-recs" class="pq-recs-section" style="display:none">
-      <div class="pq-recs-header">
-        <div class="pq-recs-title-block">
-          <div class="pq-recs-title"><i class="fa fa-basket-shopping"></i><span id="pd-recs-title">Veja também</span></div>
-          <div class="pq-recs-sub" id="pd-recs-sub">Produtos relacionados disponíveis nesta farmácia.</div>
-        </div>
-        <div class="pq-recs-nav">
-          <button class="pq-nav-btn" id="pd-recs-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
-          <button class="pq-nav-btn" id="pd-recs-next" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
-        </div>
-      </div>
-      <div class="pq-recs-track-wrap">
-        <div class="pq-recs-track" id="pd-recs-track"></div>
-      </div>
-    </section>
+  <!-- SELOS DE CONFIANÇA -->
+  {% if entrega_hoje_ok or loja or tem_bula %}
+  <div class="pd-trust-row">
+    {% if entrega_hoje_ok %}
+    <div class="pd-trust-item"><i class="fa fa-truck-fast"></i>Entrega hoje</div>
+    {% endif %}
+    {% if loja %}
+    <div class="pd-trust-item"><i class="fa fa-shield-halved"></i>Farmácia verificada</div>
+    {% endif %}
+    {% if tem_bula %}
+    <div class="pd-trust-item"><i class="fa fa-file-lines"></i>Bula ANVISA</div>
+    {% endif %}
   </div>
+  {% endif %}
 
-  <!-- QUEM VIU ISSO TAMBÉM VIU -->
-  <div class="pd-qvtv-wrap" id="pd-qvtv-wrap" style="display:none">
-    <div class="pd-qvtv-section">
-      <div class="pd-qvtv-header">
-        <div class="pd-qvtv-left">
-          <div class="pd-qvtv-avatar"><i class="fa fa-eye"></i></div>
-          <div>
-            <div class="pd-qvtv-title" id="pd-qvtv-title">Quem viu isso também viu</div>
-            <div class="pd-qvtv-sub" id="pd-qvtv-sub">Produtos relacionados vistos por outros clientes</div>
-          </div>
-        </div>
-        <div class="pd-qvtv-nav">
-          <button class="pd-qvtv-nav-btn" id="pd-qvtv-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
-          <button class="pd-qvtv-nav-btn" id="pd-qvtv-next" aria-label="Próximo"></i><i class="fa fa-chevron-right"></i></button>
-        </div>
-      </div>
-      <div class="pd-qvtv-track-wrap">
-        <div class="pd-qvtv-track" id="pd-qvtv-track"></div>
-      </div>
-    </div>
-  </div>
-
-  {% if d_serve or d_usar or d_alerta or d_comprar %}
+  {% if d_serve or d_usar or d_alerta or d_comprar or plano_assinatura or tem_anvisa or tipo_produto in ('cosmetico','suplemento') %}
   <div class="pd-details">
 
     {% if d_serve %}
@@ -819,43 +781,118 @@
     </div>
     {% endif %}
 
-    {% if tem_anvisa %}
-    <div style="background:#fffbe6;border:1px solid #ffe082;border-radius:8px;
-                padding:10px 14px;margin-top:8px;font-size:.78rem;color:#7a5800;line-height:1.5">
-      <i class="fa fa-circle-exclamation me-1"></i>
-      <strong>Informações de referência:</strong>
-      As indicações e alertas acima são referentes ao princípio ativo <strong>{{ anvisa.nome_anvisa or anvisa.chave }}</strong>
-      e se aplicam a todas as apresentações deste medicamento.
-      A posologia exata (doses e intervalos) pode variar conforme a concentração do seu produto —
-      consulte sempre a bula do produto adquirido ou um profissional de saúde.
+    {% if plano_assinatura %}
+    <div class="pd-section">
+      <div class="pd-section-hd" onclick="toggleSec(this)">
+        <i class="fa fa-star icon"></i>Clube Poupaqui — {{ loja.razao }}
+        <i class="fa fa-chevron-down arrow"></i>
+      </div>
+      <div class="pd-section-body">
+        <div class="pd-clube-plan-card">
+          <div class="pd-clube-plan-icon"><i class="fa fa-star" style="color:#fff;font-size:.9rem"></i></div>
+          <div style="flex:1;min-width:140px">
+            <div style="font-size:.68rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.04em">Clube de assinantes</div>
+            <div style="font-size:.88rem;font-weight:900;color:#1a1a1a">{{ plano_assinatura.nome }}</div>
+            {% if plano_assinatura.descricao %}
+            <div style="font-size:.8rem;color:#555;margin-top:4px">{{ plano_assinatura.descricao }}</div>
+            {% endif %}
+            {% if plano_assinatura.beneficios %}
+            <div style="font-size:.8rem;color:#555;margin-top:6px;white-space:pre-line">{{ plano_assinatura.beneficios }}</div>
+            {% endif %}
+            {% if plano_assinatura.frete_gratis_primeira_entrega %}
+            <div style="display:inline-flex;align-items:center;gap:5px;margin-top:8px;background:var(--pq-yellow-lt);color:#7a5800;border:1px solid #fde68a;border-radius:8px;padding:4px 10px;font-size:.74rem;font-weight:800">
+              <i class="fa fa-truck-fast"></i>Sócios normalmente não pagam frete
+            </div>
+            {% endif %}
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:1.2rem;font-weight:900;color:var(--pq-red)">R$ {{ '%.2f'|format(plano_assinatura.preco_mensal|float) }}<span style="font-size:.7rem;font-weight:400;color:var(--pq-muted)">/mês</span></div>
+            {% if ja_assina %}
+            <a href="{{ url_for('minhas_assinaturas') }}"
+               style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none">
+              <i class="fa fa-check-circle"></i>Já sou assinante
+            </a>
+            {% elif assinatura_pendente %}
+            <a href="{{ url_for('assinatura_pagamento', cnpjloja=loja.cnpjloja) }}"
+               style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#fef3c7;color:#d97706;border:1px solid #fde68a;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none">
+              <i class="fa fa-clock"></i>Pagamento pendente
+            </a>
+            {% elif consumidor %}
+            <form method="post" action="{{ url_for('assinar_loja', cnpjloja=loja.cnpjloja) }}" style="margin-top:6px">
+              <button type="submit" style="background:var(--pq-red);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:900;font-size:.78rem;cursor:pointer;font-family:inherit">
+                <i class="fa fa-star me-1"></i>Assinar
+              </button>
+            </form>
+            {% else %}
+            <a href="{{ url_for('consumidor_login') }}"
+               style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:var(--pq-red);color:#fff;border-radius:8px;padding:7px 14px;font-weight:900;font-size:.78rem;text-decoration:none">
+              <i class="fa fa-star me-1"></i>Assinar
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="anvisa-fonte" style="padding:6px 4px">
-      <i class="fa fa-shield-halved me-1"></i>Informações técnicas fornecidas pela
-      <a href="https://consultas.anvisa.gov.br/#/bulario" target="_blank" rel="noopener noreferrer"
-         style="color:inherit;font-weight:800">ANVISA — Bulário Eletrônico</a>
-    </div>
-    {% elif tipo_produto == 'cosmetico' %}
-    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
-                padding:10px 14px;margin-top:8px;font-size:.78rem;color:#1e40af;line-height:1.5">
-      <i class="fa fa-star me-1"></i>
-      <strong>Cosmético regulado pela ANVISA.</strong>
-      Produtos cosméticos (protetores solares, bases, cremes) são registrados pela ANVISA
-      no cadastro de cosméticos — diferente do bulário de medicamentos.
-      Consulte sempre as instruções de uso e o rótulo do produto.
-    </div>
-    {% elif tipo_produto == 'suplemento' %}
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
-                padding:10px 14px;margin-top:8px;font-size:.78rem;color:#166534;line-height:1.5">
-      <i class="fa fa-leaf me-1"></i>
-      <strong>Suplemento alimentar.</strong>
-      Suplementos (proteínas, vitaminas, minerais) são regulados pela ANVISA
-      como alimentos — não constam no bulário de medicamentos.
-      Siga as recomendações do rótulo ou de um nutricionista.
+    {% endif %}
+
+    {% if tem_anvisa or tipo_produto in ('cosmetico','suplemento') %}
+    <div class="pd-section">
+      <div class="pd-section-hd" onclick="toggleSec(this)">
+        <i class="fa fa-circle-info icon"></i>Informações de referência
+        <i class="fa fa-chevron-down arrow"></i>
+      </div>
+      <div class="pd-section-body">
+        {% if tem_anvisa %}
+        <p style="margin:0 0 10px">
+          As indicações e alertas informados são referentes ao princípio ativo <strong>{{ anvisa.nome_anvisa or anvisa.chave }}</strong>
+          e se aplicam a todas as apresentações deste medicamento.
+          A posologia exata (doses e intervalos) pode variar conforme a concentração do seu produto —
+          consulte sempre a bula do produto adquirido ou um profissional de saúde.
+        </p>
+        <p style="margin:0;font-size:.78rem;color:var(--pq-muted)">
+          <i class="fa fa-shield-halved me-1"></i>Informações técnicas fornecidas pela
+          <a href="https://consultas.anvisa.gov.br/#/bulario" target="_blank" rel="noopener noreferrer" style="color:inherit;font-weight:800">ANVISA — Bulário Eletrônico</a>
+        </p>
+        {% elif tipo_produto == 'cosmetico' %}
+        <p style="margin:0">
+          <i class="fa fa-star me-1"></i><strong>Cosmético regulado pela ANVISA.</strong>
+          Produtos cosméticos (protetores solares, bases, cremes) são registrados pela ANVISA
+          no cadastro de cosméticos — diferente do bulário de medicamentos.
+          Consulte sempre as instruções de uso e o rótulo do produto.
+        </p>
+        {% elif tipo_produto == 'suplemento' %}
+        <p style="margin:0">
+          <i class="fa fa-leaf me-1"></i><strong>Suplemento alimentar.</strong>
+          Suplementos (proteínas, vitaminas, minerais) são regulados pela ANVISA
+          como alimentos — não constam no bulário de medicamentos.
+          Siga as recomendações do rótulo ou de um nutricionista.
+        </p>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
 
   </div>
   {% endif %}
+
+  <!-- COSTUMA COMPRAR JUNTO -->
+  <div class="pd-recs-wrap">
+    <section id="pd-recs" class="pq-recs-section" style="display:none">
+      <div class="pq-recs-header">
+        <div class="pq-recs-title-block">
+          <div class="pq-recs-title"><i class="fa fa-basket-shopping"></i><span>Costuma comprar junto</span></div>
+          <div class="pq-recs-sub">Produtos que combinam com a sua compra.</div>
+        </div>
+        <div class="pq-recs-nav">
+          <button class="pq-nav-btn" id="pd-recs-prev" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+          <button class="pq-nav-btn" id="pd-recs-next" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+        </div>
+      </div>
+      <div class="pq-recs-track-wrap">
+        <div class="pq-recs-track" id="pd-recs-track"></div>
+      </div>
+    </section>
+  </div>
 
 </div>
 
@@ -963,12 +1000,44 @@ function handleAddToCart() {
   btn.innerHTML = '<i class="fa fa-check"></i>Adicionado!';
   setTimeout(() => {
     btn.classList.remove('added');
-    btn.innerHTML = requerReceita ? '<i class="fa fa-cart-plus"></i>Reservar com receita' : '<i class="fa fa-cart-plus"></i>Adicionar ao carrinho';
+    btn.innerHTML = requerReceita ? '<i class="fa fa-cart-plus"></i>Reservar com receita' : '<i class="fa fa-cart-plus"></i>Adicionar à cesta';
   }, 2000);
 }
 
 function toggleSec(hd) {
   hd.closest('.pd-section').classList.toggle('open');
+}
+
+// ── Favoritar ──────────────────────────────────────────────────────────────
+{% if consumidor %}
+(async () => {
+  const btn = document.getElementById('pd-fav-btn');
+  if (!btn || !_pdEan || !_pdCnpj) return;
+  try {
+    const r = await fetch('/api/favoritos');
+    const d = await r.json();
+    const ativo = (d.favoritos || []).some(f => f.ean === _pdEan && f.cnpjloja === _pdCnpj);
+    if (ativo) {
+      btn.classList.add('active');
+      btn.innerHTML = '<i class="fa-solid fa-heart"></i>';
+    }
+  } catch {}
+})();
+{% endif %}
+function pdToggleFavorito(ev) {
+  if (ev) ev.stopPropagation();
+  const btn = document.getElementById('pd-fav-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  fetch('/api/favoritos', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ean:_pdEan, cnpjloja:_pdCnpj, nome:_pdNome, preco:_pdPreco, imagem:_pdImg, razao:_pdRazao})
+  }).then(r => r.json()).then(d => {
+    btn.classList.toggle('active', !!d.favorito);
+    btn.innerHTML = `<i class="fa-${d.favorito ? 'solid' : 'regular'} fa-heart"></i>`;
+    pdToast(d.favorito ? 'Favorito salvo com alertas ativos.' : 'Removido dos favoritos.');
+  }).finally(() => { btn.disabled = false; });
 }
 
 let _pdRecItems = [];
@@ -995,8 +1064,6 @@ async function carregarRecomendacoesProduto() {
     const produtos = data.produtos || [];
     if (!produtos.length) return;
     _pdRecItems = produtos;
-    document.getElementById('pd-recs-title').textContent = data.titulo || 'Veja também';
-    document.getElementById('pd-recs-sub').textContent = data.subtitulo || 'Produtos relacionados disponíveis nesta farmácia.';
     document.getElementById('pd-recs-track').innerHTML = produtos.map((p,i) => pqRecCardHtml(p, i, 'addPdRec')).join('');
     document.getElementById('pd-recs').style.display = '';
     pqInitCarouselNav('pd-recs');
@@ -1004,57 +1071,6 @@ async function carregarRecomendacoesProduto() {
 }
 
 carregarRecomendacoesProduto();
-
-// ── Quem viu isso também viu ──────────────────────────────────────────────────
-let _qvtvItems = [];
-function addQvtv(idx, btn) {
-  const p = _qvtvItems[idx];
-  if (!p) return;
-  const preco = parseFloat(p.preco)||0;
-  addToCart({ean:p.ean||'', nome:p.nome||'', preco, preco_original:preco, promo:null, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.requer_receita), tarja:p.tarja||null});
-  if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i> OK'; }
-}
-
-async function carregarQuemViu() {
-  if (!_pdCnpj || !_pdEan) return;
-  try {
-    const r = await fetch(`/api/produto/quem-viu?ean=${encodeURIComponent(_pdEan)}&cnpj=${encodeURIComponent(_pdCnpj)}&nome=${encodeURIComponent(_pdNome)}`, {signal: AbortSignal.timeout(8000)});
-    if (!r.ok) return;
-    const d = await r.json();
-    const produtos = d.produtos || [];
-    if (!produtos.length) return;
-    _qvtvItems = produtos;
-    const titleEl = document.getElementById('pd-qvtv-title');
-    const subEl   = document.getElementById('pd-qvtv-sub');
-    if (titleEl) titleEl.textContent = d.titulo_ia || 'Quem viu isso também viu';
-    if (subEl)   subEl.textContent   = d.subtitulo_ia || 'Produtos relacionados vistos por outros clientes';
-    const brl = v => 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
-    document.getElementById('pd-qvtv-track').innerHTML = produtos.map((p,i) => `
-      <a class="pd-qvtv-card" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}">
-        <div class="pd-qvtv-img-wrap">
-          ${p.imagem ? `<img src="${p.imagem.replace(/"/g,'&quot;')}" alt="" onerror="this.parentElement.innerHTML='<i class=\\'fa fa-pills pd-qvtv-img-ph\\'></i>'">` : '<i class="fa fa-pills pd-qvtv-img-ph"></i>'}
-        </div>
-        <div class="pd-qvtv-name">${(p.nome||'').replace(/</g,'&lt;')}</div>
-        <div class="pd-qvtv-lab">${(p.razao||'Farmácia').replace(/</g,'&lt;')}</div>
-        <div class="pd-qvtv-price">${brl(p.preco)}</div>
-        <button class="pd-qvtv-btn-add" onclick="event.preventDefault();addQvtv(${i},this)"><i class="fa fa-cart-plus"></i> Adicionar</button>
-      </a>`).join('');
-    document.getElementById('pd-qvtv-wrap').style.display = '';
-    // Navegação por setas
-    const track = document.getElementById('pd-qvtv-track');
-    const prev  = document.getElementById('pd-qvtv-prev');
-    const next  = document.getElementById('pd-qvtv-next');
-    function qvtvUpdateNav(){
-      if(prev) prev.disabled = track.scrollLeft <= 4;
-      if(next) next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 4;
-    }
-    if(prev) prev.addEventListener('click', () => { track.scrollBy({left: -340, behavior:'smooth'}); setTimeout(qvtvUpdateNav,350); });
-    if(next) next.addEventListener('click', () => { track.scrollBy({left: 340, behavior:'smooth'}); setTimeout(qvtvUpdateNav,350); });
-    track.addEventListener('scroll', qvtvUpdateNav, {passive:true});
-    qvtvUpdateNav();
-  } catch {}
-}
-carregarQuemViu();
 
 {% if consumidor and loja and loja.cnpjloja %}
 (async () => {

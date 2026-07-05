@@ -1,5 +1,5 @@
 {% extends "painel_base.html" %}
-{% block title %}Poupaqui - Promoções{% endblock %}
+{% block title %}Poupaqui - Promoções (Admin){% endblock %}
 
 {% block extra_style %}
 <style>
@@ -10,6 +10,7 @@
 .prm-badge.vigente  { background:#0d2d1a; color:#22c55e; border:1px solid #22c55e55; }
 .prm-badge.encerrada{ background:#1e0810; color:#f08090; border:1px solid #f0809055; }
 .prm-badge.assin    { background:#1a1208; color:#f5c842; border:1px solid #f5c84255; }
+.prm-loja { font-size:.72rem; font-weight:800; color:var(--pk-yellow); margin-bottom:6px; display:flex; align-items:center; gap:5px; }
 .prm-nome { font-weight:800; font-size:.9rem; color:var(--pk-txt); margin-bottom:4px; }
 .prm-ean  { font-size:.75rem; color:var(--pk-muted); font-family:monospace; }
 .prm-preco { font-size:1.4rem; font-weight:900; color:#22c55e; margin:10px 0 4px; }
@@ -31,8 +32,9 @@
 .prm-toggle input[type=checkbox] { width:18px; height:18px; accent-color:var(--pk-yellow); }
 .prm-bulk { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; padding:16px; margin-bottom:18px; }
 .prm-bulk textarea { min-height:120px; resize:vertical; }
-.prm-bulk-row { display:grid; grid-template-columns:1fr 170px auto auto; gap:10px; align-items:end; }
-@media (max-width: 760px) { .prm-bulk-row { grid-template-columns:1fr; } }
+.prm-bulk-row { display:grid; grid-template-columns:220px 1fr 170px auto auto; gap:10px; align-items:end; }
+@media (max-width: 900px) { .prm-bulk-row { grid-template-columns:1fr; } }
+.prm-filtro { display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap }
 </style>
 {% endblock %}
 
@@ -43,7 +45,8 @@
       <i class="fa fa-bolt me-2" style="color:var(--pk-yellow)"></i>Promoções
     </h1>
     <p style="color:var(--pk-muted);font-size:.85rem;margin:4px 0 0">
-      Crie promoções por tempo determinado. Aparecem com destaque no catálogo para os consumidores.
+      Só o admin lança promoções por aqui — aparecem com destaque no catálogo pra loja escolhida.
+      Promoção que vem direto do caderno de oferta do Alpha não passa por aqui.
     </p>
   </div>
   <button class="btn-pk-yellow" onclick="abrirModalPromo()">
@@ -51,11 +54,32 @@
   </button>
 </div>
 
+<div class="prm-filtro">
+  <form method="get" style="display:flex;gap:8px;align-items:center">
+    <label style="font-size:.8rem;color:var(--pk-muted);font-weight:700">Filtrar por loja:</label>
+    <select name="cnpjloja" class="pk-input" onchange="this.form.submit()" style="min-width:220px">
+      <option value="">Todas as lojas</option>
+      {% for l in lojas %}
+      <option value="{{ l.cnpjloja }}" {% if l.cnpjloja == cnpj_filtro %}selected{% endif %}>{{ l.razao }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
 <div class="prm-bulk">
   <div style="font-size:.9rem;font-weight:900;color:var(--pk-txt);margin-bottom:8px">
-    <i class="fa fa-layer-group me-1" style="color:var(--pk-yellow)"></i>Promocoes em lote
+    <i class="fa fa-layer-group me-1" style="color:var(--pk-yellow)"></i>Promoções em lote
   </div>
   <div class="prm-bulk-row">
+    <div>
+      <label style="display:block;font-size:.76rem;color:var(--pk-muted);font-weight:800;margin-bottom:5px">Loja</label>
+      <select id="prm-lote-loja" class="pk-input">
+        <option value="">Selecione...</option>
+        {% for l in lojas %}
+        <option value="{{ l.cnpjloja }}">{{ l.razao }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <div>
       <label style="display:block;font-size:.76rem;color:var(--pk-muted);font-weight:800;margin-bottom:5px">Linhas: EAN;preco ou EAN;preco;nome</label>
       <textarea id="prm-lote-linhas" class="pk-input" placeholder="7890000000000;9,90&#10;7891111111111;14,50;Produto opcional"></textarea>
@@ -78,6 +102,7 @@
 <div class="prm-grid">
   {% for p in promos %}
   <div class="prm-card {% if not p.vigente %}encerrada{% endif %}">
+    <div class="prm-loja"><i class="fa fa-store"></i>{{ p.razao }}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <span class="prm-badge {% if p.vigente %}vigente{% else %}encerrada{% endif %}">
         <i class="fa fa-circle" style="font-size:.5rem"></i>
@@ -98,13 +123,13 @@
       {% endif %}
     </div>
     <div class="prm-actions">
-      <form method="post" action="{{ url_for('painel_promocoes_toggle', promo_id=p.id) }}" style="flex:1">
+      <form method="post" action="{{ url_for('admin_promocoes_toggle', promo_id=p.id) }}" style="flex:1">
         <button type="submit" class="prm-btn" style="width:100%">
           <i class="fa fa-{% if p.ativo %}pause{% else %}play{% endif %} me-1"></i>
           {{ 'Pausar' if p.ativo else 'Reativar' }}
         </button>
       </form>
-      <form method="post" action="{{ url_for('painel_promocoes_delete', promo_id=p.id) }}"
+      <form method="post" action="{{ url_for('admin_promocoes_delete', promo_id=p.id) }}"
             style="flex:1" onsubmit="return confirm('Excluir esta promoção?')">
         <button type="submit" class="prm-btn danger" style="width:100%">
           <i class="fa fa-trash me-1"></i>Excluir
@@ -119,7 +144,7 @@
   <i class="fa fa-bolt" style="font-size:3rem;margin-bottom:14px;display:block;opacity:.25"></i>
   <div style="font-size:.95rem;font-weight:700">Nenhuma promoção criada ainda</div>
   <div style="font-size:.82rem;margin-top:6px;max-width:380px;margin-left:auto;margin-right:auto">
-    Crie promoções por tempo determinado para produtos específicos. Consumidores próximos verão o preço promocional com destaque no catálogo.
+    Crie promoções por tempo determinado para produtos específicos de uma loja. Consumidores próximos verão o preço promocional com destaque no catálogo.
   </div>
   <button class="btn-pk-yellow" style="margin-top:18px" onclick="abrirModalPromo()">
     <i class="fa fa-plus me-1"></i>Criar primeira promoção
@@ -133,7 +158,17 @@
     <div class="prm-modal-title">
       <i class="fa fa-bolt" style="color:var(--pk-yellow)"></i>Nova promoção
     </div>
-    <form method="post" action="{{ url_for('painel_promocoes_criar') }}">
+    <form method="post" action="{{ url_for('admin_promocoes_criar') }}">
+
+      <div class="prm-field">
+        <label>Loja *</label>
+        <select name="cnpjloja" id="prm-cnpj-sel" class="pk-input" required onchange="rxLimparResultadoEan()">
+          <option value="">Selecione a loja...</option>
+          {% for l in lojas %}
+          <option value="{{ l.cnpjloja }}">{{ l.razao }}</option>
+          {% endfor %}
+        </select>
+      </div>
 
       <div class="prm-field">
         <label>EAN do produto *</label>
@@ -168,7 +203,7 @@
           </label>
         </div>
         <div style="font-size:.72rem;color:var(--pk-muted);margin-top:5px">
-          Se marcado, só consumidores com assinatura ativa da sua loja verão o preço promocional.
+          Se marcado, só consumidores com assinatura ativa dessa loja verão o preço promocional.
         </div>
       </div>
 
@@ -192,20 +227,27 @@ document.getElementById('prm-modal-overlay').addEventListener('click', function(
   if(e.target === this) fecharModalPromo();
 });
 
+function rxLimparResultadoEan(){
+  document.getElementById('prm-ean-result').textContent = '';
+  document.getElementById('prm-nome-hidden').value = '';
+}
+
 function buscarEanPromo(){
   const ean = document.getElementById('prm-ean-inp').value.trim();
+  const cnpj = document.getElementById('prm-cnpj-sel').value;
   const res = document.getElementById('prm-ean-result');
   const nomeCampo = document.getElementById('prm-nome-hidden');
+  if(!cnpj){ res.innerHTML = '<span style="color:#f87171">Selecione a loja primeiro.</span>'; return; }
   if(!ean){ res.textContent='Digite o EAN primeiro.'; return; }
   res.textContent = 'Buscando...';
-  fetch(`/painel/precificador/testar-ean?ean=${encodeURIComponent(ean)}`)
+  fetch(`/painel/admin/promocoes/testar-ean?ean=${encodeURIComponent(ean)}&cnpjloja=${encodeURIComponent(cnpj)}`)
     .then(r=>r.json())
     .then(d=>{
       if(d.nome){
         res.innerHTML = '<i class="fa fa-check-circle me-1"></i>' + d.nome;
         nomeCampo.value = d.nome;
       } else {
-        res.innerHTML = '<span style="color:#f87171">Produto não encontrado no seu catálogo.</span>';
+        res.innerHTML = '<span style="color:#f87171">Produto não encontrado no catálogo dessa loja.</span>';
         nomeCampo.value = '';
       }
     })
@@ -217,15 +259,18 @@ document.getElementById('prm-ean-inp').addEventListener('keydown', function(e){
 });
 
 function criarPromosLote(btn){
+  const cnpj = document.getElementById('prm-lote-loja').value;
   const linhas = document.getElementById('prm-lote-linhas').value.trim();
   const msg = document.getElementById('prm-lote-msg');
+  if(!cnpj){ msg.innerHTML = '<span style="color:#f87171">Selecione a loja.</span>'; return; }
   if(!linhas){ msg.innerHTML = '<span style="color:#f87171">Cole ao menos uma linha.</span>'; return; }
   btn.disabled = true;
   btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Criando...';
-  fetch('/painel/promocoes/criar-lote', {
+  fetch('/painel/admin/promocoes/criar-lote', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
+      cnpjloja: cnpj,
       linhas,
       data_fim: document.getElementById('prm-lote-data').value,
       so_assinantes: document.getElementById('prm-lote-assin').checked,

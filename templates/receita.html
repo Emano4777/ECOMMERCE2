@@ -5,12 +5,18 @@
 <style>
 /* ── LAYOUT ──────────────────────────────────────────────────── */
 .rx-wrap {
-  max-width: 860px; margin: 0 auto; padding: 32px 16px 80px;
+  max-width: 1080px; margin: 0 auto; padding: 32px 16px 80px;
 }
 
 /* ── HERO ─────────────────────────────────────────────────────── */
 .rx-hero {
-  text-align: center; margin-bottom: 36px;
+  text-align: center; margin-bottom: 28px;
+}
+.rx-hero-badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: #fff0f2; color: var(--pq-red); border: 1px solid rgba(200,16,46,.2);
+  border-radius: 999px; padding: 5px 14px; font-size: .72rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 14px;
 }
 .rx-hero-icon {
   width: 68px; height: 68px; border-radius: 20px;
@@ -28,6 +34,40 @@
   font-size: .95rem; color: var(--pq-muted); max-width: 480px;
   margin: 0 auto; line-height: 1.65;
 }
+
+/* ── GRID (upload | sidebar) ─────────────────────────────────── */
+.rx-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
+.rx-side { display: flex; flex-direction: column; gap: 16px; }
+.rx-side-card {
+  background: #fff; border-radius: 16px; box-shadow: 0 2px 16px rgba(0,0,0,.06);
+  padding: 20px 22px;
+}
+.rx-side-card h4 {
+  font-size: .8rem; font-weight: 900; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--pq-muted); margin: 0 0 14px;
+}
+.rx-how-item { display: flex; gap: 12px; margin-bottom: 16px; }
+.rx-how-item:last-child { margin-bottom: 0; }
+.rx-how-num {
+  width: 26px; height: 26px; border-radius: 50%; background: #fff0f2; color: var(--pq-red);
+  font-size: .78rem; font-weight: 900; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.rx-how-title { font-size: .88rem; font-weight: 800; color: #1a1a1a; margin-bottom: 2px; }
+.rx-how-text { font-size: .78rem; color: var(--pq-muted); line-height: 1.5; }
+.rx-tips-card { background: var(--pq-yellow-lt); border: 1px solid #fde047; }
+.rx-tips-card h4 { color: #92700e; }
+.rx-tips-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rx-tips-card li { display: flex; gap: 8px; font-size: .82rem; color: #713f12; line-height: 1.45; }
+.rx-tips-card li i { color: #16a34a; margin-top: 2px; flex-shrink: 0; }
+.rx-help-card { display: flex; gap: 12px; align-items: flex-start; }
+.rx-help-icon {
+  width: 34px; height: 34px; border-radius: 10px; background: #eff6ff; color: #1d4ed8;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: .9rem;
+}
+.rx-help-title { font-size: .84rem; font-weight: 800; color: #1a1a1a; }
+.rx-help-text { font-size: .78rem; color: var(--pq-muted); margin-top: 2px; }
+@media (max-width: 860px) { .rx-grid { grid-template-columns: 1fr; } }
 
 /* ── STEP TRACKER ─────────────────────────────────────────────── */
 .rx-steps {
@@ -105,7 +145,25 @@
   background: #f0f0f0; color: #666; border-radius: 6px;
   padding: 3px 10px; font-size: .7rem; font-weight: 700; text-transform: uppercase;
 }
-#rx-file-input { display: none; }
+#rx-file-input, #rx-camera-input { display: none; }
+
+.rx-upload-actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+.rx-btn-pick, .rx-btn-camera {
+  display: inline-flex; align-items: center; gap: 8px;
+  border-radius: 12px; padding: 12px 22px; font-size: .88rem; font-weight: 800;
+  font-family: inherit; cursor: pointer; border: none;
+}
+.rx-btn-pick { background: var(--pq-red); color: #fff; }
+.rx-btn-pick:hover { background: var(--pq-red-dk); }
+.rx-btn-camera { background: #fff; color: #333; border: 1.5px solid var(--pq-border); }
+.rx-btn-camera:hover { border-color: var(--pq-red); color: var(--pq-red); }
+
+.rx-encrypt-note {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--pq-border);
+  font-size: .78rem; color: var(--pq-muted);
+}
+.rx-encrypt-note i { color: #16a34a; }
 
 /* ── PREVIEW ─────────────────────────────────────────────────── */
 .rx-preview-area {
@@ -352,7 +410,7 @@
 
   <!-- HERO -->
   <div class="rx-hero">
-    <div class="rx-hero-icon"><i class="fa fa-file-medical"></i></div>
+    <div class="rx-hero-badge"><i class="fa fa-lock"></i>Receita digital · Rápido e seguro</div>
     <h1>Busca por Receita Médica</h1>
     <p>Fotografe ou escaneie sua receita e encontramos todos os medicamentos disponíveis nas farmácias Poupaqui perto de você.</p>
   </div>
@@ -380,100 +438,164 @@
     </div>
   </div>
 
-  <!-- MAIN CARD -->
-  <div class="rx-upload-card">
+  <div class="rx-grid">
+    <div class="rx-main">
+      <!-- MAIN CARD -->
+      <div class="rx-upload-card">
 
-    <!-- UPLOAD ZONE -->
-    <div id="rx-upload-section">
-      <label class="rx-drop-zone" id="rx-drop-zone" for="rx-file-input">
-        <div class="rx-drop-icon"><i class="fa fa-file-medical-alt"></i></div>
-        <div class="rx-drop-title">Arraste sua receita aqui</div>
-        <div class="rx-drop-sub">ou clique para selecionar do dispositivo</div>
-        <div class="rx-file-types">
-          <span class="rx-file-type">JPG</span>
-          <span class="rx-file-type">PNG</span>
-          <span class="rx-file-type">WEBP</span>
-          <span class="rx-file-type">PDF*</span>
-          <span class="rx-file-type">HEIC*</span>
+        <!-- UPLOAD ZONE -->
+        <div id="rx-upload-section">
+          <label class="rx-drop-zone" id="rx-drop-zone" for="rx-file-input">
+            <div class="rx-drop-icon"><i class="fa fa-file-medical-alt"></i></div>
+            <div class="rx-drop-title">Arraste sua receita aqui</div>
+            <div class="rx-drop-sub">ou clique para selecionar do dispositivo</div>
+            <div class="rx-file-types">
+              <span class="rx-file-type">JPG</span>
+              <span class="rx-file-type">PNG</span>
+              <span class="rx-file-type">WEBP</span>
+              <span class="rx-file-type">PDF*</span>
+              <span class="rx-file-type">HEIC*</span>
+            </div>
+          </label>
+          <input type="file" id="rx-file-input" accept="image/*,application/pdf"
+                 style="display:none" onchange="rxOnFileSelect(this)"/>
+          <input type="file" id="rx-camera-input" accept="image/*" capture="environment"
+                 style="display:none" onchange="rxOnFileSelect(this)"/>
+
+          <div class="rx-upload-actions">
+            <button type="button" class="rx-btn-pick" onclick="document.getElementById('rx-file-input').click()">
+              <i class="fa fa-file-arrow-up"></i>Selecionar arquivo
+            </button>
+            <button type="button" class="rx-btn-camera" onclick="document.getElementById('rx-camera-input').click()">
+              <i class="fa fa-camera"></i>Usar câmera
+            </button>
+          </div>
+
+          <div class="rx-preview-area" id="rx-preview-area">
+            <div class="rx-preview-wrap">
+              <img id="rx-preview-img" class="rx-preview-img" src="" alt="Prévia da receita"/>
+              <button class="rx-preview-remove" onclick="rxRemoveFile()" title="Remover">
+                <i class="fa fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+
+          <div id="rx-alert-upload"></div>
+
+          <button class="rx-btn-analyze" id="rx-btn-analyze" style="display:none" onclick="rxAnalisar()">
+            <i class="fa fa-wand-magic-sparkles"></i>
+            Analisar receita
+          </button>
+
+          <div class="rx-encrypt-note">
+            <i class="fa fa-shield-halved"></i>
+            Seus dados são criptografados. A receita é usada apenas para localizar seus medicamentos.
+          </div>
         </div>
-      </label>
-      <input type="file" id="rx-file-input" accept="image/*,application/pdf"
-             style="display:none" onchange="rxOnFileSelect(this)"/>
 
-      <div class="rx-preview-area" id="rx-preview-area">
-        <div class="rx-preview-wrap">
-          <img id="rx-preview-img" class="rx-preview-img" src="" alt="Prévia da receita"/>
-          <button class="rx-preview-remove" onclick="rxRemoveFile()" title="Remover">
-            <i class="fa fa-xmark"></i>
+        <!-- PROCESSING STATE -->
+        <div class="rx-processing" id="rx-processing">
+          <div class="rx-proc-step" id="proc-0">
+            <div class="rx-proc-icon"><i class="fa fa-upload"></i></div>
+            <div class="rx-proc-label">Receita carregada</div>
+          </div>
+          <div class="rx-proc-step" id="proc-1">
+            <div class="rx-proc-icon"><i class="fa fa-brain"></i></div>
+            <div class="rx-proc-label">Lendo medicamentos da receita...</div>
+          </div>
+          <div class="rx-proc-step" id="proc-2">
+            <div class="rx-proc-icon"><i class="fa fa-store"></i></div>
+            <div class="rx-proc-label">Buscando disponibilidade nas farmácias...</div>
+          </div>
+        </div>
+
+        <!-- MEDICATIONS FOUND -->
+        <div class="rx-meds-section" id="rx-meds-section">
+          <div class="rx-meds-header">
+            <div class="rx-meds-title">
+              <i class="fa fa-pills"></i>
+              Medicamentos encontrados
+            </div>
+            <span id="rx-meds-count" style="font-size:.8rem;color:var(--pq-muted)"></span>
+          </div>
+          <div class="rx-meds-grid" id="rx-meds-grid"></div>
+
+          <div class="rx-manual-add">
+            <input type="text" class="rx-manual-input" id="rx-manual-inp"
+                   placeholder="Adicionar medicamento manualmente..."
+                   onkeydown="if(event.key==='Enter')rxAddManual()"/>
+            <button class="rx-manual-btn" onclick="rxAddManual()">
+              <i class="fa fa-plus"></i> Adicionar
+            </button>
+          </div>
+
+          <div id="rx-alert-meds"></div>
+
+          <button class="rx-btn-search" id="rx-btn-search" onclick="rxBuscar()">
+            <i class="fa fa-magnifying-glass-location"></i>
+            Buscar disponibilidade nas farmácias
           </button>
         </div>
-      </div>
 
-      <div id="rx-alert-upload"></div>
-
-      <button class="rx-btn-analyze" id="rx-btn-analyze" style="display:none" onclick="rxAnalisar()">
-        <i class="fa fa-wand-magic-sparkles"></i>
-        Analisar receita
-      </button>
-    </div>
-
-    <!-- PROCESSING STATE -->
-    <div class="rx-processing" id="rx-processing">
-      <div class="rx-proc-step" id="proc-0">
-        <div class="rx-proc-icon"><i class="fa fa-upload"></i></div>
-        <div class="rx-proc-label">Receita carregada</div>
-      </div>
-      <div class="rx-proc-step" id="proc-1">
-        <div class="rx-proc-icon"><i class="fa fa-brain"></i></div>
-        <div class="rx-proc-label">Lendo medicamentos da receita...</div>
-      </div>
-      <div class="rx-proc-step" id="proc-2">
-        <div class="rx-proc-icon"><i class="fa fa-store"></i></div>
-        <div class="rx-proc-label">Buscando disponibilidade nas farmácias...</div>
-      </div>
-    </div>
-
-    <!-- MEDICATIONS FOUND -->
-    <div class="rx-meds-section" id="rx-meds-section">
-      <div class="rx-meds-header">
-        <div class="rx-meds-title">
-          <i class="fa fa-pills"></i>
-          Medicamentos encontrados
+        <!-- RESULTS -->
+        <div class="rx-results-section" id="rx-results-section">
+          <div id="rx-results-list"></div>
         </div>
-        <span id="rx-meds-count" style="font-size:.8rem;color:var(--pq-muted)"></span>
+
+        <!-- RESTART -->
+        <div class="rx-restart-bar" id="rx-restart-bar">
+          <button class="rx-restart-btn" onclick="rxReset()">
+            <i class="fa fa-rotate-left me-2"></i>Nova busca
+          </button>
+        </div>
+
+      </div><!-- /rx-upload-card -->
+    </div><!-- /rx-main -->
+
+    <div class="rx-side" id="rx-side">
+      <div class="rx-side-card">
+        <h4>Como funciona</h4>
+        <div class="rx-how-item">
+          <div class="rx-how-num">1</div>
+          <div>
+            <div class="rx-how-title">Envie a receita</div>
+            <div class="rx-how-text">Foto, PDF ou escaneada — aceita receita branca e de controle.</div>
+          </div>
+        </div>
+        <div class="rx-how-item">
+          <div class="rx-how-num">2</div>
+          <div>
+            <div class="rx-how-title">Leitura automática</div>
+            <div class="rx-how-text">Identificamos os medicamentos e as dosagens da prescrição.</div>
+          </div>
+        </div>
+        <div class="rx-how-item">
+          <div class="rx-how-num">3</div>
+          <div>
+            <div class="rx-how-title">Compare e compre</div>
+            <div class="rx-how-text">Mostramos preço e disponibilidade nas farmácias perto de você.</div>
+          </div>
+        </div>
       </div>
-      <div class="rx-meds-grid" id="rx-meds-grid"></div>
 
-      <div class="rx-manual-add">
-        <input type="text" class="rx-manual-input" id="rx-manual-inp"
-               placeholder="Adicionar medicamento manualmente..."
-               onkeydown="if(event.key==='Enter')rxAddManual()"/>
-        <button class="rx-manual-btn" onclick="rxAddManual()">
-          <i class="fa fa-plus"></i> Adicionar
-        </button>
+      <div class="rx-side-card rx-tips-card">
+        <h4><i class="fa fa-lightbulb me-1"></i>Dicas para uma boa foto</h4>
+        <ul>
+          <li><i class="fa fa-circle-check"></i>Boa iluminação, sem sombra sobre o papel.</li>
+          <li><i class="fa fa-circle-check"></i>Enquadre a receita inteira, sem cortar as bordas.</li>
+          <li><i class="fa fa-circle-check"></i>Evite reflexos e mantenha o texto nítido.</li>
+        </ul>
       </div>
 
-      <div id="rx-alert-meds"></div>
-
-      <button class="rx-btn-search" id="rx-btn-search" onclick="rxBuscar()">
-        <i class="fa fa-magnifying-glass-location"></i>
-        Buscar disponibilidade nas farmácias
-      </button>
-    </div>
-
-    <!-- RESULTS -->
-    <div class="rx-results-section" id="rx-results-section">
-      <div id="rx-results-list"></div>
-    </div>
-
-    <!-- RESTART -->
-    <div class="rx-restart-bar" id="rx-restart-bar">
-      <button class="rx-restart-btn" onclick="rxReset()">
-        <i class="fa fa-rotate-left me-2"></i>Nova busca
-      </button>
-    </div>
-
-  </div><!-- /rx-upload-card -->
+      <div class="rx-side-card rx-help-card">
+        <div class="rx-help-icon"><i class="fa fa-circle-question"></i></div>
+        <div>
+          <div class="rx-help-title">Não tem receita digital?</div>
+          <div class="rx-help-text">Fale com a farmácia mais próxima pelo WhatsApp na página da loja.</div>
+        </div>
+      </div>
+    </div><!-- /rx-side -->
+  </div><!-- /rx-grid -->
 </div><!-- /rx-wrap -->
 {% endblock %}
 
@@ -524,6 +646,7 @@ function rxRemoveFile() {
   document.getElementById('rx-preview-area').style.display = 'none';
   document.getElementById('rx-btn-analyze').style.display = 'none';
   document.getElementById('rx-file-input').value = '';
+  document.getElementById('rx-camera-input').value = '';
 }
 
 /* ─── step 1 → 2: analyze ─── */
@@ -749,6 +872,8 @@ function rxSetPhase(phase) {
   document.getElementById('rx-processing').style.display      = phase === 'processing'  ? 'block' : 'none';
   document.getElementById('rx-meds-section').style.display    = phase === 'meds'        ? 'block' : 'none';
   document.getElementById('rx-results-section').style.display = phase === 'results'     ? 'block' : 'none';
+  const side = document.getElementById('rx-side');
+  if (side) side.style.display = phase === 'upload' ? '' : 'none';
 }
 
 function rxProcStep(idx, state) {
@@ -767,6 +892,7 @@ function rxStepTrack(idx, state) {
 function rxReset() {
   _rxFile = null; _rxB64 = null; _rxMeds = [];
   document.getElementById('rx-file-input').value = '';
+  document.getElementById('rx-camera-input').value = '';
   document.getElementById('rx-preview-area').style.display = 'none';
   document.getElementById('rx-btn-analyze').style.display = 'none';
   document.getElementById('rx-restart-bar').style.display = 'none';

@@ -2258,55 +2258,6 @@ def _digits(s):
     return re.sub(r"\D+", "", s or "")
 
 
-_CONTROLADO_TARJA_PRETA_RE = re.compile(
-    r"\b(?:B1|B2|A1|A2|A3)\b"
-    r"|nitrazepam|clonazepam|alprazolam|diazepam|lorazepam|bromazepam"
-    r"|zolpidem|zopiclona|midazolam"
-    r"|metilfenidato|lisdexanfetamina|morfina|metadona|oxicodona",
-    re.IGNORECASE,
-)
-
-_GENERIC_RE = re.compile(r"\bgen[eé]rico\b|\bgenerico\b", re.IGNORECASE)
-
-
-def _is_generic_product(nome="", classe="", med=None):
-    med = med or {}
-    blob = " ".join([
-        nome or "",
-        classe or "",
-        med.get("classe") or "",
-        med.get("descricao") or "",
-    ])
-    return bool(_GENERIC_RE.search(blob))
-
-
-def _is_black_stripe_product(nome="", anvisa=None, med=None):
-    med = med or {}
-    anvisa = anvisa or {}
-    tarja = (anvisa.get("tarja") or med.get("tarja") or "").strip().lower()
-    if tarja == "preta":
-        return True
-    if tarja == "vermelha":
-        return False
-    blob = " ".join([
-        nome or "",
-        med.get("descricao") or "",
-        med.get("classe") or "",
-        anvisa.get("nome_anvisa") or "",
-        anvisa.get("principio_ativo") or "",
-        anvisa.get("dizeres_receita") or "",
-        anvisa.get("dizeres_imagem") or "",
-    ])
-    return bool(_CONTROLADO_TARJA_PRETA_RE.search(blob))
-
-
-def _generic_placeholder_for(nome="", anvisa=None, med=None):
-    med = med or {}
-    if not _is_generic_product(nome, med.get("classe"), med):
-        return None
-    return GENERIC_TARJA_PRETA_IMG if _is_black_stripe_product(nome, anvisa, med) else GENERIC_TARJA_VERMELHA_IMG
-
-
 def _placeholder_for_tarja(tarja: str | None):
     if tarja == "preta":
         return GENERIC_TARJA_PRETA_IMG
@@ -4119,9 +4070,7 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             (ean_digits, ean_digits),
         )
         row = cur.fetchone()
-        _tipo_fill = _TIPO_ALIAS.get(_classificar_produto(nome or ""), _classificar_produto(nome or ""))
-        _is_med_fill = _tipo_fill not in _TIPOS_NAO_MEDICAMENTO
-        placeholder = _generic_placeholder_for(nome or "", med=dict(row) if row else {}) if _is_med_fill else None
+        placeholder = None
         image_url = _first_valid_url(row["imagem"] if row else None)
         if image_url and _looks_like_other_pharmacy_brand(image_url):
             image_url = None
@@ -4276,8 +4225,6 @@ def _has_catalog_image(produto):
             return True
         if produto.get("imagem_bloqueada_anvisa"):
             return True
-        if _is_generic_product(produto.get("nome") or ""):
-            return True
         return False
     return True
 
@@ -4360,7 +4307,7 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
         if med.get("marca") and not (produto.get("marca") or "").strip():
             produto["marca"] = med["marca"]
         anvisa = {"tarja": produto.get("tarja") or ""}
-        placeholder = _placeholder_for_tarja(anvisa.get("tarja")) or _generic_placeholder_for(produto.get("nome") or "", anvisa=anvisa, med=med)
+        placeholder = _placeholder_for_tarja(anvisa.get("tarja"))
         imagem_atual = produto.get("imagem") or ""
         _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _classificar_produto(produto.get("nome") or "")
         _tipo_p = _TIPO_ALIAS.get(_tipo_p_raw, _tipo_p_raw)
@@ -7318,8 +7265,28 @@ def api_produtos_destaque():
 @app.get("/api/produtos-proximos")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_produtos_proximos():
+    """Wrapper fino: qualquer excecao nao prevista no pipeline de busca (que e
+    longo e tem varios caminhos — NL/IA, direto, fuzzy, complementos por loja)
+    vira uma resposta vazia normal em vez de um 500 cru, que o front-end
+    mostra como "Erro ao carregar. Recarregue a pagina."."""
+    try:
+        return _api_produtos_proximos_impl()
+    except Exception:
+        app.logger.exception("Erro em /api/produtos-proximos")
+        raio = float(request.args.get("raio", 30))
+        raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
+        return jsonify({
+            "produtos": [], "cnpjs_proximos": [], "lojas_proximas": [],
+            "fora_raio": False, "sem_geocode": False,
+            "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0,
+            "saudacao": None, "alternativa_para": None, "principio_ativo_ia": None,
+        })
+
+
+def _api_produtos_proximos_impl():
     _ensure_delivery_schema()
     _ensure_catalog_admin_schema()
+    _busca_inicio = time.monotonic()
     _entrega_horario_cache: dict = {}
     def _entrega_disponivel_horario_cached(cnpj):
         if cnpj not in _entrega_horario_cache:
@@ -7551,7 +7518,10 @@ def api_produtos_proximos():
             # Passo 3: IA apenas quando banco não encontrou nada suficiente
             _alternativa_para  = None  # marca quando encontrou genérico/similar em vez do produto original
             _principio_ativo_ia = None
-            if len(produtos_raw) < 3:
+            # Essa chamada e sincrona (bloqueia a request, sem paralelismo com o
+            # caminho NL) — se a busca ja esta demorando muito, pula a IA em vez
+            # de arriscar estourar o timeout da funcao serverless.
+            if len(produtos_raw) < 3 and (time.monotonic() - _busca_inicio) < 6.0:
                 ia_result = _claude_busca_interpret(busca_q)
                 if ia_result:
                     ia_terms = []
@@ -8751,10 +8721,7 @@ def api_produto(ean):
 
     if med:
         imagem_med = med["imagem"] or None
-        placeholder_generico = _generic_placeholder_for(
-            nome_busca or med["descricao"] or "",
-            med=dict(med),
-        )
+        placeholder_generico = None
         if imagem_med and _looks_like_other_pharmacy_brand(imagem_med):
             imagem_med = placeholder_generico
         elif imagem_med and placeholder_generico and _is_untrusted_scraped_image(imagem_med) and _image_has_other_pharmacy_text(imagem_med):
@@ -9222,68 +9189,6 @@ def _format_brl(valor: float) -> str:
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-@app.get("/api/produto/quem-viu")
-def api_produto_quem_viu():
-    """Retorna recomendações 'quem viu isso também viu' com título gerado por Claude."""
-    ean  = (request.args.get("ean") or "").strip()
-    cnpj = (request.args.get("cnpj") or "").strip()
-    nome = (request.args.get("nome") or "").strip()
-
-    if not ean or not cnpj:
-        return jsonify({"titulo_ia": "Quem viu isso também viu", "subtitulo_ia": "", "produtos": []})
-
-    recs = _build_recommendations(
-        itens=[{"ean": ean, "nome": nome, "cnpjloja": cnpj}],
-        cnpjlojas=[cnpj],
-        limit=8,
-        offset=8,  # pula os primeiros 8 (já exibidos em "combinam com sua compra")
-    )
-    produtos = recs.get("produtos") or []
-    if not produtos:
-        return jsonify({"titulo_ia": "Quem viu isso também viu", "subtitulo_ia": "", "produtos": []})
-
-    # Claude gera título criativo
-    nomes_rec = "; ".join(p.get("nome", "") for p in produtos[:4] if p.get("nome"))
-    titulo_ia = None
-    subtitulo_ia = None
-    if nome and nomes_rec:
-        # Cache compartilhado por produto visto (mem + DB, 3 dias). O título é o
-        # mesmo para todos que abrem aquele produto, então a IA roda no máximo
-        # uma vez a cada 3 dias por produto — antes chamava o Claude a cada
-        # visualização de produto.
-        _qv_cache_key = f"quem_viu:{ean}"
-        _qv_cached = _busca_cache_get(_qv_cache_key)
-        if isinstance(_qv_cached, dict) and _qv_cached.get("titulo"):
-            titulo_ia    = _qv_cached.get("titulo")
-            subtitulo_ia = _qv_cached.get("subtitulo")
-        else:
-            prompt = (
-                "Você é Poupinha, IA da Drogaria Poupaqui. "
-                f"Um cliente está vendo o produto '{nome}'. "
-                f"Outros clientes que viram esse produto também se interessaram por: {nomes_rec}. "
-                "Gere:\n"
-                "1. Um título criativo de até 50 caracteres para a seção (variação de 'Quem viu isso também viu'). "
-                "2. Uma frase de subtítulo de até 80 caracteres contextualizando a relação com o produto. "
-                "Retorne JSON: {\"titulo\": \"...\", \"subtitulo\": \"...\"} — sem markdown, sem explicações."
-            )
-            texto = _claude_haiku(prompt, max_tokens=120, timeout=5)
-            if texto:
-                try:
-                    parsed = json.loads(texto)
-                    titulo_ia   = parsed.get("titulo")
-                    subtitulo_ia = parsed.get("subtitulo")
-                    if titulo_ia:
-                        _busca_cache_set(_qv_cache_key, {"titulo": titulo_ia, "subtitulo": subtitulo_ia})
-                except Exception:
-                    pass
-
-    return jsonify({
-        "titulo_ia":    titulo_ia    or "Quem viu isso também viu",
-        "subtitulo_ia": subtitulo_ia or "Produtos relacionados vistos por outros clientes",
-        "produtos": produtos,
-    })
-
-
 _BULA_GARBAGE_RE = re.compile(
     r"GENÉRICO\s*[–\-]\s*GENÉRICO|RDC\s+de\s+Bula|de\s+Bula\s*[–\-]\s*RDC|"
     r"\b\d{4,}\s*[–\-]\s*\d{4,}\b|Atualização\s+do\s+texto\s+de\s+bula|"
@@ -9698,7 +9603,7 @@ def produto_detalhe(ean):
     tipo_produto = _classificar_produto(nome)
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
     tarja = _detectar_tarja(anvisa) if _is_med else None
-    placeholder_generico = _generic_placeholder_for(nome, anvisa=anvisa, med=dict(med) if med else {}) if _is_med else None
+    placeholder_generico = None
     if not _is_med:
         # Produto claramente não-medicamento: limpar dados farmacêuticos que poderiam vir
         # de uma correspondência incorreta do EAN na base ANVISA
@@ -9737,7 +9642,8 @@ def produto_detalhe(ean):
             _ensure_assinatura_schema()
             cur2 = conn.cursor()
             cur2.execute(
-                "SELECT id, nome, descricao, preco_mensal, beneficios FROM ecommerce_planos_assinatura WHERE cnpjloja=%s AND ativo=TRUE LIMIT 1",
+                "SELECT id, nome, descricao, preco_mensal, beneficios, frete_gratis_primeira_entrega "
+                "FROM ecommerce_planos_assinatura WHERE cnpjloja=%s AND ativo=TRUE LIMIT 1",
                 (cnpjloja,),
             )
             plano_assinatura = cur2.fetchone()
@@ -9757,6 +9663,13 @@ def produto_detalhe(ean):
         except Exception:
             pass
 
+    status_entrega = None
+    if loja and loja.get("cnpjloja"):
+        try:
+            status_entrega = _status_horario_entrega(loja["cnpjloja"])
+        except Exception:
+            status_entrega = None
+
     return render_template(
         "produto_detalhe.html",
         ean=ean, nome=nome, imagem=imagem,
@@ -9772,6 +9685,7 @@ def produto_detalhe(ean):
         plano_assinatura=plano_assinatura,
         ja_assina=ja_assina,
         assinatura_pendente=assinatura_pendente,
+        status_entrega=status_entrega,
     )
 
 
@@ -10057,10 +9971,9 @@ def api_receita_buscar():
             dist  = info.get("distancia_km")
             razao = _public_store_name(info) if info else ""
             categoria = _classificar_produto(p.get("nome") or "")
-            placeholder = _generic_placeholder_for(p.get("nome") or "", med={})
-            imagem = p.get("imagem") or placeholder
+            imagem = p.get("imagem") or None
             if imagem and _looks_like_other_pharmacy_brand(imagem):
-                imagem = placeholder
+                imagem = None
             enriched.append({
                 "ean":        p.get("ean") or "",
                 "nome":       p.get("nome") or "",
@@ -10332,10 +10245,9 @@ def api_busca_foto():
             info  = loja_info.get(p.get("cnpjloja"), {})
             dist  = info.get("distancia_km")
             razao = _public_store_name(info) if info else ""
-            placeholder = _generic_placeholder_for(p.get("nome") or "", med={})
-            imagem = p.get("imagem") or placeholder
+            imagem = p.get("imagem") or None
             if imagem and _looks_like_other_pharmacy_brand(imagem):
-                imagem = placeholder
+                imagem = None
             enriched.append({
                 "ean":          p.get("ean") or "",
                 "nome":         p.get("nome") or "",
@@ -20703,36 +20615,82 @@ def api_dbg_email():
 
 
 # ─── PROMOÇÕES ────────────────────────────────────────────────────────────────
+# A loja nao lanca mais promocao manual — quem lanca agora e so o admin (aqui
+# embaixo, /painel/admin/promocoes) ou a promocao ja vem direto do caderno de
+# oferta do Alpha (preco_promocional sincronizado em alpha_sync.py). A leitura
+# pra exibicao (so_assinantes, checkout etc) continua via ecommerce_promocoes
+# normalmente, sem mudanca.
 
-@app.get("/painel/promocoes")
-@painel_required
-def painel_promocoes():
+@app.get("/painel/admin/promocoes")
+@admin_required
+def admin_promocoes():
     _ensure_promo_schema()
-    cnpj = session["cnpjloja"]
     conn = db()
     cur  = conn.cursor()
-    cur.execute("""
-        SELECT p.*,
+    cnpj_filtro = (request.args.get("cnpjloja") or "").strip()
+    where = "WHERE p.cnpjloja = %s" if cnpj_filtro else ""
+    params = (cnpj_filtro,) if cnpj_filtro else ()
+    cur.execute(f"""
+        SELECT p.*, u.razao,
                (p.ativo AND (p.data_fim IS NULL OR p.data_fim > NOW())) AS vigente
         FROM ecommerce_promocoes p
-        WHERE p.cnpjloja = %s
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        {where}
         ORDER BY p.criado_em DESC
-    """, (cnpj,))
+        LIMIT 300
+    """, params)
     promos = cur.fetchall()
+    cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin=FALSE ORDER BY razao")
+    lojas = cur.fetchall()
     cur.close()
-    return render_template("painel_promocoes.html", promos=promos)
+    return render_template("admin_promocoes.html", promos=promos, lojas=lojas, cnpj_filtro=cnpj_filtro)
 
 
-@app.post("/painel/promocoes/criar")
-@painel_required
-def painel_promocoes_criar():
+@app.get("/painel/admin/promocoes/testar-ean")
+@admin_required
+def admin_promocoes_testar_ean():
+    """Busca o nome de um produto por EAN no catalogo de uma loja especifica
+    (Alpha, ou estoque/automatiza_estoque como fallback pra loja nao-Alpha)."""
+    ean = re.sub(r"\D", "", request.args.get("ean") or "")
+    cnpj = (request.args.get("cnpjloja") or "").strip()
+    if not ean or not cnpj:
+        return jsonify({"nome": None})
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT nome FROM ecommerce_alpha_produtos WHERE cnpjloja=%s AND LTRIM(COALESCE(ean,''),'0')=LTRIM(%s,'0') LIMIT 1",
+        (cnpj, ean),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.execute(
+            "SELECT descricao AS nome FROM estoque WHERE cnpj=%s AND LTRIM(COALESCE(barras_norm, barras,''),'0')=LTRIM(%s,'0') LIMIT 1",
+            (cnpj, ean),
+        )
+        row = cur.fetchone()
+    if not row:
+        cur.execute(
+            "SELECT descricao_produto AS nome FROM automatiza_estoque WHERE cnpj_loja=%s AND LTRIM(COALESCE(ean,''),'0')=LTRIM(%s,'0') LIMIT 1",
+            (cnpj, ean),
+        )
+        row = cur.fetchone()
+    cur.close()
+    return jsonify({"nome": row["nome"] if row else None})
+
+
+@app.post("/painel/admin/promocoes/criar")
+@admin_required
+def admin_promocoes_criar():
     _ensure_promo_schema()
-    cnpj          = session["cnpjloja"]
-    ean           = request.form.get("ean", "").strip()
+    cnpj          = (request.form.get("cnpjloja") or "").strip()
+    ean           = re.sub(r"\D", "", request.form.get("ean") or "")
     nome          = request.form.get("nome", "").strip()
     preco_promo   = request.form.get("preco_promo", "")
     data_fim      = request.form.get("data_fim", "").strip() or None
     so_assinantes = request.form.get("so_assinantes") == "1"
+
+    if not cnpj:
+        flash("Selecione a loja.", "error")
+        return redirect(url_for("admin_promocoes"))
 
     try:
         preco_promo = float(preco_promo)
@@ -20740,11 +20698,11 @@ def painel_promocoes_criar():
             raise ValueError
     except (ValueError, TypeError):
         flash("Preço promocional inválido.", "error")
-        return redirect(url_for("painel_promocoes"))
+        return redirect(url_for("admin_promocoes"))
 
     if not ean:
         flash("EAN obrigatório.", "error")
-        return redirect(url_for("painel_promocoes"))
+        return redirect(url_for("admin_promocoes"))
 
     conn = db()
     cur  = conn.cursor()
@@ -20756,27 +20714,22 @@ def painel_promocoes_criar():
     conn.commit()
     cur.close()
     flash("Promoção criada com sucesso!", "success")
-    return redirect(url_for("painel_promocoes"))
+    return redirect(url_for("admin_promocoes"))
 
 
-@app.post("/painel/promocoes/criar-lote")
-@painel_required
-def painel_promocoes_criar_lote():
+@app.post("/painel/admin/promocoes/criar-lote")
+@admin_required
+def admin_promocoes_criar_lote():
     _ensure_promo_schema()
-    cnpj = session["cnpjloja"]
     data = request.get_json(silent=True) or {}
+    cnpj = (data.get("cnpjloja") or request.form.get("cnpjloja") or "").strip()
+    if not cnpj:
+        return jsonify({"ok": False, "msg": "Selecione a loja."}), 400
     texto = data.get("linhas") or request.form.get("linhas") or ""
     data_fim = (data.get("data_fim") or request.form.get("data_fim") or "").strip() or None
     so_assinantes = bool(data.get("so_assinantes")) or request.form.get("so_assinantes") == "1"
-    itens = data.get("itens") if isinstance(data.get("itens"), list) else []
 
     parsed = []
-    for item in itens:
-        ean = re.sub(r"\D", "", str(item.get("ean") or ""))
-        preco_raw = str(item.get("preco_promo") or item.get("preco") or "").replace(",", ".")
-        nome = (item.get("nome") or "").strip() or None
-        if ean and preco_raw:
-            parsed.append((ean, preco_raw, nome))
     for line in texto.splitlines():
         line = line.strip()
         if not line:
@@ -20829,31 +20782,29 @@ def painel_promocoes_criar_lote():
     return jsonify({"ok": True, "criadas": len(rows), "erros": erros[:50]})
 
 
-@app.post("/painel/promocoes/<int:promo_id>/toggle")
-@painel_required
-def painel_promocoes_toggle(promo_id):
+@app.post("/painel/admin/promocoes/<int:promo_id>/toggle")
+@admin_required
+def admin_promocoes_toggle(promo_id):
     _ensure_promo_schema()
-    cnpj = session["cnpjloja"]
     conn = db()
     cur  = conn.cursor()
-    cur.execute("UPDATE ecommerce_promocoes SET ativo = NOT ativo WHERE id=%s AND cnpjloja=%s", (promo_id, cnpj))
+    cur.execute("UPDATE ecommerce_promocoes SET ativo = NOT ativo WHERE id=%s", (promo_id,))
     conn.commit()
     cur.close()
-    return redirect(url_for("painel_promocoes"))
+    return redirect(url_for("admin_promocoes"))
 
 
-@app.post("/painel/promocoes/<int:promo_id>/delete")
-@painel_required
-def painel_promocoes_delete(promo_id):
+@app.post("/painel/admin/promocoes/<int:promo_id>/delete")
+@admin_required
+def admin_promocoes_delete(promo_id):
     _ensure_promo_schema()
-    cnpj = session["cnpjloja"]
     conn = db()
     cur  = conn.cursor()
-    cur.execute("DELETE FROM ecommerce_promocoes WHERE id=%s AND cnpjloja=%s", (promo_id, cnpj))
+    cur.execute("DELETE FROM ecommerce_promocoes WHERE id=%s", (promo_id,))
     conn.commit()
     cur.close()
     flash("Promoção removida.", "success")
-    return redirect(url_for("painel_promocoes"))
+    return redirect(url_for("admin_promocoes"))
 
 
 @app.get("/api/promocao")
