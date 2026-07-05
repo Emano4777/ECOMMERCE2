@@ -83,9 +83,10 @@
   border:1px solid transparent;
 }
 .info-chip-icon {
-  width:34px; height:34px; border-radius:10px; flex-shrink:0;
+  width:34px; height:34px; border-radius:10px; flex-shrink:0; overflow:hidden;
   display:flex; align-items:center; justify-content:center; font-size:.92rem;
 }
+.info-chip-icon img { width:100%; height:100%; object-fit:cover; }
 .info-chip-label { font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
 .info-chip-value { font-weight:800; font-size:.95rem; line-height:1.35; }
 .info-chip-sub { font-size:.78rem; margin-top:3px; line-height:1.4; font-weight:500; }
@@ -323,7 +324,14 @@
 
           {% if pedido.status == 'pronto_retirada' and pedido.tipo_entrega == 'retirada' %}
           <div class="info-chip info-chip-green">
-            <div class="info-chip-icon"><i class="fa fa-store"></i></div>
+            <div class="info-chip-icon">
+              {% if pedido.logo_url %}
+              <img src="{{ pedido.logo_url }}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''">
+              <i class="fa fa-store" style="display:none"></i>
+              {% else %}
+              <i class="fa fa-store"></i>
+              {% endif %}
+            </div>
             <div>
               <div class="info-chip-label">Retire em — {{ pedido.razao }}</div>
               {% if pedido.loja_endereco %}

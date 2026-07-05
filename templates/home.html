@@ -1131,6 +1131,11 @@ function _cFetch(k,ttl,url){ const c=_cFresh(k,ttl); if(c!=null) return Promise.
 function hEsc(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function hBrl(v){ const n=parseFloat(v)||0; return 'R$ ' + n.toFixed(2).replace('.',','); }
 function fixRazao(r){ return (r||'').replace(/\bDrogaria\b(?!s)/gi,'Drogarias'); }
+function homeLojaIcoHtml(p){
+  return p && p.logo_url
+    ? `<img src="${hEsc(p.logo_url)}" alt="" style="width:13px;height:13px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>`
+    : `<i class="fa fa-store me-1"></i>`;
+}
 function hCat(p){ return ({cosmetico:'perfumaria', higiene:'perfumaria', alimento:'nutricao', correlato:'varejo'}[p.categoria] || p.categoria || 'varejo'); }
 function homeCartPayload(p, preco) {
   return encodeURIComponent(JSON.stringify({
@@ -1204,7 +1209,7 @@ function prodCard(p, badge){
   return `<a class="home-prod" href="${url}">
     ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
     <div class="home-prod-name">${hEsc(p.nome)}</div>
-    <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(fixRazao(p.razao) || 'Drogarias Poupaqui')}</div>
+    <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(fixRazao(p.razao) || 'Drogarias Poupaqui')}</div>
     ${precoHtml}
     ${homeCartButton(p, p.promo?.aplicada && p.promo?.preco_promo ? p.promo.preco_promo : precoAtual, 'Adicionar')}
     ${badge ? `<div class="home-prod-badge">${badge}</div>` : ''}
@@ -1388,7 +1393,7 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
       return `<a class="heia-prod" href="${url}">
         <img class="heia-prod-img" src="${hEsc(p.imagem||'')}" alt="${hEsc(p.nome||'')}" onerror="this.style.display='none'">
         <div class="heia-prod-name">${hEsc(p.nome||'')}</div>
-        <div class="heia-prod-store"><i class="fa fa-store"></i> ${hEsc(fixRazao(p.razao)||'Drogarias Poupaqui')}</div>
+        <div class="heia-prod-store">${homeLojaIcoHtml(p)}${hEsc(fixRazao(p.razao)||'Drogarias Poupaqui')}</div>
         <div class="heia-prod-preco">${hBrl(p.preco)}</div>
         ${ecoHtml}
       </a>`;
@@ -1415,7 +1420,7 @@ function carregarMaisComprados(){
         return `<a class="home-prod" href="${url}">
           <img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
           <div class="home-prod-name">${hEsc(p.nome)}</div>
-          <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia')}</div>
+          <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(p.razao||'Farmácia')}</div>
           <div class="home-prod-price">${hBrl(p.preco)}</div>
           <div class="home-prod-badge"><i class="fa fa-fire"></i>${p.total_vendas} vendas</div>
         </a>`;
@@ -1497,7 +1502,7 @@ _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
       return `<a class="home-prod" href="${url}">
         <img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
         <div class="home-prod-name">${hEsc(p.nome)}</div>
-        <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia')}</div>
+        <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(p.razao||'Farmácia')}</div>
         <div class="home-prod-price">${hBrl(p.preco)}</div>
         ${homeCartButton(p, p.preco, 'Adicionar')}
         <div class="home-prod-badge"><i class="fa fa-rotate-right"></i>Comprado antes</div>
@@ -1553,7 +1558,7 @@ function renderInsightCard(p, tag) {
     ${tag ? `<div class="cross-sell-tag"><i class="fa fa-wand-magic-sparkles" style="font-size:.5rem"></i>${hEsc(tag)}</div>` : ''}
     ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
     <div class="home-prod-name">${hEsc(p.nome)}</div>
-    <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia Poupaqui')}</div>
+    <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(p.razao||'Farmácia Poupaqui')}</div>
     ${precoNum > 0 ? `<div class="home-prod-price">${hBrl(precoNum)}</div>` : ''}
     ${homeCartButton(p, precoNum, 'Adicionar')}
   </a>`;
@@ -1657,7 +1662,7 @@ function carregarInsights() {
           ? trending.map(p => `<a class="home-prod" href="/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}">
               ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
               <div class="home-prod-name">${hEsc(p.nome)}</div>
-              <div class="home-prod-meta"><i class="fa fa-store me-1"></i>${hEsc(p.razao||'Farmácia')}</div>
+              <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(p.razao||'Farmácia')}</div>
               ${parseFloat(p.preco) > 0 ? `<div class="home-prod-price">${hBrl(p.preco)}</div>` : ''}
               ${homeCartButton(p, p.preco, 'Adicionar')}
               <div class="home-prod-badge"><i class="fa fa-fire"></i>Mais vendido</div>
@@ -1850,7 +1855,7 @@ function abrirKitDrawer(tema) {
           <img class="kit-item-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
           <div class="kit-item-info">
             <div class="kit-item-name">${hEsc(p.nome)}</div>
-            <div class="kit-item-store"><i class="fa fa-store"></i> ${hEsc(p.razao || 'Farmácia')}</div>
+            <div class="kit-item-store">${homeLojaIcoHtml(p)}${hEsc(p.razao || 'Farmácia')}</div>
           </div>
           <div class="kit-item-price">${hBrl(p.preco)}</div>
         </label>`).join('');

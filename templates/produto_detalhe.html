@@ -119,6 +119,12 @@
 }
 .pd-vendido-por i { color:var(--pq-red); }
 .pd-vendido-por-end { font-size:.72rem; color:var(--pq-muted); margin-top:2px; }
+.pd-vendido-por-ico {
+  width:26px; height:26px; border-radius:8px; flex-shrink:0; overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+  background:#fff0f2; color:var(--pq-red);
+}
+.pd-vendido-por-ico img { width:100%; height:100%; object-fit:cover; }
 
 .pd-qty-row { display:flex; align-items:center; gap:10px; }
 .pd-qty-btn {
@@ -601,7 +607,14 @@
 
       {% if loja %}
       <div class="pd-vendido-por">
-        <i class="fa fa-store"></i>
+        <div class="pd-vendido-por-ico">
+          {% if loja.logo_url %}
+          <img src="{{ loja.logo_url }}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''">
+          <i class="fa fa-store" style="display:none"></i>
+          {% else %}
+          <i class="fa fa-store"></i>
+          {% endif %}
+        </div>
         <div>
           Vendido e entregue por <strong>{{ loja.razao }}</strong>
           {% if loja.endereco %}<div class="pd-vendido-por-end"><i class="fa fa-map-pin me-1"></i>{{ loja.endereco }}{% if loja.uf %} — {{ loja.uf }}{% endif %}</div>{% endif %}

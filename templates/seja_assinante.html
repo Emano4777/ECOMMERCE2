@@ -3,36 +3,119 @@
 
 {% block extra_style %}
 <style>
+/* HERO */
 .sa-hero {
-  background: linear-gradient(135deg,#c8102e,#e8354a);
+  position:relative;
+  overflow:hidden;
+  background: linear-gradient(135deg,#7a0d20,#c8102e 55%,#e8354a);
   color: #fff;
-  padding: 32px 20px;
-  text-align: center;
+  padding: 40px 24px;
+  border-radius: 0 0 22px 22px;
 }
-.sa-hero h1 { margin: 0 0 6px; font-size: 1.5rem; font-weight: 900; display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
-.sa-hero p { margin: 0; opacity: .9; font-size: .9rem; max-width: 560px; margin: 0 auto; }
+.sa-hero-inner { max-width:900px; margin:0 auto; position:relative; z-index:1; }
+.sa-hero-star { position:absolute; color:rgba(255,255,255,.10); z-index:0; pointer-events:none; }
+.sa-hero-badge {
+  display:inline-flex; align-items:center; gap:6px;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+  border-radius:999px; padding:5px 14px; font-size:.72rem; font-weight:900;
+  letter-spacing:.03em; text-transform:uppercase; margin-bottom:16px;
+}
+.sa-hero h1 { margin:0 0 10px; font-size:2rem; font-weight:900; line-height:1.18; }
+.sa-hero h1 .hl { color:#facc15; }
+.sa-hero p { margin:0 0 22px; opacity:.92; font-size:.94rem; max-width:560px; line-height:1.55; }
+.sa-hero-cta-row { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.sa-hero-cta {
+  position:relative; overflow:hidden;
+  display:inline-flex; align-items:center; gap:8px;
+  background:#facc15; color:#7a4d00; border:none; border-radius:11px;
+  padding:13px 22px; font-weight:900; font-size:.92rem; cursor:pointer;
+  font-family:inherit; text-decoration:none; box-shadow:0 8px 20px rgba(0,0,0,.18);
+}
+.sa-hero-cta:hover { filter:brightness(.97); }
+.sa-hero-cta::after {
+  content:'';
+  position:absolute; top:0; left:-60%;
+  width:40%; height:100%;
+  background:linear-gradient(120deg, transparent, rgba(255,255,255,.75), transparent);
+  transform:skewX(-20deg);
+  animation: sa-shine 3.2s ease-in-out infinite;
+}
+@keyframes sa-shine {
+  0%   { left:-60%; }
+  35%  { left:130%; }
+  100% { left:130%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-hero-cta::after { animation:none; display:none; }
+}
+.sa-hero-price { font-size:.82rem; color:rgba(255,255,255,.85); }
+.sa-hero-price strong { font-size:1.15rem; color:#fff; }
 
-.sa-section { max-width: 1100px; margin: 0 auto; padding: 28px 16px 70px; }
-.sa-hd { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
-.sa-hd h2 { margin:0; font-size:1.05rem; font-weight:900; }
-.sa-hd-status { font-size:.8rem; color:var(--pq-muted); font-weight:700; }
+/* FEATURE CARDS */
+.sa-features {
+  max-width:1100px; margin:-34px auto 0; padding:0 16px;
+  display:grid; grid-template-columns:repeat(4,1fr); gap:14px;
+  position:relative; z-index:2;
+}
+@media(max-width:800px){ .sa-features { grid-template-columns:1fr 1fr; } }
+@media(max-width:480px){ .sa-features { grid-template-columns:1fr; } }
+.sa-feature {
+  background:#fff; border:1px solid var(--pq-border); border-radius:16px;
+  box-shadow:0 10px 26px rgba(15,23,42,.08);
+  padding:16px; display:flex; flex-direction:column; gap:8px; min-width:0;
+}
+.sa-feature-ico {
+  width:34px; height:34px; border-radius:10px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:.9rem;
+}
+.sa-feature-title { font-weight:900; font-size:.86rem; color:#1a1a1a; }
+.sa-feature-desc { font-size:.76rem; color:#6b7280; line-height:1.4; overflow-wrap:break-word; }
+
+/* COMO FUNCIONA */
+.sa-como-wrap { max-width:1100px; margin:20px auto 0; padding:0 16px; }
+.sa-como {
+  background:#fff; border:1px solid var(--pq-border); border-radius:14px;
+  padding:14px 18px; display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  box-shadow:var(--pq-shadow);
+}
+.sa-como-label { font-weight:900; font-size:.82rem; color:#1a1a1a; flex-shrink:0; }
+.sa-como-steps { display:flex; align-items:center; gap:18px; flex-wrap:wrap; flex:1; min-width:0; }
+.sa-como-step { display:flex; align-items:center; gap:8px; font-size:.8rem; color:#374151; min-width:0; }
+.sa-como-step span.num {
+  width:20px; height:20px; border-radius:50%; background:#fde0e5; color:var(--pq-red);
+  font-weight:900; font-size:.7rem; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.sa-como-step span.txt { overflow-wrap:break-word; }
+
+/* SEÇÃO LOJAS */
+.sa-section { max-width: 1100px; margin: 0 auto; padding: 28px 16px 40px; }
+.sa-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.sa-hd h2 { margin:0 0 3px; font-size:1.05rem; font-weight:900; overflow-wrap:break-word; }
+.sa-hd-sub { font-size:.8rem; color:var(--pq-muted); }
+.sa-hd-status {
+  font-size:.76rem; color:#374151; font-weight:800; white-space:nowrap;
+  background:#f1f5f9; border-radius:999px; padding:5px 12px; flex-shrink:0;
+}
 
 .sa-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
 @media (max-width:480px) { .sa-grid { grid-template-columns:1fr; } }
 
-.sa-card { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; }
-.sa-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:18px; color:#fff; }
-.sa-card-dist { display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.22); border-radius:999px; padding:3px 10px; font-size:.7rem; font-weight:800; margin-bottom:10px; }
-.sa-card-loja { font-size:1.05rem; font-weight:900; margin-bottom:2px; }
-.sa-card-plano { font-size:.8rem; opacity:.85; display:flex; align-items:center; gap:5px; }
-.sa-card-body { padding:16px; display:flex; flex-direction:column; gap:10px; flex:1 }
+.sa-card { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+.sa-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:16px 18px; color:#fff; display:flex; gap:12px; align-items:flex-start; }
+.sa-card-ico { width:36px; height:36px; border-radius:10px; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.3); display:flex; align-items:center; justify-content:center; font-size:.9rem; flex-shrink:0; overflow:hidden; }
+.sa-card-ico img { width:100%; height:100%; object-fit:cover; }
+.sa-card-head-body { min-width:0; flex:1; }
+.sa-card-dist { display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.22); border-radius:999px; padding:3px 10px; font-size:.68rem; font-weight:800; margin-bottom:8px; white-space:nowrap; }
+.sa-card-loja { font-size:1rem; font-weight:900; margin-bottom:2px; overflow-wrap:break-word; }
+.sa-card-plano { font-size:.78rem; opacity:.85; display:flex; align-items:center; gap:5px; }
+.sa-card-body { padding:16px; display:flex; flex-direction:column; gap:10px; flex:1; min-width:0; }
 .sa-card-preco { font-size:1.4rem; font-weight:900; color:var(--pq-red); }
 .sa-card-preco small { font-size:.8rem; font-weight:400; color:var(--pq-muted); }
-.sa-card-desc { color:#555; font-size:.82rem; line-height:1.5; }
+.sa-card-desc { color:#555; font-size:.82rem; line-height:1.5; overflow-wrap:break-word; }
 .sa-bens { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px; }
-.sa-bens li { display:flex; align-items:flex-start; gap:7px; font-size:.8rem; color:#333; }
-.sa-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:var(--pq-red); font-size:.62rem; margin-top:3px; flex-shrink:0; }
-.sa-frete-gratis { display:flex; align-items:center; gap:5px; font-size:.76rem; font-weight:800; color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
+.sa-bens li { display:flex; align-items:flex-start; gap:7px; font-size:.8rem; color:#333; min-width:0; overflow-wrap:break-word; }
+.sa-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:#16a34a; font-size:.62rem; margin-top:3px; flex-shrink:0; }
+.sa-frete-gratis { display:flex; align-items:center; gap:5px; font-size:.76rem; font-weight:800; color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:6px 10px; flex-wrap:wrap; overflow-wrap:break-word; }
 .sa-card-cta { margin-top:auto; display:block; text-align:center; padding:11px; border-radius:10px; border:0; background:var(--pq-red); color:#fff; font-family:inherit; font-weight:900; font-size:.85rem; text-decoration:none; cursor:pointer; }
 .sa-card-cta.ja-assina { background:#f0fdf4; color:#16a34a; border:1.5px solid #bbf7d0; cursor:default; }
 
@@ -42,18 +125,70 @@
 .sa-empty { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); text-align:center; padding:60px 24px; grid-column: 1 / -1; }
 .sa-empty i { font-size:3rem; opacity:.2; margin-bottom:14px; display:block; color:var(--pq-red); }
 .sa-empty p { color:var(--pq-muted); font-size:.9rem; margin: 0 0 6px; }
+
+/* RODAPÉ DE CONFIANÇA */
+.sa-trust-wrap { max-width:1100px; margin:0 auto; padding:0 16px 50px; }
+.sa-trust { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:16px 18px; display:flex; justify-content:center; gap:28px; flex-wrap:wrap; }
+.sa-trust-item { display:flex; align-items:center; gap:7px; font-size:.8rem; font-weight:700; color:#374151; }
+.sa-trust-item i { color:#16a34a; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="sa-hero">
-  <h1><i class="fa fa-star"></i>Seja assinante</h1>
-  <p>Assine o clube de fidelidade das farmácias perto de você e garanta preços exclusivos e vantagens em cada compra.</p>
+  <i class="fa fa-star sa-hero-star" style="top:18px;right:60px;font-size:5rem;transform:rotate(-12deg)"></i>
+  <i class="fa fa-star sa-hero-star" style="bottom:14px;right:140px;font-size:2rem;transform:rotate(10deg)"></i>
+  <div class="sa-hero-inner">
+    <div class="sa-hero-badge"><i class="fa fa-star"></i>Clube de Fidelidade Poupaqui</div>
+    <h1>Assine e economize<br>em <span class="hl">cada compra</span></h1>
+    <p>Preços exclusivos nas farmácias perto de você, entregas grátis e vantagens que só quem é do clube tem. Cancele quando quiser.</p>
+    <div class="sa-hero-cta-row">
+      <a href="#sa-lojas" class="sa-hero-cta"><i class="fa fa-star"></i>Quero ser assinante</a>
+      <div class="sa-hero-price">a partir de <strong id="sa-hero-preco-min">R$ 19,90</strong>/mês</div>
+    </div>
+  </div>
 </div>
 
-<div class="sa-section">
+<div class="sa-features">
+  <div class="sa-feature">
+    <div class="sa-feature-ico" style="background:#dcfce7;color:#16a34a"><i class="fa fa-truck-fast"></i></div>
+    <div class="sa-feature-title">Entregas grátis</div>
+    <div class="sa-feature-desc">1ª entrega grátis e outras podem sair sem frete.</div>
+  </div>
+  <div class="sa-feature">
+    <div class="sa-feature-ico" style="background:#fee2e2;color:#dc2626"><i class="fa fa-capsules"></i></div>
+    <div class="sa-feature-title">Preços exclusivos</div>
+    <div class="sa-feature-desc">Descontos de sócio em quase toda a loja.</div>
+  </div>
+  <div class="sa-feature">
+    <div class="sa-feature-ico" style="background:#fef3c7;color:#d97706"><i class="fa fa-star"></i></div>
+    <div class="sa-feature-title">Ofertas antecipadas</div>
+    <div class="sa-feature-desc">Acesso primeiro às promoções e campanhas.</div>
+  </div>
+  <div class="sa-feature">
+    <div class="sa-feature-ico" style="background:#dbeafe;color:#2563eb"><i class="fa fa-clock"></i></div>
+    <div class="sa-feature-title">Cancele quando quiser</div>
+    <div class="sa-feature-desc">Sem fidelidade obrigatória, sem burocracia.</div>
+  </div>
+</div>
+
+<div class="sa-como-wrap">
+  <div class="sa-como">
+    <div class="sa-como-label">Como funciona</div>
+    <div class="sa-como-steps">
+      <div class="sa-como-step"><span class="num">1</span><span class="txt">Escolha uma farmácia com clube perto de você</span></div>
+      <div class="sa-como-step"><span class="num">2</span><span class="txt">Assine em segundos pelo Pix ou cartão</span></div>
+      <div class="sa-como-step"><span class="num">3</span><span class="txt">Economize já na primeira compra</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="sa-section" id="sa-lojas">
   <div class="sa-hd">
-    <h2><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>Farmácias com clube de assinantes perto de você</h2>
+    <div>
+      <h2><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>Farmácias com clube perto de você</h2>
+      <div class="sa-hd-sub">Escolha uma farmácia e ative seu clube</div>
+    </div>
     <span class="sa-hd-status" id="sa-status">Carregando…</span>
   </div>
 
@@ -63,11 +198,22 @@
   <div class="sa-grid" id="sa-grid" style="display:none"></div>
 </div>
 
+<div class="sa-trust-wrap">
+  <div class="sa-trust">
+    <div class="sa-trust-item"><i class="fa fa-shield-halved"></i>Pagamento seguro e criptografado</div>
+    <div class="sa-trust-item"><i class="fa fa-check-circle"></i>Sem fidelidade — cancele quando quiser</div>
+    <div class="sa-trust-item"><i class="fa fa-location-dot"></i>Válido nas farmácias participantes</div>
+  </div>
+</div>
+
 <script>
 function brl(v) { return 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.', ','); }
 function esc(s) { return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function saCard(p) {
+  const icoHtml = p.logo_url
+    ? `<img src="${esc(p.logo_url)}" alt="" onerror="this.parentElement.innerHTML='<i class=\\'fa fa-store\\'></i>'">`
+    : `<i class="fa fa-store"></i>`;
   const distHtml = (p.distancia_km !== null && p.distancia_km !== undefined)
     ? `<span class="sa-card-dist"><i class="fa fa-location-dot"></i>${p.distancia_km} km de você</span>`
     : '';
@@ -83,12 +229,15 @@ function saCard(p) {
        </form>`;
   return `<div class="sa-card">
     <div class="sa-card-head">
-      ${distHtml}
-      <div class="sa-card-loja">${esc(p.razao)}</div>
-      <div class="sa-card-plano"><i class="fa fa-star" style="font-size:.7rem"></i>${esc(p.plano_nome)}</div>
+      <div class="sa-card-ico">${icoHtml}</div>
+      <div class="sa-card-head-body">
+        ${distHtml}
+        <div class="sa-card-loja">${esc(p.razao)}</div>
+        <div class="sa-card-plano"><i class="fa fa-star" style="font-size:.7rem"></i>${esc(p.plano_nome)}</div>
+      </div>
     </div>
     <div class="sa-card-body">
-      <div class="sa-card-preco">${brl(p.preco_mensal)}<small>/mês</small></div>
+      <div class="sa-card-preco">${brl(p.preco_mensal)}<small>/mês · cancele quando quiser</small></div>
       ${p.descricao ? `<div class="sa-card-desc">${esc(p.descricao)}</div>` : ''}
       ${bensHtml ? `<ul class="sa-bens">${bensHtml}</ul>` : ''}
       ${freteGratisHtml}
@@ -104,8 +253,13 @@ function saLoad(lat, lng) {
       document.getElementById('sa-skel').style.display = 'none';
       const planos = d.planos || [];
       document.getElementById('sa-status').textContent = planos.length
-        ? `${planos.length} farmácia(s) com clube disponível`
+        ? `${planos.length} farmácia${planos.length === 1 ? '' : 's'} com clube`
         : 'Nenhuma farmácia encontrada';
+      const precoMinEl = document.getElementById('sa-hero-preco-min');
+      if (precoMinEl && planos.length) {
+        const precoMin = Math.min(...planos.map(p => parseFloat(p.preco_mensal) || Infinity));
+        if (Number.isFinite(precoMin)) precoMinEl.textContent = brl(precoMin);
+      }
       const grid = document.getElementById('sa-grid');
       grid.innerHTML = planos.length
         ? planos.map(saCard).join('')

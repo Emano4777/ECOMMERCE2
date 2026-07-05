@@ -44,7 +44,9 @@
     <div class="pgto-head">
       <div class="pgto-head-badge"><i class="fa fa-star" style="font-size:.6rem"></i>Assinatura</div>
       <div class="pgto-head-nome">{{ info.plano_nome }}</div>
-      <div class="pgto-head-loja"><i class="fa fa-store me-1" style="font-size:.7rem"></i>{{ info.razao }}</div>
+      <div class="pgto-head-loja">
+        {% if info.logo_url %}<img src="{{ info.logo_url }}" alt="" style="width:13px;height:13px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:3px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="font-size:.7rem;display:none"></i>{% else %}<i class="fa fa-store me-1" style="font-size:.7rem"></i>{% endif %}{{ info.razao }}
+      </div>
     </div>
     <div class="pgto-body">
       <div class="pgto-preco">

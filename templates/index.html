@@ -1213,7 +1213,7 @@ function cardHtml(p, idx) {
         })()}
         ${p.tarja === 'preta' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Preta - Controle especial</span>` : p.tarja === 'vermelha' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px"><i class="fa fa-prescription"></i>${p.receita_retida ? 'Tarja Vermelha - Receita retida' : 'Tarja Vermelha - Venda sob prescrição'}</span>` : ''}
         <div class="prod-loja-row">
-          <span class="prod-loja-nome"><i class="fa fa-store me-1"></i>${esc(p.razao)}</span>
+          <span class="prod-loja-nome">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="" style="width:13px;height:13px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>` : `<i class="fa fa-store me-1"></i>`}${esc(p.razao)}</span>
           ${distBadge}
           ${entregaBadge}
         </div>
@@ -2173,15 +2173,20 @@ function _sugestoesKeyNav(e) {
 
 /* ─── Encomenda modal ─── */
 function abrirModalEncomenda(nomeProduto) {
-  document.getElementById('enc-produto-inp').value = nomeProduto || '';
-  document.getElementById('enc-produto-label').textContent = nomeProduto || '';
+  document.getElementById('enc-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  const prodInp = document.getElementById('enc-produto-inp');
+  if (prodInp) prodInp.value = nomeProduto || '';
+  const prodLbl = document.getElementById('enc-produto-label');
+  if (prodLbl) prodLbl.textContent = nomeProduto || '';
   const sel = document.getElementById('enc-loja-sel');
   const avisoEl = document.getElementById('enc-aviso-distancia');
+  // Usuário não logado: o modal só mostra o convite pra entrar, os campos
+  // de farmácia nem existem no HTML — nada mais a preparar aqui.
+  if (!sel) return;
   sel.innerHTML = '<option value="">Carregando farmácias…</option>';
   sel.disabled = true;
   if (avisoEl) avisoEl.style.display = 'none';
-  document.getElementById('enc-modal-overlay').style.display = 'flex';
-  document.body.style.overflow = 'hidden';
 
   const lat = localStorage.getItem('pq_lat') || 0;
   const lng = localStorage.getItem('pq_lng') || 0;

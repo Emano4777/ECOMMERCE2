@@ -1177,6 +1177,25 @@ def _ensure_mp_public_key_column():
         _mark_migration_done(key)
 
 
+def _ensure_logo_url_column():
+    key = "loja_logo_url_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS logo_url TEXT")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_gateway_alt_columns():
     key = "gateway_alt_v2"
     if key in _schema_ready:
@@ -7318,6 +7337,7 @@ def api_produtos_proximos():
 def _api_produtos_proximos_impl():
     _ensure_delivery_schema()
     _ensure_catalog_admin_schema()
+    _ensure_logo_url_column()
     _busca_inicio = time.monotonic()
     _entrega_horario_cache: dict = {}
     def _entrega_disponivel_horario_cached(cnpj):
@@ -7350,7 +7370,8 @@ def _api_produtos_proximos_impl():
                    COALESCE(c.aceita_entrega, FALSE) AS aceita_entrega,
                    COALESCE(c.raio_entrega_km, 0) AS raio_entrega_km,
                    COALESCE(c.cobra_frete, FALSE) AS cobra_frete,
-                   COALESCE(c.valor_frete, 0) AS valor_frete
+                   COALESCE(c.valor_frete, 0) AS valor_frete,
+                   c.logo_url
             FROM users u
             JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
@@ -7386,7 +7407,7 @@ def _api_produtos_proximos_impl():
     if sem_loc:
         cur.execute(
             """
-            SELECT u.cnpjloja, u.razao, u.endereco
+            SELECT u.cnpjloja, u.razao, u.endereco, c.logo_url
             FROM users u
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
             WHERE u.is_admin = FALSE
@@ -7397,7 +7418,7 @@ def _api_produtos_proximos_impl():
         todas    = cur.fetchall()
         proximas = list(todas)
         loja_info = {
-            l["cnpjloja"]: {"razao": _public_store_name(l), "distancia_km": None, "aceita_entrega": False, "raio_entrega_km": 0, "cobra_frete": False, "valor_frete": 0}
+            l["cnpjloja"]: {"razao": _public_store_name(l), "distancia_km": None, "aceita_entrega": False, "raio_entrega_km": 0, "cobra_frete": False, "valor_frete": 0, "logo_url": l.get("logo_url")}
             for l in todas
         }
 
@@ -7455,7 +7476,9 @@ def _api_produtos_proximos_impl():
                 for _field in ("principios_ativos", "nomes_tecnicos", "categorias", "termos_busca"):
                     for _t in (ia_result.get(_field) or []):
                         _t = _norm_text(_t)
-                        if _t and len(_t) > 2 and _t not in ia_terms:
+                        # >=4 chars: termos de 2-3 letras geram falso-positivo em LIKE
+                        # contra o catalogo inteiro quando a IA "alucina" um termo vago.
+                        if _t and len(_t) >= 4 and _t not in ia_terms:
                             ia_terms.append(_t)
                 if ia_terms:
                     ia_filter_terms = ia_terms
@@ -7560,7 +7583,9 @@ def _api_produtos_proximos_impl():
                     for _field in ("principios_ativos", "nomes_tecnicos", "categorias", "termos_busca"):
                         for _t in (ia_result.get(_field) or []):
                             _t = _norm_text(_t)
-                            if _t and len(_t) > 2 and _t not in ia_terms:
+                            # >=4 chars: termos de 2-3 letras (ex: "cr", "gel") geram falso-positivo
+                            # em LIKE contra o catalogo inteiro quando a IA "alucina" um termo vago.
+                            if _t and len(_t) >= 4 and _t not in ia_terms:
                                 ia_terms.append(_t)
                     if ia_terms:
                         _antes_ia = len(produtos_raw)
@@ -7673,7 +7698,7 @@ def _api_produtos_proximos_impl():
         }
 
         categoria = p.get("categoria") or _classificar_produto(p.get("nome") or "")
-        produto_view = {**p, "razao": razao, "distancia_km": dist, "categoria": categoria, **entrega_meta}
+        produto_view = {**p, "razao": razao, "logo_url": info.get("logo_url"), "distancia_km": dist, "categoria": categoria, **entrega_meta}
 
         produtos_view.append(produto_view)
 
@@ -7826,6 +7851,7 @@ def _api_produtos_proximos_impl():
 @_rate_limited_api(max_calls=30, window_secs=60)
 def api_mais_comprados():
     """Produtos mais comprados nas lojas próximas (sem login necessário)."""
+    _ensure_logo_url_column()
     try:
         lat_usr = float(request.args.get("lat", 0))
         lng_usr = float(request.args.get("lng", 0))
@@ -7864,11 +7890,13 @@ def api_mais_comprados():
                MAX(pi.imagem) AS imagem,
                p.cnpjloja,
                MAX(u.razao) AS razao,
+               MAX(c.logo_url) AS logo_url,
                AVG(pi.preco_unitario) AS preco,
                COUNT(*) AS total_vendas
         FROM ecommerce_pedido_itens pi
         JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
         JOIN users u ON u.cnpjloja = p.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
         WHERE p.cnpjloja = ANY(%s)
           AND p.status NOT IN ('cancelado', 'pendente')
           AND pi.imagem IS NOT NULL AND TRIM(pi.imagem) <> ''
@@ -8045,6 +8073,7 @@ def _calcular_lembretes(consumidor_id, conn):
 
 def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
     """EANs mais comprados pelo consumidor que ainda estão no catálogo das lojas próximas."""
+    _ensure_logo_url_column()
     cur = conn.cursor()
     cur.execute("""
         SELECT pi.ean,
@@ -8076,7 +8105,7 @@ def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
                e.barras AS ean,
                COALESCE(m.descricao, e.descricao) AS nome,
                COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
-               e.cnpj AS cnpjloja, u.razao,
+               e.cnpj AS cnpjloja, u.razao, cl.logo_url,
                COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
         FROM estoque e
         LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
@@ -8084,6 +8113,7 @@ def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
         LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
             AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
         LEFT JOIN users u ON u.cnpjloja = e.cnpj
+        LEFT JOIN ecommerce_config_loja cl ON cl.cnpjloja = e.cnpj
         LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
         WHERE LTRIM(e.barras,'0') = ANY(%s)
           AND e.estoque > 0 AND u.is_admin = FALSE
@@ -8102,12 +8132,13 @@ def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
                    ae.ean AS ean,
                    COALESCE(m.descricao, ae.descricao_produto) AS nome,
                    COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem),'')) AS imagem,
-                   ae.cnpj_loja AS cnpjloja, u.razao,
+                   ae.cnpj_loja AS cnpjloja, u.razao, cl.logo_url,
                    COALESCE(ep.preco_customizado, ae.valor_final_produto) AS preco
             FROM automatiza_estoque ae
             LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(ae.ean,'0')
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
             LEFT JOIN users u ON u.cnpjloja = ae.cnpj_loja
+            LEFT JOIN ecommerce_config_loja cl ON cl.cnpjloja = ae.cnpj_loja
             LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
             WHERE LTRIM(ae.ean,'0') = ANY(%s)
               AND ae.quantidade_estoque > 0 AND u.is_admin = FALSE
@@ -8362,6 +8393,7 @@ def _banner_semana_ia(consumidor_id, nome, historico_nomes, conn, api_key):
 
 def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=None):
     """Top EANs das lojas físicas (vendageral + automatiza_vendas) que estão no catálogo das lojas próximas."""
+    _ensure_logo_url_column()
     cur = conn.cursor()
 
     # Se não recebeu cnpjs_proximos pré-calculados, resolve aqui —
@@ -8436,7 +8468,7 @@ def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=Non
                 e.barras AS ean,
                 COALESCE(m.descricao, e.descricao) AS nome,
                 COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
-                e.cnpj AS cnpjloja, u.razao,
+                e.cnpj AS cnpjloja, u.razao, cl.logo_url,
                 COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
             FROM estoque e
             LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
@@ -8444,6 +8476,7 @@ def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=Non
             LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
                 AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
             LEFT JOIN users u ON u.cnpjloja = e.cnpj
+            LEFT JOIN ecommerce_config_loja cl ON cl.cnpjloja = e.cnpj
             LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
             WHERE LTRIM(e.barras,'0') = ANY(%s)
               AND e.estoque > 0 AND u.is_admin = FALSE {cnpj_estoque_cond}
@@ -8888,6 +8921,7 @@ def api_config_lojas():
     _ensure_delivery_schema()
     _ensure_gateway_alt_columns()
     _ensure_assinatura_schema()
+    _ensure_logo_url_column()
     cnpjs = [c.strip() for c in request.args.get("cnpjs", "").split(",") if c.strip()]
     if not cnpjs:
         return jsonify({})
@@ -8895,7 +8929,7 @@ def api_config_lojas():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT u.cnpjloja, u.razao, u.endereco, u.telefone,
+        SELECT u.cnpjloja, u.razao, u.endereco, u.telefone, c.logo_url,
                COALESCE(c.whatsapp_pedidos, u.telefone) AS whatsapp_pedidos,
                COALESCE(c.aceita_whatsapp, FALSE)       AS aceita_whatsapp,
                COALESCE(c.aceita_pix, TRUE)             AS aceita_pix,
@@ -9495,8 +9529,11 @@ def produto_detalhe(ean):
     produto = loja = None
     imagem_custom = None
     if cnpjloja:
+        _ensure_logo_url_column()
         cur.execute(
-            "SELECT cnpjloja, razao, endereco, uf, telefone FROM users WHERE cnpjloja=%s AND is_admin=FALSE LIMIT 1",
+            """SELECT u.cnpjloja, u.razao, u.endereco, u.uf, u.telefone, c.logo_url
+               FROM users u LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+               WHERE u.cnpjloja=%s AND u.is_admin=FALSE LIMIT 1""",
             (cnpjloja,),
         )
         loja = cur.fetchone()
@@ -10736,15 +10773,17 @@ def meus_pedidos():
     _ensure_consumidor_schema()
     _ensure_reclamacao_schema()
     _ensure_previsao_entrega_em_column()
+    _ensure_logo_url_column()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT p.id, p.cnpjloja, p.forma_pagamento, p.status, p.total, p.criado_em,
                p.tipo_entrega, p.desconto_cupom, p.previsao_entrega_em,
-               u.razao, u.endereco
+               u.razao, u.endereco, c.logo_url
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
         WHERE p.consumidor_id = %s
         ORDER BY p.criado_em DESC
         LIMIT 100
@@ -10904,12 +10943,14 @@ def admin_notificacoes_sistema():
 def consumidor_favoritos():
     _ensure_favoritos_schema()
     consumidor_id = session["consumidor_id"]
+    _ensure_logo_url_column()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT f.*
+        SELECT f.*, c.logo_url
         FROM ecommerce_favoritos f
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = f.cnpjloja
         WHERE f.consumidor_id=%s
         ORDER BY f.atualizado_em DESC
         LIMIT 200
@@ -11121,13 +11162,14 @@ def meu_pedido_detalhe(pedido_id):
     _ensure_receita_schema()
     _ensure_reclamacao_schema()
     _ensure_previsao_entrega_em_column()
+    _ensure_logo_url_column()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT p.*, u.razao, u.telefone, u.endereco,
                u.endereco2 AS loja_endereco,
-               c.whatsapp_pedidos, c.pix_chave, c.pix_nome
+               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
         LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -11150,7 +11192,7 @@ def meu_pedido_detalhe(pedido_id):
             """
             SELECT p.*, u.razao, u.telefone,
                    u.endereco2 AS loja_endereco,
-                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome
+                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url
             FROM ecommerce_pedidos p
             JOIN users u ON u.cnpjloja = p.cnpjloja
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -11295,14 +11337,16 @@ def encomenda_criar():
 @_consumer_required
 def minhas_encomendas():
     _ensure_encomenda_schema()
+    _ensure_logo_url_column()
     conn = db()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT e.*, u.razao,
+        SELECT e.*, u.razao, c.logo_url,
                (SELECT COUNT(*) FROM ecommerce_encomenda_msgs m WHERE m.encomenda_id=e.id) AS n_msgs
         FROM ecommerce_encomendas e
         JOIN users u ON u.cnpjloja = e.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = e.cnpjloja
         WHERE e.consumidor_id = %s
         ORDER BY e.atualizado_em DESC
         """,
@@ -13450,6 +13494,7 @@ def api_pagamento_status(pedido_id):
 @app.get("/pedido/confirmacao")
 def pedido_confirmacao():
     _ensure_receita_schema()
+    _ensure_logo_url_column()
     ids = [i.strip() for i in (request.args.get("ids") or "").split(",") if i.strip()]
     if not ids:
         return redirect(url_for("index"))
@@ -13469,7 +13514,7 @@ def pedido_confirmacao():
                        p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
                        p.receita_status,
                        u.razao, u.telefone,
-                       c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.mp_access_token
+                       c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_access_token
                 FROM ecommerce_pedidos p
                 JOIN users u ON u.cnpjloja = p.cnpjloja
                 LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -13499,7 +13544,7 @@ def pedido_confirmacao():
                                p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
                                p.receita_status,
                                u.razao, u.telefone,
-                               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.mp_access_token
+                               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_access_token
                         FROM ecommerce_pedidos p
                         JOIN users u ON u.cnpjloja = p.cnpjloja
                         LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -14807,6 +14852,7 @@ def painel_config():
     _ensure_receita_schema()
     _ensure_mp_public_key_column()
     _ensure_gateway_alt_columns()
+    _ensure_logo_url_column()
     cnpjloja = session.get("cnpjloja")
     conn = db()
     cur  = conn.cursor()
@@ -14949,6 +14995,49 @@ def painel_config_salvar():
     conn.commit()
     cur.close()
     flash("Configurações salvas com sucesso.", "success")
+    return redirect(url_for("painel_config"))
+
+
+@app.post("/painel/config/logo")
+@painel_required
+def painel_config_logo():
+    _ensure_logo_url_column()
+    cnpjloja = session.get("cnpjloja")
+    arquivo = request.files.get("logo")
+    if not arquivo or not arquivo.filename:
+        flash("Selecione uma imagem para o logo.", "error")
+        return redirect(url_for("painel_config"))
+    if not _CLOUDINARY_OK:
+        flash("Upload de imagem não está configurado no momento.", "error")
+        return redirect(url_for("painel_config"))
+    try:
+        result = cloudinary.uploader.upload(
+            arquivo,
+            resource_type="image",
+            folder="logos_loja",
+            public_id=cnpjloja,
+            overwrite=True,
+        )
+        logo_url = result.get("secure_url")
+    except Exception as exc:
+        app.logger.error("Upload de logo da loja: %s", exc)
+        logo_url = None
+    if not logo_url:
+        flash("Não foi possível enviar a imagem. Tente novamente.", "error")
+        return redirect(url_for("painel_config"))
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ecommerce_config_loja (cnpjloja, logo_url)
+        VALUES (%s, %s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET logo_url=EXCLUDED.logo_url, updated_at=NOW()
+        """,
+        (cnpjloja, logo_url),
+    )
+    conn.commit()
+    cur.close()
+    flash("Logo da loja atualizado.", "success")
     return redirect(url_for("painel_config"))
 
 
@@ -18346,15 +18435,17 @@ def api_cupons_disponiveis():
 @_consumer_required
 def consumidor_cupons():
     _ensure_cupons_schema()
+    _ensure_logo_url_column()
     consumidor_id = session.get("consumidor_id")
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        SELECT DISTINCT u.razao, u.cnpjloja,
+        SELECT DISTINCT u.razao, u.cnpjloja, c2.logo_url,
                COUNT(DISTINCT p.id) AS n_pedidos
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
+        LEFT JOIN ecommerce_config_loja c2 ON c2.cnpjloja = u.cnpjloja
         WHERE p.consumidor_id = %s AND p.status NOT IN ('cancelado')
-        GROUP BY u.razao, u.cnpjloja
+        GROUP BY u.razao, u.cnpjloja, c2.logo_url
     """, (consumidor_id,))
     lojas = cur.fetchall()
     cupons_por_loja = []
@@ -21269,12 +21360,13 @@ def api_planos_assinatura_proximos():
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
 
     _ensure_assinatura_schema()
+    _ensure_logo_url_column()
     conn = db()
     cur = conn.cursor()
     cur.execute("""
         SELECT p.cnpjloja, p.nome AS plano_nome, p.descricao, p.preco_mensal, p.beneficios,
                COALESCE(p.frete_gratis_primeira_entrega, FALSE) AS frete_gratis_primeira_entrega,
-               u.razao, u.endereco, u.endereco2, u.uf, g.lat, g.lng
+               u.razao, u.endereco, u.endereco2, u.uf, g.lat, g.lng, c.logo_url
         FROM ecommerce_planos_assinatura p
         JOIN users u ON u.cnpjloja = p.cnpjloja
         LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = p.cnpjloja
@@ -21359,6 +21451,7 @@ def minhas_assinaturas():
 @app.post("/assinar/<cnpjloja>")
 def assinar_loja(cnpjloja):
     _ensure_assinatura_schema()
+    _ensure_logo_url_column()
     consumidor_id = str(session.get("consumidor_id") or "")
     if not consumidor_id:
         return redirect(url_for("consumidor_login"))
@@ -21369,9 +21462,10 @@ def assinar_loja(cnpjloja):
     # Busca plano (pagamento de assinatura usa a conta MP central do admin,
     # nao a config da loja — ver _admin_mp_config)
     cur.execute("""
-        SELECT p.id AS plano_id, p.nome AS plano_nome, p.preco_mensal, u.razao
+        SELECT p.id AS plano_id, p.nome AS plano_nome, p.preco_mensal, u.razao, c.logo_url
         FROM ecommerce_planos_assinatura p
         JOIN users u ON u.cnpjloja = %s
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
         WHERE p.cnpjloja = %s AND p.ativo = TRUE
         LIMIT 1
     """, (cnpjloja, cnpjloja))
@@ -21457,7 +21551,7 @@ def assinar_loja(cnpjloja):
                     "mp_preapproval_id": str(recorrencia.get("id") or "") if assinatura_recorrente_link else "",
                     "assinatura_recorrente_link": assinatura_recorrente_link,
                     "cartao_link": None,
-                    "plano_nome": plano["plano_nome"], "razao": plano["razao"],
+                    "plano_nome": plano["plano_nome"], "razao": plano["razao"], "logo_url": plano.get("logo_url"),
                     "preco": preco,
                 }
         except Exception:
@@ -21498,7 +21592,7 @@ def assinar_loja(cnpjloja):
         info = session.get("assinatura_pix") or {
             "assinatura_id": assinatura_id, "cnpjloja": cnpjloja,
             "qr_code": None, "qr_code_base64": None, "mp_payment_id": None,
-            "plano_nome": plano["plano_nome"], "razao": plano["razao"],
+            "plano_nome": plano["plano_nome"], "razao": plano["razao"], "logo_url": plano.get("logo_url"),
             "preco": preco,
         }
         info.update({
@@ -21527,15 +21621,17 @@ def assinatura_pagamento(cnpjloja):
         # Reconstrói info do banco (caso sessão tenha expirado)
         _ensure_assinatura_schema()
         _ensure_cartoes_schema()
+        _ensure_logo_url_column()
         conn = db(); cur = conn.cursor()
         cur.execute("""
             SELECT a.id, a.mp_payment_id, a.mp_preapproval_id, a.mp_preapproval_init_point,
                    a.mp_init_point, a.status, a.pagamento_status, a.data_fim,
                    p.nome AS plano_nome, p.preco_mensal,
-                   u.razao, u.endereco
+                   u.razao, u.endereco, c.logo_url
             FROM ecommerce_assinantes a
             JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
             JOIN users u ON u.cnpjloja = a.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
             WHERE a.consumidor_id = %s AND a.cnpjloja = %s
             LIMIT 1
         """, (consumidor_id, cnpjloja))
@@ -21577,6 +21673,7 @@ def assinatura_pagamento(cnpjloja):
             "cartao_link": row.get("mp_init_point") or "",
             "plano_nome": row["plano_nome"],
             "razao": _public_store_name(row),
+            "logo_url": row.get("logo_url"),
             "preco": float(row["preco_mensal"] or 0),
         }
         cur.close()

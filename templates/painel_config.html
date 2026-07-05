@@ -66,6 +66,26 @@
   <i class="fa fa-gear me-2" style="color:var(--pk-yellow)"></i>Configurações da loja
 </div>
 
+<div class="pk-card cfg-section">
+  <div class="cfg-section-title">
+    <i class="fa fa-image"></i>Logo da loja
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="width:64px;height:64px;border-radius:12px;overflow:hidden;background:#0d1016;border:1px solid var(--pk-line);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      {% if config.logo_url %}
+        <img src="{{ config.logo_url }}" alt="" style="width:100%;height:100%;object-fit:cover">
+      {% else %}
+        <i class="fa fa-store" style="color:var(--pk-muted);font-size:1.3rem"></i>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('painel_config_logo') }}" enctype="multipart/form-data" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <input class="pk-input" type="file" name="logo" accept="image/*" required style="max-width:260px">
+      <button type="submit" class="btn-pk-yellow"><i class="fa fa-upload me-1"></i>{{ 'Trocar logo' if config.logo_url else 'Enviar logo' }}</button>
+    </form>
+  </div>
+  <div class="cfg-help">Aparece na tela "Seja assinante" e em outros locais onde sua farmácia é destacada para o consumidor.</div>
+</div>
+
 <form method="post" action="{{ url_for('painel_config_salvar') }}">
   <div class="pk-card cfg-section">
     <div class="cfg-section-title">

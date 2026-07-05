@@ -71,7 +71,7 @@
     {% for grupo in cupons_por_loja %}
     <div class="loja-section">
       <div class="loja-hd">
-        <i class="fa fa-store"></i>{{ grupo.loja.razao }}
+        {% if grupo.loja.logo_url %}<img src="{{ grupo.loja.logo_url }}" alt="" style="width:16px;height:16px;border-radius:5px;object-fit:cover;vertical-align:-3px;margin-right:2px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store" style="display:none"></i>{% else %}<i class="fa fa-store"></i>{% endif %}{{ grupo.loja.razao }}
       </div>
       <div class="cup-list">
         {% for c in grupo.cupons %}

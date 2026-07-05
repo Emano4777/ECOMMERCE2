@@ -49,7 +49,9 @@
       </div>
       <div class="fav-body">
         <div class="fav-name">{{ f.nome }}</div>
-        <div class="fav-store"><i class="fa fa-store me-1"></i>{{ f.razao or 'Farmácia Poupaqui' }}</div>
+        <div class="fav-store">
+          {% if f.logo_url %}<img src="{{ f.logo_url }}" alt="" style="width:14px;height:14px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>{% else %}<i class="fa fa-store me-1"></i>{% endif %}{{ f.razao or 'Farmácia Poupaqui' }}
+        </div>
         {% if f.preco %}<div class="fav-price">{{ money(f.preco) }}</div>{% endif %}
         <div class="fav-alerts">
           <label class="fav-toggle"><input type="checkbox" {% if f.alerta_preco %}checked{% endif %} onchange="salvarAlerta('{{ f.ean }}','{{ f.cnpjloja }}','alerta_preco',this.checked)"> Avisar quando baixar o preço</label>

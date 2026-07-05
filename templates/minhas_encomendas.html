@@ -44,7 +44,9 @@
       </div>
       <div class="enc-card-body">
         <div class="enc-card-nome">{{ enc.produto_nome }}</div>
-        <div class="enc-card-loja"><i class="fa fa-store me-1"></i>{{ enc.razao }}</div>
+        <div class="enc-card-loja">
+          {% if enc.logo_url %}<img src="{{ enc.logo_url }}" alt="" style="width:14px;height:14px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>{% else %}<i class="fa fa-store me-1"></i>{% endif %}{{ enc.razao }}
+        </div>
         <div class="enc-card-meta">
           <span>{{ enc.criado_em.strftime('%d/%m/%Y') if enc.criado_em else '' }}</span>
           <span class="enc-badge badge-{{ enc.status }}">{{ status_label.get(enc.status, enc.status) }}</span>

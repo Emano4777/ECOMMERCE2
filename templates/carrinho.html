@@ -3,17 +3,18 @@
 
 {% block extra_style %}
 <style>
-.cart-wrap { max-width:1180px; margin:0 auto; padding:24px 18px 64px; }
-.cart-title { font-size:1.45rem; font-weight:900; margin-bottom:18px; display:flex; align-items:center; gap:10px; }
+.cart-wrap { max-width:1180px; margin:0 auto; padding:24px 18px 64px; box-sizing:border-box; overflow-x:hidden; }
+.cart-title { font-size:1.45rem; font-weight:900; margin-bottom:18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .cart-title img { width:34px; height:34px; object-fit:contain; }
 .cart-title small { color:var(--pq-muted); font-size:.72rem; font-weight:700; margin-left:2px; }
-.cart-layout { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:22px; align-items:start; }
+.cart-layout { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:22px; align-items:start; min-width:0; }
 .cart-main { min-width:0; display:flex; flex-direction:column; gap:16px; }
-#cart-container { display:flex; flex-direction:column; gap:16px; }
+#cart-container { display:flex; flex-direction:column; gap:16px; min-width:0; }
 @media(max-width:920px){ .cart-layout { grid-template-columns:1fr; } }
 @media(max-width:560px){
-  .cart-item { align-items:flex-start; }
-  .cart-item-right { align-items:flex-start; }
+  .cart-item-right { align-items:flex-end; }
+  .cart-wrap { padding:16px 12px 48px; }
+  .pay-opt { min-width:0; flex:1 1 auto; }
 }
 
 /* GRUPO FARMÁCIA */
@@ -23,17 +24,24 @@
   border-radius:14px;
   box-shadow:var(--pq-shadow);
   overflow:hidden;
+  min-width:0;
 }
 .cart-group-hd {
   padding:13px 18px;
   background:#fafafa;
   border-bottom:1px solid var(--pq-border);
-  display:flex; align-items:center; gap:10px;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   font-weight:800; font-size:.92rem;
 }
-.cart-group-hd i { color:var(--pq-red); }
+.cart-group-icon {
+  width:30px; height:30px; border-radius:9px; flex-shrink:0; overflow:hidden;
+  background:#fff0f2; color:var(--pq-red);
+  display:flex; align-items:center; justify-content:center; font-size:.85rem;
+}
+.cart-group-icon img { width:100%; height:100%; object-fit:cover; }
+.cart-group-nome { min-width:0; overflow-wrap:break-word; }
 .cart-store-status { margin-left:auto; display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:4px 10px; background:#f1f5f9; color:#64748b; font-size:.68rem; font-weight:900; white-space:nowrap; }
-.cart-store-status:before { content:""; width:6px; height:6px; border-radius:50%; background:#94a3b8; }
+.cart-store-status:before { content:""; width:6px; height:6px; border-radius:50%; background:#94a3b8; flex-shrink:0; }
 .cart-store-status.is-open { background:#ecfdf3; color:#16a34a; }
 .cart-store-status.is-open:before { background:#22c55e; }
 .cart-store-status.is-closed { background:#fff1f2; color:#be123c; }
@@ -43,7 +51,7 @@
 
 /* ITEM */
 .cart-item {
-  display:flex; align-items:center; gap:14px;
+  display:flex; align-items:flex-start; gap:14px;
   padding:18px;
   border-bottom:1px solid var(--pq-border);
 }
@@ -51,23 +59,27 @@
 .cart-item-img {
   width:64px; height:64px;
   border-radius:10px;
-  background:#f5f5f5;
+  background:#f9fafb;
+  border:1px solid var(--pq-border);
   object-fit:contain;
   padding:4px;
   flex-shrink:0;
+  box-sizing:border-box;
 }
 .cart-item-img-ph {
   width:64px; height:64px;
   border-radius:10px;
-  background:#f5f5f5;
+  background:#f9fafb;
+  border:1px solid var(--pq-border);
   display:flex; align-items:center; justify-content:center;
   color:#ccc; font-size:1.6rem;
   flex-shrink:0;
+  box-sizing:border-box;
 }
-.cart-item-info { flex:1; min-width:0; }
-.cart-item-nome { font-weight:800; font-size:.88rem; line-height:1.3; }
-.cart-item-preco { color:var(--pq-red); font-weight:900; font-size:1rem; margin-top:2px; }
-.cart-item-sub { font-size:.73rem; color:var(--pq-muted); margin-top:3px; }
+.cart-item-info { flex:1; min-width:0; overflow-wrap:break-word; }
+.cart-item-nome { font-weight:800; font-size:.88rem; line-height:1.3; overflow-wrap:break-word; }
+.cart-item-preco { color:var(--pq-red); font-weight:900; font-size:1rem; margin-top:4px; }
+.cart-item-sub { font-size:.73rem; color:var(--pq-muted); margin-top:3px; white-space:nowrap; }
 .cart-item-right { display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex-shrink:0; }
 
 .qty-ctrl { display:flex; align-items:center; gap:6px; }
@@ -78,6 +90,7 @@
   background:#fff;
   font-size:.9rem; font-weight:900;
   cursor:pointer; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
 }
 .qty-btn:hover { border-color:var(--pq-red); color:var(--pq-red); }
 .qty-num { width:32px; text-align:center; font-weight:800; font-size:.9rem; }
@@ -85,8 +98,13 @@
   background:none; border:none; cursor:pointer;
   color:var(--pq-muted); font-size:.8rem;
   padding:2px 4px; border-radius:4px;
+  white-space:nowrap;
 }
 .btn-remove:hover { color:var(--pq-red); background:#fff0f2; }
+@media(max-width:400px){
+  .cart-item-img, .cart-item-img-ph { width:52px; height:52px; }
+  .cart-item { padding:14px; gap:10px; }
+}
 
 /* PAGAMENTO */
 .pay-section {
@@ -114,6 +132,9 @@
 .pay-opt:hover { border-color:var(--pq-red); }
 .delivery-note { font-size:.78rem; color:var(--pq-muted); margin-top:8px; }
 .delivery-address { font-size:.78rem; font-weight:800; color:var(--pq-text); margin-top:10px; display:flex; gap:7px; align-items:flex-start; line-height:1.35; }
+.delivery-address i { flex-shrink:0; margin-top:2px; }
+.delivery-address span { min-width:0; overflow-wrap:break-word; }
+.delivery-note { overflow-wrap:break-word; }
 .address-choice { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
 .address-choice label { border:1.5px solid var(--pq-border); border-radius:10px; padding:9px 10px; cursor:pointer; display:flex; gap:8px; align-items:flex-start; background:#fff; min-width:0; }
 .address-choice label.selected { border-color:var(--pq-red); background:#fff5f7; }
@@ -478,11 +499,11 @@ function addressChoiceHtml(cnpj) {
   return `<div class="address-choice" role="radiogroup" aria-label="Endereço de entrega">
     <label class="${activeMode === 'current' ? 'selected' : ''}">
       <input type="radio" name="addr-${esc(cnpj)}" value="current" ${activeMode === 'current' ? 'checked' : ''} ${current.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('current')">
-      <div><strong>Usar localização atual</strong><span>${esc(shortAddr(current.label))}</span></div>
+      <div style="min-width:0"><strong>Usar localização atual</strong><span>${esc(shortAddr(current.label))}</span></div>
     </label>
     <label class="${activeMode === 'profile' ? 'selected' : ''}">
       <input type="radio" name="addr-${esc(cnpj)}" value="profile" ${activeMode === 'profile' ? 'checked' : ''} ${profile.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('profile')">
-      <div><strong>Usar endereço do cadastro</strong><span>${esc(shortAddr(profile.label))}</span></div>
+      <div style="min-width:0"><strong>Usar endereço do cadastro</strong><span>${esc(shortAddr(profile.label))}</span></div>
     </label>
   </div>`;
 }
@@ -898,7 +919,6 @@ function renderCart() {
         <div class="cart-item-info">
           <div class="cart-item-nome">${esc(item.nome)}</div>
           <div class="cart-item-preco">${precoHtml}</div>
-          <div class="cart-item-sub">Subtotal: ${brl(precoItem*(item.qty||1))}</div>
         </div>
         <div class="cart-item-right">
           <div class="qty-ctrl">
@@ -906,6 +926,7 @@ function renderCart() {
             <span class="qty-num">${item.qty||1}</span>
             <button class="qty-btn" onclick="alterarQty('${esc(item.ean)}','${esc(cnpj)}',1)">+</button>
           </div>
+          <div class="cart-item-sub">Subtotal ${brl(precoItem*(item.qty||1))}</div>
           <button class="btn-remove" onclick="removerItem('${esc(item.ean)}','${esc(cnpj)}')">
             <i class="fa fa-trash me-1"></i>Remover
           </button>
@@ -974,9 +995,9 @@ function renderCart() {
         }
       } else if (!atingiuMinimo) {
         entregaMsg = '';
-        minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px">
+        minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px;box-sizing:border-box">
           <i class="fa fa-triangle-exclamation" style="color:#ea580c;font-size:1.25rem;margin-top:1px;flex-shrink:0"></i>
-          <div>
+          <div style="min-width:0;overflow-wrap:break-word">
             <div style="font-weight:900;color:#9a3412;font-size:.92rem;margin-bottom:4px">Pedido mínimo para entrega: ${brl(minPedido)}</div>
             <div style="font-size:.84rem;color:#c2410c">Faltam <strong>${brl(minPedido - sub)}</strong> em produtos para desbloquear a opção de entrega.</div>
           </div>
@@ -984,14 +1005,14 @@ function renderCart() {
       }
     }
     const receitaAviso = temReceitaDigital
-      ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px">
+      ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px;box-sizing:border-box">
            <i class="fa fa-file-prescription" style="color:#d97706;margin-top:2px;flex-shrink:0"></i>
-           <span><strong>Medicamento(s) com reten??o/controle.</strong> ${entregaOk ? 'Para <em>entrega</em>, anexe receita digital original em PDF, com assinatura verificavel. Foto, print ou receita escaneada nao serao aceitos.' : 'A farmacia fara a conferencia sanitaria aplicavel na retirada.'}</span>
+           <span style="min-width:0;overflow-wrap:break-word"><strong>Medicamento(s) com retenção/controle.</strong> ${entregaOk ? 'Para <em>entrega</em>, anexe receita digital original em PDF, com assinatura verificavel. Foto, print ou receita escaneada nao serao aceitos.' : 'A farmacia fara a conferencia sanitaria aplicavel na retirada.'}</span>
          </div>`
       : temTarjaVermelhaSimples
-        ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px">
+        ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#fff8f0;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;font-size:.8rem;color:#78350f;margin-bottom:8px;box-sizing:border-box">
              <i class="fa fa-file-prescription" style="color:#d97706;margin-top:2px;flex-shrink:0"></i>
-             <span><strong>Medicamento sob prescricao.</strong> Tarja vermelha sem retencao detectada: nao e necessario anexar receita digital na cesta. A dispensacao segue avaliacao do farmaceutico e as informacoes sanitarias obrigatorias.</span>
+             <span style="min-width:0;overflow-wrap:break-word"><strong>Medicamento sob prescricao.</strong> Tarja vermelha sem retencao detectada: nao e necessario anexar receita digital na cesta. A dispensacao segue avaliacao do farmaceutico e as informacoes sanitarias obrigatorias.</span>
            </div>`
         : '';
     // Seção de upload de receita (exibida quando entrega é selecionada + tem tarja)
@@ -1003,7 +1024,7 @@ function renderCart() {
              <i class="fa fa-file-prescription" style="color:#d97706"></i>Receita medica obrigatoria para entrega
            </div>
            ${tarjaCount > 1 ? `<div style="font-size:.77rem;color:#78350f;margin-bottom:10px;background:#fff3cd;border:1px solid #fcd34d;border-radius:8px;padding:9px 12px">
-             <strong>${tarjaCount} medicamentos com reten??o/controle</strong> nesta farmacia - anexe a receita de cada um:
+             <strong>${tarjaCount} medicamentos com retenção/controle</strong> nesta farmacia - anexe a receita de cada um:
              <ul style="margin:5px 0 0 16px;padding:0">${tarjaItens.map(i => `<li>${esc(i.nome)}</li>`).join('')}</ul>
            </div>` : ''}
            <p style="font-size:.77rem;color:#78350f;margin-bottom:10px;line-height:1.45">
@@ -1025,9 +1046,13 @@ function renderCart() {
          </div>`
       : '';
 
+    const lojaIcoHtml = cfg.logo_url
+      ? `<img src="${esc(cfg.logo_url)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><i class="fa fa-location-dot" style="display:none"></i>`
+      : `<i class="fa fa-location-dot"></i>`;
     html += `<div class="cart-group">
       <div class="cart-group-hd">
-        <i class="fa fa-store"></i>${esc(g.razao)}
+        <div class="cart-group-icon">${lojaIcoHtml}</div>
+        <span class="cart-group-nome">${esc(g.razao)}</span>
         <span class="cart-store-status" id="cart-store-status-${esc(cnpj)}">Verificando...</span>
       </div>
       ${itensHtml}
@@ -1194,36 +1219,38 @@ async function atualizarStatusHorarioCarrinho(cnpjs) {
 function assinaturaCardHtml(cnpj, cfg) {
   if (!cfg.plano_ativo) return '';
   const beneficiosHtml = (cfg.plano_beneficios || '').split('\n').map(b => b.trim()).filter(Boolean)
-    .map(b => `<span style="background:#ffd0d822;border:1px solid #ffd0d8;border-radius:999px;padding:2px 10px;font-size:.74rem;color:var(--pq-red);font-weight:700"><i class="fa fa-check me-1" style="font-size:.6rem"></i>${esc(b)}</span>`)
+    .map(b => `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.76rem;color:#374151;font-weight:700;min-width:0"><i class="fa fa-check-circle" style="color:#16a34a;flex-shrink:0"></i><span style="min-width:0;overflow-wrap:break-word">${esc(b)}</span></span>`)
     .join('');
   let ctaHtml;
   if (cfg.ja_assina) {
-    ctaHtml = `<a href="/minhas-assinaturas" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none"><i class="fa fa-check-circle"></i>Já sou assinante</a>`;
+    ctaHtml = `<a href="/minhas-assinaturas" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none;white-space:nowrap"><i class="fa fa-check-circle"></i>Já sou assinante</a>`;
   } else if (cfg.assinatura_pendente) {
-    ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#fef3c7;color:#d97706;border:1px solid #fde68a;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
+    ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#fef3c7;color:#d97706;border:1px solid #fde68a;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none;white-space:nowrap"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
   } else {
     ctaHtml = `<form method="post" action="/assinar/${encodeURIComponent(cnpj)}" style="margin-top:6px">
-      <button type="submit" style="background:var(--pq-red);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:900;font-size:.78rem;cursor:pointer;font-family:inherit">
-        <i class="fa fa-star me-1"></i>Assinar
+      <button type="submit" style="background:var(--pq-red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:900;font-size:.8rem;cursor:pointer;font-family:inherit;white-space:nowrap">
+        Conhecer o Clube
       </button>
     </form>`;
   }
-  return `<div style="background:linear-gradient(135deg,#fff5f6,#fff);border:1.5px solid #ffd0d8;border-radius:12px;padding:14px 16px;margin:12px 16px 0">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  return `<div style="background:linear-gradient(135deg,#fff5f6,#fff);border:1.5px solid #ffd0d8;border-radius:12px;padding:14px 16px;margin:12px 16px 0;box-sizing:border-box">
+    <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
       <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#c8102e,#e8354a);display:flex;align-items:center;justify-content:center;flex-shrink:0">
         <i class="fa fa-star" style="color:#fff;font-size:.9rem"></i>
       </div>
       <div style="flex:1;min-width:140px">
-        <div style="font-size:.68rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.04em">Clube de assinantes</div>
-        <div style="font-size:.88rem;font-weight:900;color:#1a1a1a">${esc(cfg.plano_nome || 'Clube Fidelidade')}</div>
-        ${cfg.plano_descricao ? `<div style="font-size:.76rem;color:#555;margin-top:2px">${esc(cfg.plano_descricao)}</div>` : ''}
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+          <span style="font-size:.9rem;font-weight:900;color:#1a1a1a">${esc(cfg.plano_nome || 'Clube Fidelidade')}</span>
+          <span style="background:#f1f5f9;color:#64748b;border-radius:999px;padding:1px 9px;font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.04em">Opcional</span>
+        </div>
+        <div style="font-size:.78rem;color:#6b7280;margin-top:3px">${cfg.plano_descricao ? esc(cfg.plano_descricao) + ' — ' : 'Assine e economize em toda a loja — '}não é necessário para finalizar este pedido.</div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:1.2rem;font-weight:900;color:var(--pq-red)">${brl(cfg.plano_preco_mensal)}<span style="font-size:.7rem;font-weight:400;color:var(--pq-muted)">/mês</span></div>
+        <div style="font-size:1.2rem;font-weight:900;color:var(--pq-red);white-space:nowrap">${brl(cfg.plano_preco_mensal)}<span style="font-size:.7rem;font-weight:400;color:var(--pq-muted)">/mês</span></div>
         ${ctaHtml}
       </div>
     </div>
-    ${beneficiosHtml ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${beneficiosHtml}</div>` : ''}
+    ${beneficiosHtml ? `<div style="display:flex;flex-wrap:wrap;column-gap:16px;row-gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid #ffe0e5">${beneficiosHtml}</div>` : ''}
   </div>`;
 }
 
@@ -1571,7 +1598,7 @@ async function finalizarPedido() {
     }
     if (temRetencao && fp.tipo_entrega === 'entrega' && fp.receita_urls.length < retencaoCount) {
       const faltam = retencaoCount - fp.receita_urls.length;
-      alert(`Voce tem ${retencaoCount} medicamento(s) com reten??o/controle em "${fp.razao || 'farmacia'}". Falta(m) ${faltam} receita(s) para anexar.`);
+      alert(`Voce tem ${retencaoCount} medicamento(s) com retenção/controle em "${fp.razao || 'farmacia'}". Falta(m) ${faltam} receita(s) para anexar.`);
       btn.disabled = false;
       btn.textContent = 'Finalizar pedido';
       return;

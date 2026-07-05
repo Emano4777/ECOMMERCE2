@@ -12,6 +12,11 @@
 .conf-card-hd { padding:14px 20px; background:#fafafa; border-bottom:1px solid var(--pq-border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
 .conf-card-hd-left { display:flex; align-items:center; gap:10px; }
 .conf-card-hd i { color:var(--pq-red); }
+.conf-card-loja-ico {
+  width:34px; height:34px; border-radius:10px; flex-shrink:0; overflow:hidden;
+  background:#fff0f2; display:flex; align-items:center; justify-content:center;
+}
+.conf-card-loja-ico img { width:100%; height:100%; object-fit:cover; }
 .conf-razao { font-weight:800; font-size:.95rem; }
 .conf-id { font-size:.72rem; color:var(--pq-muted); font-family:monospace; }
 .conf-items { padding:0; }
@@ -99,7 +104,14 @@
   <div class="conf-card">
     <div class="conf-card-hd">
       <div class="conf-card-hd-left">
-        <i class="fa fa-store"></i>
+        <div class="conf-card-loja-ico">
+          {% if p.logo_url %}
+          <img src="{{ p.logo_url }}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''">
+          <i class="fa fa-store" style="display:none"></i>
+          {% else %}
+          <i class="fa fa-store"></i>
+          {% endif %}
+        </div>
         <div>
           <div class="conf-razao">{{ p.razao }}</div>
           <div class="conf-id">Pedido #{{ p.id[:8].upper() }}</div>
