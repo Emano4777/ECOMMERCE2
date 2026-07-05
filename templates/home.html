@@ -565,10 +565,23 @@
   .lembrete-prod { flex-basis:72vw; }
 }
 /* â”€â”€ Banner sem farmácia prÃ³xima â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.sfp-banner { display:flex; gap:14px; align-items:flex-start; background:linear-gradient(135deg,#fff7ed,#fff); border:1.5px solid #fed7aa; border-radius:16px; padding:16px 18px; box-shadow:0 2px 10px rgba(234,88,12,.08); }
-.sfp-ico { width:42px; height:42px; border-radius:12px; background:#fff7ed; border:1.5px solid #fed7aa; display:flex; align-items:center; justify-content:center; font-size:1.2rem; color:#ea580c; flex-shrink:0; }
-.sfp-titulo { font-size:.95rem; font-weight:900; color:#c2410c; margin-bottom:4px; }
-.sfp-msg { font-size:.82rem; color:#78350f; line-height:1.5; }
+.sfp-banner { display:flex; gap:18px; align-items:center; justify-content:space-between; flex-wrap:wrap; background:linear-gradient(135deg,#fff7ed,#fff); border:1.5px solid #fed7aa; border-radius:16px; padding:18px 20px; box-shadow:0 2px 10px rgba(234,88,12,.08); }
+.sfp-left { display:flex; gap:14px; align-items:flex-start; min-width:240px; flex:1; }
+.sfp-ico-wrap { position:relative; flex-shrink:0; }
+.sfp-ico { width:46px; height:46px; border-radius:14px; background:#ea580c; display:flex; align-items:center; justify-content:center; font-size:1.15rem; color:#fff; }
+.sfp-ico-dot { position:absolute; top:-4px; right:-4px; width:14px; height:14px; border-radius:50%; background:#fed7aa; border:2px solid #fff; }
+.sfp-badge { display:inline-block; font-size:.66rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; color:#c2410c; background:#fde7d3; border-radius:20px; padding:3px 10px; margin-bottom:6px; }
+.sfp-titulo { font-size:1rem; font-weight:900; color:#c2410c; margin-bottom:6px; }
+.sfp-titulo .sfp-cidade { color:#ea580c; }
+.sfp-msg { font-size:.82rem; color:#78350f; line-height:1.55; }
+.sfp-actions { display:flex; flex-direction:column; gap:8px; flex-shrink:0; min-width:180px; }
+.sfp-btn { display:flex; align-items:center; justify-content:center; gap:8px; border-radius:10px; padding:10px 16px; font-size:.84rem; font-weight:800; cursor:pointer; font-family:inherit; text-decoration:none; white-space:nowrap; transition:filter .15s, background .15s; }
+.sfp-btn-solid { background:#ea580c; color:#fff; border:none; }
+.sfp-btn-solid:hover { filter:brightness(.95); }
+.sfp-btn-outline { background:#fff; color:#c2410c; border:1.5px solid #fed7aa; }
+.sfp-btn-outline:hover { background:#fff7ed; }
+.sfp-btn-outline.active { background:#fde7d3; color:#c2410c; cursor:default; }
+@media(max-width:520px){ .sfp-banner { flex-direction:column; align-items:stretch; } .sfp-actions { min-width:0; } }
 
 /* â”€â”€ Faixa de destaques (ticker) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .promo-ticker { display:flex; align-items:stretch; background:#fffbeb; border:1.5px solid #fde68a; border-radius:12px; margin-bottom:16px; overflow:hidden; height:38px; flex-shrink:0; }
@@ -889,10 +902,20 @@
   {# â”€â”€ Aviso sem farmácia prÃ³xima â”€â”€ #}
   <div id="sec-sem-farmacia" style="display:none;margin-bottom:12px">
     <div class="sfp-banner">
-      <div class="sfp-ico"><i class="fa fa-map-pin"></i></div>
-      <div class="sfp-body">
-        <div class="sfp-titulo">Ainda não temos parceria cadastrada aqui no e-commerce</div>
-        <div class="sfp-msg">Isso não quer dizer que não haja uma Drogaria Poupaqui física na sua cidade — ela pode só ainda não estar integrada às compras on-line. Enquanto isso, confira nossos produtos e prepare sua lista.</div>
+      <div class="sfp-left">
+        <div class="sfp-ico-wrap">
+          <div class="sfp-ico"><i class="fa fa-map-pin"></i></div>
+          <div class="sfp-ico-dot"></div>
+        </div>
+        <div class="sfp-body">
+          <div class="sfp-badge">Ainda não integrada</div>
+          <div class="sfp-titulo">Ainda não temos parceria no e-commerce <span id="sfp-cidade-txt" class="sfp-cidade"></span></div>
+          <div class="sfp-msg">Isso não quer dizer que não haja uma Drogaria Poupaqui física na sua cidade — ela pode só ainda não estar integrada às compras on-line. Enquanto isso, confira nossos produtos e prepare sua lista.</div>
+        </div>
+      </div>
+      <div class="sfp-actions">
+        <a class="sfp-btn sfp-btn-solid" href="{{ url_for('catalogo_publico') }}"><i class="fa fa-cart-shopping"></i>Ver produtos</a>
+        <button type="button" class="sfp-btn sfp-btn-outline" id="sfp-aviso-btn" onclick="sfpAvisoChegada()"><i class="fa fa-bell"></i><span>Avise-me quando chegar</span></button>
       </div>
     </div>
   </div>
@@ -1536,6 +1559,32 @@ function renderInsightCard(p, tag) {
   </a>`;
 }
 
+let _sfpCidade = null, _sfpUf = null, _sfpLat = 0, _sfpLng = 0, _sfpLogado = false;
+
+function sfpMarkRequested() {
+  const btn = document.getElementById('sfp-aviso-btn');
+  if (!btn) return;
+  btn.classList.add('active');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa fa-check"></i><span>Vamos te avisar</span>';
+}
+
+function sfpAvisoChegada() {
+  if (!_sfpLogado) {
+    location.href = `/entrar?next=${encodeURIComponent(location.pathname + location.search)}`;
+    return;
+  }
+  const btn = document.getElementById('sfp-aviso-btn');
+  if (btn) btn.disabled = true;
+  fetch('/api/aviso-chegada', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({cidade: _sfpCidade || 'sua região', uf: _sfpUf || '', lat: _sfpLat, lng: _sfpLng})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) sfpMarkRequested();
+  }).finally(() => { if (btn && !btn.classList.contains('active')) btn.disabled = false; });
+}
+
 function carregarInsights() {
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
@@ -1543,8 +1592,23 @@ function carregarInsights() {
   _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d => {
       // Aviso sem farmácia prÃ³xima
+      _sfpLogado = !!d.logado;
       if (d.sem_farmacia_proxima) {
         document.getElementById('sec-sem-farmacia').style.display = '';
+        _sfpCidade = d.cidade || null;
+        _sfpUf = d.uf || null;
+        _sfpLat = parseFloat(_lat) || 0;
+        _sfpLng = parseFloat(_lng) || 0;
+        const cidadeTxt = document.getElementById('sfp-cidade-txt');
+        if (cidadeTxt) {
+          cidadeTxt.textContent = _sfpCidade ? `em ${_sfpCidade}${_sfpUf ? '/' + _sfpUf : ''}` : 'na sua região';
+        }
+        if (_sfpLogado && _sfpCidade) {
+          fetch(`/api/aviso-chegada?cidade=${encodeURIComponent(_sfpCidade)}&uf=${encodeURIComponent(_sfpUf || '')}`)
+            .then(r => r.json())
+            .then(sd => { if (sd.registrado) sfpMarkRequested(); })
+            .catch(() => {});
+        }
       }
 
       // Banner IA personalizado no hero (sÃ³ logado)

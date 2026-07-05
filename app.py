@@ -769,6 +769,38 @@ def _ensure_notificacoes_schema():
         _mark_migration_done(key)
 
 
+def _ensure_aviso_chegada_schema():
+    key = "aviso_chegada_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_avisos_chegada (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                cidade TEXT NOT NULL,
+                uf TEXT,
+                lat DOUBLE PRECISION,
+                lng DOUBLE PRECISION,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                notificado_em TIMESTAMPTZ,
+                UNIQUE (consumidor_id, cidade, uf)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_aviso_chegada_pendente ON ecommerce_avisos_chegada(cidade, uf) WHERE notificado_em IS NULL")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _notificar_consumidor(consumidor_id, tipo, titulo, mensagem="", url=None, pedido_id=None, conn=None, imagem_url=None):
     if not consumidor_id or not titulo:
         return
@@ -8432,6 +8464,53 @@ def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=Non
     return rows[:limit]
 
 
+_cidade_uf_cache: dict = {}
+
+
+def _reverse_geocode_cidade_uf(lat, lng):
+    """Resolve cidade/UF a partir de lat/lng — Google Maps (se GOOGLE_MAPS_KEY
+    configurada) com fallback Nominatim. Usado para exibir a cidade do
+    consumidor no aviso de "sem parceria aqui" e para casar com o aviso de
+    chegada quando uma loja e ativada nessa mesma cidade."""
+    try:
+        lat_f, lng_f = round(float(lat or 0), 3), round(float(lng or 0), 3)
+    except (TypeError, ValueError):
+        return None, None
+    if not lat_f and not lng_f:
+        return None, None
+    cache_key = (lat_f, lng_f)
+    if cache_key in _cidade_uf_cache:
+        return _cidade_uf_cache[cache_key]
+    cidade = uf = None
+    gm_key = os.getenv("GOOGLE_MAPS_KEY", "").strip()
+    if gm_key:
+        try:
+            url = (f"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat_f},{lng_f}"
+                   f"&key={gm_key}&language=pt-BR&result_type=administrative_area_level_2|locality")
+            with urllib.request.urlopen(url, timeout=5, context=ssl.create_default_context()) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            if data.get("status") == "OK" and data.get("results"):
+                comps = data["results"][0].get("address_components", [])
+                cidade = next((c["long_name"] for c in comps if "administrative_area_level_2" in c["types"]), None) \
+                      or next((c["long_name"] for c in comps if "locality" in c["types"]), None)
+                uf = next((c["short_name"] for c in comps if "administrative_area_level_1" in c["types"]), None)
+        except Exception:
+            pass
+    if not cidade:
+        try:
+            url = f"https://nominatim.openstreetmap.org/reverse?lat={lat_f}&lon={lng_f}&format=json&zoom=10&addressdetails=1"
+            req = urllib.request.Request(url, headers={"User-Agent": "poupaqui/1.0", "Accept-Language": "pt-BR"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            addr = data.get("address", {})
+            cidade = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county")
+            uf = (addr.get("state_code") or "").replace("BR-", "") or None
+        except Exception:
+            pass
+    _cidade_uf_cache[cache_key] = (cidade, uf)
+    return cidade, uf
+
+
 @app.get("/api/home/insights")
 @_rate_limited_api(max_calls=20, window_secs=60)
 def api_home_insights():
@@ -8461,6 +8540,8 @@ def api_home_insights():
         "banner_ia": "",
         "trending_lojas": [],
         "sem_farmacia_proxima": False,
+        "cidade": None,
+        "uf": None,
     }
     conn = db()
 
@@ -8490,6 +8571,12 @@ def api_home_insights():
                 else:
                     cnpjs_proximos = todos_ativos
                     resultado["sem_farmacia_proxima"] = True
+                    try:
+                        cidade, uf = _reverse_geocode_cidade_uf(lat, lng)
+                        resultado["cidade"] = cidade
+                        resultado["uf"] = uf
+                    except Exception:
+                        pass
             else:
                 cnpjs_proximos = todos_ativos
     except Exception as e:
@@ -10897,6 +10984,56 @@ def api_favoritos_toggle():
     conn.commit()
     cur.close()
     return jsonify({"ok": True, "favorito": True})
+
+
+@app.get("/api/aviso-chegada")
+def api_aviso_chegada_status():
+    """Diz se o consumidor logado ja pediu aviso para a cidade/uf informada."""
+    consumidor_id = session.get("consumidor_id")
+    cidade = (request.args.get("cidade") or "").strip()
+    uf = (request.args.get("uf") or "").strip()
+    if not consumidor_id or not cidade:
+        return jsonify({"registrado": False})
+    _ensure_aviso_chegada_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM ecommerce_avisos_chegada WHERE consumidor_id=%s AND cidade=%s AND COALESCE(uf,'')=%s LIMIT 1",
+        (consumidor_id, cidade, uf),
+    )
+    registrado = cur.fetchone() is not None
+    cur.close()
+    return jsonify({"registrado": registrado})
+
+
+@app.post("/api/aviso-chegada")
+@_consumer_required
+def api_aviso_chegada_criar():
+    """Consumidor pede para ser avisado (via notificacoes) quando uma farmacia
+    parceira for ativada na cidade dele. Casamento por cidade/uf acontece em
+    admin_loja_catalogo_toggle quando o admin liga o catalogo publico da loja."""
+    _ensure_aviso_chegada_schema()
+    data = request.get_json(silent=True) or {}
+    consumidor_id = session["consumidor_id"]
+    cidade = (data.get("cidade") or "").strip()[:120]
+    uf = (data.get("uf") or "").strip()[:2].upper() or None
+    lat = _to_float_or_none(data.get("lat"))
+    lng = _to_float_or_none(data.get("lng"))
+    if not cidade:
+        return jsonify({"ok": False, "erro": "Cidade não identificada."}), 400
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ecommerce_avisos_chegada (consumidor_id, cidade, uf, lat, lng)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (consumidor_id, cidade, uf) DO NOTHING
+        """,
+        (consumidor_id, cidade, uf, lat, lng),
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/favoritos/alertas")
@@ -15826,6 +15963,48 @@ def admin_loja_catalogo_config():
     return redirect(url_for("admin_lojas"))
 
 
+def _notificar_avisos_chegada(cnpjloja):
+    """Quando uma loja e ativada no catalogo publico, avisa (via notificacoes)
+    quem tinha pedido para ser avisado quando chegasse uma parceria na
+    cidade dela. Casamento por cidade/uf normalizados (mesma fonte de
+    geocode do consumidor: Google Maps com fallback Nominatim)."""
+    try:
+        _ensure_aviso_chegada_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("SELECT lat, lng FROM ecommerce_lojas_geo WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
+        geo = cur.fetchone()
+        if not geo or not geo.get("lat") or not geo.get("lng"):
+            cur.close()
+            return
+        cidade, uf = _reverse_geocode_cidade_uf(geo["lat"], geo["lng"])
+        if not cidade:
+            cur.close()
+            return
+        cidade_norm = _norm_text(cidade)
+        uf_norm = (uf or "").strip().upper()
+        cur.execute("SELECT id, consumidor_id, cidade FROM ecommerce_avisos_chegada WHERE notificado_em IS NULL AND COALESCE(uf,'')=%s", (uf_norm,))
+        pendentes = [r for r in cur.fetchall() if _norm_text(r["cidade"]) == cidade_norm]
+        if not pendentes:
+            cur.close()
+            return
+        cur.execute("SELECT razao, endereco FROM users WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
+        loja_row = cur.fetchone()
+        razao = _public_store_name(dict(loja_row)) if loja_row else "uma nova farmácia parceira"
+        for row in pendentes:
+            _notificar_consumidor(
+                row["consumidor_id"], "aviso_chegada",
+                f"Chegamos em {cidade}!",
+                f"{razao} agora faz parte do Poupaqui. Já dá pra fazer seu pedido.",
+                url=url_for("index"), conn=conn,
+            )
+            cur.execute("UPDATE ecommerce_avisos_chegada SET notificado_em=NOW() WHERE id=%s", (row["id"],))
+        conn.commit()
+        cur.close()
+    except Exception as exc:
+        app.logger.warning("_notificar_avisos_chegada error: %s", exc)
+
+
 @app.post("/painel/admin/lojas/catalogo-toggle")
 @admin_required
 def admin_loja_catalogo_toggle():
@@ -15850,6 +16029,10 @@ def admin_loja_catalogo_toggle():
         _batch_cache_clear()
         if ativo:
             flash("Catálogo habilitado. Clique em Sincronizar para publicar os produtos.", "success")
+            try:
+                _notificar_avisos_chegada(cnpjloja)
+            except Exception:
+                pass
         else:
             flash("Catálogo ocultado dos consumidores.", "success")
     return redirect(url_for("admin_lojas"))
