@@ -150,7 +150,9 @@
       "Bash(grep -n '<div class=\"home-prod-meta\"><i class=\"fa fa-store me-1\"></i>${hEsc\\(p.razao' templates/home.html)",
       "Bash(node --check \"C:/Users/emano/AppData/Local/Temp/claude/c--Users-emano-dns-ecommerce/b9bc1d79-9664-4e0a-a86e-3b1512b06767/scratchpad/home_check.js\")",
       "Bash(node --check \"C:/Users/emano/AppData/Local/Temp/claude/c--Users-emano-dns-ecommerce/b9bc1d79-9664-4e0a-a86e-3b1512b06767/scratchpad/index_check.js\")",
-      "Bash(node --check \"C:/Users/emano/AppData/Local/Temp/claude/c--Users-emano-dns-ecommerce/b9bc1d79-9664-4e0a-a86e-3b1512b06767/scratchpad/asn_check.js\")"
+      "Bash(node --check \"C:/Users/emano/AppData/Local/Temp/claude/c--Users-emano-dns-ecommerce/b9bc1d79-9664-4e0a-a86e-3b1512b06767/scratchpad/asn_check.js\")",
+      "Bash(npm ls *)",
+      "Bash(node --check \"C:/Users/emano/AppData/Local/Temp/claude/c--Users-emano-dns-ecommerce/b9bc1d79-9664-4e0a-a86e-3b1512b06767/scratchpad/carrinho_check2.js\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\windows\\Downloads"

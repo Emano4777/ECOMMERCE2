@@ -995,6 +995,12 @@ function renderCart() {
         }
       } else if (!atingiuMinimo) {
         entregaMsg = '';
+      }
+      // Aviso de pedido mínimo é independente do horário/feriado: mesmo que a
+      // loja esteja fechada agora, o consumidor precisa saber que também
+      // falta valor no carrinho — senão ele só vê "fechada" e nunca descobre
+      // que precisa adicionar mais itens.
+      if (distanciaConhecida && dentroRaio && !atingiuMinimo) {
         minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px;box-sizing:border-box">
           <i class="fa fa-triangle-exclamation" style="color:#ea580c;font-size:1.25rem;margin-top:1px;flex-shrink:0"></i>
           <div style="min-width:0;overflow-wrap:break-word">
@@ -1152,6 +1158,10 @@ function atualizarTotaisComFrete() {
     freteTotal += frete;
     if (delivery === 'entrega') {
       entregaCount++;
+    }
+    // Mesmo quando "entrega" ainda não pode ser selecionada (por faltar valor
+    // mínimo), avisa no resumo que falta X para desbloquear a entrega nessa loja.
+    if (cfg.aceita_entrega === true) {
       const minPedido = parseFloat(cfg.pedido_minimo_entrega || 0);
       if (minPedido > 0 && sub < minPedido) {
         faltasMinimo.push({ razao: cfg.razao || '', falta: minPedido - sub });
