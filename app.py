@@ -8857,10 +8857,14 @@ def api_config_lojas():
                COALESCE(c.valor_frete, 0)               AS valor_frete,
                COALESCE(c.pedido_minimo_entrega, 0)     AS pedido_minimo_entrega,
                (c.pix_chave IS NOT NULL AND c.pix_chave <> '') AS tem_pix,
-               g.lat AS loja_lat, g.lng AS loja_lng
+               g.lat AS loja_lat, g.lng AS loja_lng,
+               p.nome AS plano_nome, p.descricao AS plano_descricao,
+               p.preco_mensal AS plano_preco_mensal, p.beneficios AS plano_beneficios,
+               COALESCE(p.ativo, FALSE) AS plano_ativo
         FROM users u
         LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
         LEFT JOIN ecommerce_lojas_geo g   ON g.cnpjloja = u.cnpjloja
+        LEFT JOIN ecommerce_planos_assinatura p ON p.cnpjloja = u.cnpjloja
         WHERE u.cnpjloja = ANY(%s)
         """,
         (cnpjs,),
@@ -8869,6 +8873,8 @@ def api_config_lojas():
 
     consumidor_id = session.get("consumidor_id")
     frete_gratis_disponivel = set()
+    assinados = set()
+    pendentes = set()
     if consumidor_id:
         cur.execute(
             """
@@ -8882,6 +8888,20 @@ def api_config_lojas():
             (consumidor_id, cnpjs),
         )
         frete_gratis_disponivel = {r["cnpjloja"] for r in cur.fetchall()}
+
+        cur.execute(
+            """
+            SELECT cnpjloja, status FROM ecommerce_assinantes
+            WHERE consumidor_id=%s AND cnpjloja = ANY(%s)
+              AND (data_fim IS NULL OR data_fim > NOW())
+            """,
+            (consumidor_id, cnpjs),
+        )
+        for r in cur.fetchall():
+            if r["status"] == "ativo":
+                assinados.add(r["cnpjloja"])
+            elif r["status"] == "aguardando_pagamento":
+                pendentes.add(r["cnpjloja"])
     cur.close()
 
     data = {}
@@ -8894,6 +8914,8 @@ def api_config_lojas():
         item["feriado_hoje"] = _hs.get("feriado_hoje")
         item["proximo_dia_entrega"] = _hs.get("proximo_dia_entrega")
         item["frete_gratis_assinante_disponivel"] = r["cnpjloja"] in frete_gratis_disponivel
+        item["ja_assina"] = r["cnpjloja"] in assinados
+        item["assinatura_pendente"] = r["cnpjloja"] in pendentes
         data[r["cnpjloja"]] = item
     return jsonify(data)
 
@@ -10405,7 +10427,7 @@ def api_carrinho_get():
     for r in cur.fetchall():
         nome = r["nome"] or ""
         preco_base_atual = _preco_catalogo_atual(r["cnpjloja"], r["ean"], r["preco"])
-        if _catalogo_alpha_exclusivo() and float(preco_base_atual or 0) <= 0:
+        if float(preco_base_atual or 0) <= 0:
             continue
         preco_item, promo_item = _preco_produto_com_promocao(
             r["cnpjloja"], r["ean"], preco_base_atual, cid
@@ -10721,7 +10743,7 @@ def meus_pedidos():
         """
         SELECT p.id, p.cnpjloja, p.forma_pagamento, p.status, p.total, p.criado_em,
                p.tipo_entrega, p.desconto_cupom, p.previsao_entrega_em,
-               u.razao
+               u.razao, u.endereco
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
         WHERE p.consumidor_id = %s
@@ -10731,6 +10753,8 @@ def meus_pedidos():
         (session["consumidor_id"],),
     )
     pedidos = [dict(p) for p in cur.fetchall()]
+    for p in pedidos:
+        p["razao"] = _public_store_name(p)
     economia_total = sum(float(p.get("desconto_cupom") or 0) for p in pedidos)
     agora = datetime.now(timezone.utc)
     for p in pedidos:
@@ -10767,22 +10791,56 @@ def meus_pedidos():
         p["itens_count"] = len(_itens_p)
         p["itens_preview"] = _itens_p[:3]
         p["primeiro_item_nome"] = _itens_p[0]["nome"] if _itens_p else ""
-        p["itens_repetir_json"] = json.dumps([
-            {
-                "ean": i.get("ean") or "",
-                "nome": i.get("nome") or "",
-                "qty": int(i.get("qty") or 1),
-                "preco": float(i.get("preco_unitario") or 0),
-                "imagem": i.get("imagem") or "",
-                "cnpjloja": p["cnpjloja"],
-                "razao": p["razao"],
-            }
-            for i in _itens_p
-        ])
     return render_template(
         "meus_pedidos.html", pedidos=pedidos, rec_map=rec_map,
         motivos=_MOTIVOS_RECLAMACAO, economia_total=economia_total,
     )
+
+
+@app.post("/api/pedido/<pedido_id>/repetir")
+@_consumer_required
+def api_pedido_repetir(pedido_id):
+    """Recoloca os itens de um pedido anterior no carrinho — mas so os que
+    ainda tem estoque na loja agora (nunca deixa 'comprar' item indisponivel).
+    Reusa _preco_catalogo_atual, que ja filtra estoque>0 em todas as fontes
+    (Alpha, estoque, automatiza_estoque) e devolve preco atualizado."""
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT p.cnpjloja, u.razao, u.endereco FROM ecommerce_pedidos p JOIN users u ON u.cnpjloja = p.cnpjloja "
+        "WHERE p.id=%s AND p.consumidor_id=%s LIMIT 1",
+        (pedido_id, session["consumidor_id"]),
+    )
+    pedido = cur.fetchone()
+    if not pedido:
+        cur.close()
+        return jsonify({"error": "Pedido não encontrado."}), 404
+    cnpjloja = pedido["cnpjloja"]
+    razao_publica = _public_store_name(pedido)
+    cur.execute(
+        "SELECT ean, nome, qty, imagem FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id",
+        (pedido_id,),
+    )
+    itens = cur.fetchall()
+    cur.close()
+
+    disponiveis = []
+    indisponiveis = []
+    for item in itens:
+        preco_atual = _preco_catalogo_atual(cnpjloja, item.get("ean") or "", 0)
+        if preco_atual and preco_atual > 0:
+            disponiveis.append({
+                "ean": item.get("ean") or "",
+                "nome": item.get("nome") or "",
+                "qty": int(item.get("qty") or 1),
+                "preco": preco_atual,
+                "imagem": item.get("imagem") or "",
+                "cnpjloja": cnpjloja,
+                "razao": razao_publica,
+            })
+        else:
+            indisponiveis.append(item.get("nome") or "Item")
+    return jsonify({"disponiveis": disponiveis, "indisponiveis": indisponiveis})
 
 
 @app.get("/notificacoes")
@@ -11018,7 +11076,7 @@ def meu_pedido_detalhe(pedido_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT p.*, u.razao, u.telefone,
+        SELECT p.*, u.razao, u.telefone, u.endereco,
                u.endereco2 AS loja_endereco,
                c.whatsapp_pedidos, c.pix_chave, c.pix_nome
         FROM ecommerce_pedidos p
@@ -11069,6 +11127,7 @@ def meu_pedido_detalhe(pedido_id):
     cur2.close()
     cur.close()
     pedido = dict(pedido)
+    pedido["razao"] = _public_store_name(pedido)
     if pedido.get("data_entrega_agendada"):
         _data_ag = pedido["data_entrega_agendada"]
         _dia_ag = (_data_ag.weekday() + 1) % 7
@@ -11084,19 +11143,6 @@ def meu_pedido_detalhe(pedido_id):
     if previsao_em:
         pedido["previsao_entrega_em_label"] = previsao_em.strftime("%d/%m às %H:%M")
 
-    itens_repetir_json = json.dumps([
-        {
-            "ean": i.get("ean") or "",
-            "nome": i.get("nome") or "",
-            "qty": int(i.get("qty") or 1),
-            "preco": float(i.get("preco_unitario") or 0),
-            "imagem": i.get("imagem") or "",
-            "cnpjloja": pedido["cnpjloja"],
-            "razao": pedido["razao"],
-        }
-        for i in itens
-    ])
-
     return render_template(
         "meu_pedido_detalhe.html",
         pedido=pedido,
@@ -11105,7 +11151,6 @@ def meu_pedido_detalhe(pedido_id):
         motivos=_MOTIVOS_RECLAMACAO,
         avaliacao_feita=dict(avaliacao_feita) if avaliacao_feita else None,
         timeline=timeline,
-        itens_repetir_json=itens_repetir_json,
     )
 
 
@@ -11714,7 +11759,7 @@ def api_checkout():
                 item.get("ean") or "",
                 item.get("preco", 0),
             )
-            if _catalogo_alpha_exclusivo() and float(preco_base_atual or 0) <= 0:
+            if float(preco_base_atual or 0) <= 0:
                 return jsonify({
                     "error": f"{item.get('nome') or 'Um item do carrinho'} não está mais disponível. Atualize o carrinho e tente novamente.",
                     "reload_cart": True,
@@ -21162,14 +21207,16 @@ def minhas_assinaturas():
     cur.execute("""
         SELECT a.id, a.status, a.data_inicio, a.data_fim, a.cnpjloja, a.pagamento_status, a.criado_em,
                p.nome AS plano_nome, p.descricao, p.preco_mensal, p.beneficios,
-               u.razao
+               u.razao, u.endereco
         FROM ecommerce_assinantes a
         JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
         JOIN users u ON u.cnpjloja = a.cnpjloja
         WHERE a.consumidor_id = %s
         ORDER BY a.criado_em DESC
     """, (str(consumidor_id),))
-    assinaturas = cur.fetchall()
+    assinaturas = [dict(a) for a in cur.fetchall()]
+    for a in assinaturas:
+        a["razao"] = _public_store_name(a)
     cur.close()
     consumidor = _consumidor_from_session()
     return render_template("consumidor_assinaturas.html", assinaturas=assinaturas, consumidor=consumidor)
@@ -21351,7 +21398,7 @@ def assinatura_pagamento(cnpjloja):
             SELECT a.id, a.mp_payment_id, a.mp_preapproval_id, a.mp_preapproval_init_point,
                    a.mp_init_point, a.status, a.pagamento_status, a.data_fim,
                    p.nome AS plano_nome, p.preco_mensal,
-                   u.razao
+                   u.razao, u.endereco
             FROM ecommerce_assinantes a
             JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
             JOIN users u ON u.cnpjloja = a.cnpjloja
@@ -21395,7 +21442,7 @@ def assinatura_pagamento(cnpjloja):
             "assinatura_recorrente_link": row.get("mp_preapproval_init_point") or "",
             "cartao_link": row.get("mp_init_point") or "",
             "plano_nome": row["plano_nome"],
-            "razao": row["razao"],
+            "razao": _public_store_name(row),
             "preco": float(row["preco_mensal"] or 0),
         }
         cur.close()
@@ -21815,10 +21862,16 @@ def _status_horario_entrega(cnpjloja):
     }
     if not aberta:
         nome_dia_hoje = next((n for d, n in _DIAS_SEMANA if d == dia_hoje), "hoje")
+        if not fechado_hoje and ab and hora_agora < ab:
+            # Loja abre hoje ainda (so nao chegou a hora) - o "proximo" e hoje
+            # mesmo, nao o proximo dia da semana que viria só daqui 7 dias.
+            proximo = {"dia": dia_hoje, "nome_dia": nome_dia_hoje, "hora_abertura": str(ab)[:5], "data": data_hoje.isoformat(), "hoje": True}
+        else:
+            proximo = _proximo_dia_abertura(cnpjloja, horarios, dia_hoje, data_hoje)
         result.update({
             "fechado_hoje": True,
             "nome_dia_hoje": nome_dia_hoje,
-            "proximo": _proximo_dia_abertura(cnpjloja, horarios, dia_hoje, data_hoje),
+            "proximo": proximo,
         })
     if not entrega_disponivel_horario and _loja_permite_agendamento_entrega(cnpjloja):
         result["proximo_dia_entrega"] = _proximo_dia_entrega_disponivel(cnpjloja, horarios, dia_hoje, data_hoje)

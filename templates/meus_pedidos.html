@@ -431,7 +431,7 @@
         <a class="btn-rastrear" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
           <i class="fa fa-location-arrow"></i>{{ 'Ver detalhes' if p.status == 'cancelado' else 'Rastrear pedido' }}
         </a>
-        <button type="button" class="btn-comprar-de-novo" onclick='repetirPedido({{ p.itens_repetir_json }})'>
+        <button type="button" class="btn-comprar-de-novo" onclick="repetirPedido('{{ p.id }}', this)">
           <i class="fa fa-rotate"></i>Comprar de novo
         </button>
       </div>
@@ -491,11 +491,6 @@ function toggleQuick(id) {
   el.style.display = el.style.display === 'block' ? 'none' : 'block';
 }
 
-function repetirPedido(itens) {
-  if (!itens || !itens.length) return;
-  itens.forEach(it => addToCart(it));
-  window.location.href = "{{ url_for('carrinho') }}";
-}
 
 const orderSearch = document.getElementById('order-search');
 const orderCards = Array.from(document.querySelectorAll('.order-card'));

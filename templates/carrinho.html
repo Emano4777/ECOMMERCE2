@@ -1044,6 +1044,7 @@ function renderCart() {
         ${addressChoiceHtml(cnpj)}
         <div class="delivery-address"><i class="fa fa-location-dot"></i><span>${esc(getDeliveryAddressChoice().label || 'Endereço não informado')}</span></div>
       </div>
+      ${assinaturaCardHtml(cnpj, cfg)}
       ${receitaUploadHtml}
       ${renderDescontoQuantidade(cnpj, g.itens)}
       <div style="padding:10px 16px;border-top:1px solid var(--pq-border)">
@@ -1181,13 +1182,49 @@ async function atualizarStatusHorarioCarrinho(cnpjs) {
       }
       el.classList.add('is-closed');
       el.textContent = d.proximo
-        ? `Fechada, abre ${d.proximo.nome_dia} ${d.proximo.hora_abertura}`
+        ? `Fechada, abre ${d.proximo.hoje ? 'hoje' : d.proximo.nome_dia} ${d.proximo.hora_abertura}`
         : 'Fechada agora';
     } catch (err) {
       el.className = 'cart-store-status is-neutral';
       el.textContent = 'Horário indisponível';
     }
   }));
+}
+
+function assinaturaCardHtml(cnpj, cfg) {
+  if (!cfg.plano_ativo) return '';
+  const beneficiosHtml = (cfg.plano_beneficios || '').split('\n').map(b => b.trim()).filter(Boolean)
+    .map(b => `<span style="background:#ffd0d822;border:1px solid #ffd0d8;border-radius:999px;padding:2px 10px;font-size:.74rem;color:var(--pq-red);font-weight:700"><i class="fa fa-check me-1" style="font-size:.6rem"></i>${esc(b)}</span>`)
+    .join('');
+  let ctaHtml;
+  if (cfg.ja_assina) {
+    ctaHtml = `<a href="/minhas-assinaturas" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none"><i class="fa fa-check-circle"></i>Já sou assinante</a>`;
+  } else if (cfg.assinatura_pendente) {
+    ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#fef3c7;color:#d97706;border:1px solid #fde68a;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
+  } else {
+    ctaHtml = `<form method="post" action="/assinar/${encodeURIComponent(cnpj)}" style="margin-top:6px">
+      <button type="submit" style="background:var(--pq-red);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:900;font-size:.78rem;cursor:pointer;font-family:inherit">
+        <i class="fa fa-star me-1"></i>Assinar
+      </button>
+    </form>`;
+  }
+  return `<div style="background:linear-gradient(135deg,#fff5f6,#fff);border:1.5px solid #ffd0d8;border-radius:12px;padding:14px 16px;margin:12px 16px 0">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#c8102e,#e8354a);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fa fa-star" style="color:#fff;font-size:.9rem"></i>
+      </div>
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:.68rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.04em">Clube de assinantes</div>
+        <div style="font-size:.88rem;font-weight:900;color:#1a1a1a">${esc(cfg.plano_nome || 'Clube Fidelidade')}</div>
+        ${cfg.plano_descricao ? `<div style="font-size:.76rem;color:#555;margin-top:2px">${esc(cfg.plano_descricao)}</div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:1.2rem;font-weight:900;color:var(--pq-red)">${brl(cfg.plano_preco_mensal)}<span style="font-size:.7rem;font-weight:400;color:var(--pq-muted)">/mês</span></div>
+        ${ctaHtml}
+      </div>
+    </div>
+    ${beneficiosHtml ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${beneficiosHtml}</div>` : ''}
+  </div>`;
 }
 
 function payOptHtml(cnpj, val, label, checked) {

@@ -1949,6 +1949,34 @@ function addToCartFromData(btn) {
 function removeFromCart(ean, cnpjloja) {
   saveCart(getCart().filter(c => !(c.ean===ean && c.cnpjloja===cnpjloja)));
 }
+async function repetirPedido(pedidoId, btn) {
+  const textoOriginal = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Verificando estoque...'; }
+  try {
+    const r = await fetch(`/api/pedido/${encodeURIComponent(pedidoId)}/repetir`, { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok) {
+      alert(data.error || 'Não foi possível repetir este pedido.');
+      return;
+    }
+    const disponiveis = data.disponiveis || [];
+    const indisponiveis = data.indisponiveis || [];
+    disponiveis.forEach(it => addToCart(it));
+    if (indisponiveis.length) {
+      alert(
+        (disponiveis.length ? 'Alguns itens não estão mais disponíveis e não foram adicionados:\n\n' : 'Nenhum item deste pedido está mais disponível:\n\n')
+        + indisponiveis.map(n => '• ' + n).join('\n')
+      );
+    }
+    if (disponiveis.length) {
+      window.location.href = "{{ url_for('carrinho') }}";
+    }
+  } catch (e) {
+    alert('Erro ao repetir o pedido. Tente novamente.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
+  }
+}
 function updateCartBadge() {
   const n = getCart().reduce((s,c) => s+(c.qty||1), 0);
   const b = document.getElementById('cart-badge');

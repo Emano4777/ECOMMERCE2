@@ -173,7 +173,7 @@
       <button type="button" class="pd-btn-outline" onclick="document.getElementById('pd-nf-overlay').classList.add('open')">
         <i class="fa fa-file-invoice"></i>Nota fiscal
       </button>
-      <button type="button" class="pd-btn-outline" onclick='repetirPedido({{ itens_repetir_json }})'>
+      <button type="button" class="pd-btn-outline" onclick="repetirPedido('{{ pedido.id }}', this)">
         <i class="fa fa-rotate"></i>Repetir pedido
       </button>
     </div>
@@ -655,12 +655,6 @@
 
 {% block extra_js %}
 <script>
-function repetirPedido(itens) {
-  if (!itens || !itens.length) return;
-  itens.forEach(it => addToCart(it));
-  window.location.href = "{{ url_for('carrinho') }}";
-}
-
 /* ── Cross-sell IA no detalhe do pedido ─────────────────── */
 let _detRecItems = [];
 function addDetRec(idx, btn) {
