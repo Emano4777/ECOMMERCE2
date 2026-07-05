@@ -21416,6 +21416,7 @@ def api_planos_assinatura_proximos():
 @app.get("/minhas-assinaturas")
 def minhas_assinaturas():
     _ensure_assinatura_schema()
+    _ensure_logo_url_column()
     consumidor_id = session.get("consumidor_id")
     if not consumidor_id:
         return redirect(url_for("consumidor_login"))
@@ -21433,19 +21434,41 @@ def minhas_assinaturas():
     cur.execute("""
         SELECT a.id, a.status, a.data_inicio, a.data_fim, a.cnpjloja, a.pagamento_status, a.criado_em,
                p.nome AS plano_nome, p.descricao, p.preco_mensal, p.beneficios,
-               u.razao, u.endereco
+               u.razao, u.endereco, c.logo_url
         FROM ecommerce_assinantes a
         JOIN ecommerce_planos_assinatura p ON p.id = a.plano_id
         JOIN users u ON u.cnpjloja = a.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = a.cnpjloja
         WHERE a.consumidor_id = %s
         ORDER BY a.criado_em DESC
     """, (str(consumidor_id),))
     assinaturas = [dict(a) for a in cur.fetchall()]
     for a in assinaturas:
         a["razao"] = _public_store_name(a)
+    ativas = [a for a in assinaturas if a["status"] == "ativo" and a["pagamento_status"] == "aprovado"]
+    investindo_mes = sum(float(a.get("preco_mensal") or 0) for a in ativas)
+
+    # Economia estimada: soma real dos beneficios financiados pelo admin (frete
+    # gratis da 1a entrega + diferenca de preco so_assinantes) aplicados nos
+    # pedidos reais deste consumidor — nao e um numero inventado.
+    economia_estimada = 0.0
+    try:
+        _ensure_repasses_admin_schema()
+        cur.execute("""
+            SELECT COALESCE(SUM(r.valor), 0) AS economia
+            FROM ecommerce_repasses_admin r
+            JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+            WHERE p.consumidor_id = %s AND r.tipo IN ('promocao', 'frete_primeira_entrega')
+        """, (str(consumidor_id),))
+        economia_estimada = float((cur.fetchone() or {}).get("economia") or 0)
+    except Exception:
+        economia_estimada = 0.0
     cur.close()
     consumidor = _consumidor_from_session()
-    return render_template("consumidor_assinaturas.html", assinaturas=assinaturas, consumidor=consumidor)
+    return render_template(
+        "consumidor_assinaturas.html", assinaturas=assinaturas, consumidor=consumidor,
+        n_ativas=len(ativas), investindo_mes=investindo_mes, economia_estimada=economia_estimada,
+    )
 
 
 @app.post("/assinar/<cnpjloja>")

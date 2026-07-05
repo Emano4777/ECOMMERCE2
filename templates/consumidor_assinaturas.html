@@ -3,26 +3,90 @@
 
 {% block extra_style %}
 <style>
-.asn-wrap { max-width:900px; margin:0 auto; padding:28px 16px 70px; }
-.asn-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:24px; }
+.asn-wrap { max-width:980px; margin:0 auto; padding:24px 16px 70px; }
+.asn-crumb { font-size:.72rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; color:var(--pq-red); margin-bottom:6px; }
+.asn-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
 .asn-head h1 { margin:0; font-size:1.4rem; font-weight:900; display:flex; align-items:center; gap:10px; }
-.asn-sub { color:var(--pq-muted); font-size:.85rem; margin-top:4px; }
+.asn-sub { color:var(--pq-muted); font-size:.85rem; margin-top:4px; overflow-wrap:break-word; }
+.asn-seja-btn {
+  display:inline-flex; align-items:center; gap:8px; flex-shrink:0;
+  background:var(--pq-red); color:#fff; border-radius:11px; padding:11px 18px;
+  text-decoration:none; font-weight:900; font-size:.85rem; white-space:nowrap;
+}
+
+/* STATS */
+.asn-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:22px; }
+@media(max-width:640px){ .asn-stats { grid-template-columns:1fr; } }
+.asn-stat { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:14px 16px; display:flex; align-items:center; gap:12px; min-width:0; }
+.asn-stat-ico { width:38px; height:38px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:.95rem; }
+.asn-stat-label { font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--pq-muted); }
+.asn-stat-value { font-size:1.15rem; font-weight:900; color:#111827; overflow-wrap:break-word; }
+
 .asn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
-.asn-card { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); overflow:hidden; }
-.asn-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:20px; color:#fff; }
-.asn-card-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.22); border-radius:999px; padding:3px 10px; font-size:.72rem; font-weight:800; margin-bottom:10px; }
-.asn-card-badge.cancelado { background:rgba(0,0,0,.2); color:rgba(255,255,255,.6); }
-.asn-card-badge.aguardando { background:rgba(255,200,0,.25); color:#ffe082; }
-.asn-card-nome { font-size:1.15rem; font-weight:900; margin-bottom:2px; }
-.asn-card-loja { font-size:.82rem; opacity:.82; }
-.asn-card-body { padding:18px; }
-.asn-card-preco { font-size:1.6rem; font-weight:900; color:var(--pq-red); margin-bottom:3px; }
-.asn-card-preco small { font-size:.88rem; font-weight:400; color:var(--pq-muted); }
-.asn-card-desc { color:#555; font-size:.83rem; line-height:1.6; margin-bottom:14px; }
-.asn-bens { list-style:none; padding:0; margin:0 0 16px; display:flex; flex-direction:column; gap:7px; }
-.asn-bens li { display:flex; align-items:flex-start; gap:7px; font-size:.83rem; color:#333; }
-.asn-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:var(--pq-red); font-size:.66rem; margin-top:3px; flex-shrink:0; }
-.asn-since { font-size:.74rem; color:var(--pq-muted); margin-bottom:14px; }
+.asn-card { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+.asn-card.is-inativo .asn-card-head { background:linear-gradient(135deg,#4b5563,#6b7280); }
+.asn-card.is-inativo .asn-bens li { color:#9ca3af; }
+.asn-card.is-inativo .asn-bens li::before { color:#9ca3af; }
+.asn-card-head { background:linear-gradient(135deg,#c8102e,#e8354a); padding:18px 18px 16px; color:#fff; position:relative; }
+.asn-card-badge { display:inline-flex; align-items:center; gap:5px; font-size:.68rem; font-weight:800; margin-bottom:10px; }
+.asn-card-badge:before { content:''; width:7px; height:7px; border-radius:50%; background:#fff; }
+.asn-card-badge.cancelado:before, .asn-card-badge.aguardando:before { background:rgba(255,255,255,.6); }
+.asn-card-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.asn-card-ico { width:34px; height:34px; border-radius:10px; flex-shrink:0; overflow:hidden; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.3); display:flex; align-items:center; justify-content:center; font-size:.85rem; }
+.asn-card-ico img { width:100%; height:100%; object-fit:cover; }
+.asn-card-nome { font-size:1.05rem; font-weight:900; margin-bottom:2px; overflow-wrap:break-word; }
+.asn-card-loja { font-size:.8rem; opacity:.85; display:flex; align-items:center; gap:5px; }
+.asn-card-body { padding:16px 18px; display:flex; flex-direction:column; flex:1; min-width:0; }
+.asn-price-row { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+.asn-card-preco { font-size:1.35rem; font-weight:900; color:var(--pq-red); }
+.asn-card-preco small { font-size:.78rem; font-weight:400; color:var(--pq-muted); }
+.asn-next-charge { text-align:right; font-size:.62rem; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--pq-muted); }
+.asn-next-charge strong { display:block; font-size:.78rem; font-weight:900; color:#111827; text-transform:none; letter-spacing:0; }
+.asn-card-desc { color:#555; font-size:.83rem; line-height:1.6; margin-bottom:12px; overflow-wrap:break-word; }
+.asn-bens { list-style:none; padding:0; margin:0 0 14px; display:flex; flex-direction:column; gap:7px; }
+.asn-bens li { display:flex; align-items:flex-start; gap:7px; font-size:.82rem; color:#333; min-width:0; overflow-wrap:break-word; }
+.asn-bens li::before { content:'\f00c'; font-family:'Font Awesome 6 Free'; font-weight:900; color:#16a34a; font-size:.66rem; margin-top:3px; flex-shrink:0; }
+.asn-status-box { border-radius:10px; padding:10px 12px; font-size:.78rem; margin-bottom:14px; display:flex; align-items:flex-start; gap:8px; }
+.asn-status-box.ok { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+.asn-status-box.warn { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+.asn-status-box i { margin-top:2px; flex-shrink:0; }
+.asn-status-box .sub { display:block; font-weight:600; opacity:.85; margin-top:2px; }
+.asn-actions { margin-top:auto; display:flex; gap:8px; }
+.asn-btn-main {
+  flex:1; min-width:0; padding:10px; border-radius:10px; font-family:inherit; font-weight:900;
+  font-size:.82rem; cursor:pointer; text-align:center; text-decoration:none; box-sizing:border-box;
+}
+.asn-btn-outline { border:1.5px solid var(--pq-border); background:#fff; color:var(--pq-text); }
+.asn-btn-solid { border:none; background:var(--pq-red); color:#fff; }
+.asn-kebab-wrap { position:relative; flex-shrink:0; }
+.asn-kebab-btn { width:38px; height:38px; border-radius:10px; border:1.5px solid var(--pq-border); background:#fff; color:#6b7280; cursor:pointer; font-size:.9rem; }
+.asn-kebab-menu {
+  display:none; position:absolute; right:0; bottom:44px; z-index:5; min-width:190px;
+  background:#fff; border:1px solid var(--pq-border); border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.14); padding:6px;
+}
+.asn-kebab-wrap.open .asn-kebab-menu { display:block; }
+.asn-kebab-menu button, .asn-kebab-menu a {
+  display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:none; background:none;
+  padding:9px 10px; border-radius:7px; font-family:inherit; font-size:.82rem; font-weight:700; color:var(--pq-text);
+  cursor:pointer; text-decoration:none; box-sizing:border-box;
+}
+.asn-kebab-menu button:hover, .asn-kebab-menu a:hover { background:#f9fafb; }
+.asn-kebab-menu .danger { color:var(--pq-red); }
+
+.asn-add-card {
+  border:1.5px dashed var(--pq-border); border-radius:18px; background:#fff;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+  padding:26px 18px; text-decoration:none; color:inherit; gap:10px; min-height:140px;
+}
+.asn-add-ico { width:42px; height:42px; border-radius:50%; background:#fff0f2; color:var(--pq-red); display:flex; align-items:center; justify-content:center; font-size:1rem; }
+.asn-add-title { font-weight:900; font-size:.92rem; color:#1a1a1a; }
+.asn-add-desc { font-size:.78rem; color:var(--pq-muted); max-width:220px; }
+
+.asn-trust-wrap { margin-top:22px; }
+.asn-trust { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); padding:14px 18px; display:flex; justify-content:center; gap:26px; flex-wrap:wrap; }
+.asn-trust-item { display:flex; align-items:center; gap:7px; font-size:.78rem; font-weight:700; color:#374151; }
+.asn-trust-item i { color:#16a34a; }
+
 .asn-empty { background:#fff; border:1px solid var(--pq-border); border-radius:18px; box-shadow:var(--pq-shadow); text-align:center; padding:60px 24px; }
 .asn-empty i { font-size:3rem; opacity:.2; margin-bottom:14px; display:block; color:var(--pq-red); }
 .asn-empty p { color:var(--pq-muted); font-size:.9rem; }
@@ -31,32 +95,74 @@
 
 {% block content %}
 <div class="asn-wrap">
+  <div class="asn-crumb">Minha conta</div>
   <div class="asn-head">
     <div>
-      <h1><i class="fa fa-star" style="color:var(--pq-red)"></i>Minhas Assinaturas</h1>
-      <div class="asn-sub">Farmácias que você assina e seus benefícios exclusivos.</div>
+      <h1><i class="fa fa-star" style="color:var(--pq-red)"></i>Minhas assinaturas</h1>
+      <div class="asn-sub">Gerencie os clubes de fidelidade das farmácias que você assina.</div>
     </div>
-    <a href="{{ url_for('seja_assinante') }}" class="btn" style="background:var(--pq-red);color:#fff;border-radius:10px;padding:10px 18px;text-decoration:none;font-weight:900;font-size:.85rem">
-      <i class="fa fa-star me-1"></i>Seja assinante
+    <a href="{{ url_for('seja_assinante') }}" class="asn-seja-btn">
+      <i class="fa fa-star"></i>Seja assinante
     </a>
   </div>
 
   {% if assinaturas %}
+  <div class="asn-stats">
+    <div class="asn-stat">
+      <div class="asn-stat-ico" style="background:#dcfce7;color:#16a34a"><i class="fa fa-check"></i></div>
+      <div>
+        <div class="asn-stat-label">Ativas</div>
+        <div class="asn-stat-value">{{ n_ativas }}</div>
+      </div>
+    </div>
+    <div class="asn-stat">
+      <div class="asn-stat-ico" style="background:#fce7f3;color:#db2777"><i class="fa fa-sack-dollar"></i></div>
+      <div>
+        <div class="asn-stat-label">Investindo por mês</div>
+        <div class="asn-stat-value">R$ {{ '%.2f'|format(investindo_mes)|replace('.', ',') }}</div>
+      </div>
+    </div>
+    <div class="asn-stat">
+      <div class="asn-stat-ico" style="background:#ede9fe;color:#7c3aed"><i class="fa fa-check"></i></div>
+      <div>
+        <div class="asn-stat-label">Economia estimada</div>
+        <div class="asn-stat-value">R$ {{ '%.2f'|format(economia_estimada)|replace('.', ',') }}</div>
+      </div>
+    </div>
+  </div>
+
   <div class="asn-grid">
     {% for a in assinaturas %}
-    <div class="asn-card">
+    {% set ativa = a.status == 'ativo' and a.pagamento_status == 'aprovado' %}
+    <div class="asn-card{% if not ativa %} is-inativo{% endif %}">
       <div class="asn-card-head">
-        <div class="asn-card-badge {% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}{% elif a.status == 'aguardando_pagamento' %}aguardando{% else %}cancelado{% endif %}">
-          <i class="fa fa-{% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}star{% elif a.status == 'aguardando_pagamento' %}clock{% else %}ban{% endif %}" style="font-size:.55rem"></i>
-          {% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}Assinante ativo{% elif a.status == 'aguardando_pagamento' %}Aguardando pagamento{% elif a.status == 'vencido' %}Vencida{% else %}Cancelado{% endif %}
+        <div class="asn-card-badge {% if ativa %}{% elif a.status == 'aguardando_pagamento' %}aguardando{% else %}cancelado{% endif %}">
+          {% if ativa %}Ativa{% elif a.status == 'aguardando_pagamento' %}Aguardando pagamento{% elif a.status == 'vencido' %}Vencida{% else %}Cancelada{% endif %}
         </div>
-        <div class="asn-card-nome">{{ a.razao }}</div>
-        <div class="asn-card-loja"><i class="fa fa-star me-1" style="font-size:.7rem"></i>{{ a.plano_nome }}</div>
+        <div class="asn-card-top">
+          <div>
+            <div class="asn-card-nome">{{ a.razao }}</div>
+            <div class="asn-card-loja"><i class="fa fa-star" style="font-size:.7rem"></i>{{ a.plano_nome }}</div>
+          </div>
+          <div class="asn-card-ico">
+            {% if a.logo_url %}
+            <img src="{{ a.logo_url }}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''">
+            <i class="fa fa-store" style="display:none"></i>
+            {% else %}
+            <i class="fa fa-store"></i>
+            {% endif %}
+          </div>
+        </div>
       </div>
       <div class="asn-card-body">
-        <div class="asn-card-preco">
-          R$ {{ '%.2f'|format(a.preco_mensal|float) }}
-          <small>{{ '/mês' if a.preco_mensal > 0 else '— Gratuito' }}</small>
+        <div class="asn-price-row">
+          <div class="asn-card-preco">
+            R$ {{ '%.2f'|format(a.preco_mensal|float)|replace('.', ',') }}
+            <small>{{ '/mês' if a.preco_mensal > 0 else '— Gratuito' }}</small>
+          </div>
+          {% if ativa and a.data_fim %}
+          <div class="asn-next-charge">Próx. cobrança<strong>{{ a.data_fim.strftime('%d/%m/%Y') }}</strong></div>
+          {% endif %}
         </div>
         {% if a.descricao %}
         <div class="asn-card-desc">{{ a.descricao }}</div>
@@ -68,50 +174,84 @@
           {% endfor %}
         </ul>
         {% endif %}
-        <div class="asn-since">
-          <i class="fa fa-calendar-check me-1"></i>
-          {% if a.status == 'aguardando_pagamento' %}
-            Solicitado em {{ a.criado_em.strftime('%d/%m/%Y') if a.criado_em else '—' }}
-          {% elif a.status == 'vencido' %}
-            Venceu em {{ a.data_fim.strftime('%d/%m/%Y') if a.data_fim else '—' }}
-          {% else %}
-            Assinante desde {{ a.data_inicio.strftime('%d/%m/%Y') if a.data_inicio else '—' }}{% if a.data_fim %} · válido até {{ a.data_fim.strftime('%d/%m/%Y') }}{% endif %}
-          {% endif %}
+
+        {% if ativa %}
+        <div class="asn-status-box ok">
+          <i class="fa fa-circle-check"></i>
+          <div>Assinatura ativa<span class="sub">Assinante desde {{ a.data_inicio.strftime('%d/%m/%Y') if a.data_inicio else '—' }}</span></div>
         </div>
-        {% if a.status == 'ativo' and a.pagamento_status == 'aprovado' %}
-        <form method="post" action="{{ url_for('cancelar_assinatura', cnpjloja=a.cnpjloja) }}"
-              onsubmit="return confirm('Cancelar assinatura de {{ a.razao }}?')">
-          <button type="submit"
-                  style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #ffd0d8;background:#fff;color:var(--pq-red);font-family:inherit;font-weight:900;font-size:.82rem;cursor:pointer">
-            <i class="fa fa-ban me-1"></i>Cancelar assinatura
-          </button>
-        </form>
         {% elif a.status == 'aguardando_pagamento' %}
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <a href="{{ url_for('assinatura_pagamento', cnpjloja=a.cnpjloja) }}"
-             style="display:block;text-align:center;width:100%;padding:10px;border-radius:10px;border:0;background:var(--pq-red);color:#fff;font-family:inherit;font-weight:900;font-size:.82rem;text-decoration:none;box-sizing:border-box">
-            <i class="fa fa-qrcode me-1"></i>Continuar pagamento
-          </a>
-          <form method="post" action="{{ url_for('cancelar_assinatura', cnpjloja=a.cnpjloja) }}"
-                onsubmit="return confirm('Cancelar assinatura de {{ a.razao }}?')">
-            <button type="submit"
-                    style="width:100%;padding:8px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#888;font-family:inherit;font-weight:700;font-size:.78rem;cursor:pointer">
-              <i class="fa fa-ban me-1"></i>Cancelar
-            </button>
-          </form>
+        <div class="asn-status-box warn">
+          <i class="fa fa-clock"></i>
+          <div>Aguardando pagamento<span class="sub">Solicitado em {{ a.criado_em.strftime('%d/%m/%Y') if a.criado_em else '—' }}</span></div>
         </div>
         {% else %}
-        <form method="post" action="{{ url_for('assinar_loja', cnpjloja=a.cnpjloja) }}">
-          <button type="submit"
-                  style="width:100%;padding:10px;border-radius:10px;border:0;background:var(--pq-red);color:#fff;font-family:inherit;font-weight:900;font-size:.82rem;cursor:pointer">
-            <i class="fa fa-rotate me-1"></i>Reativar assinatura
-          </button>
-        </form>
+        <div class="asn-status-box warn">
+          <i class="fa fa-triangle-exclamation"></i>
+          <div>Assinatura {{ 'vencida' if a.status == 'vencido' else 'cancelada' }}<span class="sub">Assinante desde {{ a.data_inicio.strftime('%d/%m/%Y') if a.data_inicio else '—' }}{% if a.data_fim %} · válido até {{ a.data_fim.strftime('%d/%m/%Y') }}{% endif %}</span></div>
+        </div>
         {% endif %}
+
+        <div class="asn-actions">
+          {% if ativa %}
+          <button type="button" class="asn-btn-main asn-btn-outline" onclick="asnToggleKebab('kb-{{ a.id }}')">
+            <i class="fa fa-gear me-1"></i>Gerenciar assinatura
+          </button>
+          <div class="asn-kebab-wrap" id="kb-{{ a.id }}">
+            <button type="button" class="asn-kebab-btn" onclick="asnToggleKebab('kb-{{ a.id }}')"><i class="fa fa-ellipsis-vertical"></i></button>
+            <div class="asn-kebab-menu">
+              <form method="post" action="{{ url_for('cancelar_assinatura', cnpjloja=a.cnpjloja) }}"
+                    onsubmit="return confirm('Cancelar assinatura de {{ a.razao }}?')">
+                <button type="submit" class="danger"><i class="fa fa-ban"></i>Cancelar assinatura</button>
+              </form>
+            </div>
+          </div>
+          {% elif a.status == 'aguardando_pagamento' %}
+          <a href="{{ url_for('assinatura_pagamento', cnpjloja=a.cnpjloja) }}" class="asn-btn-main asn-btn-solid">
+            <i class="fa fa-qrcode me-1"></i>Continuar pagamento
+          </a>
+          <div class="asn-kebab-wrap" id="kb-{{ a.id }}">
+            <button type="button" class="asn-kebab-btn" onclick="asnToggleKebab('kb-{{ a.id }}')"><i class="fa fa-ellipsis-vertical"></i></button>
+            <div class="asn-kebab-menu">
+              <form method="post" action="{{ url_for('cancelar_assinatura', cnpjloja=a.cnpjloja) }}"
+                    onsubmit="return confirm('Cancelar solicitação de {{ a.razao }}?')">
+                <button type="submit" class="danger"><i class="fa fa-ban"></i>Cancelar solicitação</button>
+              </form>
+            </div>
+          </div>
+          {% else %}
+          <form method="post" action="{{ url_for('assinar_loja', cnpjloja=a.cnpjloja) }}" style="flex:1;min-width:0">
+            <button type="submit" class="asn-btn-main asn-btn-solid" style="width:100%">
+              <i class="fa fa-rotate me-1"></i>Reativar assinatura
+            </button>
+          </form>
+          <div class="asn-kebab-wrap" id="kb-{{ a.id }}">
+            <button type="button" class="asn-kebab-btn" onclick="asnToggleKebab('kb-{{ a.id }}')"><i class="fa fa-ellipsis-vertical"></i></button>
+            <div class="asn-kebab-menu">
+              <a href="{{ url_for('seja_assinante') }}"><i class="fa fa-star"></i>Assinar outra farmácia</a>
+            </div>
+          </div>
+          {% endif %}
+        </div>
       </div>
     </div>
     {% endfor %}
+
+    <a href="{{ url_for('seja_assinante') }}" class="asn-add-card">
+      <div class="asn-add-ico"><i class="fa fa-plus"></i></div>
+      <div class="asn-add-title">Assinar outra farmácia</div>
+      <div class="asn-add-desc">Descubra clubes de fidelidade em outras farmácias perto de você.</div>
+    </a>
   </div>
+
+  <div class="asn-trust-wrap">
+    <div class="asn-trust">
+      <div class="asn-trust-item"><i class="fa fa-shield-halved"></i>Cobrança segura e criptografada</div>
+      <div class="asn-trust-item"><i class="fa fa-check-circle"></i>Cancele a qualquer momento</div>
+      <div class="asn-trust-item"><i class="fa fa-rotate"></i>Renovação automática mensal</div>
+    </div>
+  </div>
+
   {% else %}
   <div class="asn-empty">
     <i class="fa fa-star"></i>
@@ -124,4 +264,19 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+function asnToggleKebab(id) {
+  const wrap = document.getElementById(id);
+  if (!wrap) return;
+  const wasOpen = wrap.classList.contains('open');
+  document.querySelectorAll('.asn-kebab-wrap.open').forEach(w => w.classList.remove('open'));
+  if (!wasOpen) wrap.classList.add('open');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.asn-kebab-wrap') && !e.target.closest('.asn-btn-outline')) {
+    document.querySelectorAll('.asn-kebab-wrap.open').forEach(w => w.classList.remove('open'));
+  }
+});
+</script>
 {% endblock %}
