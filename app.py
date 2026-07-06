@@ -5847,7 +5847,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
             CAST(ap.estoque AS INTEGER) AS qty,
-            ap.preco_atual AS preco,
+            ap.preco_venda AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
             'alpha_a7' AS fonte_estoque
         FROM ecommerce_alpha_produtos ap
@@ -5903,7 +5903,7 @@ def get_alpha_products_direct(cnpjs, limit=200):
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
             CAST(ap.estoque AS INTEGER) AS qty,
-            ap.preco_atual AS preco,
+            ap.preco_venda AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
             'alpha_a7' AS fonte_estoque
         FROM ecommerce_alpha_produtos ap
@@ -7782,7 +7782,7 @@ def _api_produtos_proximos_impl():
             cur_alpha_direct = conn_alpha_direct.cursor()
             cur_alpha_direct.execute(
                 """
-                SELECT cnpjloja, ean, nome, preco_atual AS preco,
+                SELECT cnpjloja, ean, nome, preco_venda AS preco,
                        CAST(estoque AS INTEGER) AS qty,
                        imagem_url AS imagem,
                        fabricante AS laboratorio,
@@ -9568,7 +9568,7 @@ def produto_detalhe(ean):
                     """
                     SELECT ap.ean, COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
                            CAST(ap.estoque AS INTEGER) AS qty,
-                           ap.preco_atual AS preco,
+                           ap.preco_venda AS preco,
                            COALESCE(%s, ap.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
                            'alpha_a7' AS fonte_estoque,
                            ap.alpha_o_id
