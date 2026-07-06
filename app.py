@@ -4754,6 +4754,7 @@ _SQL_ALPHA_A7 = """
             ap.ean,
             ap.nome,
             CAST(ap.estoque AS INTEGER) AS qty,
+            ap.preco_venda,
             ap.preco_atual,
             ap.fabricante,
             ap.principio_ativo,
@@ -5072,6 +5073,7 @@ _SQL_ALPHA_A7_BATCH = """
             ap.ean,
             ap.nome,
             CAST(ap.estoque AS INTEGER) AS qty,
+            ap.preco_venda,
             ap.preco_atual,
             ap.fabricante,
             ap.imagem_url
@@ -5121,7 +5123,7 @@ _SQL_ALPHA_A7_BATCH = """
         m.marca AS marca,
         COALESCE(m.tipo_ia, pc.categoria) AS categoria,
         el.qty,
-        el.preco_atual AS preco,
+        el.preco_venda AS preco,
         COALESCE(el.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
         'alpha_a7' AS fonte_estoque
     FROM eligible el
