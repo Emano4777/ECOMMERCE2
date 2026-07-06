@@ -1192,12 +1192,16 @@ function cardHtml(p, idx) {
           const precoAtual = parseFloat(p.preco)||0;
           const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual)||precoAtual;
           if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
+            const economia = (precoOriginal - parseFloat(promo.preco_promo)).toFixed(2).replace('.', ',');
+            const badgeLabel = promo.so_assinantes
+              ? `<i class="fa fa-circle-check" style="flex-shrink:0"></i><span>Preço de assinante aplicado</span>`
+              : `<i class="fa fa-tag" style="flex-shrink:0"></i><span>Economize R$ ${economia}</span>`;
             return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
               <span class="prod-preco">${brl(promo.preco_promo)}</span>
               <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoOriginal)}</span>
             </div>
             <div class="prod-cupom-badge" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">
-              <i class="fa fa-circle-check" style="flex-shrink:0"></i><span>Preço de assinante aplicado</span>
+              ${badgeLabel}
             </div>`;
           }
           if (promo && promo.so_assinantes && promo.preco_promo && promo.preco_promo < precoAtual) {

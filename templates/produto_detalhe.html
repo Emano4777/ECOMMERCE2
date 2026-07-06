@@ -566,7 +566,7 @@
             <span class="pd-economize-badge"><i class="fa fa-tag"></i>Economize R$ {{ "%.2f"|format((produto.preco_original|float) - (produto.preco|float)) | replace(".", ",") }}</span>
           </div>
           <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
-          <div class="pd-price-label" id="pd-price-label">preço de assinante aplicado</div>
+          <div class="pd-price-label" id="pd-price-label">{% if produto.promo.so_assinantes %}preço de assinante aplicado{% else %}preço na farmácia{% endif %}</div>
           {% elif produto.promo and produto.promo.so_assinantes and produto.promo.preco_promo and produto.promo.preco_promo|float < produto.preco|float %}
           <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
           <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>

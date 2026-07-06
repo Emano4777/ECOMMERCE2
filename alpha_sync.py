@@ -637,7 +637,106 @@ def sync_order_statuses(limit=500):
     return {"ok": True, "pedidos": len(pedidos), "nfes": len(nfes), "remessas": len(remessas)}
 
 
+def sync_prices_from_staging(cnpjloja=None):
+    cnpjloja = cnpjloja or _alpha_store_cnpj()
+    if not cnpjloja:
+        return {"ok": False, "erro": "ALPHA_DEFAULT_CNPJLOJA nao configurado"}
+    with _local_connect(timeout_ms=30000) as lconn:
+        lcur = lconn.cursor()
+
+        # Grava preco_venda (preço base, sem desconto) em ecommerce_precos
+        lcur.execute(
+            """
+            INSERT INTO ecommerce_precos (cnpjloja, ean, preco_customizado)
+            SELECT cnpjloja, ean, preco_venda
+            FROM ecommerce_alpha_produtos
+            WHERE cnpjloja = %s
+              AND COALESCE(inativo, false) = false
+              AND ean IS NOT NULL AND ean <> ''
+              AND preco_venda IS NOT NULL AND preco_venda > 0
+            ON CONFLICT (cnpjloja, ean) DO UPDATE
+                SET preco_customizado = EXCLUDED.preco_customizado
+            """,
+            (cnpjloja,),
+        )
+        updated_prices = lcur.rowcount
+
+        # Sincroniza promoções ativas do Alpha7 em ecommerce_promocoes
+        lcur.execute(
+            """
+            SELECT ean, nome, preco_promocional
+            FROM ecommerce_alpha_produtos
+            WHERE cnpjloja = %s
+              AND COALESCE(inativo, false) = false
+              AND ean IS NOT NULL AND ean <> ''
+              AND preco_promocional IS NOT NULL AND preco_promocional > 0
+              AND preco_promocional < preco_venda
+              AND (promo_inicio IS NULL OR promo_inicio <= NOW())
+              AND (promo_fim IS NULL OR promo_fim >= NOW())
+            """,
+            (cnpjloja,),
+        )
+        promo_rows = lcur.fetchall()
+        promo_eans = {r["ean"] for r in promo_rows}
+
+        # Desativa promoções Alpha7 que expiraram
+        lcur.execute(
+            "SELECT ean FROM ecommerce_alpha_produtos WHERE cnpjloja=%s AND ean IS NOT NULL AND ean <> ''",
+            (cnpjloja,),
+        )
+        all_alpha_eans = [r["ean"] for r in lcur.fetchall()]
+        expired_eans = [e for e in all_alpha_eans if e not in promo_eans]
+        if expired_eans:
+            lcur.execute(
+                """
+                UPDATE ecommerce_promocoes
+                SET ativo = FALSE, data_fim = NOW()
+                WHERE cnpjloja = %s AND ean = ANY(%s) AND so_assinantes = FALSE AND ativo = TRUE
+                """,
+                (cnpjloja, expired_eans),
+            )
+
+        # Upsert promoções ativas: atualiza existente ou insere nova
+        updated_promos = 0
+        for row in promo_rows:
+            ean, nome, preco_promo = row["ean"], row.get("nome"), row["preco_promocional"]
+            lcur.execute(
+                """
+                UPDATE ecommerce_promocoes
+                SET preco_promo=%s, ativo=TRUE, data_fim=NULL, nome=COALESCE(%s, nome)
+                WHERE cnpjloja=%s AND ean=%s AND so_assinantes=FALSE
+                """,
+                (preco_promo, nome, cnpjloja, ean),
+            )
+            if lcur.rowcount == 0:
+                lcur.execute(
+                    """
+                    INSERT INTO ecommerce_promocoes (cnpjloja, ean, nome, preco_promo, so_assinantes, ativo)
+                    VALUES (%s, %s, %s, %s, FALSE, TRUE)
+                    """,
+                    (cnpjloja, ean, nome, preco_promo),
+                )
+            updated_promos += 1
+
+        lconn.commit()
+        lcur.close()
+    return {"ok": True, "prices": updated_prices, "promos": updated_promos}
+
+
 def sync_all():
     products = sync_products()
+    prices = sync_prices_from_staging()
     statuses = sync_order_statuses()
-    return {"ok": bool(products.get("ok") and statuses.get("ok")), "products": products, "statuses": statuses}
+    return {
+        "ok": bool(products.get("ok") and statuses.get("ok")),
+        "products": products,
+        "prices": prices,
+        "statuses": statuses,
+    }
+
+
+if __name__ == "__main__":
+    import json
+    ensure_local_schema()
+    result = sync_all()
+    print(json.dumps(result, default=str))
