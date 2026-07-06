@@ -5512,7 +5512,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
                    ap.ean AS ean_join,
                    ap.nome AS nome_raw,
                    CAST(ap.estoque AS INTEGER) AS qty,
-                   ap.preco_atual AS preco_base,
+                   ap.preco_venda AS preco_base,
                    'alpha_a7' AS fonte_estoque
             FROM ecommerce_alpha_produtos ap
             JOIN alvo a ON LTRIM(COALESCE(ap.ean, ''), '0') = a.ean_key
@@ -5660,7 +5660,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
                    ap.ean AS ean_join,
                    ap.nome AS nome_raw,
                    CAST(ap.estoque AS INTEGER) AS qty,
-                   ap.preco_atual AS preco_base,
+                   ap.preco_venda AS preco_base,
                    'alpha_a7' AS fonte_estoque
             FROM ecommerce_alpha_produtos ap
             WHERE ap.cnpjloja = ANY(%s)
