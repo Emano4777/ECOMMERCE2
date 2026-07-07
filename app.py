@@ -16378,6 +16378,37 @@ def api_alpha_sync():
     return jsonify({"ok": bool(produtos.get("ok") or statuses.get("ok")), "produtos": produtos, "status_pedidos": statuses})
 
 
+_CRON_SECRET = "poupaqui-alpha-cron-7x9k2m"
+
+@app.post("/api/cron/alpha-export")
+def api_cron_alpha_export():
+    """Endpoint chamado pelo cron do Hostgator para exportar pedidos pagos ao Alpha."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM ecommerce_pedidos
+        WHERE status IN ('pago','pronto_retirada','em_separacao','separado',
+                         'em_transito','saiu_entrega','saiu_para_entrega','entregue','concluido')
+          AND (alpha_status IS NULL OR alpha_status = 'erro')
+          AND pagamento_confirmado_em IS NOT NULL
+        ORDER BY pagamento_confirmado_em
+        LIMIT 20
+        """,
+    )
+    rows = cur.fetchall()
+    cur.close()
+    resultados = []
+    for row in rows:
+        pid = str(row["id"])
+        res = _alpha_export_paid_order_safe(pid)
+        resultados.append({"id": pid[:8], "resultado": res})
+    return jsonify({"ok": True, "exportados": len(resultados), "detalhes": resultados})
+
+
 @app.post("/api/alpha/pedido/<pedido_id>/exportar")
 @painel_required
 def api_alpha_exportar_pedido(pedido_id):
