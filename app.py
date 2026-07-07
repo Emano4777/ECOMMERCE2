@@ -458,6 +458,64 @@ def _finalizar_pos_pagamento_aprovado(pedido_id, notificar=True):
             pass
 
 
+def _pedido_pagamento_aprovado(pedido):
+    return (pedido or {}).get("pagamento_status", "").lower() in {
+        "approved",
+        "recebido",
+        "received",
+        "confirmed",
+        "confirmado",
+    }
+
+
+def _normalizar_pedido_pago(pedido_id):
+    """Corrige pedidos legados/incoerentes: pagamento aprovado nao pode
+    continuar como pendente na tela do consumidor."""
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, status, pagamento_status, tipo_entrega
+            FROM ecommerce_pedidos
+            WHERE id=%s
+            LIMIT 1
+            """,
+            (pedido_id,),
+        )
+        row = cur.fetchone()
+        if not row or not _pedido_pagamento_aprovado(row):
+            cur.close()
+            return None
+        status_atual = (row.get("status") or "").lower()
+        if status_atual not in {"", "pendente"}:
+            cur.close()
+            return dict(row)
+        cur.execute(
+            """
+            UPDATE ecommerce_pedidos
+            SET status='pago',
+                pagamento_confirmado_em=COALESCE(pagamento_confirmado_em, NOW()),
+                atualizado_em=NOW()
+            WHERE id=%s
+            RETURNING *
+            """,
+            (pedido_id,),
+        )
+        updated = cur.fetchone()
+        conn.commit()
+        cur.close()
+        _registrar_status_pedido(str(pedido_id), "pago")
+        try:
+            _finalizar_pos_pagamento_aprovado_async(str(pedido_id), notificar=False)
+        except Exception:
+            pass
+        return dict(updated) if updated else None
+    except Exception as exc:
+        app.logger.warning("normalizar pedido pago %s error: %s", pedido_id, exc)
+        return None
+
+
 def _finalizar_pos_pagamento_aprovado_async(pedido_id, notificar=True):
     # Em ambiente serverless (Vercel) a instância é congelada assim que a
     # resposta HTTP é enviada, então uma daemon thread iniciada aqui não chega
@@ -10944,7 +11002,8 @@ def meus_pedidos():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT p.id, p.cnpjloja, p.forma_pagamento, p.status, p.total, p.criado_em,
+        SELECT p.id, p.cnpjloja, p.forma_pagamento, p.status, p.pagamento_status,
+               p.pagamento_confirmado_em, p.total, p.criado_em,
                p.tipo_entrega, p.desconto_cupom, p.previsao_entrega_em,
                u.razao, u.endereco, c.logo_url
         FROM ecommerce_pedidos p
@@ -10957,6 +11016,11 @@ def meus_pedidos():
         (session["consumidor_id"],),
     )
     pedidos = [dict(p) for p in cur.fetchall()]
+    for p in pedidos:
+        if _pedido_pagamento_aprovado(p) and (p.get("status") or "").lower() in {"", "pendente"}:
+            corrigido = _normalizar_pedido_pago(p["id"])
+            if corrigido:
+                p.update(corrigido)
     for p in pedidos:
         p["razao"] = _public_store_name(p)
     economia_total = sum(float(p.get("desconto_cupom") or 0) for p in pedidos)
@@ -11271,7 +11335,9 @@ def _montar_timeline_pedido(pedido):
     usando o historico de status quando existe (pedidos criados depois da
     migracao) e caindo pros 3 timestamps legados (criado_em/pagamento_
     confirmado_em/entregue_em) pra pedidos antigos sem historico."""
-    status_atual = pedido.get("status")
+    status_atual = (pedido.get("status") or "").lower()
+    if _pedido_pagamento_aprovado(pedido) and status_atual in ("", "pendente", None):
+        status_atual = "pago"
     if status_atual == "cancelado":
         return None
     fluxo = (
@@ -11306,6 +11372,8 @@ def _montar_timeline_pedido(pedido):
             primeiro_por_status["pendente"] = pedido["criado_em"]
         if pedido.get("pagamento_confirmado_em"):
             primeiro_por_status["pago"] = pedido["pagamento_confirmado_em"]
+        elif _pedido_pagamento_aprovado(pedido):
+            primeiro_por_status["pago"] = pedido.get("criado_em")
         if pedido.get("entregue_em"):
             primeiro_por_status["entregue"] = pedido["entregue_em"]
 
@@ -11345,6 +11413,22 @@ def meu_pedido_detalhe(pedido_id):
         (pedido_id, session["consumidor_id"]),
     )
     pedido = cur.fetchone()
+    if pedido and _pedido_pagamento_aprovado(pedido) and (pedido.get("status") or "").lower() in {"", "pendente"}:
+        _normalizar_pedido_pago(pedido_id)
+        cur.execute(
+            """
+            SELECT p.*, u.razao, u.telefone, u.endereco,
+                   u.endereco2 AS loja_endereco,
+                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url
+            FROM ecommerce_pedidos p
+            JOIN users u ON u.cnpjloja = p.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+            WHERE p.id = %s AND p.consumidor_id = %s
+            LIMIT 1
+            """,
+            (pedido_id, session["consumidor_id"]),
+        )
+        pedido = cur.fetchone() or pedido
     if not pedido:
         flash("Pedido não encontrado.", "error")
         return redirect(url_for("meus_pedidos"))
