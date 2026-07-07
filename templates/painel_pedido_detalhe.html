@@ -474,6 +474,43 @@
     <input type="hidden" id="status-pending" value="">
   </form>
 
+  {% if alpha_enabled and pedido.status not in ['pendente','cancelado'] and pedido.alpha_status not in ['enviado','integrado'] %}
+  <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <button type="button" id="btn-alpha-export" class="status-btn" onclick="exportarAlpha()"
+            style="border-color:#38bdf8;color:#38bdf8">
+      <i class="fa fa-arrow-up-from-bracket me-1"></i>Reenviar para Alpha
+    </button>
+    <span id="alpha-export-msg" style="font-size:.78rem;color:var(--pk-muted)">
+      {% if pedido.alpha_status == 'erro' %}
+        Última tentativa: erro — {{ pedido.alpha_erro or 'desconhecido' }}
+      {% else %}
+        Ainda não enviado ao Alpha.
+      {% endif %}
+    </span>
+  </div>
+  <script>
+  function exportarAlpha() {
+    const btn = document.getElementById('btn-alpha-export');
+    const msg = document.getElementById('alpha-export-msg');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    fetch('/api/alpha/pedido/{{ pedido.id }}/exportar', {method:'POST', headers:{'Content-Type':'application/json'}})
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok || d.ja_enviado || d.ja_existe_alpha) {
+          msg.textContent = '✓ Enviado com sucesso!';
+          msg.style.color = '#22c55e';
+          btn.style.display = 'none';
+        } else {
+          msg.textContent = 'Erro: ' + (d.erro || JSON.stringify(d));
+          msg.style.color = '#f08090';
+          btn.disabled = false; btn.innerHTML = '<i class="fa fa-arrow-up-from-bracket me-1"></i>Tentar novamente';
+        }
+      })
+      .catch(() => { msg.textContent = 'Erro de rede.'; msg.style.color='#f08090'; btn.disabled=false; });
+  }
+  </script>
+  {% endif %}
+
   <script>
   function abrirPrevisao(statusVal, tipo) {
     document.getElementById('previsao-tipo-label').textContent = tipo === 'retirada' ? 'retirada' : 'entrega';

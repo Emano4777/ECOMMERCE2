@@ -13705,18 +13705,28 @@ def mercado_pago_webhook():
         # é o jeito mais rapido de detectar quando alguem "parou de pagar":
         # se a cobranca falhar, o MP eventualmente pausa/cancela o preapproval,
         # e essa checagem propaga isso pro nosso banco na hora.
-        threading.Thread(
-            target=lambda: _sincronizar_authorized_payment(str(payment_id)),
-            daemon=True,
-        ).start()
+        if os.environ.get("VERCEL"):
+            _sincronizar_authorized_payment(str(payment_id))
+        else:
+            threading.Thread(
+                target=lambda: _sincronizar_authorized_payment(str(payment_id)),
+                daemon=True,
+            ).start()
         return jsonify({"ok": True})
     if event_type and event_type not in {"payment", "merchant_order"}:
         return jsonify({"ok": True})
     if payment_id:
-        threading.Thread(
-            target=lambda: (_ativar_assinatura_mp(str(payment_id)), _aplicar_webhook_pagamento(str(payment_id))),
-            daemon=True,
-        ).start()
+        # No Vercel (serverless) a instância é congelada após retornar a resposta,
+        # então threads daemon nunca chegam a executar. Rodar de forma síncrona
+        # garante que o pagamento seja processado e o pedido exportado ao Alpha.
+        if os.environ.get("VERCEL"):
+            _ativar_assinatura_mp(str(payment_id))
+            _aplicar_webhook_pagamento(str(payment_id))
+        else:
+            threading.Thread(
+                target=lambda: (_ativar_assinatura_mp(str(payment_id)), _aplicar_webhook_pagamento(str(payment_id))),
+                daemon=True,
+            ).start()
     return jsonify({"ok": True})
 
 
@@ -14081,6 +14091,7 @@ def painel_pedido_detalhe(pedido_id):
         itens=itens,
         receita_urls=receita_urls,
         ml_shipping=ml_shipping_info,
+        alpha_enabled=_alpha_enabled(),
     )
 
 
@@ -16356,6 +16367,13 @@ def api_alpha_sync():
     produtos = _alpha_sync_products_safe()
     statuses = _alpha_sync_statuses_safe()
     return jsonify({"ok": bool(produtos.get("ok") or statuses.get("ok")), "produtos": produtos, "status_pedidos": statuses})
+
+
+@app.post("/api/alpha/pedido/<pedido_id>/exportar")
+@painel_required
+def api_alpha_exportar_pedido(pedido_id):
+    result = _alpha_export_paid_order_safe(str(pedido_id))
+    return jsonify(result)
 
 
 # ─── ADMIN ────────────────────────────────────────────────────────────────────
