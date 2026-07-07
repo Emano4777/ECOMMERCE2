@@ -43,6 +43,18 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "poupaqui-ecommerce-dev-2026")
 app.permanent_session_lifetime = timedelta(days=30)
 
+_BRT = timezone(timedelta(hours=-3))
+
+@app.template_filter('brt')
+def _filter_brt(dt, fmt='%d/%m/%Y %H:%M'):
+    if not dt:
+        return '—'
+    if hasattr(dt, 'tzinfo') and dt.tzinfo:
+        dt = dt.astimezone(_BRT)
+    else:
+        dt = dt.replace(tzinfo=timezone.utc).astimezone(_BRT)
+    return dt.strftime(fmt)
+
 GENERIC_TARJA_VERMELHA_IMG = "https://res.cloudinary.com/dizfq460q/image/upload/v1778783063/CAIXA_GEN%C3%89RICO_-_POUPAQUI_itiyth.jpg"
 GENERIC_TARJA_PRETA_IMG = "https://res.cloudinary.com/dizfq460q/image/upload/v1778783450/ChatGPT_Image_14_de_mai._de_2026_15_30_35_wuovpb.png"
 
@@ -428,13 +440,20 @@ def _finalizar_pos_pagamento_aprovado(pedido_id, notificar=True):
             app.logger.warning("pos pagamento notificar %s error: %s", pedido_id, exc)
         try:
             _pid = str(pedido_id)
-            _wa_notif_pedido_loja(
+            _ok_wa = _wa_notif_pedido_loja(
                 _pid,
                 f'✅ Pedido pago!\n'
                 f'Pedido #{_pid[:8].upper()} foi confirmado.\n'
                 f'Clique para preparar:\n'
                 f'{_wa_base_url()}/painel/pedidos/{_pid}'
             )
+            if _ok_wa:
+                try:
+                    _wc = db(); _wcu = _wc.cursor()
+                    _wcu.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NOW() WHERE id=%s", (_pid,))
+                    _wc.commit(); _wcu.close()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -970,9 +989,10 @@ def _wa_notif_pedido_loja(pedido_id: str, msg: str):
         row = cur.fetchone()
         cur.close()
         if row and row.get('wpp'):
-            _wa_send(row['wpp'], msg)
+            return _wa_send(row['wpp'], msg)
+        return False
     except Exception:
-        pass
+        return False
 
 
 def _wa_base_url():
@@ -16383,34 +16403,30 @@ _CRON_SECRET = "poupaqui-alpha-cron-7x9k2m"
 
 @app.post("/api/cron/wa-diagnostico")
 def api_cron_wa_diagnostico():
-    auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {_CRON_SECRET}":
-        return jsonify({"ok": False, "erro": "unauthorized"}), 401
-    key_ok = bool(WASENDER_API_KEY)
-    key_preview = (WASENDER_API_KEY[:8] + "…") if WASENDER_API_KEY else "(vazia)"
-    conn = db(); cur = conn.cursor()
-    cur.execute("SELECT COALESCE(whatsapp_pedidos, telefone) AS wpp FROM ecommerce_config_loja LIMIT 1")
-    row = cur.fetchone(); cur.close()
-    numero = (row or {}).get("wpp") or ""
-    d = re.sub(r'\D', '', numero)
-    to = ('+55' + d) if d and not d.startswith('55') else ('+' + d if d else "")
-    if not key_ok or not to or len(d) < 8:
-        return jsonify({"ok": False, "key_presente": key_ok, "key_preview": key_preview, "numero": numero, "to": to})
     try:
-        req = urllib.request.Request(
-            'https://wasenderapi.com/api/send-message',
-            data=json.dumps({'to': to, 'text': '🔧 Diagnóstico Poupaqui — WA OK!'}).encode(),
-            headers={'Authorization': f'Bearer {WASENDER_API_KEY}', 'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read(300).decode(errors='replace')
-            return jsonify({"ok": True, "key_preview": key_preview, "to": to, "status": resp.status, "body": body})
-    except urllib.error.HTTPError as e:
-        body = e.read(300).decode(errors='replace')
-        return jsonify({"ok": False, "key_preview": key_preview, "to": to, "erro": f"HTTP {e.code}", "body": body})
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {_CRON_SECRET}":
+            return jsonify({"ok": False, "erro": "unauthorized"}), 401
+        key_ok = bool(WASENDER_API_KEY)
+        key_preview = (WASENDER_API_KEY[:8] + "...") if WASENDER_API_KEY else "(vazia)"
+        numero = ""
+        try:
+            conn2 = db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT COALESCE(whatsapp_pedidos, telefone) AS wpp FROM ecommerce_config_loja LIMIT 1")
+            row2 = cur2.fetchone(); cur2.close()
+            numero = (row2 or {}).get("wpp") or ""
+        except Exception as e2:
+            return jsonify({"ok": False, "key_presente": key_ok, "key_preview": key_preview, "erro_db": str(e2)})
+        d = re.sub(r'\D', '', numero)
+        to = ('+55' + d) if d and not d.startswith('55') else ('+' + d if d else "")
+        if not key_ok:
+            return jsonify({"ok": False, "erro": "WASENDER_API_KEY vazia no Vercel", "key_preview": key_preview, "numero": numero})
+        if not to or len(d) < 8:
+            return jsonify({"ok": False, "erro": "numero invalido", "numero": numero, "to": to, "key_preview": key_preview})
+        ok = _wa_send(to, "Diagnostico Poupaqui WA OK!")
+        return jsonify({"ok": ok, "key_preview": key_preview, "to": to, "msg": "enviado" if ok else "falhou - ver logs Vercel"})
     except Exception as exc:
-        return jsonify({"ok": False, "key_preview": key_preview, "to": to, "erro": str(exc)})
+        return jsonify({"ok": False, "erro": str(exc)})
 
 
 @app.post("/api/cron/alpha-export")
@@ -16439,6 +16455,51 @@ def api_cron_alpha_export():
     pid = str(row["id"])
     res = _alpha_export_paid_order_safe(pid)
     return jsonify({"ok": True, "id": pid[:8], "resultado": res})
+
+
+@app.post("/api/cron/wa-notify")
+def api_cron_wa_notify():
+    """Envia WA da loja para 1 pedido pago que ainda não foi notificado."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    if not WASENDER_API_KEY:
+        return jsonify({"ok": False, "erro": "WASENDER_API_KEY_nao_configurada"})
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, total FROM ecommerce_pedidos
+        WHERE status IN ('pago','pronto_retirada','em_separacao','separado',
+                         'em_transito','saiu_entrega','saiu_para_entrega','entregue','concluido')
+          AND wa_loja_notificado_em IS NULL
+          AND pagamento_confirmado_em IS NOT NULL
+          AND pagamento_confirmado_em > NOW() - INTERVAL '48 hours'
+        ORDER BY pagamento_confirmado_em
+        LIMIT 1
+        """,
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"ok": True, "msg": "nenhum_pendente"})
+    pid = str(row["id"])
+    total_fmt = f"R${float(row['total'] or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    msg = (
+        f"✅ Pedido pago!\n"
+        f"Pedido #{pid[:8].upper()} - {total_fmt}\n"
+        f"Clique para preparar:\n"
+        f"{_wa_base_url()}/painel/pedidos/{pid}"
+    )
+    ok = _wa_notif_pedido_loja(pid, msg)
+    if ok:
+        try:
+            uc = db(); ucu = uc.cursor()
+            ucu.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NOW() WHERE id=%s", (pid,))
+            uc.commit(); ucu.close()
+        except Exception:
+            pass
+    return jsonify({"ok": ok, "id": pid[:8], "enviado": ok})
 
 
 @app.post("/api/alpha/pedido/<pedido_id>/exportar")

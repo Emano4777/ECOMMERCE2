@@ -141,7 +141,7 @@
         </td>
         <td style="font-weight:800;color:var(--pk-yellow)">{{ money(p.total) }}</td>
         <td style="font-size:.78rem;color:var(--pk-muted)">
-          {{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '—' }}
+          {{ p.criado_em | brt }}
         </td>
         <td>
           {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
