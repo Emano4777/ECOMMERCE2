@@ -611,7 +611,7 @@
         <h4><i class="fa fa-receipt"></i>Resumo do pagamento</h4>
         <div class="pd-side-row"><span>Subtotal</span><strong>{{ money(pedido.total - (pedido.frete_valor or 0)) }}</strong></div>
         <div class="pd-side-row">
-          <span>Entrega</span>
+          <span>{{ 'Retirada' if pedido.tipo_entrega == 'retirada' else 'Entrega' }}</span>
           <strong style="{% if not pedido.frete_valor %}color:#16a34a{% endif %}">{{ money(pedido.frete_valor) if pedido.frete_valor else 'Grátis' }}</strong>
         </div>
         <div class="pd-side-row total"><span>Total</span><strong>{{ money(pedido.total) }}</strong></div>
