@@ -16381,6 +16381,38 @@ def api_alpha_sync():
 
 _CRON_SECRET = "poupaqui-alpha-cron-7x9k2m"
 
+@app.post("/api/cron/wa-diagnostico")
+def api_cron_wa_diagnostico():
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    key_ok = bool(WASENDER_API_KEY)
+    key_preview = (WASENDER_API_KEY[:8] + "…") if WASENDER_API_KEY else "(vazia)"
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT COALESCE(whatsapp_pedidos, telefone) AS wpp FROM ecommerce_config_loja LIMIT 1")
+    row = cur.fetchone(); cur.close()
+    numero = (row or {}).get("wpp") or ""
+    d = re.sub(r'\D', '', numero)
+    to = ('+55' + d) if d and not d.startswith('55') else ('+' + d if d else "")
+    if not key_ok or not to or len(d) < 8:
+        return jsonify({"ok": False, "key_presente": key_ok, "key_preview": key_preview, "numero": numero, "to": to})
+    try:
+        req = urllib.request.Request(
+            'https://wasenderapi.com/api/send-message',
+            data=json.dumps({'to': to, 'text': '🔧 Diagnóstico Poupaqui — WA OK!'}).encode(),
+            headers={'Authorization': f'Bearer {WASENDER_API_KEY}', 'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read(300).decode(errors='replace')
+            return jsonify({"ok": True, "key_preview": key_preview, "to": to, "status": resp.status, "body": body})
+    except urllib.error.HTTPError as e:
+        body = e.read(300).decode(errors='replace')
+        return jsonify({"ok": False, "key_preview": key_preview, "to": to, "erro": f"HTTP {e.code}", "body": body})
+    except Exception as exc:
+        return jsonify({"ok": False, "key_preview": key_preview, "to": to, "erro": str(exc)})
+
+
 @app.post("/api/cron/alpha-export")
 def api_cron_alpha_export():
     """Endpoint chamado pelo cron do Hostgator a cada minuto. Exporta 1 pedido por chamada."""
