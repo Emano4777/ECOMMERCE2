@@ -171,7 +171,7 @@
       <span class="status {{ pedido.status }}"><i class="fa fa-circle"></i>{{ {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue','cancelado':'Cancelado'}.get(pedido.status, pedido.status|capitalize) }}</span>
     </div>
     <div class="pd-top-actions">
-      <button type="button" class="pd-btn-outline" onclick="document.getElementById('pd-nf-overlay').classList.add('open')">
+      <button type="button" class="pd-btn-outline" onclick="abrirNotaFiscalPedido('{{ pedido.id }}', this)">
         <i class="fa fa-file-invoice"></i>Nota fiscal
       </button>
       <button type="button" class="pd-btn-outline" onclick="repetirPedido('{{ pedido.id }}', this)">
@@ -724,5 +724,29 @@ function addDetRec(idx, btn) {
     });
   });
 })();
+
+async function abrirNotaFiscalPedido(pedidoId, btn) {
+  const old = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>Buscando nota';
+  }
+  try {
+    const url = `/meus-pedidos/${encodeURIComponent(pedidoId)}/nota-fiscal.pdf`;
+    const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+    if (resp.ok) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+    document.getElementById('pd-nf-overlay').classList.add('open');
+  } catch (e) {
+    document.getElementById('pd-nf-overlay').classList.add('open');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = old;
+    }
+  }
+}
 </script>
 {% endblock %}

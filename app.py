@@ -11247,6 +11247,197 @@ def meu_pedido_detalhe(pedido_id):
     )
 
 
+def _alpha_nota_xml_por_pedido(pedido_id):
+    if not alpha_sync:
+        return None, None, None
+    schema = alpha_sync._alpha_schema()
+    with alpha_sync._alpha_connect(timeout_ms=30000) as aconn:
+        acur = aconn.cursor()
+        acur.execute(
+            alpha_sync.sql.SQL(
+                """
+                SELECT o_xml, o_chaveacesso, o_numero
+                  FROM {}.out_documentofiscalpedido
+                 WHERE o_codigopedidointegracao = %s
+                   AND COALESCE(NULLIF(o_xml, ''), '') <> ''
+                 ORDER BY COALESCE(o_datahoraemissao, do_id) DESC NULLS LAST
+                 LIMIT 1
+                """
+            ).format(alpha_sync.sql.Identifier(schema)),
+            (str(pedido_id),),
+        )
+        row = acur.fetchone()
+    if not row:
+        return None, None, None
+    return row.get("o_xml"), row.get("o_chaveacesso"), row.get("o_numero")
+
+
+def _xml_text(root, path, ns):
+    node = root.find(path, ns)
+    return (node.text or "").strip() if node is not None and node.text is not None else ""
+
+
+@app.get("/meus-pedidos/<pedido_id>/nota-fiscal.pdf")
+@_consumer_required
+def meu_pedido_nota_fiscal_pdf(pedido_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id FROM ecommerce_pedidos WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (pedido_id, session["consumidor_id"]),
+    )
+    pedido = cur.fetchone()
+    cur.close()
+    if not pedido:
+        return jsonify({"ok": False, "erro": "pedido_nao_encontrado"}), 404
+
+    xml_text, chave_db, numero_db = _alpha_nota_xml_por_pedido(pedido_id)
+    if not xml_text:
+        return jsonify({"ok": False, "erro": "nota_nao_disponivel"}), 404
+
+    from io import BytesIO
+    from xml.etree import ElementTree as ET
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas
+
+    try:
+        root = ET.fromstring(xml_text.encode("utf-8") if isinstance(xml_text, str) else xml_text)
+    except Exception:
+        return jsonify({"ok": False, "erro": "xml_invalido"}), 422
+
+    ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
+    inf = root.find(".//n:infNFe", ns)
+    if inf is None:
+        return jsonify({"ok": False, "erro": "xml_sem_nfe"}), 422
+
+    def txt(path):
+        return _xml_text(inf, path, ns)
+
+    chave = (chave_db or (inf.attrib.get("Id") or "").replace("NFe", "")).strip()
+    numero = txt("n:ide/n:nNF") or str(numero_db or "")
+    serie = txt("n:ide/n:serie")
+    emissao = txt("n:ide/n:dhEmi") or txt("n:ide/n:dEmi")
+    emit_nome = txt("n:emit/n:xNome")
+    emit_cnpj = txt("n:emit/n:CNPJ") or txt("n:emit/n:CPF")
+    dest_nome = txt("n:dest/n:xNome")
+    dest_doc = txt("n:dest/n:CNPJ") or txt("n:dest/n:CPF")
+    valor_prod = txt("n:total/n:ICMSTot/n:vProd")
+    valor_nf = txt("n:total/n:ICMSTot/n:vNF")
+
+    itens = []
+    for det in inf.findall("n:det", ns):
+        prod = det.find("n:prod", ns)
+        if prod is None:
+            continue
+        get = lambda name: _xml_text(prod, f"n:{name}", ns)
+        itens.append({
+            "codigo": get("cProd"),
+            "ean": get("cEAN") or get("cEANTrib"),
+            "descricao": get("xProd"),
+            "qtd": get("qCom") or get("qTrib"),
+            "unit": get("vUnCom") or get("vUnTrib"),
+            "total": get("vProd"),
+        })
+
+    buf = BytesIO()
+    pdf = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    left = 1.2 * cm
+    right = width - 1.2 * cm
+    y = height - 1.1 * cm
+
+    def draw_text(x, yy, value, max_width, font="Helvetica", size=8):
+        value = str(value or "")
+        pdf.setFont(font, size)
+        if stringWidth(value, font, size) <= max_width:
+            pdf.drawString(x, yy, value)
+            return
+        while value and stringWidth(value + "...", font, size) > max_width:
+            value = value[:-1]
+        pdf.drawString(x, yy, value + "...")
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(left, y, "DANFE / Documento Auxiliar da Nota Fiscal")
+    pdf.setFont("Helvetica", 8)
+    pdf.drawRightString(right, y, "Gerado a partir do XML retornado pelo Alpha/A7")
+    y -= 0.7 * cm
+
+    pdf.setLineWidth(0.8)
+    pdf.rect(left, y - 2.3 * cm, right - left, 2.3 * cm)
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(left + 0.2 * cm, y - 0.35 * cm, f"NF-e/NFC-e numero {numero or '-'}")
+    pdf.drawString(left + 7.2 * cm, y - 0.35 * cm, f"Serie {serie or '-'}")
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(left + 0.2 * cm, y - 0.85 * cm, f"Chave de acesso: {chave or '-'}")
+    pdf.drawString(left + 0.2 * cm, y - 1.25 * cm, f"Emissao: {emissao or '-'}")
+    pdf.drawString(left + 0.2 * cm, y - 1.65 * cm, f"Valor produtos: R$ {valor_prod or '-'}")
+    pdf.drawString(left + 7.2 * cm, y - 1.65 * cm, f"Valor total: R$ {valor_nf or '-'}")
+    y -= 2.7 * cm
+
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawString(left, y, "Emitente")
+    pdf.drawString(left + 9.2 * cm, y, "Destinatario")
+    y -= 0.35 * cm
+    draw_text(left, y, emit_nome, 8.4 * cm)
+    draw_text(left + 9.2 * cm, y, dest_nome, 8.4 * cm)
+    y -= 0.35 * cm
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(left, y, f"CNPJ/CPF: {emit_cnpj or '-'}")
+    pdf.drawString(left + 9.2 * cm, y, f"CNPJ/CPF: {dest_doc or '-'}")
+    y -= 0.7 * cm
+
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawString(left, y, "Itens")
+    y -= 0.35 * cm
+    pdf.line(left, y, right, y)
+    y -= 0.35 * cm
+
+    cols = {
+        "codigo": left,
+        "ean": left + 2.2 * cm,
+        "desc": left + 5.0 * cm,
+        "qtd": right - 4.2 * cm,
+        "unit": right - 2.8 * cm,
+        "total": right - 1.2 * cm,
+    }
+    pdf.setFont("Helvetica-Bold", 7)
+    pdf.drawString(cols["codigo"], y, "Cod")
+    pdf.drawString(cols["ean"], y, "EAN")
+    pdf.drawString(cols["desc"], y, "Descricao")
+    pdf.drawRightString(cols["qtd"], y, "Qtd")
+    pdf.drawRightString(cols["unit"], y, "Unit")
+    pdf.drawRightString(cols["total"], y, "Total")
+    y -= 0.25 * cm
+    pdf.line(left, y, right, y)
+    y -= 0.3 * cm
+
+    for item in itens:
+        if y < 1.6 * cm:
+            pdf.showPage()
+            y = height - 1.2 * cm
+        draw_text(cols["codigo"], y, item["codigo"], 2.0 * cm, size=7)
+        draw_text(cols["ean"], y, item["ean"], 2.6 * cm, size=7)
+        draw_text(cols["desc"], y, item["descricao"], 8.2 * cm, size=7)
+        pdf.setFont("Helvetica", 7)
+        pdf.drawRightString(cols["qtd"], y, item["qtd"] or "-")
+        pdf.drawRightString(cols["unit"], y, item["unit"] or "-")
+        pdf.drawRightString(cols["total"], y, item["total"] or "-")
+        y -= 0.32 * cm
+
+    pdf.showPage()
+    pdf.save()
+    buf.seek(0)
+
+    filename = f"danfe_{chave or numero or pedido_id}.pdf"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @app.post("/meus-pedidos/<pedido_id>/avaliar")
 @_consumer_required
 def avaliar_pedido(pedido_id):
