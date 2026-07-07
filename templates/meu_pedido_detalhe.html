@@ -637,8 +637,8 @@
 {# ── Modal informativo de nota fiscal ─────────────────────────────── #}
 <div class="pd-nf-overlay" id="pd-nf-overlay" onclick="if(event.target===this) this.classList.remove('open')">
   <div class="pd-nf-box">
-    <h4><i class="fa fa-file-invoice" style="color:var(--pq-red)"></i>Nota fiscal</h4>
-    <p>A nota fiscal deste pedido é emitida pela farmácia e enviada junto com o produto — pelo entregador (na entrega) ou no balcão (na retirada). Se precisar da segunda via, entre em contato direto com a farmácia.</p>
+    <h4><i class="fa fa-file-invoice" style="color:var(--pq-red)"></i><span id="pd-nf-title">Nota fiscal ainda não disponível</span></h4>
+    <p id="pd-nf-text">Ainda não encontramos o XML deste pedido no Alpha/A7. Assim que a farmácia emitir a nota e o Alpha devolver o documento fiscal, este botão abrirá o PDF automaticamente. Se precisar agora, entre em contato com a farmácia.</p>
     <button type="button" onclick="document.getElementById('pd-nf-overlay').classList.remove('open')">Entendi</button>
   </div>
 </div>
@@ -725,6 +725,14 @@ function addDetRec(idx, btn) {
   });
 })();
 
+function mostrarNotaFiscalFallback(titulo, texto) {
+  const titleEl = document.getElementById('pd-nf-title');
+  const textEl = document.getElementById('pd-nf-text');
+  if (titleEl) titleEl.textContent = titulo || 'Nota fiscal ainda não disponível';
+  if (textEl) textEl.textContent = texto || 'Ainda não encontramos a nota fiscal deste pedido. Tente novamente em alguns instantes.';
+  document.getElementById('pd-nf-overlay').classList.add('open');
+}
+
 async function abrirNotaFiscalPedido(pedidoId, btn) {
   const old = btn ? btn.innerHTML : '';
   if (btn) {
@@ -738,9 +746,29 @@ async function abrirNotaFiscalPedido(pedidoId, btn) {
       window.open(url, '_blank', 'noopener');
       return;
     }
-    document.getElementById('pd-nf-overlay').classList.add('open');
+    let data = null;
+    try { data = await resp.json(); } catch (e) {}
+    if (data && data.erro === 'nota_nao_disponivel') {
+      mostrarNotaFiscalFallback(
+        'Nota fiscal ainda não disponível',
+        'Ainda não encontramos o XML deste pedido no Alpha/A7. Assim que a farmácia emitir a nota e o Alpha devolver o documento fiscal, este botão abrirá o PDF automaticamente. Se precisar agora, entre em contato com a farmácia.'
+      );
+    } else if (resp.status === 401 || resp.status === 403) {
+      mostrarNotaFiscalFallback(
+        'Acesso não autorizado',
+        'Não foi possível confirmar seu acesso a esta nota fiscal. Entre novamente na sua conta e tente outra vez.'
+      );
+    } else {
+      mostrarNotaFiscalFallback(
+        'Não foi possível abrir a nota',
+        'A consulta da nota fiscal não retornou um PDF disponível agora. Tente novamente em alguns instantes.'
+      );
+    }
   } catch (e) {
-    document.getElementById('pd-nf-overlay').classList.add('open');
+    mostrarNotaFiscalFallback(
+      'Não foi possível consultar a nota',
+      'A conexão falhou ao buscar a nota fiscal. Tente novamente em alguns instantes.'
+    );
   } finally {
     if (btn) {
       btn.disabled = false;
