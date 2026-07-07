@@ -118,6 +118,7 @@ def _upload_receita_cloudinary(file_bytes, filename):
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM    = os.getenv("RESEND_FROM", "Poupaqui <noreply@drogariaspoupaqui.com.br>")
+WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "")
 
 
 def _send_email(to: str, subject: str, html_body: str) -> bool:
@@ -424,6 +425,17 @@ def _finalizar_pos_pagamento_aprovado(pedido_id, notificar=True):
             )
         except Exception as exc:
             app.logger.warning("pos pagamento notificar %s error: %s", pedido_id, exc)
+        try:
+            _pid = str(pedido_id)
+            _wa_notif_pedido_loja(
+                _pid,
+                f'✅ Pedido pago!\n'
+                f'Pedido #{_pid[:8].upper()} foi confirmado.\n'
+                f'Clique para preparar:\n'
+                f'{_wa_base_url()}/painel/pedidos/{_pid}'
+            )
+        except Exception:
+            pass
 
 
 def _finalizar_pos_pagamento_aprovado_async(pedido_id, notificar=True):
@@ -881,6 +893,64 @@ def _notificar_todos_consumidores(titulo, mensagem="", url=None, tipo="sistema",
         except Exception:
             pass
     return 0
+
+
+# ─── WA SENDER (notificações WhatsApp para a loja) ───────────────────────────
+
+def _wa_send(numero: str, msg: str) -> bool:
+    """Envia mensagem WhatsApp via WA Sender API. Normaliza número para +55DD9XXXXXXXX."""
+    if not WASENDER_API_KEY or not numero:
+        return False
+    d = re.sub(r'\D', '', numero)
+    if not d or len(d) < 8:
+        return False
+    to = ('+55' + d) if not d.startswith('55') else ('+' + d)
+    try:
+        req = urllib.request.Request(
+            'https://wasenderapi.com/api/send-message',
+            data=json.dumps({'to': to, 'text': msg}).encode(),
+            headers={
+                'Authorization': f'Bearer {WASENDER_API_KEY}',
+                'Content-Type': 'application/json',
+            },
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=10):
+            return True
+    except Exception:
+        return False
+
+
+def _wa_notif_pedido_loja(pedido_id: str, msg: str):
+    """Busca whatsapp_pedidos da loja do pedido e envia notificação WA."""
+    if not WASENDER_API_KEY:
+        return
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(c.whatsapp_pedidos, u.telefone) AS wpp
+            FROM ecommerce_pedidos p
+            JOIN users u ON u.cnpjloja = p.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+            WHERE p.id = %s LIMIT 1
+            """,
+            (pedido_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row and row.get('wpp'):
+            _wa_send(row['wpp'], msg)
+    except Exception:
+        pass
+
+
+def _wa_base_url():
+    return os.getenv('PUBLIC_BASE_URL', 'https://ecommerce-2-rosy.vercel.app').rstrip('/')
+
+
+# ─── FIM WA SENDER ───────────────────────────────────────────────────────────
 
 
 def _ensure_consumidor_auth_columns():
@@ -5948,17 +6018,23 @@ def painel_required(fn):
     def wrapper(*args, **kwargs):
         if not session.get("painel_ok"):
             return redirect(url_for("painel_login"))
-        if session.get("painel_role") == "motoboy":
+        role = session.get("painel_role")
+        if role in ("motoboy", "lojista"):
             allowed = {
                 "painel_home",
                 "painel_pedidos",
                 "painel_pedido_detalhe",
                 "painel_confirmar_entrega",
+                "painel_confirmar_retirada",
                 "painel_logout",
                 "api_painel_novos_alertas",
             }
+            if role == "lojista":
+                # lojista também pode atualizar status do pedido
+                allowed.add("painel_pedidos_status")
+                allowed.add("painel_avaliar_receita")
             if request.endpoint not in allowed:
-                flash("Acesso restrito aos pedidos de entrega.", "error")
+                flash("Acesso restrito aos pedidos.", "error")
                 return redirect(url_for("painel_pedidos"))
         return fn(*args, **kwargs)
     return wrapper
@@ -5975,6 +6051,33 @@ def admin_required(fn):
 
 def _motoboy_logged():
     return session.get("painel_role") == "motoboy"
+
+
+def _lojista_logged():
+    return session.get("painel_role") == "lojista"
+
+
+def _ensure_lojista_schema():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ecommerce_lojistas (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            cnpjloja TEXT NOT NULL,
+            nome TEXT NOT NULL,
+            usuario TEXT NOT NULL UNIQUE,
+            senha_hash TEXT NOT NULL,
+            ativo BOOLEAN DEFAULT TRUE,
+            criado_em TIMESTAMPTZ DEFAULT NOW(),
+            atualizado_em TIMESTAMPTZ DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_lojistas_cnpj ON ecommerce_lojistas(cnpjloja)")
+    conn.commit()
+    cur.close()
 
 
 def _ensure_motoboy_schema():
@@ -12425,6 +12528,22 @@ def api_checkout():
         conn.commit()
         _registrar_status_pedido(pedido_id, "pendente")
 
+        # Notifica loja via WhatsApp ao receber novo pedido
+        try:
+            _wpp_loja = re.sub(r'\D', '', loja.get('whatsapp_pedidos') or loja.get('telefone') or '')
+            if _wpp_loja and WASENDER_API_KEY:
+                _total_fmt = f"R${round(total, 2):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                _wa_send(
+                    _wpp_loja,
+                    f'🛍️ Novo pedido recebido!\n'
+                    f'Pedido #{pedido_id[:8].upper()}\n'
+                    f'Total: {_total_fmt}\n'
+                    f'Ver pedido:\n'
+                    f'{_wa_base_url()}/painel/pedidos/{pedido_id}'
+                )
+        except Exception:
+            pass
+
         mp_init = None
         mp_payment = {}
         payment_status = "pending"
@@ -15581,7 +15700,7 @@ def catalogo_loja(cnpjloja):
 @app.get("/painel/login")
 def painel_login():
     if session.get("painel_ok"):
-        if _motoboy_logged():
+        if _motoboy_logged() or _lojista_logged():
             return redirect(url_for("painel_pedidos"))
         return redirect(url_for("precificador"))
     return render_template("painel_login.html")
@@ -15636,21 +15755,53 @@ def painel_login_post():
     except Exception:
         m = None
 
-    if not m or not check_password_hash(m.get("senha_hash") or "", senha):
-        flash("Usuário ou senha inválidos.", "error")
-        return redirect(url_for("painel_login"))
+    if m and check_password_hash(m.get("senha_hash") or "", senha):
+        session.clear()
+        session["painel_ok"]   = True
+        session["user_id"]     = str(m["id"])
+        session["cnpjloja"]    = m["cnpjloja"]
+        session["razao"]       = m["razao"]
+        session["uf"]          = m["uf"]
+        session["endereco"]    = m["endereco"]
+        session["is_admin"]    = False
+        session["painel_role"] = "motoboy"
+        session["motoboy_nome"] = m["nome"]
+        return redirect(url_for("painel_pedidos"))
 
-    session.clear()
-    session["painel_ok"]  = True
-    session["user_id"]    = str(m["id"])
-    session["cnpjloja"]   = m["cnpjloja"]
-    session["razao"]      = m["razao"]
-    session["uf"]         = m["uf"]
-    session["endereco"]   = m["endereco"]
-    session["is_admin"]   = False
-    session["painel_role"] = "motoboy"
-    session["motoboy_nome"] = m["nome"]
-    return redirect(url_for("painel_pedidos"))
+    # Tenta login como lojista
+    try:
+        _ensure_lojista_schema()
+        cur = db().cursor()
+        cur.execute(
+            """
+            SELECT l.id, l.cnpjloja, l.nome, l.senha_hash, u.razao, u.uf, u.endereco
+            FROM ecommerce_lojistas l
+            JOIN users u ON u.cnpjloja = l.cnpjloja
+            WHERE l.usuario=%s AND COALESCE(l.ativo, TRUE)=TRUE
+            LIMIT 1
+            """,
+            (usuario,),
+        )
+        lj = cur.fetchone()
+        cur.close()
+    except Exception:
+        lj = None
+
+    if lj and check_password_hash(lj.get("senha_hash") or "", senha):
+        session.clear()
+        session["painel_ok"]    = True
+        session["user_id"]      = str(lj["id"])
+        session["cnpjloja"]     = lj["cnpjloja"]
+        session["razao"]        = lj["razao"]
+        session["uf"]           = lj["uf"]
+        session["endereco"]     = lj["endereco"]
+        session["is_admin"]     = False
+        session["painel_role"]  = "lojista"
+        session["lojista_nome"] = lj["nome"]
+        return redirect(url_for("painel_pedidos"))
+
+    flash("Usuário ou senha inválidos.", "error")
+    return redirect(url_for("painel_login"))
 
 
 @app.get("/painel/logout")
@@ -15662,7 +15813,7 @@ def painel_logout():
 @app.get("/painel")
 @painel_required
 def painel_home():
-    if _motoboy_logged():
+    if _motoboy_logged() or _lojista_logged():
         return redirect(url_for("painel_pedidos"))
     return redirect(url_for("precificador"))
 
@@ -15763,6 +15914,114 @@ def painel_motoboys_senha(motoboy_id):
     cur.close()
     flash("Senha do motoboy atualizada.", "success")
     return redirect(url_for("painel_motoboys"))
+
+
+# ─── LOJISTAS (acesso restrito só a pedidos) ──────────────────────────────────
+
+@app.get("/painel/lojistas")
+@painel_required
+def painel_lojistas():
+    if _motoboy_logged() or _lojista_logged():
+        return redirect(url_for("painel_pedidos"))
+    _ensure_lojista_schema()
+    cnpjloja = session.get("cnpjloja")
+    cur = db().cursor()
+    cur.execute(
+        """
+        SELECT id, nome, usuario, ativo, criado_em, atualizado_em
+        FROM ecommerce_lojistas
+        WHERE cnpjloja=%s
+        ORDER BY ativo DESC, nome
+        """,
+        (cnpjloja,),
+    )
+    lojistas = cur.fetchall()
+    cur.close()
+    return render_template("painel_lojistas.html", lojistas=lojistas)
+
+
+@app.post("/painel/lojistas")
+@painel_required
+def painel_lojistas_criar():
+    if _motoboy_logged() or _lojista_logged():
+        return redirect(url_for("painel_pedidos"))
+    _ensure_lojista_schema()
+    cnpjloja = session.get("cnpjloja")
+    nome    = (request.form.get("nome")    or "").strip()
+    usuario = (request.form.get("usuario") or "").strip().lower()
+    senha   = (request.form.get("senha")   or "").strip()
+    if len(nome) < 3:
+        flash("Informe o nome do atendente.", "error")
+        return redirect(url_for("painel_lojistas"))
+    if len(usuario) < 4 or not re.match(r"^[a-z0-9._-]+$", usuario):
+        flash("O login deve ter pelo menos 4 caracteres e usar apenas letras, números, ponto, traço ou underline.", "error")
+        return redirect(url_for("painel_lojistas"))
+    if len(senha) < 6:
+        flash("A senha precisa ter pelo menos 6 caracteres.", "error")
+        return redirect(url_for("painel_lojistas"))
+    conn = db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO ecommerce_lojistas (cnpjloja, nome, usuario, senha_hash)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (cnpjloja, nome, usuario, generate_password_hash(senha)),
+        )
+        conn.commit()
+        flash("Login criado. Este acesso só tem acesso à tela de pedidos.", "success")
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        flash("Este login já está em uso. Escolha outro usuário.", "error")
+    finally:
+        cur.close()
+    return redirect(url_for("painel_lojistas"))
+
+
+@app.post("/painel/lojistas/<lojista_id>/status")
+@painel_required
+def painel_lojistas_status(lojista_id):
+    if _motoboy_logged() or _lojista_logged():
+        return redirect(url_for("painel_pedidos"))
+    _ensure_lojista_schema()
+    ativo = request.form.get("ativo") == "1"
+    cnpjloja = session.get("cnpjloja")
+    cur = db().cursor()
+    cur.execute(
+        "UPDATE ecommerce_lojistas SET ativo=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+        (ativo, lojista_id, cnpjloja),
+    )
+    db().commit()
+    cur.close()
+    flash("Acesso atualizado.", "success")
+    return redirect(url_for("painel_lojistas"))
+
+
+@app.post("/painel/lojistas/<lojista_id>/senha")
+@painel_required
+def painel_lojistas_senha(lojista_id):
+    if _motoboy_logged() or _lojista_logged():
+        return redirect(url_for("painel_pedidos"))
+    _ensure_lojista_schema()
+    senha = (request.form.get("senha") or "").strip()
+    if len(senha) < 6:
+        flash("A nova senha precisa ter pelo menos 6 caracteres.", "error")
+        return redirect(url_for("painel_lojistas"))
+    cnpjloja = session.get("cnpjloja")
+    cur = db().cursor()
+    cur.execute(
+        """
+        UPDATE ecommerce_lojistas
+        SET senha_hash=%s, atualizado_em=NOW()
+        WHERE id=%s AND cnpjloja=%s
+        """,
+        (generate_password_hash(senha), lojista_id, cnpjloja),
+    )
+    db().commit()
+    cur.close()
+    flash("Senha atualizada.", "success")
+    return redirect(url_for("painel_lojistas"))
 
 
 # ─── PRECIFICADOR ─────────────────────────────────────────────────────────────

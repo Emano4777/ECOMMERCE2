@@ -1,0 +1,107 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Lojistas{% endblock %}
+
+{% block extra_style %}
+<style>
+.loj-grid { display:grid; grid-template-columns:360px 1fr; gap:18px; align-items:start; }
+@media(max-width:900px){ .loj-grid { grid-template-columns:1fr; } }
+.loj-form { display:grid; gap:12px; }
+.loj-field label { display:block; font-size:.74rem; font-weight:800; text-transform:uppercase; color:var(--pk-muted); margin-bottom:5px; }
+.loj-help { font-size:.78rem; color:var(--pk-muted); line-height:1.45; }
+.loj-table { width:100%; border-collapse:collapse; font-size:.86rem; }
+.loj-table th { padding:10px 12px; background:#0d1016; border-bottom:1px solid var(--pk-line); color:var(--pk-muted); font-size:.76rem; text-transform:uppercase; text-align:left; }
+.loj-table td { padding:12px; border-bottom:1px solid var(--pk-line); vertical-align:middle; }
+.loj-status { display:inline-flex; align-items:center; gap:6px; border-radius:20px; padding:3px 10px; font-size:.72rem; font-weight:800; }
+.loj-status.on { background:#0d2d1a; color:#22c55e; }
+.loj-status.off { background:#2a0810; color:#f08090; }
+.loj-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.loj-actions form { display:flex; gap:6px; align-items:center; margin:0; }
+.loj-mini-input { width:150px; background:#0d1016; border:1px solid var(--pk-line); color:var(--pk-txt); border-radius:8px; padding:7px 10px; font-family:inherit; font-size:.8rem; }
+.loj-empty { text-align:center; padding:44px 20px; color:var(--pk-muted); }
+.loj-empty i { display:block; font-size:2.6rem; opacity:.25; margin-bottom:12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+  <div style="font-weight:900;font-size:1.25rem">
+    <i class="fa fa-user-tie me-2" style="color:var(--pk-yellow)"></i>Logins de lojista
+  </div>
+</div>
+
+<div class="loj-grid">
+  <div class="pk-card">
+    <div class="pk-card-title"><i class="fa fa-user-plus"></i>Criar acesso restrito</div>
+    <form class="loj-form" method="post" action="{{ url_for('painel_lojistas_criar') }}">
+      <div class="loj-field">
+        <label>Nome</label>
+        <input class="pk-input" name="nome" placeholder="Ex: Maria atendente" required>
+      </div>
+      <div class="loj-field">
+        <label>Login</label>
+        <input class="pk-input" name="usuario" placeholder="Ex: maria.loja" autocomplete="off" required>
+        <div class="loj-help" style="margin-top:5px">Use letras, números, ponto, traço ou underline.</div>
+      </div>
+      <div class="loj-field">
+        <label>Senha inicial</label>
+        <input class="pk-input" name="senha" type="password" minlength="6" autocomplete="new-password" required>
+      </div>
+      <button class="btn-pk-yellow" type="submit"><i class="fa fa-key me-1"></i>Criar login</button>
+    </form>
+    <div class="loj-help" style="margin-top:14px">
+      Este acesso entra pelo mesmo login do painel, mas <strong>só visualiza e gerencia pedidos</strong> — sem acesso ao precificador, configurações, relatórios ou outras telas.
+    </div>
+  </div>
+
+  <div class="pk-card" style="padding:0;overflow:hidden">
+    {% if lojistas %}
+    <table class="loj-table">
+      <thead>
+        <tr>
+          <th>Atendente</th>
+          <th>Login</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in lojistas %}
+        <tr>
+          <td>
+            <div style="font-weight:800">{{ l.nome }}</div>
+            <div style="font-size:.74rem;color:var(--pk-muted)">Criado em {{ l.criado_em.strftime('%d/%m/%Y') if l.criado_em else '-' }}</div>
+          </td>
+          <td><code style="color:var(--pk-yellow)">{{ l.usuario }}</code></td>
+          <td>
+            <span class="loj-status {% if l.ativo %}on{% else %}off{% endif %}">
+              <i class="fa fa-{% if l.ativo %}circle-check{% else %}circle-xmark{% endif %}"></i>
+              {{ 'Ativo' if l.ativo else 'Bloqueado' }}
+            </span>
+          </td>
+          <td>
+            <div class="loj-actions">
+              <form method="post" action="{{ url_for('painel_lojistas_status', lojista_id=l.id) }}">
+                <input type="hidden" name="ativo" value="{{ '0' if l.ativo else '1' }}">
+                <button class="btn-pk-ghost" type="submit">
+                  <i class="fa fa-{% if l.ativo %}ban{% else %}unlock{% endif %} me-1"></i>{{ 'Bloquear' if l.ativo else 'Ativar' }}
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('painel_lojistas_senha', lojista_id=l.id) }}">
+                <input class="loj-mini-input" type="password" name="senha" minlength="6" placeholder="Nova senha" required>
+                <button class="btn-pk-ghost" type="submit"><i class="fa fa-rotate me-1"></i>Senha</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="loj-empty">
+      <i class="fa fa-user-tie"></i>
+      Nenhum login de lojista criado ainda.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

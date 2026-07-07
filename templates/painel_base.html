@@ -218,7 +218,7 @@
     <i class="fa fa-bars" id="pk-menu-icon"></i>
   </button>
   <nav class="pk-nav" id="pk-nav-menu">
-    {% if session.painel_role != 'motoboy' %}
+    {% if session.painel_role not in ('motoboy', 'lojista') %}
     <a href="{{ url_for('precificador') }}" {% if request.endpoint == 'precificador' %}class="active"{% endif %}>
       <i class="fa fa-tags me-1"></i>Precificador
     </a>
@@ -226,7 +226,7 @@
     <a href="{{ url_for('painel_pedidos') }}" {% if request.endpoint in ('painel_pedidos','painel_pedido_detalhe') %}class="active"{% endif %}>
       <i class="fa fa-bag-shopping me-1"></i>Pedidos
     </a>
-    {% if session.painel_role != 'motoboy' %}
+    {% if session.painel_role not in ('motoboy', 'lojista') %}
     <a href="{{ url_for('painel_reclamacoes') }}" {% if request.endpoint in ('painel_reclamacoes','painel_reclamacao_detalhe') %}class="active"{% endif %} style="position:relative">
       <i class="fa fa-triangle-exclamation me-1"></i>Reclamações
     </a>
@@ -240,7 +240,7 @@
     <span class="pk-nav-sep"></span>
 
     <div class="dropdown">
-      <button type="button" class="pk-nav-drop {% if request.endpoint in ('painel_notificacoes','painel_ml','painel_banners','painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <button type="button" class="pk-nav-drop {% if request.endpoint in ('painel_notificacoes','painel_notificacoes_enviar','painel_ml','painel_banners','painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha','painel_lojistas','painel_lojistas_criar','painel_lojistas_status','painel_lojistas_senha') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fa fa-puzzle-piece me-1"></i>Extras <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
       </button>
       <ul class="dropdown-menu dropdown-menu-dark">
@@ -262,6 +262,11 @@
         <li>
           <a class="dropdown-item {% if request.endpoint in ('painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}active{% endif %}" href="{{ url_for('painel_motoboys') }}">
             <i class="fa fa-motorcycle me-2"></i>Motoboys
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item {% if request.endpoint in ('painel_lojistas','painel_lojistas_criar','painel_lojistas_status','painel_lojistas_senha') %}active{% endif %}" href="{{ url_for('painel_lojistas') }}">
+            <i class="fa fa-user-tie me-2"></i>Lojistas
           </a>
         </li>
       </ul>
@@ -342,7 +347,7 @@
     <a href="{{ url_for('index') }}" target="_blank" class="pk-user-link" title="Ver site">
       <i class="fa fa-globe"></i>
     </a>
-    <strong>{{ session.motoboy_nome or session.razao or session.cnpjloja }}</strong>
+    <strong>{{ session.motoboy_nome or session.lojista_nome or session.razao or session.cnpjloja }}</strong>
     <a href="{{ url_for('painel_logout') }}" class="pk-user-sair" title="Sair">
       <i class="fa fa-right-from-bracket"></i>
     </a>
@@ -670,7 +675,7 @@
       }, function(payload) {
         _alertarStatusPedido(payload);
       })
-      {% if session.painel_role != 'motoboy' %}
+      {% if session.painel_role not in ('motoboy', 'lojista') %}
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "ecommerce_reclamacoes",
         filter: "cnpjloja=eq." + CNPJLOJA
