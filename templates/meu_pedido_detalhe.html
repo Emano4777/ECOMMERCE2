@@ -638,7 +638,7 @@
 <div class="pd-nf-overlay" id="pd-nf-overlay" onclick="if(event.target===this) this.classList.remove('open')">
   <div class="pd-nf-box">
     <h4><i class="fa fa-file-invoice" style="color:var(--pq-red)"></i><span id="pd-nf-title">Nota fiscal ainda não disponível</span></h4>
-    <p id="pd-nf-text">Ainda não encontramos o XML deste pedido no Alpha/A7. Assim que a farmácia emitir a nota e o Alpha devolver o documento fiscal, este botão abrirá o PDF automaticamente. Se precisar agora, entre em contato com a farmácia.</p>
+    <p id="pd-nf-text">A nota fiscal deste pedido ainda não está disponível. Tente novamente mais tarde ou, se precisar agora, entre em contato com a farmácia.</p>
     <button type="button" onclick="document.getElementById('pd-nf-overlay').classList.remove('open')">Entendi</button>
   </div>
 </div>
@@ -751,7 +751,7 @@ async function abrirNotaFiscalPedido(pedidoId, btn) {
     if (data && data.erro === 'nota_nao_disponivel') {
       mostrarNotaFiscalFallback(
         'Nota fiscal ainda não disponível',
-        'Ainda não encontramos o XML deste pedido no Alpha/A7. Assim que a farmácia emitir a nota e o Alpha devolver o documento fiscal, este botão abrirá o PDF automaticamente. Se precisar agora, entre em contato com a farmácia.'
+        'A nota fiscal deste pedido ainda não está disponível. Tente novamente mais tarde ou, se precisar agora, entre em contato com a farmácia.'
       );
     } else if (resp.status === 401 || resp.status === 403) {
       mostrarNotaFiscalFallback(
