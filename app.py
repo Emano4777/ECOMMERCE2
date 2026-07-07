@@ -17,6 +17,7 @@ import hashlib
 import threading
 import urllib.request
 import urllib.parse
+import urllib.error
 import html
 from datetime import datetime, timezone, timedelta
 from functools import wraps
