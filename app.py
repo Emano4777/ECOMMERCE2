@@ -16382,7 +16382,7 @@ _CRON_SECRET = "poupaqui-alpha-cron-7x9k2m"
 
 @app.post("/api/cron/alpha-export")
 def api_cron_alpha_export():
-    """Endpoint chamado pelo cron do Hostgator para exportar pedidos pagos ao Alpha."""
+    """Endpoint chamado pelo cron do Hostgator a cada minuto. Exporta 1 pedido por chamada."""
     auth = request.headers.get("Authorization", "")
     if auth != f"Bearer {_CRON_SECRET}":
         return jsonify({"ok": False, "erro": "unauthorized"}), 401
@@ -16396,17 +16396,16 @@ def api_cron_alpha_export():
           AND (alpha_status IS NULL OR alpha_status = 'erro')
           AND pagamento_confirmado_em IS NOT NULL
         ORDER BY pagamento_confirmado_em
-        LIMIT 20
+        LIMIT 1
         """,
     )
-    rows = cur.fetchall()
+    row = cur.fetchone()
     cur.close()
-    resultados = []
-    for row in rows:
-        pid = str(row["id"])
-        res = _alpha_export_paid_order_safe(pid)
-        resultados.append({"id": pid[:8], "resultado": res})
-    return jsonify({"ok": True, "exportados": len(resultados), "detalhes": resultados})
+    if not row:
+        return jsonify({"ok": True, "msg": "nenhum_pendente"})
+    pid = str(row["id"])
+    res = _alpha_export_paid_order_safe(pid)
+    return jsonify({"ok": True, "id": pid[:8], "resultado": res})
 
 
 @app.post("/api/alpha/pedido/<pedido_id>/exportar")
