@@ -920,9 +920,11 @@ def _notificar_todos_consumidores(titulo, mensagem="", url=None, tipo="sistema",
 def _wa_send(numero: str, msg: str) -> bool:
     """Envia mensagem WhatsApp via WA Sender API. Normaliza número para +55DD9XXXXXXXX."""
     if not WASENDER_API_KEY or not numero:
+        app.logger.warning("wa_send: WASENDER_API_KEY vazia ou numero vazio (key=%r, num=%r)", bool(WASENDER_API_KEY), numero)
         return False
     d = re.sub(r'\D', '', numero)
     if not d or len(d) < 8:
+        app.logger.warning("wa_send: numero invalido apos normalizar: %r", numero)
         return False
     to = ('+55' + d) if not d.startswith('55') else ('+' + d)
     try:
@@ -935,9 +937,15 @@ def _wa_send(numero: str, msg: str) -> bool:
             },
             method='POST',
         )
-        with urllib.request.urlopen(req, timeout=10):
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            app.logger.warning("wa_send ok: to=%s status=%s", to, resp.status)
             return True
-    except Exception:
+    except urllib.error.HTTPError as e:
+        body = e.read(300).decode(errors='replace')
+        app.logger.warning("wa_send HTTPError %s to=%s: %s", e.code, to, body)
+        return False
+    except Exception as exc:
+        app.logger.warning("wa_send error to=%s: %s", to, exc)
         return False
 
 
@@ -16375,6 +16383,43 @@ def api_alpha_sync():
 def api_alpha_exportar_pedido(pedido_id):
     result = _alpha_export_paid_order_safe(str(pedido_id))
     return jsonify(result)
+
+
+@app.post("/api/wa/teste")
+@painel_required
+def api_wa_teste():
+    """Testa envio de WA com diagnóstico detalhado."""
+    data = request.get_json(force=True) or {}
+    numero = (data.get("numero") or "").strip()
+    key_present = bool(WASENDER_API_KEY)
+    key_preview = (WASENDER_API_KEY[:8] + "…") if WASENDER_API_KEY else ""
+    if not numero:
+        cnpjloja = session.get("cnpjloja")
+        conn = db(); cur = conn.cursor()
+        cur.execute("SELECT COALESCE(whatsapp_pedidos, telefone) AS wpp FROM ecommerce_config_loja WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
+        row = cur.fetchone(); cur.close()
+        numero = (row or {}).get("wpp") or ""
+    d = re.sub(r'\D', '', numero)
+    to = ('+55' + d) if d and not d.startswith('55') else ('+' + d if d else "")
+    if not key_present:
+        return jsonify({"ok": False, "erro": "WASENDER_API_KEY nao configurada no ambiente", "key_preview": key_preview, "to": to})
+    if not to or len(d) < 8:
+        return jsonify({"ok": False, "erro": f"Numero invalido: {numero!r}", "to": to})
+    try:
+        req = urllib.request.Request(
+            'https://wasenderapi.com/api/send-message',
+            data=json.dumps({'to': to, 'text': '🔧 Teste de notificação Poupaqui — tudo certo!'}).encode(),
+            headers={'Authorization': f'Bearer {WASENDER_API_KEY}', 'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read(500).decode(errors='replace')
+            return jsonify({"ok": True, "to": to, "status": resp.status, "body": body, "key_preview": key_preview})
+    except urllib.error.HTTPError as e:
+        body = e.read(500).decode(errors='replace')
+        return jsonify({"ok": False, "erro": f"HTTP {e.code}", "body": body, "to": to, "key_preview": key_preview})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": str(exc), "to": to, "key_preview": key_preview})
 
 
 # ─── ADMIN ────────────────────────────────────────────────────────────────────
