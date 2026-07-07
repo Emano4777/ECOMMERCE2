@@ -82,17 +82,49 @@ def _alpha_connect(timeout_ms=20000):
     return _connect(dsn, timeout_ms=timeout_ms)
 
 
+_SCHEMA_MIG_KEY = "alpha_local_schema_v1"
+
 def ensure_local_schema(conn=None):
     global _local_schema_done
-    # Guard: executa o DDL só uma vez por instância. Os ALTER TABLE ADD COLUMN
-    # exigem ACCESS EXCLUSIVE lock em ecommerce_pedidos — rodando a cada chamada
-    # causam fila de locks que estoura o timeout de 60s do Vercel.
+    # Guard em memória (evita checagem repetida dentro da mesma instância).
     if _local_schema_done:
         return
     with _local_schema_lock:
         if _local_schema_done:
             return
+        # Guard no banco (Vercel serverless: cada chamada pode ser nova instância,
+        # então a flag em memória é sempre False no cold-start).
+        # Se a migration já foi aplicada, pula os ALTER TABLE completamente.
+        try:
+            with _local_connect(timeout_ms=5000) as gc:
+                gcur = gc.cursor()
+                gcur.execute(
+                    "SELECT 1 FROM pq_migrations WHERE key=%s LIMIT 1",
+                    (_SCHEMA_MIG_KEY,),
+                )
+                already = gcur.fetchone()
+                gcur.close()
+            if already:
+                _local_schema_done = True
+                return
+        except Exception:
+            pass  # Se pq_migrations não existir ainda, segue para o DDL
         _do_ensure_local_schema(conn)
+        # Marca migration como feita no banco
+        try:
+            with _local_connect(timeout_ms=5000) as mc:
+                mcur = mc.cursor()
+                mcur.execute(
+                    "CREATE TABLE IF NOT EXISTS pq_migrations (key TEXT PRIMARY KEY)"
+                )
+                mcur.execute(
+                    "INSERT INTO pq_migrations (key) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (_SCHEMA_MIG_KEY,),
+                )
+                mc.commit()
+                mcur.close()
+        except Exception:
+            pass
         _local_schema_done = True
 
 
