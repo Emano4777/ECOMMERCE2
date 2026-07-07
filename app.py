@@ -520,9 +520,28 @@ def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
             return {"ok": False, "skipped": "sync_em_andamento"}
         try:
             _alpha_catalog_last_attempt = now_ts
-            result = _alpha_sync_products_safe(limit=5000)
-            app.logger.warning("alpha catalog autosync result: %s", result)
-            return result
+            # PG advisory lock serializes o sync entre instâncias Vercel concorrentes.
+            # Sem isso, múltiplos cold-starts disparam ensure_local_schema() ao mesmo
+            # tempo → ALTER TABLE ecommerce_pedidos concorrente → deadlock → 504.
+            _lk_conn = db()
+            _lk_cur = _lk_conn.cursor()
+            _lk_cur.execute("SELECT pg_try_advisory_lock(20260707)")
+            _has_pg_lock = bool((_lk_cur.fetchone() or [False])[0])
+            _lk_cur.close()
+            if not _has_pg_lock:
+                return {"ok": True, "skipped": "sync_serializado_outro_processo"}
+            try:
+                result = _alpha_sync_products_safe(limit=5000)
+                app.logger.warning("alpha catalog autosync result: %s", result)
+                return result
+            finally:
+                try:
+                    _ul_cur = _lk_conn.cursor()
+                    _ul_cur.execute("SELECT pg_advisory_unlock(20260707)")
+                    _ul_cur.fetchone()
+                    _ul_cur.close()
+                except Exception:
+                    pass
         finally:
             _alpha_catalog_sync_lock.release()
     finally:
@@ -6058,26 +6077,35 @@ def _lojista_logged():
 
 
 def _ensure_lojista_schema():
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ecommerce_lojistas (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            cnpjloja TEXT NOT NULL,
-            nome TEXT NOT NULL,
-            usuario TEXT NOT NULL UNIQUE,
-            senha_hash TEXT NOT NULL,
-            ativo BOOLEAN DEFAULT TRUE,
-            criado_em TIMESTAMPTZ DEFAULT NOW(),
-            atualizado_em TIMESTAMPTZ DEFAULT NOW()
+    key = "lojistas_v1"
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ecommerce_lojistas (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                cnpjloja TEXT NOT NULL,
+                nome TEXT NOT NULL,
+                usuario TEXT NOT NULL UNIQUE,
+                senha_hash TEXT NOT NULL,
+                ativo BOOLEAN DEFAULT TRUE,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+            """
         )
-        """
-    )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_lojistas_cnpj ON ecommerce_lojistas(cnpjloja)")
-    conn.commit()
-    cur.close()
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_lojistas_cnpj ON ecommerce_lojistas(cnpjloja)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _ensure_motoboy_schema():
