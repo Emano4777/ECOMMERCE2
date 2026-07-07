@@ -1,11 +1,15 @@
 import os
 import re
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor, execute_values
+
+_local_schema_done = False
+_local_schema_lock = threading.Lock()
 
 
 def _digits(value):
@@ -79,6 +83,20 @@ def _alpha_connect(timeout_ms=20000):
 
 
 def ensure_local_schema(conn=None):
+    global _local_schema_done
+    # Guard: executa o DDL só uma vez por instância. Os ALTER TABLE ADD COLUMN
+    # exigem ACCESS EXCLUSIVE lock em ecommerce_pedidos — rodando a cada chamada
+    # causam fila de locks que estoura o timeout de 60s do Vercel.
+    if _local_schema_done:
+        return
+    with _local_schema_lock:
+        if _local_schema_done:
+            return
+        _do_ensure_local_schema(conn)
+        _local_schema_done = True
+
+
+def _do_ensure_local_schema(conn=None):
     own = conn is None
     if own:
         ctx = _local_connect()
