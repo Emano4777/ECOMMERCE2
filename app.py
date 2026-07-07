@@ -526,7 +526,8 @@ def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
             _lk_conn = db()
             _lk_cur = _lk_conn.cursor()
             _lk_cur.execute("SELECT pg_try_advisory_lock(20260707)")
-            _has_pg_lock = bool((_lk_cur.fetchone() or [False])[0])
+            _lk_row = _lk_cur.fetchone()
+            _has_pg_lock = bool((_lk_row or {}).get("pg_try_advisory_lock", False))
             _lk_cur.close()
             if not _has_pg_lock:
                 return {"ok": True, "skipped": "sync_serializado_outro_processo"}
