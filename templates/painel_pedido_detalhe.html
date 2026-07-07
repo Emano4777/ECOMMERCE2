@@ -492,9 +492,12 @@
   function exportarAlpha() {
     const btn = document.getElementById('btn-alpha-export');
     const msg = document.getElementById('alpha-export-msg');
-    btn.disabled = true; btn.textContent = 'Enviando…';
+    btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Enviando…';
     fetch('/api/alpha/pedido/{{ pedido.id }}/exportar', {method:'POST', headers:{'Content-Type':'application/json'}})
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok && r.status !== 200) return r.text().then(t => { throw new Error('HTTP ' + r.status + ': ' + t.slice(0,120)); });
+        return r.json();
+      })
       .then(d => {
         if (d.ok || d.ja_enviado || d.ja_existe_alpha) {
           msg.textContent = '✓ Enviado com sucesso!';
@@ -506,7 +509,7 @@
           btn.disabled = false; btn.innerHTML = '<i class="fa fa-arrow-up-from-bracket me-1"></i>Tentar novamente';
         }
       })
-      .catch(() => { msg.textContent = 'Erro de rede.'; msg.style.color='#f08090'; btn.disabled=false; });
+      .catch(e => { msg.textContent = 'Erro: ' + e.message; msg.style.color='#f08090'; btn.disabled=false; btn.innerHTML='<i class="fa fa-arrow-up-from-bracket me-1"></i>Tentar novamente'; });
   }
   </script>
   {% endif %}

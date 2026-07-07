@@ -6053,6 +6053,7 @@ def painel_required(fn):
                 # lojista também pode atualizar status do pedido
                 allowed.add("painel_pedidos_status")
                 allowed.add("painel_avaliar_receita")
+                allowed.add("api_alpha_exportar_pedido")
             if request.endpoint not in allowed:
                 flash("Acesso restrito aos pedidos.", "error")
                 return redirect(url_for("painel_pedidos"))
