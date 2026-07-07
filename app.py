@@ -16504,6 +16504,67 @@ def api_cron_wa_notify():
     return jsonify({"ok": ok, "id": pid[:8], "enviado": ok})
 
 
+@app.get("/api/cron/wa-next")
+def api_cron_wa_next():
+    """Retorna próximo pedido pendente de notificação WA com número e mensagem.
+    O envio é feito pelo cron do Hostgator para evitar bloqueio de IP pelo Cloudflare."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT p.id, p.total, c.whatsapp_pedidos AS wpp
+        FROM ecommerce_pedidos p
+        JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+        WHERE p.status IN ('pago','pronto_retirada','em_separacao','separado',
+                           'em_transito','saiu_entrega','saiu_para_entrega','entregue','concluido')
+          AND p.wa_loja_notificado_em IS NULL
+          AND p.pagamento_confirmado_em IS NOT NULL
+          AND p.pagamento_confirmado_em > NOW() - INTERVAL '48 hours'
+          AND c.whatsapp_pedidos IS NOT NULL
+          AND c.whatsapp_pedidos != ''
+        ORDER BY p.pagamento_confirmado_em
+        LIMIT 1
+        """,
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"ok": True, "pendente": False})
+    pid = str(row["id"])
+    wpp = row["wpp"]
+    d = re.sub(r'\D', '', wpp)
+    to = ('+55' + d) if not d.startswith('55') else ('+' + d)
+    total_fmt = f"R${float(row['total'] or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    msg = (
+        f"Pedido pago!\n"
+        f"Pedido #{pid[:8].upper()} - {total_fmt}\n"
+        f"Clique para preparar:\n"
+        f"{_wa_base_url()}/painel/pedidos/{pid}"
+    )
+    return jsonify({"ok": True, "pendente": True, "id": pid, "to": to, "msg": msg})
+
+
+@app.post("/api/cron/wa-mark-sent")
+def api_cron_wa_mark_sent():
+    """Marca pedido como notificado via WA. Chamado pelo cron do Hostgator após envio."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    pid = str(data.get("id") or "").strip()
+    if not pid:
+        return jsonify({"ok": False, "erro": "id_obrigatorio"})
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NOW() WHERE id=%s", (pid,))
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True, "id": pid[:8]})
+
+
 @app.post("/api/alpha/pedido/<pedido_id>/exportar")
 @painel_required
 def api_alpha_exportar_pedido(pedido_id):
