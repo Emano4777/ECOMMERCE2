@@ -972,26 +972,28 @@ def _wa_send(numero: str, msg: str) -> bool:
 def _wa_notif_pedido_loja(pedido_id: str, msg: str):
     """Busca whatsapp_pedidos da loja do pedido e envia notificação WA."""
     if not WASENDER_API_KEY:
-        return
+        return False
     try:
         conn = db()
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT COALESCE(c.whatsapp_pedidos, u.telefone) AS wpp
+            SELECT c.whatsapp_pedidos AS wpp
             FROM ecommerce_pedidos p
-            JOIN users u ON u.cnpjloja = p.cnpjloja
-            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+            JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
             WHERE p.id = %s LIMIT 1
             """,
             (pedido_id,),
         )
         row = cur.fetchone()
         cur.close()
-        if row and row.get('wpp'):
-            return _wa_send(row['wpp'], msg)
+        wpp = (row or {}).get('wpp') or ""
+        if wpp:
+            return _wa_send(wpp, msg)
+        app.logger.warning("wa_notif_pedido_loja: sem numero para pedido %s", pedido_id)
         return False
-    except Exception:
+    except Exception as e:
+        app.logger.warning("wa_notif_pedido_loja error pedido=%s: %s", pedido_id, e)
         return False
 
 
@@ -16412,7 +16414,7 @@ def api_cron_wa_diagnostico():
         numero = ""
         try:
             conn2 = db(); cur2 = conn2.cursor()
-            cur2.execute("SELECT COALESCE(whatsapp_pedidos, telefone) AS wpp FROM ecommerce_config_loja LIMIT 1")
+            cur2.execute("SELECT whatsapp_pedidos AS wpp FROM ecommerce_config_loja LIMIT 1")
             row2 = cur2.fetchone(); cur2.close()
             numero = (row2 or {}).get("wpp") or ""
         except Exception as e2:
