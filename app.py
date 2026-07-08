@@ -7917,6 +7917,13 @@ def _api_produtos_proximos_impl():
                 produtos_raw.append(p)
                 seen_alpha_direct.add(key)
 
+    # Resolve a categoria de cada produto antes do filtro: produtos vindos da
+    # vitrine por curva A (_curve_a_products_for_cnpjs, caminho sem busca por
+    # texto) nao trazem "categoria" na propria query — sem isso, o filtro por
+    # categoria abaixo comparava contra "" e descartava tudo.
+    for p in produtos_raw:
+        p["categoria"] = _categoria_produto(p)
+
     # Filtro server-side de categoria (mesmos aliases que o JS usa)
     if cat_filter:
         _CAT_ALIAS_SRV = {
@@ -7960,8 +7967,7 @@ def _api_produtos_proximos_impl():
             "valor_frete": frete_valor,
         }
 
-        categoria = _categoria_produto(p)
-        produto_view = {**p, "razao": razao, "logo_url": info.get("logo_url"), "distancia_km": dist, "categoria": categoria, **entrega_meta}
+        produto_view = {**p, "razao": razao, "logo_url": info.get("logo_url"), "distancia_km": dist, **entrega_meta}
 
         produtos_view.append(produto_view)
 
