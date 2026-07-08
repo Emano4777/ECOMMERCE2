@@ -10934,6 +10934,7 @@ def _produto_descricao_ia(
     laboratorio: str = "",
     allow_generate: bool = False,
     allow_fallback: bool = False,
+    bypass_cache: bool = False,
 ) -> dict:
     """Descricao curta para produtos no detalhe. Por padrao, apenas le cache."""
     from datetime import datetime, timezone, timedelta
@@ -11067,7 +11068,7 @@ def _produto_descricao_ia(
             (ean_key,),
         )
         row = cur.fetchone()
-        if row and (row.get("serve_para") or row.get("como_usar")):
+        if row and not bypass_cache and (row.get("serve_para") or row.get("como_usar")):
             gerado = row.get("gerado_em")
             if gerado and gerado.tzinfo is None:
                 gerado = gerado.replace(tzinfo=timezone.utc)
@@ -18096,6 +18097,7 @@ def api_cron_produto_descricao_ia():
             row.get("laboratorio") or "",
             allow_generate=True,
             allow_fallback=True,
+            bypass_cache=(force_mode == "rules"),
         )
         if info.get("serve_para") or info.get("como_usar"):
             processados.append({"ean": ean_row, "nome": nome_row[:80], "fonte": info.get("fonte") or "anthropic"})
