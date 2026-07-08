@@ -810,23 +810,8 @@
 @keyframes heia-pulse { 0%,100%{box-shadow:0 4px 18px rgba(124,58,237,.42)} 50%{box-shadow:0 4px 28px rgba(124,58,237,.7)} }
 .heia-badge { font-size:.62rem; font-weight:900; color:rgba(255,255,255,.8); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; display:flex; align-items:center; gap:5px; }
 .heia-msg { font-size:.92rem; font-weight:700; color:#e2e8f0; line-height:1.5; }
-.heia-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
-.heia-prod {
-  background:#fff; border:1px solid var(--pq-border);
-  border-radius:14px; padding:12px; text-decoration:none; color:inherit;
-  transition:background .15s,transform .18s;
-}
-.heia-prod:hover { background:rgba(255,255,255,.11); transform:translateY(-2px); }
-.heia-prod-img {
-  width:100%; aspect-ratio:1; object-fit:contain;
-  border-radius:10px; background:rgba(255,255,255,.07); padding:8px;
-  margin-bottom:8px;
-}
-.heia-prod-name { font-size:.78rem; font-weight:600; color:#1a1a1a; line-height:1.28; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.5em; margin-top:8px; }
-.heia-prod-store { font-size:.68rem; color:var(--pq-muted); font-weight:400; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.heia-prod-preco { font-size:1.03rem; font-weight:600; color:#c8102e; margin-top:5px; }
-.heia-prod-eco { font-size:.64rem; color:#86efac; font-weight:800; margin-top:2px; display:flex; align-items:center; gap:3px; }
-@media(max-width:560px){ .heia-grid { grid-template-columns:repeat(2,1fr); } }
+.heia-row-wrap .home-row-cnav { background:#fff; }
+.heia-row-wrap .home-prod-eco { font-size:.64rem; color:#16a34a; font-weight:800; margin-top:2px; display:flex; align-items:center; gap:3px; }
 
 /* â”€â”€ Achados: seÃ§Ã£o standalone â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 #sec-achados .home-row { min-height:180px; }
@@ -1000,7 +985,11 @@
           <div class="heia-msg" id="heia-msg">Analisando os melhores preços para você...</div>
         </div>
       </div>
-      <div class="heia-grid" id="heia-grid"></div>
+      <div class="home-row-wrap heia-row-wrap">
+        <button class="home-row-cnav home-row-cnav--prev" onclick="_homeCarouselNav('heia-grid',-1)" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+        <div class="home-row" id="heia-grid"></div>
+        <button class="home-row-cnav home-row-cnav--next" onclick="_homeCarouselNav('heia-grid',1)" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+      </div>
     </div>
   </section>
 
@@ -1391,16 +1380,9 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
       // Formata como "47,50" sem o "R$ "
       ecVal.textContent = parseFloat(d.economia_total).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
     }
-    gridEl.innerHTML = d.produtos.slice(0,3).map(p => {
-      const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
-      const ecoHtml = p.economia > 0.5 ? `<div class="heia-prod-eco"><i class="fa fa-circle-arrow-down"></i>Economia de ${hBrl(p.economia)}</div>` : '';
-      return `<a class="heia-prod" href="${url}">
-        <img class="heia-prod-img" src="${hEsc(p.imagem||'')}" alt="${hEsc(p.nome||'')}" onerror="this.style.display='none'">
-        <div class="heia-prod-name">${hEsc(p.nome||'')}</div>
-        <div class="heia-prod-store">${homeLojaIcoHtml(p)}${hEsc(fixRazao(p.razao)||'Drogarias Poupaqui')}</div>
-        <div class="heia-prod-preco">${hBrl(p.preco)}</div>
-        ${ecoHtml}
-      </a>`;
+    gridEl.innerHTML = d.produtos.slice(0,6).map(p => {
+      const badge = p.economia > 0.5 ? `<i class="fa fa-circle-arrow-down"></i>Economia de ${hBrl(p.economia)}` : '';
+      return prodCard(p, badge);
     }).join('');
     sec.style.display = '';
   } catch {}

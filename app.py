@@ -4485,6 +4485,10 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
         if _own_cur:
             cur = db().cursor()
         try:
+            try:
+                cur.execute("SET LOCAL statement_timeout = '900ms'")
+            except Exception:
+                pass
             cur.execute(
                 """
                 SELECT DISTINCT ON (LTRIM(COALESCE(barra_norm, barra, ''), '0'))
@@ -9622,6 +9626,8 @@ _COMPLEMENT_RULES = [
     (r"\b(sabonete facial|gel limpeza|acne|antiacne|rosto|facial)\b", ["hidratante facial", "protetor solar facial", "algodao", "agua micelar", "tonico facial"]),
     (r"\b(curativo|gaze|ferimento|machucado|antisseptico)\b", ["esparadrapo", "micropore", "algodao", "agua oxigenada", "alcool 70", "luva"]),
     (r"\b(escova dental|creme dental|enxaguante|fio dental)\b", ["fio dental", "enxaguante bucal", "escova dental", "creme dental", "limpador lingua"]),
+    (r"\b(bananinha|banana|pacoca|pa[c?]oquita|doce|barra cereal|snack)\b", ["agua mineral", "agua coco", "suco", "isotonico", "barra cereal", "biscoito", "chocolate", "castanha"]),
+    (r"\b(energetico|refrigerante|bebida|suco|agua mineral)\b", ["snack", "barra cereal", "biscoito", "castanha", "chocolate", "pacoca"]),
 ]
 
 
@@ -9694,6 +9700,44 @@ def _recommendation_reason(base_names, product_name, co_purchase=False, compleme
     if complement:
         return "Complementa o item escolhido"
     return "Produto popular na sua regiao"
+
+
+def _quick_alpha_products_by_eans(cnpjs, eans, limit=40):
+    cnpjs = [c for c in (cnpjs or []) if c]
+    ean_keys = sorted({_ean_key(e) for e in (eans or []) if _ean_key(e)})
+    if not cnpjs or not ean_keys:
+        return []
+    order = {ean: idx for idx, ean in enumerate(ean_keys)}
+    conn = None
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT cnpjloja, ean, nome, CAST(estoque AS INTEGER) AS qty,
+                   preco_venda AS preco, imagem_url AS imagem, 'alpha_a7' AS fonte_estoque
+            FROM ecommerce_alpha_produtos
+            WHERE cnpjloja = ANY(%s)
+              AND COALESCE(inativo, false) = false
+              AND COALESCE(estoque, 0) > 0
+              AND LTRIM(COALESCE(ean, ''), '0') = ANY(%s)
+            LIMIT %s
+            """,
+            (cnpjs, ean_keys, max(limit, len(ean_keys))),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+    except Exception:
+        rows = []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    rows = [r for r in rows if _has_catalog_image(r)]
+    rows.sort(key=lambda r: order.get(_ean_key(r.get("ean")), 9999))
+    return rows[:limit]
 
 
 def _quick_alpha_products_for_recommendations(cnpjs, terms=None, limit=16):
@@ -9807,8 +9851,269 @@ def _quick_products_by_terms(cnpjs, terms, limit=32):
     return get_dns_products_batch_by_eans(cnpjs, eans[: max(12, limit * 2)]) if eans else []
 
 
+_complement_cache_schema_ok = False
+_complement_cache_schema_lock = threading.Lock()
+
+
+def _ensure_complement_cache_schema():
+    global _complement_cache_schema_ok
+    if _complement_cache_schema_ok:
+        return
+    with _complement_cache_schema_lock:
+        if _complement_cache_schema_ok:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ecommerce_produto_complementares_cache (
+                cnpjloja TEXT NOT NULL,
+                base_ean TEXT NOT NULL,
+                base_nome_norm TEXT NOT NULL DEFAULT '',
+                termos JSONB NOT NULL DEFAULT '[]'::jsonb,
+                eans JSONB NOT NULL DEFAULT '[]'::jsonb,
+                fonte TEXT NOT NULL DEFAULT 'rules',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '14 days',
+                PRIMARY KEY (cnpjloja, base_ean)
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_complement_cache_nome ON ecommerce_produto_complementares_cache(cnpjloja, base_nome_norm)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_complement_cache_expires ON ecommerce_produto_complementares_cache(expires_at)")
+        conn.commit()
+        cur.close()
+        conn.close()
+        _complement_cache_schema_ok = True
+
+
+def _cached_complement_products(cnpjs, base_items, limit=20):
+    cnpjs = [c for c in (cnpjs or []) if c]
+    if not cnpjs or not base_items:
+        return [], set()
+    eans = sorted({_ean_key(i.get("ean")) for i in base_items if _ean_key(i.get("ean"))})
+    names = sorted({_norm_text(i.get("nome") or "")[:120] for i in base_items if _norm_text(i.get("nome") or "")})
+    if not eans and not names:
+        return [], set()
+    clauses = []
+    params = [cnpjs]
+    if eans:
+        clauses.append("base_ean = ANY(%s)")
+        params.append(eans)
+    if names:
+        clauses.append("base_nome_norm = ANY(%s)")
+        params.append(names)
+    params.extend([cnpjs, int(max(limit * 4, 24))])
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            WITH cache_rows AS (
+                SELECT cnpjloja, eans
+                FROM ecommerce_produto_complementares_cache
+                WHERE cnpjloja = ANY(%s)
+                  AND expires_at > NOW()
+                  AND ({' OR '.join(clauses)})
+                ORDER BY updated_at DESC
+                LIMIT 20
+            ), wanted AS (
+                SELECT cr.cnpjloja, LTRIM(x.ean, '0') AS ean_key, MIN(x.ord) AS ord
+                FROM cache_rows cr
+                CROSS JOIN LATERAL jsonb_array_elements_text(cr.eans) WITH ORDINALITY AS x(ean, ord)
+                GROUP BY cr.cnpjloja, LTRIM(x.ean, '0')
+            )
+            SELECT ap.cnpjloja, ap.ean, ap.nome, CAST(ap.estoque AS INTEGER) AS qty,
+                   ap.preco_venda AS preco, ap.imagem_url AS imagem, 'alpha_a7' AS fonte_estoque,
+                   w.ord, u.razao, u.endereco
+            FROM wanted w
+            JOIN ecommerce_alpha_produtos ap
+              ON ap.cnpjloja = w.cnpjloja AND LTRIM(COALESCE(ap.ean, ''), '0') = w.ean_key
+            LEFT JOIN users u ON u.cnpjloja = ap.cnpjloja
+            WHERE ap.cnpjloja = ANY(%s)
+              AND COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > 0
+            ORDER BY w.ord, COALESCE(ap.estoque, 0) DESC
+            LIMIT %s
+            """,
+            tuple(params),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        app.logger.warning("cached complement products error: %s", exc)
+        return [], set()
+    rows = [r for r in rows if _has_catalog_image(r)]
+    cached = {_ean_key(r.get("ean")) for r in rows if _ean_key(r.get("ean"))}
+    return rows, cached
+
+
+def _complement_cache_get(cnpjs, base_items):
+    rows = []
+    cnpjs = [c for c in (cnpjs or []) if c]
+    if not cnpjs or not base_items:
+        return []
+    eans = sorted({_ean_key(i.get("ean")) for i in base_items if _ean_key(i.get("ean"))})
+    names = sorted({_norm_text(i.get("nome") or "")[:120] for i in base_items if _norm_text(i.get("nome") or "")})
+    if not eans and not names:
+        return []
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        clauses = []
+        params = [cnpjs]
+        if eans:
+            clauses.append("base_ean = ANY(%s)")
+            params.append(eans)
+        if names:
+            clauses.append("base_nome_norm = ANY(%s)")
+            params.append(names)
+        cur.execute(
+            f"""
+            SELECT cnpjloja, base_ean, termos, eans, fonte
+            FROM ecommerce_produto_complementares_cache
+            WHERE cnpjloja = ANY(%s)
+              AND expires_at > NOW()
+              AND ({' OR '.join(clauses)})
+            ORDER BY updated_at DESC
+            LIMIT 40
+            """,
+            tuple(params),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        app.logger.warning("complement cache get error: %s", exc)
+        rows = []
+    ordered = []
+    seen = set()
+    for row in rows:
+        for ean in row.get("eans") or []:
+            key = _ean_key(ean)
+            if key and key not in seen:
+                seen.add(key)
+                ordered.append(key)
+    return ordered
+
+
+def _complement_cache_set(cnpjloja, base_ean, base_nome, termos, eans, fonte="rules", ttl_days=14):
+    cnpjloja = (cnpjloja or "").strip()
+    base_ean = _ean_key(base_ean) or _norm_text(base_nome or "")[:80]
+    if not cnpjloja or not base_ean:
+        return False
+    base_nome_norm = _norm_text(base_nome or "")[:120]
+    termos = [_norm_text(t) for t in (termos or []) if _norm_text(t)][:16]
+    clean_eans = []
+    seen = set()
+    for ean in eans or []:
+        key = _ean_key(ean)
+        if key and key != base_ean and key not in seen:
+            seen.add(key)
+            clean_eans.append(key)
+    if not clean_eans:
+        return False
+    try:
+        _ensure_complement_cache_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ecommerce_produto_complementares_cache
+                (cnpjloja, base_ean, base_nome_norm, termos, eans, fonte, updated_at, expires_at)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, NOW(), NOW() + (%s || ' days')::interval)
+            ON CONFLICT (cnpjloja, base_ean) DO UPDATE SET
+                base_nome_norm = EXCLUDED.base_nome_norm,
+                termos = EXCLUDED.termos,
+                eans = EXCLUDED.eans,
+                fonte = EXCLUDED.fonte,
+                updated_at = NOW(),
+                expires_at = EXCLUDED.expires_at
+            """,
+            (cnpjloja, base_ean, base_nome_norm, json.dumps(termos), json.dumps(clean_eans), fonte, int(ttl_days)),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as exc:
+        app.logger.warning("complement cache set error: %s", exc)
+        return False
+
+
+def _is_probably_substitute(base_names, product_name, matched_terms=False):
+    if matched_terms:
+        return False
+    base = _norm_text(" ".join(base_names))
+    prod = _norm_text(product_name or "")
+    substitute_words = [
+        "fralda", "dipirona", "paracetamol", "ibuprofeno", "dorflex", "shampoo",
+        "condicionador", "protetor solar", "creme dental", "escova dental", "bananinha",
+    ]
+    return any(w in base and w in prod for w in substitute_words)
+
+
+def _rank_complement_rows(rows, base_names, terms, sales_scores=None, exclude_eans=None):
+    sales_scores = sales_scores or {}
+    exclude_eans = exclude_eans or set()
+    term_tokens = [_recommendation_tokens(t) for t in (terms or [])]
+    ranked = []
+    for row in rows or []:
+        ean_key = _ean_key(row.get("ean"))
+        if not ean_key or ean_key in exclude_eans or not _has_catalog_image(row):
+            continue
+        name = row.get("nome") or ""
+        tokens = _recommendation_tokens(name)
+        term_hits = sum(1 for tt in term_tokens if tt and (tt <= tokens or len(tt & tokens) >= max(1, min(2, len(tt)))))
+        if _is_probably_substitute(base_names, name, matched_terms=bool(term_hits)):
+            continue
+        score = term_hits * 1000 + min(int(row.get("qty") or 0), 80) + min(sales_scores.get(ean_key, 0), 200) * 0.2
+        if term_hits <= 0 and terms:
+            score -= 500
+        ranked.append((score, row))
+    ranked.sort(key=lambda x: (-x[0], (x[1].get("nome") or "").lower()))
+    return [r for _, r in ranked]
+
+
+def _build_complement_cache_for_item(cnpjloja, base_ean, base_nome, use_ai=True, limit=16):
+    base_nome = base_nome or ""
+    terms, source = _complement_terms_for_items([base_nome]) if use_ai else (_local_complement_terms([base_nome]), "rules")
+    if not terms:
+        return []
+    rows = _quick_alpha_products_for_recommendations([cnpjloja], terms, limit=max(24, limit * 3))
+    ranked = _rank_complement_rows(rows, [base_nome], terms, exclude_eans={_ean_key(base_ean)})
+    eans = [_ean_key(r.get("ean")) for r in ranked[:limit] if _ean_key(r.get("ean"))]
+    if eans:
+        _complement_cache_set(cnpjloja, base_ean, base_nome, terms, eans, source)
+    return eans
+
+
+def _schedule_complement_cache_build(cnpjs, itens):
+    jobs = []
+    for item in itens or []:
+        if not isinstance(item, dict):
+            continue
+        cnpj = (item.get("cnpjloja") or "").strip()
+        if not cnpj and len(cnpjs or []) == 1:
+            cnpj = cnpjs[0]
+        if cnpj and (item.get("ean") or item.get("nome")):
+            jobs.append((cnpj, item.get("ean"), item.get("nome") or ""))
+    if not jobs:
+        return
+    def worker():
+        for cnpj, ean, nome in jobs[:6]:
+            try:
+                _build_complement_cache_for_item(cnpj, ean, nome, use_ai=True, limit=16)
+            except Exception as exc:
+                app.logger.warning("async complement build error: %s", exc)
+    try:
+        threading.Thread(target=worker, daemon=True).start()
+    except Exception:
+        pass
+
+
 def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
-    _ensure_catalog_admin_schema()
     limit = max(1, min(int(limit or 8), 20))
     offset = max(0, int(offset or 0))
     itens = [i for i in (itens or []) if isinstance(i, dict)]
@@ -9820,9 +10125,13 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
     if not cnpjs:
         return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
 
-    complement_terms, complement_source = _complement_terms_for_items(base_names)
+    complement_terms = _local_complement_terms(base_names)
+    complement_source = "rules" if complement_terms else "cache"
     produtos = []
     seen_keys = set()
+    cached_rows, cached_set = _cached_complement_products(cnpjs, itens, limit=limit)
+    if not cached_rows:
+        _schedule_complement_cache_build(cnpjs, itens)
 
     def _add_products(rows):
         for row in rows or []:
@@ -9834,7 +10143,7 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
             seen_keys.add(key)
 
     loja_info = {}
-    conn = db()
+    conn = _new_conn_batch()
     cur = conn.cursor()
     cur.execute(
         "SELECT cnpjloja, razao, endereco FROM users WHERE cnpjloja = ANY(%s)",
@@ -9858,7 +10167,7 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
                   AND p.cnpjloja = ANY(%s)
                 GROUP BY i2.ean
                 ORDER BY score DESC
-                LIMIT 80
+                LIMIT 40
                 """,
                 (list(exclude_eans), list(exclude_eans), cnpjs),
             )
@@ -9868,20 +10177,20 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
     cur.close()
     conn.close()
 
-    if co_scores:
-        _add_products(get_dns_products_batch_by_eans(cnpjs, list(co_scores.keys())[:80]))
-    if complement_terms:
-        strong_terms = [t for t in complement_terms if len(t.split()) >= 2][:3] or complement_terms[:2]
-        _add_products(_quick_alpha_products_for_recommendations(cnpjs, strong_terms, limit=max(8, limit * 2)))
+    if cached_rows:
+        _add_products(cached_rows)
+    if co_scores and len(produtos) < limit:
+        _add_products(_quick_alpha_products_by_eans(cnpjs, list(co_scores.keys())[:40], limit=40))
+    if complement_terms and len(produtos) < limit:
+        _add_products(_quick_alpha_products_for_recommendations(cnpjs, complement_terms, limit=max(10, limit * 2)))
 
-    # Se ainda faltar produto, preenche com itens disponiveis da propria loja por
-    # consulta Alpha/A7 curta. Evita fallback pesado no checkout e no detalhe.
-    if len(produtos) < limit:
-        _add_products(_quick_alpha_products_for_recommendations(cnpjs, limit=max(8, limit * 2)))
+    # Nao preenche com curva A/populares sem relacao. Se nao tiver complemento
+    # bom em cache/termos/co-compra, deixa o carrossel oculto e prepara cache
+    # para a proxima visita.
     if not produtos:
-        return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
+        return {"titulo": "Produtos que combinam com sua compra", "subtitulo": "Complementos disponiveis no catalogo da farmacia", "produtos": []}
 
-    sales_scores = {} if (co_scores or complement_terms) else _sales_scores_for_cnpjs(cnpjs, limit=600)
+    sales_scores = {}
     base_tokens = set()
     base_cats = set()
     for name in base_names:
@@ -9897,21 +10206,24 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
         tokens = _recommendation_tokens(pname)
         co = co_scores.get(ean_key, 0)
         sales = sales_scores.get(ean_key, 0)
+        from_cache = ean_key in cached_set
         term_hits = sum(1 for tt in term_tokens if tt and (tt <= tokens or len(tt & tokens) >= max(1, min(2, len(tt)))))
         overlap = len(base_tokens & tokens)
-        score = co * 220 + term_hits * 90 + min(sales, 500) * 0.25
+        if _is_probably_substitute(base_names, pname, matched_terms=bool(term_hits or from_cache)):
+            continue
+        score = (1200 if from_cache else 0) + co * 260 + term_hits * 220 + min(sales, 500) * 0.25
         if term_hits:
-            score += 35
-        # Produtos da mesma categoria podem ser uteis, mas nao devem ganhar de complementares.
-        if cat in base_cats:
-            score += 4
-        if overlap >= 2 and not co and not term_hits:
-            score -= overlap * 10
+            score += 80
+        # Mesma categoria sem sinal complementar normalmente e substituto, nao cross-sell.
+        if cat in base_cats and not (from_cache or co or term_hits):
+            score -= 250
+        if overlap >= 2 and not (from_cache or co or term_hits):
+            score -= overlap * 30
         if p.get("qty"):
             score += min(int(p.get("qty") or 0), 30) / 10
         if score <= 0:
             score = min(sales, 50) * 0.1 + 1
-        ranked.append((score, co > 0, term_hits > 0, p))
+        ranked.append((score, co > 0, bool(term_hits or from_cache), p))
 
     ranked.sort(key=lambda x: (-x[0], (x[3].get("nome") or "").lower()))
     result = []
@@ -9955,7 +10267,7 @@ def api_recomendacoes():
     limit = data.get("limit") or 8
     try:
         rec_key = (
-            "recomendacoes_v10",
+            "recomendacoes_v16",
             tuple(sorted({(c or "").strip() for c in cnpjlojas if (c or "").strip()})),
             tuple(sorted(
                 (
@@ -10098,6 +10410,22 @@ def api_home_economia_ia():
 
     economia_total = sum(t.get("economia", 0) for t in top)
 
+    _attach_product_promos(top)
+    logo_by_cnpj = {}
+    try:
+        _ensure_logo_url_column()
+        top_cnpjs = list({t.get("cnpjloja") for t in top if t.get("cnpjloja")})
+        if top_cnpjs:
+            conn2 = db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT cnpjloja, logo_url FROM ecommerce_config_loja WHERE cnpjloja = ANY(%s)",
+                (top_cnpjs,),
+            )
+            logo_by_cnpj = {r["cnpjloja"]: r["logo_url"] for r in cur2.fetchall()}
+            cur2.close()
+    except Exception:
+        logo_by_cnpj = {}
+
     # Claude gera o insight
     nomes_str = "; ".join(t.get("nome", "") for t in top[:3] if t.get("nome"))
     insight_ia = None
@@ -10132,8 +10460,11 @@ def api_home_economia_ia():
             "nome": t.get("nome"),
             "imagem": t.get("imagem"),
             "preco": t.get("preco"),
+            "preco_original": t.get("preco_original"),
+            "promo": t.get("promo"),
             "razao": t.get("razao") or "Drogaria Poupaqui",
             "cnpjloja": t.get("cnpjloja"),
+            "logo_url": logo_by_cnpj.get(t.get("cnpjloja")),
             "economia": t.get("economia", 0),
         }
         for t in top
