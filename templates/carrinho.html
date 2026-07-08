@@ -121,6 +121,7 @@
 }
 .pay-label { font-size:.68rem; font-weight:900; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:9px; }
 .pay-options { display:flex; gap:8px; flex-wrap:wrap; }
+.pay-options.pay-method-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:9px; }
 .pay-opt {
   display:flex; align-items:center; gap:6px;
   min-width:150px; justify-content:center;
@@ -137,6 +138,30 @@
 .pay-opt input { display:none; }
 .pay-opt.selected { border-color:var(--pq-red); background:#fff5f7; color:var(--pq-red); }
 .pay-opt:hover { border-color:var(--pq-red); }
+.pay-method-opt {
+  position:relative;
+  min-width:0;
+  min-height:70px;
+  justify-content:flex-start;
+  gap:12px;
+  padding:11px 38px 11px 12px;
+  border-color:#e5e7eb;
+  border-radius:12px;
+  color:#111827;
+  box-shadow:0 1px 2px rgba(15,23,42,.03);
+  transition:border-color .15s, background .15s, box-shadow .15s, transform .15s;
+}
+.pay-method-opt:hover { border-color:#f2a3b0; transform:translateY(-1px); }
+.pay-method-opt.selected { border-color:var(--pq-red); background:#fff7f8; color:#111827; box-shadow:0 10px 22px rgba(200,16,46,.10); }
+.pay-method-ico { width:36px; height:36px; border-radius:10px; background:#f8fafc; color:#64748b; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:.95rem; }
+.pay-method-opt.selected .pay-method-ico { background:var(--pq-red); color:#fff; }
+.pay-method-text { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.pay-method-title { font-size:.84rem; font-weight:900; line-height:1.12; }
+.pay-method-sub { font-size:.67rem; font-weight:700; color:#64748b; line-height:1.15; }
+.pay-method-check { position:absolute; top:13px; right:12px; width:18px; height:18px; border-radius:50%; border:1.5px solid #d1d5db; display:flex; align-items:center; justify-content:center; color:#fff; font-size:.58rem; }
+.pay-method-opt.selected .pay-method-check { background:var(--pq-red); border-color:var(--pq-red); }
+.pay-method-opt:not(.selected) .pay-method-check i { display:none; }
+.pay-badge { align-self:flex-start; margin-top:4px; background:#fef9c3; color:#854d0e; border:1px solid #fde68a; border-radius:5px; padding:1px 7px; font-size:.68rem; font-weight:900; white-space:nowrap; }
 .delivery-note { font-size:.78rem; color:var(--pq-muted); margin-top:8px; }
 .delivery-address { font-size:.78rem; font-weight:800; color:var(--pq-text); margin-top:10px; display:flex; gap:7px; align-items:flex-start; line-height:1.35; }
 .delivery-address i { flex-shrink:0; margin-top:2px; }
@@ -1123,7 +1148,7 @@ function renderCart() {
       ${receitaAviso}
       <div class="pay-section">
         <div class="pay-label">Forma de pagamento</div>
-        <div class="pay-options" id="pay-opts-${esc(cnpj)}">${payOpts}</div>
+        <div class="pay-options pay-method-options" id="pay-opts-${esc(cnpj)}">${payOpts}</div>
       </div>
       <div class="pay-section">
         <div class="pay-label">Recebimento</div>
@@ -1330,11 +1355,22 @@ function payOptHtml(cnpj, val, label, checked) {
   const auto = (_descontosAuto[cnpj] || {}).pagamento || [];
   const regra = auto.find(r => r.forma_pagamento === val || r.forma_pagamento === 'todos');
   const badge = regra
-    ? ` <span style="background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:5px;padding:1px 7px;font-size:.7rem;font-weight:800;white-space:nowrap">${regra.desconto_tipo==='pct'?parseInt(regra.desconto_valor)+'% OFF':'R$'+parseFloat(regra.desconto_valor).toFixed(2)+' OFF'}</span>`
+    ? `<span class="pay-badge">${regra.desconto_tipo==='pct'?parseInt(regra.desconto_valor)+'% OFF':'R$'+parseFloat(regra.desconto_valor).toFixed(2)+' OFF'}</span>`
     : '';
-  return `<label class="pay-opt${checked?' selected':''}" id="pay-${esc(cnpj)}-${val}">
+  const meta = {
+    whatsapp: {icon:'fa-brands fa-whatsapp', title:'WhatsApp', sub:'Combine direto com a farmacia'},
+    pix: {icon:'fa fa-qrcode', title:'Pix', sub:'Na hora, sem taxa'},
+    mercadopago: {icon:'fa fa-credit-card', title:'Cartão', sub:'Crédito ou débito'}
+  }[val] || {icon:'fa fa-wallet', title:label.replace(/<[^>]*>/g, ''), sub:'Pagamento seguro'};
+  return `<label class="pay-opt pay-method-opt${checked?' selected':''}" id="pay-${esc(cnpj)}-${val}">
     <input type="radio" name="pay-${esc(cnpj)}" value="${val}"${checked?' checked':''}/>
-    ${label}${badge}
+    <span class="pay-method-ico"><i class="${meta.icon}"></i></span>
+    <span class="pay-method-text">
+      <span class="pay-method-title">${esc(meta.title)}</span>
+      <span class="pay-method-sub">${esc(meta.sub)}</span>
+      ${badge}
+    </span>
+    <span class="pay-method-check"><i class="fa fa-check"></i></span>
   </label>`;
 }
 

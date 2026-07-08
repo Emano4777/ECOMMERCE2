@@ -30,15 +30,50 @@
 .pgto-pay-btn.rec { background:var(--pq-red); color:#fff; border:0; }
 .pgto-pay-btn.card { background:#111827; color:#fff; border:0; }
 .pgto-pay-note { font-size:.74rem; color:var(--pq-muted); text-align:center; margin-top:-4px; margin-bottom:4px; }
+.pgto-method-select { margin:0 0 18px; }
+.pgto-method-label { font-size:.68rem; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#9ca3af; margin-bottom:8px; }
+.pgto-method-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.pgto-method-card {
+  position:relative;
+  width:100%;
+  min-height:70px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:11px 36px 11px 12px;
+  border:1.5px solid #e5e7eb;
+  border-radius:12px;
+  background:#fff;
+  color:#111827;
+  text-align:left;
+  cursor:pointer;
+  font-family:inherit;
+  transition:border-color .15s, background .15s, box-shadow .15s, transform .15s;
+}
+.pgto-method-card:hover { border-color:#f2a3b0; transform:translateY(-1px); }
+.pgto-method-card.active { border-color:var(--pq-red); background:#fff7f8; box-shadow:0 10px 22px rgba(200,16,46,.10); }
+.pgto-method-icon { width:36px; height:36px; border-radius:10px; background:#f8fafc; color:#64748b; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.pgto-method-card.active .pgto-method-icon { background:var(--pq-red); color:#fff; }
+.pgto-method-text { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.pgto-method-title { font-size:.86rem; font-weight:900; line-height:1.1; }
+.pgto-method-sub { font-size:.68rem; font-weight:700; color:#64748b; line-height:1.15; }
+.pgto-method-check { position:absolute; top:14px; right:13px; width:18px; height:18px; border-radius:50%; border:1.5px solid #d1d5db; display:flex; align-items:center; justify-content:center; color:#fff; font-size:.58rem; }
+.pgto-method-card.active .pgto-method-check { background:var(--pq-red); border-color:var(--pq-red); }
+.pgto-method-card:not(.active) .pgto-method-check i { display:none; }
+.pgto-method-panel[hidden] { display:none !important; }
 .pgto-brick-box { border:1px solid #e5e7eb; border-radius:12px; padding:14px; margin-bottom:18px; background:#fff; }
 .pgto-brick-title { font-size:.84rem; font-weight:900; color:#111827; display:flex; align-items:center; gap:7px; margin-bottom:10px; }
 .pgto-doc-grid { display:grid; grid-template-columns:104px 1fr; gap:10px; margin-bottom:12px; }
 .pgto-doc-grid label span { display:block; font-size:.7rem; font-weight:900; color:#64748b; text-transform:uppercase; margin-bottom:5px; }
 .pgto-doc-grid select, .pgto-doc-grid input { width:100%; height:40px; border:1px solid #d1d5db; border-radius:8px; padding:0 10px; font:inherit; color:#111827; background:#fff; box-sizing:border-box; }
+@media(max-width:390px){ .pgto-method-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
 
 {% block content %}
+{% set has_card = info.gateway_pagamento == 'asaas' or info.mp_public_key or info.assinatura_recorrente_link or info.cartao_link %}
+{% set has_pix = info.qr_code_base64 or info.pix_chave %}
+{% set default_method = 'pix' if has_pix else 'card' %}
 <div class="pgto-wrap">
   <div class="pgto-card">
     <div class="pgto-head">
@@ -59,8 +94,32 @@
       </div>
       {% endif %}
 
+      {% if has_card and has_pix %}
+      <div class="pgto-method-select" data-default-method="{{ default_method }}">
+        <div class="pgto-method-label">Forma de pagamento</div>
+        <div class="pgto-method-grid">
+          <button class="pgto-method-card {% if default_method == 'pix' %}active{% endif %}" type="button" data-subpay-method="pix" aria-pressed="{{ 'true' if default_method == 'pix' else 'false' }}">
+            <span class="pgto-method-icon"><i class="fa fa-qrcode"></i></span>
+            <span class="pgto-method-text">
+              <span class="pgto-method-title">Pix</span>
+              <span class="pgto-method-sub">Na hora, sem taxa</span>
+            </span>
+            <span class="pgto-method-check"><i class="fa fa-check"></i></span>
+          </button>
+          <button class="pgto-method-card {% if default_method == 'card' %}active{% endif %}" type="button" data-subpay-method="card" aria-pressed="{{ 'true' if default_method == 'card' else 'false' }}">
+            <span class="pgto-method-icon"><i class="fa fa-credit-card"></i></span>
+            <span class="pgto-method-text">
+              <span class="pgto-method-title">Cartão</span>
+              <span class="pgto-method-sub">Crédito ou débito</span>
+            </span>
+            <span class="pgto-method-check"><i class="fa fa-check"></i></span>
+          </button>
+        </div>
+      </div>
+      {% endif %}
+
       {% if info.gateway_pagamento == 'asaas' %}
-      <div class="pgto-brick-box">
+      <div class="pgto-brick-box pgto-method-panel" data-subpay-panel="card" {% if has_card and has_pix and default_method != 'card' %}hidden{% endif %}>
         <div class="pgto-brick-title"><i class="fa fa-credit-card" style="color:var(--pq-red)"></i>Assinar com cartão pelo Asaas</div>
         <form id="asaas-assin-form" onsubmit="return assinarAsaasCartao(event)">
           <div class="pgto-doc-grid" style="grid-template-columns:1fr 1fr">
@@ -82,7 +141,7 @@
       {% endif %}
 
       {% if info.mp_public_key %}
-      <div class="pgto-brick-box">
+      <div class="pgto-brick-box pgto-method-panel" data-subpay-panel="card" {% if has_card and has_pix and default_method != 'card' %}hidden{% endif %}>
         <div class="pgto-brick-title"><i class="fa fa-credit-card" style="color:var(--pq-red)"></i>Assinar sem sair do Poupaqui</div>
         <div class="pgto-doc-grid">
           <label>
@@ -102,7 +161,7 @@
       {% endif %}
 
       {% if (info.assinatura_recorrente_link or info.cartao_link) and not info.mp_public_key %}
-      <div class="pgto-actions">
+      <div class="pgto-actions pgto-method-panel" data-subpay-panel="card" {% if has_card and has_pix and default_method != 'card' %}hidden{% endif %}>
         {% if info.assinatura_recorrente_link %}
         <a class="pgto-pay-btn rec" href="{{ info.assinatura_recorrente_link }}">
           <i class="fa fa-rotate"></i> Assinar com cobrança mensal no cartão
@@ -119,6 +178,7 @@
 
       {% if info.qr_code_base64 %}
       <!-- Pix via MercadoPago (QR dinâmico) -->
+      <div class="pgto-method-panel" data-subpay-panel="pix" {% if has_card and has_pix and default_method != 'pix' %}hidden{% endif %}>
       <div class="pgto-qr-wrap">
         <img src="data:image/png;base64,{{ info.qr_code_base64 }}" alt="QR Code Pix">
       </div>
@@ -134,9 +194,11 @@
         <li><div class="pgto-step-num">3</div>Confirme o pagamento de R$ {{ '%.2f'|format(info.preco|float) }}</li>
         <li><div class="pgto-step-num">4</div>Sua assinatura será ativada automaticamente em segundos</li>
       </ul>
+      </div>
 
       {% elif info.pix_chave %}
       <!-- Pix estático (chave manual) -->
+      <div class="pgto-method-panel" data-subpay-panel="pix" {% if has_card and has_pix and default_method != 'pix' %}hidden{% endif %}>
       <div class="pgto-pix-static">
         <div style="font-size:.78rem;color:var(--pq-muted);font-weight:700;margin-bottom:8px">CHAVE PIX DA FARMÁCIA</div>
         <div class="pgto-pix-key" onclick="copiarTexto(this, '{{ info.pix_chave }}')">
@@ -157,8 +219,9 @@
         <i class="fa fa-info-circle me-1"></i>
         Neste caso a ativação é manual pela farmácia. Aguarde a confirmação.
       </div>
+      </div>
 
-      {% elif not info.assinatura_recorrente_link and not info.cartao_link %}
+      {% elif not has_card %}
       <div style="text-align:center;color:var(--pq-muted);padding:20px 0">
         <i class="fa fa-exclamation-circle" style="font-size:2rem;margin-bottom:10px;display:block"></i>
         Esta farmácia ainda não configurou um método de pagamento. Entre em contato diretamente.
@@ -190,6 +253,20 @@
 <script src="https://sdk.mercadopago.com/js/v2"></script>
 {% endif %}
 <script>
+document.querySelectorAll('[data-subpay-method]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const method = btn.dataset.subpayMethod;
+    document.querySelectorAll('[data-subpay-method]').forEach(opt => {
+      const active = opt === btn;
+      opt.classList.toggle('active', active);
+      opt.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-subpay-panel]').forEach(panel => {
+      panel.hidden = panel.dataset.subpayPanel !== method;
+    });
+  });
+});
+
 function copiarPix(btn){
   const pix = btn.dataset.pix;
   navigator.clipboard.writeText(pix).then(()=>{
