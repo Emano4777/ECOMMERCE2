@@ -9075,6 +9075,12 @@ def api_home_curva_a():
     if cached and cached.get("produtos"):
         if not fresh:
             _refresh_home_curva_cache_async(cache_key, cnpjs, sem_farmacia_proxima)
+        # sem_farmacia_proxima depende da distancia do usuario atual, nao do
+        # conjunto de cnpjs (que pode colidir com o cache de outro usuario
+        # quando ha poucas lojas cadastradas) — sempre usa o valor calculado
+        # nesta request, nunca o que veio congelado no cache.
+        cached = dict(cached)
+        cached["sem_farmacia_proxima"] = sem_farmacia_proxima
         return jsonify(cached)
     payload = _build_home_curva_payload(cnpjs, sem_farmacia_proxima)
     if payload.get("produtos"):
@@ -10933,9 +10939,80 @@ def _produto_descricao_ia(
     from datetime import datetime, timezone, timedelta
     import json as _json
 
-    def _fallback_info(source="rules"):
+    def _fallback_info(source="rules_v3"):
         tipo = (tipo_produto or "").strip().lower()
         nome_base = (nome or "Este produto").strip()
+        n = _norm_text(nome_base)
+        if re.search(r"\b(papel hig|papel higi|papel sanitario|papel toalha)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicado para higiene pessoal e uso no banheiro, ajudando na limpeza diaria com praticidade.",
+                "como_usar": "Use a quantidade necessaria durante a higiene e descarte conforme a orientacao do local e da embalagem.",
+                "alertas": "Mantenha o produto em local seco para preservar a qualidade do papel.",
+                "fonte": source,
+            }
+        if re.search(r"\b(alcool gel|alcool 70|higienizante|antisseptico de maos|gel hig)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicado para higienizar as maos quando nao ha agua e sabonete disponiveis, auxiliando na limpeza rapida do dia a dia.",
+                "como_usar": "Aplique uma pequena quantidade nas maos secas e friccione palmas, dorso e entre os dedos ate secar completamente.",
+                "alertas": "Produto inflamavel. Evite contato com olhos, mucosas, feridas e mantenha longe de criancas sem supervisao.",
+                "fonte": source,
+            }
+        if re.search(r"\b(abs|absorvente|protetor diario)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicado para higiene intima, ajudando na absorcao do fluxo menstrual ou protecao diaria conforme o modelo.",
+                "como_usar": "Fixe ou utilize conforme o tipo de absorvente indicado na embalagem e troque regularmente durante o uso.",
+                "alertas": "Suspenda o uso se houver irritacao e descarte o produto usado no lixo.",
+                "fonte": source,
+            }
+        if re.search(r"\b(whey|proteina|creatina|bcaa|colageno|omega|vitamina|multivitaminico|suplemento)\b", n):
+            return {
+                "serve_para": f"{nome_base} e um suplemento alimentar usado para complementar a rotina nutricional conforme sua composicao.",
+                "como_usar": "Consuma conforme a porcao e o modo de preparo indicados no rotulo ou conforme orientacao profissional.",
+                "alertas": "Suplementos nao substituem alimentacao equilibrada. Pessoas com restricoes alimentares devem conferir ingredientes e alergenicos.",
+                "fonte": source,
+            }
+        if re.search(r"\b(fralda|fraldas)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicada para absorcao e protecao contra vazamentos, ajudando no cuidado diario de bebes ou adultos conforme o tamanho.",
+                "como_usar": "Vista ajustando as laterais sem apertar demais e troque sempre que estiver umida ou suja.",
+                "alertas": "Trocas frequentes ajudam a reduzir risco de assaduras e irritacoes.",
+                "fonte": source,
+            }
+        if re.search(r"\b(lenco umedecido|toalha umedecida|pano umedecido)\b", n):
+            return {
+                "serve_para": f"{nome_base} e usado para limpeza suave da pele em trocas, higiene das maos ou cuidados rapidos fora de casa.",
+                "como_usar": "Passe delicadamente sobre a area desejada e descarte o lenco usado no lixo.",
+                "alertas": "Evite contato com os olhos e suspenda o uso se houver irritacao.",
+                "fonte": source,
+            }
+        if re.search(r"\b(sabonete|shampoo|condicionador|desodorante|creme dental|pasta dental|escova dental|fio dental|enxaguante)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicado para higiene e cuidado pessoal, conforme a finalidade do produto descrita na embalagem.",
+                "como_usar": "Use durante a rotina de higiene seguindo a quantidade, frequencia e forma de aplicacao recomendadas no rotulo.",
+                "alertas": "Evite contato com os olhos quando aplicavel e mantenha fora do alcance de criancas pequenas.",
+                "fonte": source,
+            }
+        if re.search(r"\b(protetor solar|fps|hidratante|serum|creme facial|agua micelar|base facial|batom|esmalte|acetona)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicado para cuidados com a pele, beleza ou rotina cosmetica, conforme a proposta do produto.",
+                "como_usar": "Aplique conforme as instrucoes do fabricante, respeitando area de uso, frequencia e necessidade de reaplicacao.",
+                "alertas": "Suspenda o uso em caso de irritacao e evite aplicar sobre pele lesionada.",
+                "fonte": source,
+            }
+        if re.search(r"\b(termometro|medidor|glicose|tira reagente|inalador|nebulizador|aparelho de pressao|pressao digital)\b", n):
+            return {
+                "serve_para": f"{nome_base} e um produto de apoio para monitoramento, diagnostico domiciliar ou cuidado respiratorio, conforme sua funcao.",
+                "como_usar": "Utilize conforme o manual do fabricante e confira se o produto esta limpo, integro e dentro das condicoes de uso.",
+                "alertas": "O resultado ou uso do aparelho nao substitui avaliacao de um profissional de saude.",
+                "fonte": source,
+            }
+        if re.search(r"\b(algodao|gaze|atadura|esparadrapo|curativo|compressa|seringa|agulha|luva)\b", n):
+            return {
+                "serve_para": f"{nome_base} e indicado para curativos, protecao, higiene ou apoio em procedimentos simples, conforme o tipo do item.",
+                "como_usar": "Use com as maos limpas e siga as orientacoes da embalagem, descartando corretamente apos o uso quando for descartavel.",
+                "alertas": "Em ferimentos profundos, sinais de infeccao ou sangramento intenso, procure atendimento profissional.",
+                "fonte": source,
+            }
         if tipo in ("perfumaria", "dermocosmetico"):
             return {
                 "serve_para": f"{nome_base} e indicado para cuidados pessoais, higiene ou rotina de beleza, conforme a finalidade descrita na embalagem.",
@@ -17953,6 +18030,7 @@ def api_cron_produto_descricao_ia():
         limit = 4
     limit = max(1, min(limit, 50))
 
+    force_mode = (request.args.get("force") or request.form.get("force") or "").strip().lower()
     _ensure_produto_descricao_ia_schema()
     conn = db()
     cur = conn.cursor()
@@ -17985,10 +18063,11 @@ def api_cron_produto_descricao_ia():
             FROM catalogo c
             LEFT JOIN ecommerce_produto_descricao_ia d ON d.ean = c.ean
             WHERE d.ean IS NULL
+               OR (%s = 'rules' AND COALESCE(d.fonte, '') IN ('rules', 'rules_v2'))
             ORDER BY c.nome
             LIMIT %s
             """,
-            (limit,),
+            (force_mode, limit),
         )
         pendentes = [dict(r) for r in cur.fetchall()]
     finally:
@@ -18923,9 +19002,10 @@ _TIPO_PERFUMARIA = re.compile(
     r"tintura.capilar|tinta.cabelo|coloracao.capilar|depilatorio|depilatório|cera.depilatoria|"
     r"pasta.dental|creme.dental|escova.dental|fio.dental|enxaguante|colutorio|antisseptico.bucal|"
     r"desodorante|antitranspirante|fralda|fraldas|absorvente|lenco.umedecido|lenco.umid\w*|toalha.umed\w*|toalha.umid\w*|toalha.beb|pano.umed\w*|protetor.diario|"
-    r"algodao|cotonete|hastes.flexiveis|papel.higienico|preservativo|lubrificante.intimo|"
+    r"algodao|cotonete|hastes.flexiveis|papel.higienico|papel.hig|papel.sanitario|preservativo|lubrificante.intimo|"
     r"talco|creme.assadura|oleo.corporal|creme.pes|lixa.pes|cuidado.pes|"
     r"espuma.barba|creme.barba|gel.barba|barbear|pos.barba|"
+    r"alcool.gel|alcool.70|higienizante|antisseptico.de.maos|gel.hig|"
     r"protetor.labial|lipgel|carmed|labello|"
     r"perfume|colonia|eau.de|"
     r"esmalte|acetona|removedor.esmalte|"

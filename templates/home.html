@@ -1232,12 +1232,12 @@ function _renderAchadosFallback(produtos, opts) {
   setTimeout(() => _homeCarousel('home-achados'), 50);
   return true;
 }
-function renderHomeProdutos(produtos){
+function renderHomeProdutos(produtos, opts){
   const validos = produtos.filter(p => p.imagem && parseFloat(p.preco) > 0);
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
   if (validos.length) {
-    _setAchadosCopy('normal');
+    _setAchadosCopy(opts && opts.rede ? 'rede' : 'normal');
     achadosEl.innerHTML = validos.slice().sort((a,b)=>parseFloat(a.preco)-parseFloat(b.preco)).slice(0,10).map(p => prodCard(p, '')).join('');
     if (secAchados) secAchados.style.display = '';
     setTimeout(() => _homeCarousel('home-achados'), 50);
@@ -1276,7 +1276,7 @@ function carregarHome(lat,lng){
           : Promise.resolve(),
       ]);
       if (produtos.length) {
-        renderHomeProdutos(produtos);
+        renderHomeProdutos(produtos, {rede: !!data.sem_farmacia_proxima});
         renderClubes(produtos, lojasProximas);
         renderCupons(produtos);
       } else {
@@ -1921,7 +1921,7 @@ function fecharPromoPop() {
     <div class="promo-pop-body">
       <span class="promo-pop-emoji" aria-hidden="true"><i class="fa fa-pills"></i></span>
       <p class="promo-pop-desc">
-        Encontre medicamentos, suplementos e cosmÃ©ticos com os
+        Encontre medicamentos, suplementos e cosméticos com os
         <strong>melhores preços da sua região</strong>.
         Busque por nome, sintoma ou até pela foto da embalagem!
       </p>
