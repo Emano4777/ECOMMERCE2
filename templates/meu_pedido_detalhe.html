@@ -28,6 +28,7 @@
 .pd-banner-progress { background:linear-gradient(135deg,#c8102e,#e8354a); }
 .pd-banner-neutral { background:linear-gradient(135deg,#374151,#1f2937); }
 .pd-banner-cancel { background:linear-gradient(135deg,#991b1b,#7f1d1d); }
+.pd-banner-done { background:linear-gradient(135deg,#6b7280,#4b5563); }
 
 .pd-atraso-banner {
   display:flex; align-items:center; gap:12px; flex-wrap:wrap;
@@ -191,7 +192,7 @@
     </div>
   </div>
   {% elif pedido.status == 'entregue' %}
-  <div class="pd-banner pd-banner-green">
+  <div class="pd-banner pd-banner-done">
     <div class="pd-banner-icon"><i class="fa fa-circle-check"></i></div>
     <div>
       <div class="pd-banner-kicker">Concluído</div>
@@ -205,7 +206,9 @@
     <div>
       <div class="pd-banner-kicker">{{ 'A caminho' if pedido.status == 'enviado' else 'Pronto' }}</div>
       <div class="pd-banner-title">
-        {% if pedido.previsao_entrega_em_label %}Chega até {{ pedido.previsao_entrega_em_label }}
+        {% if pedido.previsao_entrega_em_label %}
+          {% if pedido.status == 'pronto_retirada' %}Disponível para retirada até {{ pedido.previsao_entrega_em_label }}
+          {% else %}Chega até {{ pedido.previsao_entrega_em_label }}{% endif %}
         {% elif pedido.previsao_entrega %}{{ pedido.previsao_entrega }}
         {% else %}{{ status_msg.get(pedido.status) }}{% endif %}
       </div>

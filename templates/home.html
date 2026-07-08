@@ -168,20 +168,18 @@
 .home-prod-price { order:20; color:#c8102e; font-size:1.03rem; font-weight:600; margin-top:auto; padding-top:8px; }
 .home-prod-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; background:#fff0f2; color:var(--pq-red); padding:3px 8px; font-size:.66rem; font-weight:900; margin-top:6px; }
 .home-prod-cart-btn {
-  flex:1;
-  width:100%;
+  flex:0 0 40px;
+  width:40px;
   min-height:36px;
   border:0;
   border-radius:10px;
   background:linear-gradient(135deg,#d6112e,#e86420);
   color:#fff;
   font-family:inherit;
-  font-size:.74rem;
-  font-weight:900;
+  font-size:.92rem;
   display:flex;
   align-items:center;
   justify-content:center;
-  gap:6px;
   cursor:pointer;
   box-shadow:0 3px 10px rgba(200,16,46,.22);
   transition:opacity .15s, transform .1s;
@@ -1182,7 +1180,7 @@ function homeCartButton(p, preco, label) {
       <span class="home-prod-qty-val">1</span>
       <span role="button" tabindex="0" class="home-prod-qty-btn" onclick="_homeCardQty(event,this,1)" onkeydown="if(event.key==='Enter'||event.key===' '){_homeCardQty(event,this,1)}"><i class="fa fa-plus"></i></span>
     </div>
-    <span role="button" tabindex="0" class="home-prod-cart-btn" onclick="_homeAddCardToCart(event,this)" onkeydown="if(event.key==='Enter'||event.key===' '){_homeAddCardToCart(event,this)}"><i class="fa fa-cart-plus"></i>${label || 'Adicionar'}</span>
+    <span role="button" tabindex="0" class="home-prod-cart-btn" title="${label || 'Adicionar ao carrinho'}" aria-label="${label || 'Adicionar ao carrinho'}" onclick="_homeAddCardToCart(event,this)" onkeydown="if(event.key==='Enter'||event.key===' '){_homeAddCardToCart(event,this)}"><i class="fa fa-cart-plus"></i></span>
   </div>`;
 }
 function prodCard(p, badge){
@@ -1269,9 +1267,10 @@ function renderHomeProdutos(produtos){
 }
 function carregarHome(lat,lng){
   const gk = _geoK(lat,lng);
-  _cFetch(`prod_${_PQCV}_${gk}`, _PQC.prod, `/api/produtos-proximos?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
+  const qs = `?lat=${encodeURIComponent(lat || 0)}&lng=${encodeURIComponent(lng || 0)}`;
+  _cFetch(`curva_home_${_PQCV}_${gk}`, 300e3, '/api/home/curva-a' + qs)
     .then(async data => {
-      const produtos = data.produtos || [];
+      const produtos = data.trending_lojas || [];
       const lojasProximas = data.lojas_proximas || [];
       const cnpjsProdutos = [...new Set(produtos.map(p=>p.cnpjloja).filter(Boolean))].slice(0,18);
       const cnpjsProximos = (data.cnpjs_proximos || cnpjsProdutos).slice(0,30);
@@ -1287,12 +1286,17 @@ function carregarHome(lat,lng){
               .then(d=>{ Object.assign(planosAssinatura, d.planos||{}); }).catch(()=>{})
           : Promise.resolve(),
       ]);
-      renderHomeProdutos(produtos);
-      renderClubes(produtos, lojasProximas);
-      renderCupons(produtos);
+      if (produtos.length) {
+        renderHomeProdutos(produtos);
+        renderClubes(produtos, lojasProximas);
+        renderCupons(produtos);
+      } else {
+        carregarProdutosGerais();
+      }
     })
     .catch(()=>{ carregarProdutosGerais(); });
 }
+
 
 function carregarProdutosGerais(){
   const achadosEl = document.getElementById('home-achados');
@@ -1301,7 +1305,7 @@ function carregarProdutosGerais(){
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
+  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/curva-a' + qs)
     .then(d=>{
       if (_renderAchadosFallback(d.trending_lojas || [], {rede: d.sem_farmacia_proxima || !d.logado})) return;
       throw new Error('sem-trending');
@@ -1594,7 +1598,7 @@ function carregarInsights() {
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
+  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/curva-a' + qs)
     .then(d => {
       // Aviso sem farmácia prÃ³xima
       _sfpLogado = !!d.logado;

@@ -232,9 +232,10 @@
   white-space:nowrap;
 }
 .status i { font-size:.58rem; }
-.status.pago, .status.pronto_retirada, .status.entregue { background:#e9fff0; color:#15803d; }
+.status.pago, .status.pronto_retirada { background:#e9fff0; color:#15803d; }
 .status.enviado { background:#eaf6ff; color:#0369a1; }
 .status.cancelado { background:#fff0f0; color:#b00020; }
+.status.entregue { background:#f1f5f9; color:#64748b; }
 .order-total-label { color:var(--pq-muted); font-size:.7rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
 .order-total { color:var(--pq-red); font-size:1.35rem; line-height:1.1; font-weight:900; }
 .rec-strip {
@@ -438,7 +439,7 @@
 
       <div class="order-actions-row">
         <a class="btn-rastrear" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
-          <i class="fa fa-location-arrow"></i>{{ 'Ver detalhes' if p.status == 'cancelado' else 'Rastrear pedido' }}
+          <i class="fa fa-{{ 'file-lines' if p.status in ('cancelado', 'entregue') else 'location-arrow' }}"></i>{{ 'Ver detalhes do pedido' if p.status in ('cancelado', 'entregue') else 'Rastrear pedido' }}
         </a>
         <button type="button" class="btn-comprar-de-novo" onclick="repetirPedido('{{ p.id }}', this)">
           <i class="fa fa-rotate"></i>Comprar de novo

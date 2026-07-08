@@ -7503,7 +7503,11 @@ def api_lojas_ativas():
 
 @app.get("/api/produtos-destaque")
 def api_produtos_destaque():
-    """Produtos em destaque sem necessidade de localização (fallback home)."""
+    """Produtos em destaque sem necessidade de localizacao (fallback home), ordenados por curva A."""
+    cache_key = ("produtos_destaque_curve_a_v1", bool(_catalogo_alpha_exclusivo()))
+    cached = _home_api_cache_get(cache_key, 900)
+    if cached is not None:
+        return jsonify(cached)
     try:
         conn = db()
         cur  = conn.cursor()
@@ -7522,17 +7526,13 @@ def api_produtos_destaque():
         cnpjs = [l["cnpjloja"] for l in lojas]
         loja_nome = {l["cnpjloja"]: _public_store_name(l) for l in lojas}
         produtos = []
-        fonte_produtos = (
-            get_alpha_products_direct(cnpjs, limit=200)
-            if _catalogo_alpha_exclusivo()
-            else get_dns_products_batch(cnpjs)
-        )
-        for p in fonte_produtos:
+        for p in _curve_a_products_for_cnpjs(cnpjs, limit=40):
             d = dict(p)
             d["razao"] = d.get("razao") or loja_nome.get(d.get("cnpjloja"), "")
             produtos.append(d)
-        random.shuffle(produtos)
-        return jsonify({"produtos": produtos[:20]})
+        payload = {"produtos": produtos[:20]}
+        _home_api_cache_set(cache_key, payload, ttl_seconds=900)
+        return jsonify(payload)
     except Exception:
         return jsonify({"produtos": []})
 
@@ -7540,12 +7540,27 @@ def api_produtos_destaque():
 @app.get("/api/produtos-proximos")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_produtos_proximos():
-    """Wrapper fino: qualquer excecao nao prevista no pipeline de busca (que e
-    longo e tem varios caminhos — NL/IA, direto, fuzzy, complementos por loja)
-    vira uma resposta vazia normal em vez de um 500 cru, que o front-end
-    mostra como "Erro ao carregar. Recarregue a pagina."."""
+    """Wrapper fino: evita 500 cru e cacheia a vitrine sem busca por alguns minutos."""
+    cache_key = None
+    if not (request.args.get("q") or request.args.get("busca") or request.args.get("cat")):
+        try:
+            lat_cache = round(float(request.args.get("lat", 0) or 0), 2)
+            lng_cache = round(float(request.args.get("lng", 0) or 0), 2)
+            raio_cache = int(float(request.args.get("raio", 30) or 30))
+            home_cache = request.args.get("home") == "1"
+            cache_key = ("produtos_proximos_curve_a_v3", lat_cache, lng_cache, raio_cache, home_cache, bool(_catalogo_alpha_exclusivo()))
+            cached = _home_api_cache_get(cache_key, 300)
+            if cached is not None:
+                return jsonify(cached)
+        except Exception:
+            cache_key = None
     try:
-        return _api_produtos_proximos_impl()
+        resp = _api_produtos_proximos_impl()
+        if cache_key is not None and getattr(resp, "status_code", 200) == 200:
+            payload = resp.get_json(silent=True)
+            if isinstance(payload, dict) and payload.get("produtos"):
+                _home_api_cache_set(cache_key, payload, ttl_seconds=300)
+        return resp
     except Exception:
         app.logger.exception("Erro em /api/produtos-proximos")
         raio = float(request.args.get("raio", 30))
@@ -7578,6 +7593,7 @@ def _api_produtos_proximos_impl():
     raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
     busca_q = (request.args.get("q") or "").strip()
     cat_filter = (request.args.get("cat") or "").strip().lower()
+    home_mode = request.args.get("home") == "1"
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
 
     conn = db()
@@ -7868,7 +7884,7 @@ def _api_produtos_proximos_impl():
                     except Exception:
                         continue
     else:
-        produtos_raw = get_dns_products_batch(cnpjs)
+        produtos_raw = _curve_a_products_for_cnpjs(cnpjs, limit=(90 if home_mode else 500)) or get_dns_products_batch(cnpjs)
 
     if _catalogo_alpha_exclusivo() and busca_q:
         seen_alpha_direct = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
@@ -7995,7 +8011,19 @@ def _api_produtos_proximos_impl():
                 if (p.get("tarja") or "").lower() not in ("vermelha", "preta")
             ]
 
-    result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+    if busca_q:
+        result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+    else:
+        _home_sales_scores = _sales_scores_for_cnpjs(cnpjs, limit=1600)
+        result = sorted(
+            produtos_view,
+            key=lambda x: (
+                -int(_home_sales_scores.get(_ean_key(x.get("ean")), 0) or 0),
+                x.get("distancia_km") is None,
+                x.get("distancia_km") or 0,
+                (x.get("nome") or "").lower(),
+            ),
+        )
     if _catalogo_alpha_exclusivo() and busca_q and not result:
         try:
             q_norm_direct = _norm_text(busca_q)
@@ -8057,7 +8085,7 @@ def _api_produtos_proximos_impl():
         _pa_label = (_principio_ativo_ia or "").title() or "genérico"
         saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo o equivalente genérico encontrado nas farmácias próximas."
     return jsonify({
-        "produtos":          result[:500],
+        "produtos":          result[:90] if home_mode else result[:500],
         "cnpjs_proximos":    [l["cnpjloja"] for l in proximas],
         "lojas_proximas":    [{"cnpjloja": l["cnpjloja"], "razao": _public_store_name(l)} for l in proximas],
         "fora_raio":         fora_raio,
@@ -8768,6 +8796,173 @@ def _reverse_geocode_cidade_uf(lat, lng):
     return cidade, uf
 
 
+_HOME_CURVA_CACHE_READY = False
+
+
+def _ensure_home_curva_cache_schema():
+    global _HOME_CURVA_CACHE_READY
+    if _HOME_CURVA_CACHE_READY:
+        return
+    with _schema_lock:
+        if _HOME_CURVA_CACHE_READY:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_home_curva_cache (
+                cache_key  TEXT PRIMARY KEY,
+                payload    JSONB NOT NULL DEFAULT '{}',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_home_curva_expires ON ecommerce_home_curva_cache(expires_at)")
+        conn.commit()
+        cur.close()
+        conn.close()
+        _HOME_CURVA_CACHE_READY = True
+
+
+def _home_curva_cache_get(cache_key, allow_stale=True):
+    try:
+        _ensure_home_curva_cache_schema()
+        conn = db()
+        cur = conn.cursor()
+        cond = "cache_key=%s" if allow_stale else "cache_key=%s AND expires_at > NOW()"
+        cur.execute(f"SELECT payload, expires_at > NOW() AS fresh FROM ecommerce_home_curva_cache WHERE {cond}", (cache_key,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None, False
+        return row.get("payload") or {}, bool(row.get("fresh"))
+    except Exception:
+        return None, False
+
+
+
+def _home_json_safe(value):
+    if isinstance(value, dict):
+        return {str(k): _home_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_home_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_home_json_safe(v) for v in value]
+    if isinstance(value, (datetime,)):
+        return value.isoformat()
+    try:
+        import decimal
+        if isinstance(value, decimal.Decimal):
+            return float(value)
+    except Exception:
+        pass
+    return value
+
+def _home_curva_cache_set(cache_key, payload, ttl_minutes=30):
+    try:
+        _ensure_home_curva_cache_schema()
+        conn = _new_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ecommerce_home_curva_cache(cache_key, payload, updated_at, expires_at)
+            VALUES (%s, %s::jsonb, NOW(), NOW() + (%s || ' minutes')::interval)
+            ON CONFLICT (cache_key) DO UPDATE SET
+                payload=EXCLUDED.payload,
+                updated_at=NOW(),
+                expires_at=NOW() + (%s || ' minutes')::interval
+            """,
+            (cache_key, json.dumps(_home_json_safe(payload)), int(ttl_minutes), int(ttl_minutes)),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        app.logger.warning("home curva cache set: %s", exc)
+
+
+def _home_public_cnpjs(lat=0.0, lng=0.0):
+    cnpjs = []
+    sem_farmacia_proxima = False
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT g.cnpjloja, g.lat, g.lng
+            FROM ecommerce_lojas_geo g
+            JOIN users u ON u.cnpjloja = g.cnpjloja
+            LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
+            WHERE u.is_admin = FALSE
+              AND COALESCE(c.catalogo_publico, FALSE) = TRUE
+        """)
+        lojas_ativas = cur.fetchall()
+        cur.close()
+        conn.close()
+        todos = [r["cnpjloja"] for r in lojas_ativas]
+        if not todos:
+            return [], False
+        if lat != 0.0 or lng != 0.0:
+            proximas = [r["cnpjloja"] for r in lojas_ativas if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 60]
+            if proximas:
+                cnpjs = proximas
+            else:
+                cnpjs = todos
+                sem_farmacia_proxima = True
+        else:
+            cnpjs = todos
+    except Exception as exc:
+        app.logger.warning("home public cnpjs: %s", exc)
+    return cnpjs, sem_farmacia_proxima
+
+
+def _home_curva_cache_key(cnpjs):
+    joined = ",".join(sorted(cnpjs or []))
+    digest = hashlib.sha1(joined.encode("utf-8")).hexdigest()[:16]
+    return f"home_curva_a_v1:{digest}"
+
+
+def _build_home_curva_payload(cnpjs, sem_farmacia_proxima=False):
+    produtos = _curve_a_products_for_cnpjs(cnpjs or [], limit=24)
+    return _home_json_safe({
+        "produtos": produtos,
+        "trending_lojas": produtos,
+        "cnpjs_proximos": cnpjs or [],
+        "lojas_proximas": [{"cnpjloja": c, "razao": ""} for c in (cnpjs or [])],
+        "sem_farmacia_proxima": bool(sem_farmacia_proxima),
+    })
+
+
+def _refresh_home_curva_cache_async(cache_key, cnpjs, sem_farmacia_proxima=False):
+    def _run():
+        payload = _build_home_curva_payload(cnpjs, sem_farmacia_proxima)
+        if payload.get("produtos"):
+            _home_curva_cache_set(cache_key, payload, ttl_minutes=30)
+    threading.Thread(target=_run, daemon=True).start()
+
+
+@app.get("/api/home/curva-a")
+@_rate_limited_api(max_calls=40, window_secs=60)
+def api_home_curva_a():
+    try:
+        lat = float(request.args.get("lat", 0) or 0)
+        lng = float(request.args.get("lng", 0) or 0)
+    except (ValueError, TypeError):
+        lat = lng = 0.0
+    cnpjs, sem_farmacia_proxima = _home_public_cnpjs(lat, lng)
+    if not cnpjs:
+        return jsonify({"produtos": [], "trending_lojas": [], "cnpjs_proximos": [], "lojas_proximas": [], "sem_farmacia_proxima": False})
+    cache_key = _home_curva_cache_key(cnpjs)
+    cached, fresh = _home_curva_cache_get(cache_key, allow_stale=True)
+    if cached and cached.get("produtos"):
+        if not fresh:
+            _refresh_home_curva_cache_async(cache_key, cnpjs, sem_farmacia_proxima)
+        return jsonify(cached)
+    payload = _build_home_curva_payload(cnpjs, sem_farmacia_proxima)
+    if payload.get("produtos"):
+        _home_curva_cache_set(cache_key, payload, ttl_minutes=30)
+    return jsonify(payload)
+
+
 @app.get("/api/home/insights")
 @_rate_limited_api(max_calls=20, window_secs=60)
 def api_home_insights():
@@ -8797,6 +8992,8 @@ def api_home_insights():
         "banner_ia": "",
         "trending_lojas": [],
         "sem_farmacia_proxima": False,
+        "cnpjs_proximos": [],
+        "lojas_proximas": [],
         "cidade": None,
         "uf": None,
     }
@@ -8839,10 +9036,12 @@ def api_home_insights():
     except Exception as e:
         app.logger.warning(f"cnpjs_proximos: {e}")
 
+    resultado["cnpjs_proximos"] = cnpjs_proximos or []
+    resultado["lojas_proximas"] = [{"cnpjloja": c, "razao": ""} for c in (cnpjs_proximos or [])]
+
     try:
-        if _catalogo_alpha_exclusivo():
-            resultado["trending_lojas"] = get_alpha_products_direct(cnpjs_proximos or [], limit=24)
-        else:
+        resultado["trending_lojas"] = _curve_a_products_for_cnpjs(cnpjs_proximos or [], limit=24)
+        if not resultado["trending_lojas"] and not _catalogo_alpha_exclusivo():
             resultado["trending_lojas"] = _trending_lojas_fisicas(conn, lat, lng, cnpjs_proximos=cnpjs_proximos)
     except Exception as e:
         app.logger.warning(f"trending_lojas: {e}")
@@ -9237,25 +9436,375 @@ def _recommendation_tokens(nome):
     stop = {
         "com", "para", "por", "sem", "dos", "das", "uma", "uns", "gen", "neo", "uni",
         "mg", "ml", "gr", "g", "cp", "cpr", "comprimido", "comprimidos", "capsula",
-        "capsulas", "xpe", "creme", "generico", "genericos",
+        "capsulas", "xpe", "creme", "generico", "genericos", "un", "und", "kit",
     }
     return {t for t in text.split() if len(t) > 2 and t not in stop and not t.isdigit()}
 
 
-def _recommendation_reason(base_names, product_name, co_purchase=False):
+def _ean_key(value):
+    key = _digits(value).lstrip("0")
+    return key or (str(value or "").strip().lstrip("0"))
+
+
+def _sales_scores_for_cnpjs(cnpjs, limit=800):
+    cnpjs = [c for c in (cnpjs or []) if c]
+    if not cnpjs:
+        return {}
+    scores = {}
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT ean, SUM(CAST(COALESCE(itens,0) AS BIGINT)) AS total
+            FROM vendageral
+            WHERE cnpj = ANY(%s) AND COALESCE(ean,'') <> '' AND COALESCE(itens,0) > 0
+            GROUP BY ean
+            ORDER BY total DESC
+            LIMIT %s
+            """,
+            (cnpjs, int(limit)),
+        )
+        for r in cur.fetchall():
+            k = _ean_key(r.get("ean"))
+            if k:
+                scores[k] = scores.get(k, 0) + int(r.get("total") or 0)
+        cur.execute(
+            """
+            SELECT ean, SUM(CAST(COALESCE(quantidade_vendida,0) AS BIGINT)) AS total
+            FROM automatiza_vendas
+            WHERE cnpj_loja = ANY(%s) AND COALESCE(ean,'') <> '' AND COALESCE(quantidade_vendida,0) > 0
+            GROUP BY ean
+            ORDER BY total DESC
+            LIMIT %s
+            """,
+            (cnpjs, int(limit)),
+        )
+        for r in cur.fetchall():
+            k = _ean_key(r.get("ean"))
+            if k:
+                scores[k] = scores.get(k, 0) + int(r.get("total") or 0)
+        cur.close()
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return scores
+
+
+def _curve_a_sort_products(produtos, sales_scores=None):
+    sales_scores = sales_scores or {}
+    def _score(p):
+        return (
+            int(sales_scores.get(_ean_key(p.get("ean")), 0) or 0),
+            1 if _has_catalog_image(p) else 0,
+            min(int(p.get("qty") or 0), 999),
+            -float(p.get("preco") or 0),
+        )
+    return sorted(produtos or [], key=lambda p: (_score(p), (p.get("nome") or "").lower()), reverse=True)
+
+
+def _curve_a_products_for_cnpjs(cnpjs, limit=24):
+    cnpjs = [c for c in (cnpjs or []) if c]
+    limit = max(1, min(int(limit or 24), 500))
+    if not cnpjs:
+        return []
+    sales_scores = _sales_scores_for_cnpjs(cnpjs, limit=1600)
+    rows = []
+    if sales_scores:
+        top_eans = sorted(sales_scores, key=sales_scores.get, reverse=True)[: min(160, max(limit * 4, 50))]
+        try:
+            conn = _new_conn_batch()
+            cur = conn.cursor()
+            if _catalogo_alpha_exclusivo():
+                _alpha_catalog_sync_if_needed(cur=cur)
+            cur.execute(
+                """
+                WITH alvo AS (SELECT * FROM unnest(%s::text[]) WITH ORDINALITY AS t(ean_key, ord)),
+                alpha_a7 AS (
+                    SELECT ap.cnpjloja, ap.ean, ap.nome, ap.fabricante AS laboratorio,
+                           CAST(ap.estoque AS INTEGER) AS qty, ap.preco_venda AS preco,
+                           COALESCE(ap.imagem_url, epi.imagem_url) AS imagem,
+                           c.logo_url, a.ord, 'alpha_a7' AS fonte_estoque
+                    FROM alvo a
+                    JOIN ecommerce_alpha_produtos ap ON LTRIM(COALESCE(ap.ean,''),'0') = a.ean_key
+                    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean,''),'0') = a.ean_key
+                    LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = ap.cnpjloja
+                    WHERE ap.cnpjloja = ANY(%s)
+                      AND COALESCE(ap.inativo,false)=false
+                      AND COALESCE(ap.estoque,0)>0
+                ),
+                alpha AS (
+                    SELECT e.cnpj AS cnpjloja, e.barras AS ean, e.descricao AS nome, NULL::text AS laboratorio,
+                           CAST(e.estoque AS INTEGER) AS qty,
+                           COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
+                           COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                           c.logo_url, a.ord, 'alpha' AS fonte_estoque
+                    FROM alvo a
+                    JOIN estoque e ON LTRIM(COALESCE(e.barras_norm, e.barras, ''),'0') = a.ean_key
+                    LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = e.cnpj
+                    LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+                    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND LTRIM(COALESCE(epi.ean,''),'0') = a.ean_key
+                    LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = a.ean_key
+                    LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                    LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = a.ean_key AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+                    LEFT JOIN LATERAL (
+                        SELECT ROUND(total_vendasgeral / NULLIF(itens,0),2) AS preco_venda
+                        FROM vendageral WHERE cnpj=e.cnpj AND LTRIM(COALESCE(ean,''),'0')=a.ean_key AND total_vendasgeral>0 AND itens>0
+                        ORDER BY total_vendasgeral DESC LIMIT 1
+                    ) vg ON TRUE
+                    WHERE e.cnpj = ANY(%s) AND e.estoque > 0
+                ),
+                auto AS (
+                    SELECT ae.cnpj_loja AS cnpjloja, ae.ean, ae.descricao_produto AS nome, NULL::text AS laboratorio,
+                           CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+                           COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
+                           COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                           c.logo_url, a.ord, 'auto' AS fonte_estoque
+                    FROM alvo a
+                    JOIN automatiza_estoque ae ON LTRIM(COALESCE(ae.ean,''),'0') = a.ean_key
+                    LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = ae.cnpj_loja
+                    LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
+                    LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ae.cnpj_loja AND LTRIM(COALESCE(epi.ean,''),'0') = a.ean_key
+                    LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = a.ean_key
+                    LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+                    LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = a.ean_key AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
+                    LEFT JOIN LATERAL (
+                        SELECT ROUND(valor_final_vendido / NULLIF(quantidade_vendida,0),2) AS preco_venda
+                        FROM automatiza_vendas WHERE cnpj_loja=ae.cnpj_loja AND LTRIM(COALESCE(ean,''),'0')=a.ean_key AND valor_final_vendido>0 AND quantidade_vendida>0
+                        ORDER BY valor_final_vendido DESC LIMIT 1
+                    ) av ON TRUE
+                    WHERE ae.cnpj_loja = ANY(%s) AND ae.quantidade_estoque > 0
+                )
+                SELECT * FROM alpha_a7
+                UNION ALL SELECT * FROM alpha
+                UNION ALL SELECT * FROM auto
+                ORDER BY ord, qty DESC
+                LIMIT %s
+                """,
+                (top_eans, cnpjs, cnpjs, cnpjs, int(max(limit * 5, 80))),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+            cur.close()
+            conn.close()
+        except Exception as exc:
+            app.logger.warning("curve_a direct error: %s", exc)
+            try:
+                conn.close()
+            except Exception:
+                pass
+    if _catalogo_alpha_exclusivo():
+        rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
+    rows = [r for r in rows if _has_catalog_image(r) and float(r.get("preco") or 0) > 0]
+    rows = _dedupe_products_for_display(rows)
+    rows = _curve_a_sort_products(rows, sales_scores)
+    if not rows and not sales_scores:
+        try:
+            fallback = get_alpha_products_direct(cnpjs, limit=limit) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)[:limit]
+            rows = [p for p in fallback if _has_catalog_image(p)]
+        except Exception:
+            rows = []
+    try:
+        _attach_product_promos(rows)
+    except Exception:
+        pass
+    return rows[:limit]
+
+
+_COMPLEMENT_RULES = [
+    (r"\b(fralda|infantil|bebe|baby)\b", ["lenco umedecido", "toalha umedecida", "pomada assadura", "creme preventivo assadura", "sabonete bebe", "shampoo bebe", "algodao"]),
+    (r"\b(protetor solar|solar|fps|bronzeador)\b", ["hidratante", "pos sol", "protetor labial", "agua termal", "repelente", "sabonete facial"]),
+    (r"\b(gripe|resfriado|tosse|febre|antigripal|dorflex|analgesico|dipirona|paracetamol)\b", ["soro fisiologico", "soro nasal", "vitamina c", "termometro", "pastilha garganta", "mel propolis"]),
+    (r"\b(whey|creatina|protein|bcaa|pre treino)\b", ["coqueteleira", "vitamina", "omega 3", "colageno", "barra proteina", "magnesio"]),
+    (r"\b(shampoo|condicionador|tintura|cabelo|capilar)\b", ["mascara capilar", "creme pentear", "reparador pontas", "escova", "pente", "leave in"]),
+    (r"\b(sabonete facial|gel limpeza|acne|antiacne|rosto|facial)\b", ["hidratante facial", "protetor solar facial", "algodao", "agua micelar", "tonico facial"]),
+    (r"\b(curativo|gaze|ferimento|machucado|antisseptico)\b", ["esparadrapo", "micropore", "algodao", "agua oxigenada", "alcool 70", "luva"]),
+    (r"\b(escova dental|creme dental|enxaguante|fio dental)\b", ["fio dental", "enxaguante bucal", "escova dental", "creme dental", "limpador lingua"]),
+]
+
+
+def _local_complement_terms(base_names):
+    text = _norm_text(" ".join(base_names))
+    terms = []
+    for pattern, mapped in _COMPLEMENT_RULES:
+        if re.search(pattern, text):
+            for term in mapped:
+                n = _norm_text(term)
+                if n and n not in terms:
+                    terms.append(n)
+    return terms[:10]
+
+
+def _ai_complement_terms(base_names):
+    names = [n for n in (base_names or []) if n][:4]
+    if not names:
+        return []
+    key = "complementos_produto_v2:" + _norm_query_cache(" | ".join(sorted(_norm_text(n) for n in names)))
+    cached = _busca_cache_get(key)
+    if isinstance(cached, dict) and isinstance(cached.get("termos"), list):
+        return [_norm_text(t) for t in cached.get("termos")[:10] if _norm_text(t)]
+    prompt = (
+        "Liste produtos COMPLEMENTARES para vender junto em farmacia, nao substitutos do mesmo item.\n"
+        "Retorne somente JSON: {\"termos\":[\"termo curto\", ...]} com no maximo 8 termos de busca em portugues.\n"
+        "Use termos genericos que existam em catalogo de farmacia. Evite medicamento controlado e evite repetir a mesma categoria do item base.\n"
+        f"Itens base: {'; '.join(names)}"
+    )
+    raw = _claude_haiku(prompt, max_tokens=140, timeout=2)
+    termos = []
+    if raw:
+        try:
+            match = re.search(r"\{[\s\S]*\}", raw)
+            parsed = json.loads(match.group(0) if match else raw)
+            termos = parsed.get("termos") or []
+        except Exception:
+            termos = re.split(r"[,;\n]+", raw)
+    cleaned = []
+    for t in termos:
+        t = _norm_text(str(t))
+        if len(t) >= 4 and t not in cleaned:
+            cleaned.append(t)
+    if cleaned:
+        _busca_cache_set(key, {"termos": cleaned[:8]})
+    return cleaned[:8]
+
+
+def _complement_terms_for_items(base_names):
+    local = _local_complement_terms(base_names)
+    if local:
+        return local, "rules"
+    ai_terms = _ai_complement_terms(base_names)
+    return ai_terms, "ia" if ai_terms else "none"
+
+
+def _recommendation_reason(base_names, product_name, co_purchase=False, complement=False):
     if co_purchase:
         return "Clientes tambem compraram"
     names = _norm_text(" ".join(base_names))
     prod = _norm_text(product_name)
-    if any(w in names for w in ["fralda", "infantil", "bebe"]) and any(w in prod for w in ["lenco", "pomada", "assadura", "talco"]):
+    if any(w in names for w in ["fralda", "infantil", "bebe", "baby"]) and any(w in prod for w in ["lenco", "toalha", "pomada", "assadura", "talco", "algodao"]):
         return "Complementa cuidados do bebe"
-    if any(w in names for w in ["protetor", "solar", "fps"]) and any(w in prod for w in ["hidratante", "pos sol", "labial", "facial"]):
+    if any(w in names for w in ["protetor", "solar", "fps"]) and any(w in prod for w in ["hidratante", "pos sol", "labial", "facial", "repelente"]):
         return "Combina com protecao e cuidado da pele"
-    if any(w in names for w in ["gripe", "resfriado", "tosse", "febre"]) and any(w in prod for w in ["soro", "vitamina", "termometro", "pastilha", "mel"]):
+    if any(w in names for w in ["gripe", "resfriado", "tosse", "febre", "dorflex"]) and any(w in prod for w in ["soro", "vitamina", "termometro", "pastilha", "mel"]):
         return "Ajuda a completar o cuidado"
-    if any(w in names for w in ["whey", "creatina", "protein"]) and any(w in prod for w in ["vitamina", "omega", "colageno", "bcaa"]):
+    if any(w in names for w in ["whey", "creatina", "protein"]) and any(w in prod for w in ["vitamina", "omega", "colageno", "bcaa", "coqueteleira"]):
         return "Sugestao para sua rotina"
-    return "Relacionado ao que voce esta vendo"
+    if complement:
+        return "Complementa o item escolhido"
+    return "Produto popular na sua regiao"
+
+
+def _quick_alpha_products_for_recommendations(cnpjs, terms=None, limit=16):
+    cnpjs = [c for c in (cnpjs or []) if c]
+    if not cnpjs:
+        return []
+    terms = [_norm_text(t) for t in (terms or []) if _norm_text(t)]
+    patterns = [f"%{t}%" for t in terms[:3]]
+    conn = None
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        if patterns:
+            cur.execute(
+                """
+                SELECT cnpjloja, ean, nome, CAST(estoque AS INTEGER) AS qty,
+                       preco_venda AS preco, imagem_url AS imagem, 'alpha_a7' AS fonte_estoque
+                FROM ecommerce_alpha_produtos
+                WHERE cnpjloja = ANY(%s)
+                  AND COALESCE(inativo, false) = false
+                  AND COALESCE(estoque, 0) > 0
+                  AND LOWER(COALESCE(nome, '')) LIKE ANY(%s)
+                ORDER BY COALESCE(estoque, 0) DESC
+                LIMIT %s
+                """,
+                (cnpjs, patterns, max(8, limit)),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT cnpjloja, ean, nome, CAST(estoque AS INTEGER) AS qty,
+                       preco_venda AS preco, imagem_url AS imagem, 'alpha_a7' AS fonte_estoque
+                FROM ecommerce_alpha_produtos
+                WHERE cnpjloja = ANY(%s)
+                  AND COALESCE(inativo, false) = false
+                  AND COALESCE(estoque, 0) > 0
+                ORDER BY COALESCE(estoque, 0) DESC
+                LIMIT %s
+                """,
+                (cnpjs, max(8, limit)),
+            )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+    except Exception:
+        rows = []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return [r for r in rows if _has_catalog_image(r)]
+
+
+def _quick_products_by_terms(cnpjs, terms, limit=32):
+    terms = [_norm_text(t) for t in (terms or []) if _norm_text(t)]
+    cnpjs = [c for c in (cnpjs or []) if c]
+    if not cnpjs or not terms:
+        return []
+    patterns = [f"%{t}%" for t in terms[:3]]
+    eans = []
+    conn = None
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        try:
+            cur.execute("SET LOCAL statement_timeout = '2500ms'")
+        except Exception:
+            pass
+        cur.execute(
+            """
+            WITH candidatos AS (
+                SELECT ap.ean AS ean, 1 AS fonte_ordem
+                FROM ecommerce_alpha_produtos ap
+                WHERE ap.cnpjloja = ANY(%s)
+                  AND COALESCE(ap.inativo, false) = false
+                  AND COALESCE(ap.estoque, 0) > 0
+                  AND LOWER(COALESCE(ap.nome, '')) LIKE ANY(%s)
+                UNION ALL
+                SELECT ae.ean AS ean, 2 AS fonte_ordem
+                FROM automatiza_estoque ae
+                WHERE ae.cnpj_loja = ANY(%s)
+                  AND ae.quantidade_estoque > 0
+                  AND LOWER(COALESCE(ae.descricao_produto, '')) LIKE ANY(%s)
+                UNION ALL
+                SELECT COALESCE(e.barras_norm, e.barras) AS ean, 3 AS fonte_ordem
+                FROM estoque e
+                WHERE e.cnpj = ANY(%s)
+                  AND e.estoque > 0
+                  AND LOWER(COALESCE(e.descricao, '')) LIKE ANY(%s)
+            )
+            SELECT ean
+            FROM candidatos
+            WHERE COALESCE(ean, '') <> ''
+            GROUP BY ean
+            ORDER BY MIN(fonte_ordem), COUNT(*) DESC
+            LIMIT %s
+            """,
+            (cnpjs, patterns, cnpjs, patterns, cnpjs, patterns, max(12, limit * 2)),
+        )
+        eans = [r["ean"] for r in cur.fetchall() if r.get("ean")]
+        cur.close()
+    except Exception:
+        eans = []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return get_dns_products_batch_by_eans(cnpjs, eans[: max(12, limit * 2)]) if eans else []
 
 
 def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
@@ -9264,16 +9813,25 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
     offset = max(0, int(offset or 0))
     itens = [i for i in (itens or []) if isinstance(i, dict)]
     base_names = [(i.get("nome") or "").strip() for i in itens if (i.get("nome") or "").strip()]
-    exclude_eans = {(i.get("ean") or "").strip() for i in itens if (i.get("ean") or "").strip()}
+    exclude_eans = {_ean_key(i.get("ean")) for i in itens if _ean_key(i.get("ean"))}
     cnpjs = [c.strip() for c in (cnpjlojas or []) if c and c.strip()]
     if not cnpjs:
         cnpjs = [c for c in {(i.get("cnpjloja") or "").strip() for i in itens} if c]
     if not cnpjs:
         return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
 
-    produtos = [p for p in get_dns_products_batch(cnpjs) if p.get("ean") and p.get("ean") not in exclude_eans and _has_catalog_image(p)]
-    if not produtos:
-        return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
+    complement_terms, complement_source = _complement_terms_for_items(base_names)
+    produtos = []
+    seen_keys = set()
+
+    def _add_products(rows):
+        for row in rows or []:
+            ean_key = _ean_key(row.get("ean"))
+            key = (row.get("cnpjloja"), ean_key)
+            if not ean_key or ean_key in exclude_eans or key in seen_keys or not _has_catalog_image(row):
+                continue
+            produtos.append(row)
+            seen_keys.add(key)
 
     loja_info = {}
     conn = db()
@@ -9295,65 +9853,95 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
                 FROM ecommerce_pedido_itens i1
                 JOIN ecommerce_pedido_itens i2 ON i2.pedido_id = i1.pedido_id
                 JOIN ecommerce_pedidos p ON p.id = i1.pedido_id
-                WHERE i1.ean = ANY(%s)
-                  AND i2.ean <> ALL(%s)
+                WHERE LTRIM(COALESCE(i1.ean,''),'0') = ANY(%s)
+                  AND NOT (LTRIM(COALESCE(i2.ean,''),'0') = ANY(%s))
                   AND p.cnpjloja = ANY(%s)
                 GROUP BY i2.ean
                 ORDER BY score DESC
-                LIMIT 40
+                LIMIT 80
                 """,
                 (list(exclude_eans), list(exclude_eans), cnpjs),
             )
-            co_scores = {r["ean"]: int(r["score"] or 0) for r in cur.fetchall()}
+            co_scores = {_ean_key(r["ean"]): int(r["score"] or 0) for r in cur.fetchall()}
         except Exception:
             co_scores = {}
     cur.close()
     conn.close()
 
+    if co_scores:
+        _add_products(get_dns_products_batch_by_eans(cnpjs, list(co_scores.keys())[:80]))
+    if complement_terms:
+        strong_terms = [t for t in complement_terms if len(t.split()) >= 2][:3] or complement_terms[:2]
+        _add_products(_quick_alpha_products_for_recommendations(cnpjs, strong_terms, limit=max(8, limit * 2)))
+
+    # Se ainda faltar produto, preenche com itens disponiveis da propria loja por
+    # consulta Alpha/A7 curta. Evita fallback pesado no checkout e no detalhe.
+    if len(produtos) < limit:
+        _add_products(_quick_alpha_products_for_recommendations(cnpjs, limit=max(8, limit * 2)))
+    if not produtos:
+        return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
+
+    sales_scores = {} if (co_scores or complement_terms) else _sales_scores_for_cnpjs(cnpjs, limit=600)
     base_tokens = set()
     base_cats = set()
     for name in base_names:
         base_tokens |= _recommendation_tokens(name)
         base_cats.add(_classificar_produto(name))
+    term_tokens = [_recommendation_tokens(t) for t in complement_terms]
 
     ranked = []
     for p in produtos:
         pname = p.get("nome") or ""
+        ean_key = _ean_key(p.get("ean"))
         cat = _classificar_produto(pname)
         tokens = _recommendation_tokens(pname)
+        co = co_scores.get(ean_key, 0)
+        sales = sales_scores.get(ean_key, 0)
+        term_hits = sum(1 for tt in term_tokens if tt and (tt <= tokens or len(tt & tokens) >= max(1, min(2, len(tt)))))
         overlap = len(base_tokens & tokens)
-        co = co_scores.get(p.get("ean"), 0)
-        score = co * 100 + overlap * 8
+        score = co * 220 + term_hits * 90 + min(sales, 500) * 0.25
+        if term_hits:
+            score += 35
+        # Produtos da mesma categoria podem ser uteis, mas nao devem ganhar de complementares.
         if cat in base_cats:
-            score += 16
+            score += 4
+        if overlap >= 2 and not co and not term_hits:
+            score -= overlap * 10
         if p.get("qty"):
-            score += min(int(p.get("qty") or 0), 20) / 10
+            score += min(int(p.get("qty") or 0), 30) / 10
         if score <= 0:
-            score = 1
-        ranked.append((score, co > 0, p))
+            score = min(sales, 50) * 0.1 + 1
+        ranked.append((score, co > 0, term_hits > 0, p))
 
-    ranked.sort(key=lambda x: (-x[0], (x[2].get("nome") or "").lower()))
+    ranked.sort(key=lambda x: (-x[0], (x[3].get("nome") or "").lower()))
     result = []
-    seen = set()
+    seen_eans = set()
     skipped = 0
-    for _, from_history, p in ranked:
-        ean = p.get("ean")
-        if ean in seen:
+    for _, from_history, from_terms, p in ranked:
+        ean_key = _ean_key(p.get("ean"))
+        if ean_key in seen_eans:
             continue
-        seen.add(ean)
+        seen_eans.add(ean_key)
         if skipped < offset:
             skipped += 1
             continue
         item = dict(p)
         item["razao"] = loja_info.get(item.get("cnpjloja"), item.get("razao") or "Drogaria Poupaqui")
         item["categoria"] = item.get("categoria") or _classificar_produto(item.get("nome") or "")
-        item["motivo"] = _recommendation_reason(base_names, item.get("nome") or "", from_history)
+        item["motivo"] = _recommendation_reason(base_names, item.get("nome") or "", from_history, from_terms)
         result.append(item)
         if len(result) >= limit:
             break
 
-    titulo = "Quem comprou tambem levou" if co_scores else "Produtos que combinam com sua compra"
-    subtitulo = "Sugestoes baseadas em pedidos reais e itens relacionados" if co_scores else "Sugestoes relacionadas ao produto e ao contexto da farmacia"
+    has_co = any(co_scores.get(_ean_key(p.get("ean"))) for p in result)
+    has_terms = any((p.get("motivo") or "").startswith("Complementa") or "Combina" in (p.get("motivo") or "") or "Ajuda" in (p.get("motivo") or "") for p in result)
+    titulo = "Quem comprou tambem levou" if has_co else "Produtos que combinam com sua compra"
+    if has_terms or complement_source in ("rules", "ia"):
+        subtitulo = "Complementos disponiveis no catalogo da farmacia"
+    elif has_co:
+        subtitulo = "Sugestoes baseadas em pedidos reais"
+    else:
+        subtitulo = "Produtos populares disponiveis na sua regiao"
     return {"titulo": titulo, "subtitulo": subtitulo, "produtos": result}
 
 
@@ -9364,7 +9952,30 @@ def api_recomendacoes():
     cnpjlojas = data.get("cnpjlojas") or []
     if data.get("cnpjloja"):
         cnpjlojas.append(data.get("cnpjloja"))
-    recs = _build_recommendations(itens, cnpjlojas, data.get("limit") or 8)
+    limit = data.get("limit") or 8
+    try:
+        rec_key = (
+            "recomendacoes_v10",
+            tuple(sorted({(c or "").strip() for c in cnpjlojas if (c or "").strip()})),
+            tuple(sorted(
+                (
+                    _ean_key((i or {}).get("ean")),
+                    _norm_text((i or {}).get("nome") or "")[:80],
+                    ((i or {}).get("cnpjloja") or "").strip(),
+                )
+                for i in (itens or [])
+                if isinstance(i, dict)
+            )),
+            int(limit or 8),
+        )
+        cached = _home_api_cache_get(rec_key, 300)
+        if cached is not None:
+            return jsonify(cached)
+    except Exception:
+        rec_key = None
+    recs = _build_recommendations(itens, cnpjlojas, limit)
+    if rec_key:
+        _home_api_cache_set(rec_key, recs, 300)
     return jsonify(recs)
 
 

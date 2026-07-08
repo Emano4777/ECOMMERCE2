@@ -403,9 +403,6 @@
 }
 @media(max-width:360px) {
   .prod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .prod-buy-row { flex-direction: column; gap: 6px; }
-  .prod-qty-ctrl,
-  .prod-add-btn { width: 100%; }
 }
 
 /* ── PRODUCT CARD ───────────────────────────────── */
@@ -542,21 +539,17 @@
   background: var(--pq-red);
   color: #fff;
   text-align: center;
-  padding: 0 9px;
   border-radius: 8px;
-  font-size: .74rem;
-  font-weight: 700;
+  font-size: .9rem;
   border: none;
   cursor: pointer;
   font-family: inherit;
-  width: auto;
-  min-width: 68px;
+  width: 40px;
   height: 34px;
-  line-height: 1.1;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   transition: background .15s;
 }
 .prod-card:hover .prod-add-btn { background: var(--pq-red-dk); }
@@ -1227,30 +1220,32 @@ function cardHtml(p, idx) {
             <input type="number" id="qty-${idx}" value="1" min="1" max="${parseInt(p.qty)||99}" onclick="event.stopPropagation()">
             <button type="button" onclick="changeCardQty(${idx},1)">+</button>
           </div>
-          <button class="prod-add-btn" onclick="addFromCard(${idx})">
-            <i class="fa fa-cart-plus me-1"></i>${p.requer_receita ? 'Reservar' : 'Adicionar'}
+          <button class="prod-add-btn" onclick="addFromCard(${idx})" title="${p.requer_receita ? 'Reservar' : 'Adicionar ao carrinho'}" aria-label="${p.requer_receita ? 'Reservar' : 'Adicionar ao carrinho'}">
+            <i class="fa fa-cart-plus"></i>
           </button>
         </div>
       </div>
       ${(() => {
-        if (!p.promo) return `<div aria-hidden="true" style="padding:5px 12px;font-size:.68rem;visibility:hidden">-</div>`;
+        const slot = "min-height:28px;box-sizing:border-box;padding:5px 12px";
+        if (!p.promo) return `<div aria-hidden="true" style="${slot};font-size:.68rem;visibility:hidden">-</div>`;
         if (p.promo.so_assinantes && !p.promo.preco_promo) {
-          return `<div onclick="event.stopPropagation()" style="border-top:1px solid #fde68a;background:#fffbeb;padding:6px 12px;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;gap:5px;flex-wrap:wrap"><i class="fa fa-star" style="font-size:.58rem"></i>Preço especial para assinantes</div>`;
+          return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;gap:5px;flex-wrap:wrap"><i class="fa fa-star" style="font-size:.58rem"></i>Preço especial para assinantes</div>`;
         }
         const precoDe = parseFloat(p.preco)||0;
         const precoBaseDe = parseFloat(p.preco_original || p.promo.preco_original || precoDe)||precoDe;
         const precoPor = p.promo.preco_promo;
         if (precoPor < precoBaseDe) {
-          return `<div onclick="event.stopPropagation()" style="border-top:1px solid #fca5a5;background:#fff1f2;padding:5px 12px;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap"><span style="font-size:.66rem;color:var(--pq-red);font-weight:900;display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.55rem"></i>PROMO${p.promo.so_assinantes?' · Assinante':''}</span><span style="font-size:.72rem;font-weight:900;color:var(--pq-red);white-space:nowrap"><s style="opacity:.5;font-size:.62rem;font-weight:400">${brl(precoBaseDe)}</s> ${brl(precoPor)}</span></div>`;
+          return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fca5a5;background:#fff1f2;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap"><span style="font-size:.66rem;color:var(--pq-red);font-weight:900;display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.55rem"></i>PROMO${p.promo.so_assinantes?' · Assinante':''}</span><span style="font-size:.72rem;font-weight:900;color:var(--pq-red);white-space:nowrap"><s style="opacity:.5;font-size:.62rem;font-weight:400">${brl(precoBaseDe)}</s> ${brl(precoPor)}</span></div>`;
         }
-        return `<div onclick="event.stopPropagation()" style="border-top:1px solid #fde68a;background:#fffbeb;padding:6px 12px;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span style="white-space:nowrap">${brl(precoPor)}</span></div>`;
+        return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span style="white-space:nowrap">${brl(precoPor)}</span></div>`;
       })()}
       ${(() => {
         const plano = _planosIndex[p.cnpjloja];
-        if (!plano) return '';
-        if (plano.ja_assina) return `<div onclick="event.stopPropagation()" style="border-top:1px solid #bbf7d0;background:#f0fdf4;padding:6px 12px;font-size:.68rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:5px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante desta farmácia</div>`;
-        if (!plano.frete_gratis_primeira_entrega) return '';
-        return `<a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="border-top:1px solid #ffd0d8;background:#fff5f6;padding:6px 12px;display:flex;align-items:center;gap:5px;text-decoration:none;font-size:.64rem;line-height:1.25;color:var(--pq-red);font-weight:800">
+        const slot = "min-height:38px;box-sizing:border-box;padding:6px 12px";
+        if (!plano) return `<div aria-hidden="true" style="${slot};font-size:.64rem;visibility:hidden">-</div>`;
+        if (plano.ja_assina) return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #bbf7d0;background:#f0fdf4;font-size:.68rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:5px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante desta farmácia</div>`;
+        if (!plano.frete_gratis_primeira_entrega) return `<div aria-hidden="true" style="${slot};font-size:.64rem;visibility:hidden">-</div>`;
+        return `<a href="/loja/${encodeURIComponent(p.cnpjloja||'')}#assinatura-loja" onclick="event.stopPropagation()" style="${slot};border-top:1px solid #ffd0d8;background:#fff5f6;display:flex;align-items:center;gap:5px;text-decoration:none;font-size:.64rem;line-height:1.25;color:var(--pq-red);font-weight:800">
           <i class="fa fa-truck-fast" style="font-size:.58rem;flex-shrink:0;margin-top:1px"></i><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">1ª e outras entregas grátis com o clube</span>
         </a>`;
       })()}

@@ -7,14 +7,19 @@
 .cart-title { font-size:1.45rem; font-weight:900; margin-bottom:18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .cart-title img { width:34px; height:34px; object-fit:contain; }
 .cart-title small { color:var(--pq-muted); font-size:.72rem; font-weight:700; margin-left:2px; }
-.cart-layout { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:22px; align-items:start; min-width:0; }
+.cart-layout { display:grid; grid-template-columns:minmax(0, 1fr) minmax(286px, 330px); gap:22px; align-items:start; min-width:0; }
 .cart-main { min-width:0; display:flex; flex-direction:column; gap:16px; }
 #cart-container { display:flex; flex-direction:column; gap:16px; min-width:0; }
-@media(max-width:920px){ .cart-layout { grid-template-columns:1fr; } }
+@media(max-width:920px){
+  .cart-layout { grid-template-columns:1fr; }
+  .cart-side { position:static; }
+}
 @media(max-width:560px){
   .cart-item-right { align-items:flex-end; }
   .cart-wrap { padding:16px 12px 48px; }
   .pay-opt { min-width:0; flex:1 1 auto; }
+  .cart-title { font-size:1.22rem; margin-bottom:14px; }
+  .cart-title img { width:28px; height:28px; }
 }
 
 /* GRUPO FARMÁCIA */
@@ -103,7 +108,9 @@
 .btn-remove:hover { color:var(--pq-red); background:#fff0f2; }
 @media(max-width:400px){
   .cart-item-img, .cart-item-img-ph { width:52px; height:52px; }
-  .cart-item { padding:14px; gap:10px; }
+  .cart-item { padding:14px; gap:10px; display:grid; grid-template-columns:52px minmax(0, 1fr); }
+  .cart-item-right { grid-column:2; align-items:flex-start; width:100%; }
+  .qty-ctrl { width:100%; justify-content:flex-start; }
 }
 
 /* PAGAMENTO */
@@ -178,7 +185,7 @@
 .form-field input:focus { border-color:var(--pq-red); }
 
 /* GRAND TOTAL */
-.cart-side { position:sticky; top:90px; align-self:start; }
+.cart-side { position:sticky; top:90px; align-self:start; display:flex; flex-direction:column; gap:12px; min-width:0; }
 .order-summary-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:0 14px 34px rgba(15,23,42,.10); padding:20px; }
 .order-summary-card h3 { margin:0 0 16px; font-size:.98rem; font-weight:900; color:#111827; }
 .summary-free { background:#fff7f8; border:1px solid #ffe0e5; border-radius:10px; padding:10px 12px; color:#9f1239; font-size:.74rem; font-weight:800; margin-bottom:14px; }
@@ -189,7 +196,7 @@
 .summary-total { display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eef2f7; padding-top:16px; margin-top:14px; font-size:.95rem; font-weight:900; }
 .summary-total strong { color:var(--pq-red); font-size:1.45rem; }
 .summary-secure { text-align:center; color:#9ca3af; font-size:.68rem; font-weight:700; margin-top:10px; }
-.summary-continue { display:block; text-align:center; margin-top:16px; color:#64748b; font-size:.78rem; font-weight:800; text-decoration:none; }
+.summary-continue { display:block; text-align:center; color:#64748b; font-size:.78rem; font-weight:800; text-decoration:none; }
 .grand-total-card { background:transparent; color:#111827; border-radius:0; padding:0; display:block; }
 .grand-total-label, .grand-total-value { display:none; }
 .btn-finalizar {
@@ -209,6 +216,52 @@
 .btn-finalizar:hover { filter:brightness(.96); }
 .btn-finalizar:disabled { opacity:.5; cursor:not-allowed; }
 
+.cart-club-side { display:flex; flex-direction:column; gap:12px; }
+.cart-club-card {
+  position:relative;
+  overflow:hidden;
+  border-radius:14px;
+  padding:18px;
+  color:#fff;
+  background:
+    radial-gradient(circle at 92% 14%, rgba(255,179,71,.34), transparent 34%),
+    radial-gradient(circle at 84% 102%, rgba(255,196,0,.26), transparent 28%),
+    linear-gradient(135deg, #4f0b12 0%, #8c061c 44%, #bd1230 100%);
+  box-shadow:0 16px 34px rgba(120,7,24,.26);
+}
+.cart-club-top { display:flex; align-items:flex-start; gap:10px; min-width:0; }
+.cart-club-star { width:36px; height:36px; border-radius:11px; background:#ffc400; color:#7f1d1d; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 8px 18px rgba(0,0,0,.18); }
+.cart-club-eyebrow { font-size:.58rem; line-height:1; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#ffd54a; }
+.cart-club-title { margin-top:3px; font-size:1rem; line-height:1.08; font-weight:900; overflow-wrap:break-word; }
+.cart-club-desc { margin-top:8px; color:rgba(255,255,255,.82); font-size:.73rem; line-height:1.35; overflow-wrap:break-word; }
+.cart-club-benefits { display:flex; flex-direction:column; gap:7px; margin:14px 0 12px; }
+.cart-club-benefit { display:flex; align-items:flex-start; gap:7px; color:#fff; font-size:.76rem; line-height:1.3; font-weight:800; min-width:0; }
+.cart-club-benefit i { color:#ffc400; margin-top:1px; flex-shrink:0; }
+.cart-club-price { border-top:1px solid rgba(255,255,255,.22); padding-top:12px; margin-top:2px; display:flex; align-items:baseline; gap:5px; flex-wrap:wrap; }
+.cart-club-price strong { font-size:1.42rem; line-height:1; font-weight:900; color:#fff; }
+.cart-club-price span { color:rgba(255,255,255,.82); font-size:.68rem; font-weight:800; }
+.cart-club-action { margin-top:12px; }
+.cart-club-btn {
+  width:100%;
+  min-height:44px;
+  border:none;
+  border-radius:9px;
+  background:#ffc400;
+  color:#7f1d1d;
+  font-family:inherit;
+  font-weight:900;
+  font-size:.82rem;
+  cursor:pointer;
+  text-decoration:none;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  box-shadow:0 10px 20px rgba(0,0,0,.14);
+}
+.cart-club-btn.is-active { background:#dcfce7; color:#166534; box-shadow:none; }
+.cart-club-btn.is-pending { background:#fef3c7; color:#92400e; box-shadow:none; }
+.cart-club-foot { margin-top:9px; text-align:center; color:rgba(255,255,255,.64); font-size:.62rem; font-weight:800; }
 /* EMPTY */
 .cart-empty { text-align:center; padding:64px 20px; color:var(--pq-muted); background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); }
 .cart-empty > i { font-size:4rem; opacity:.18; display:block; margin-bottom:18px; color:#777; }
@@ -355,8 +408,9 @@
           <i class="fa fa-lock me-2"></i>Finalizar pedido
         </button>
         <div class="summary-secure"><i class="fa fa-lock me-1"></i>Compra 100% segura e criptografada</div>
-        <a class="summary-continue" href="{{ url_for('index') }}">‹ Continuar comprando</a>
       </div>
+      <div id="cart-club-side" class="cart-club-side" style="display:none"></div>
+      <a class="summary-continue" href="{{ url_for('index') }}">‹ Continuar comprando</a>
     </aside>
   </div>
 </div>
@@ -868,6 +922,7 @@ function renderCart() {
   const container = document.getElementById('cart-container');
   const checkoutSec = document.getElementById('checkout-section');
   const accountSec = document.getElementById('account-section');
+  const clubSide = document.getElementById('cart-club-side');
   const titleCount = document.getElementById('cart-title-count');
   const itemCount = cart.reduce((s, i) => s + (parseInt(i.qty || 1, 10) || 1), 0);
   if (titleCount) titleCount.textContent = itemCount ? `${itemCount} ${itemCount === 1 ? 'item' : 'itens'}` : '';
@@ -883,6 +938,7 @@ function renderCart() {
       </a>
     </div>`;
     checkoutSec.style.display = 'none';
+    if (clubSide) { clubSide.innerHTML = ''; clubSide.style.display = 'none'; }
     if (accountSec) accountSec.style.display = 'none';
     return;
   }
@@ -895,6 +951,7 @@ function renderCart() {
   });
 
   let html = '';
+  const sideClubCards = [];
   let grandTotal = 0;
   const cnpjs = Object.keys(groups);
 
@@ -902,7 +959,8 @@ function renderCart() {
     const g = groups[cnpj];
     const cfg = _configLojas[cnpj] || {};
     const sub = g.itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
-    
+    const sideClubHtml = assinaturaCardHtml(cnpj, cfg);
+    if (sideClubHtml) sideClubCards.push(sideClubHtml);
 
     let itensHtml = g.itens.map(item => {
       const precoItem = parseFloat(item.preco)||0;
@@ -1075,7 +1133,6 @@ function renderCart() {
         ${addressChoiceHtml(cnpj)}
         <div class="delivery-address"><i class="fa fa-location-dot"></i><span>${esc(getDeliveryAddressChoice().label || 'Endereço não informado')}</span></div>
       </div>
-      ${assinaturaCardHtml(cnpj, cfg)}
       ${receitaUploadHtml}
       ${renderDescontoQuantidade(cnpj, g.itens)}
       <div style="padding:10px 16px;border-top:1px solid var(--pq-border)">
@@ -1110,6 +1167,10 @@ function renderCart() {
   });
 
   container.innerHTML = html;
+  if (clubSide) {
+    clubSide.innerHTML = sideClubCards.join('');
+    clubSide.style.display = sideClubCards.length ? '' : 'none';
+  }
   const summarySubtotal = document.getElementById('summary-subtotal');
   const summaryItems = document.getElementById('summary-items');
   if (summarySubtotal) summarySubtotal.textContent = brl(grandTotal);
@@ -1228,42 +1289,43 @@ async function atualizarStatusHorarioCarrinho(cnpjs) {
 
 function assinaturaCardHtml(cnpj, cfg) {
   if (!cfg.plano_ativo) return '';
-  const beneficiosHtml = (cfg.plano_beneficios || '').split('\n').map(b => b.trim()).filter(Boolean)
-    .map(b => `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.76rem;color:#374151;font-weight:700;min-width:0"><i class="fa fa-check-circle" style="color:#16a34a;flex-shrink:0"></i><span style="min-width:0;overflow-wrap:break-word">${esc(b)}</span></span>`)
+  const rawBenefits = (cfg.plano_beneficios || '').split('\n').map(b => b.trim()).filter(Boolean);
+  const benefits = rawBenefits.length ? rawBenefits : [
+    'Entregas gratis para socios',
+    'Precos e descontos exclusivos',
+    'Ofertas antecipadas e vantagens'
+  ];
+  const beneficiosHtml = benefits.slice(0, 4)
+    .map(b => `<div class="cart-club-benefit"><i class="fa fa-circle-check"></i><span>${esc(b)}</span></div>`)
     .join('');
+  const desc = cfg.plano_descricao
+    ? esc(cfg.plano_descricao)
+    : 'Beneficios exclusivos da farmacia para economizar nas proximas compras.';
   let ctaHtml;
   if (cfg.ja_assina) {
-    ctaHtml = `<a href="/minhas-assinaturas" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none;white-space:nowrap"><i class="fa fa-check-circle"></i>Já sou assinante</a>`;
+    ctaHtml = `<a href="/minhas-assinaturas" class="cart-club-btn is-active"><i class="fa fa-check-circle"></i>Ja sou assinante</a>`;
   } else if (cfg.assinatura_pendente) {
-    ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#fef3c7;color:#d97706;border:1px solid #fde68a;border-radius:8px;padding:6px 12px;font-weight:900;font-size:.76rem;text-decoration:none;white-space:nowrap"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
+    ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" class="cart-club-btn is-pending"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
   } else {
-    ctaHtml = `<form method="post" action="/assinar/${encodeURIComponent(cnpj)}" style="margin-top:6px">
-      <button type="submit" style="background:var(--pq-red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:900;font-size:.8rem;cursor:pointer;font-family:inherit;white-space:nowrap">
-        Conhecer o Clube
-      </button>
+    ctaHtml = `<form method="post" action="/assinar/${encodeURIComponent(cnpj)}" class="cart-club-action">
+      <button type="submit" class="cart-club-btn">Conhecer o Clube <i class="fa fa-chevron-right"></i></button>
     </form>`;
   }
-  return `<div style="background:linear-gradient(135deg,#fff5f6,#fff);border:1.5px solid #ffd0d8;border-radius:12px;padding:14px 16px;margin:12px 16px 0;box-sizing:border-box">
-    <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#c8102e,#e8354a);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        <i class="fa fa-star" style="color:#fff;font-size:.9rem"></i>
-      </div>
-      <div style="flex:1;min-width:140px">
-        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
-          <span style="font-size:.9rem;font-weight:900;color:#1a1a1a">${esc(cfg.plano_nome || 'Clube Fidelidade')}</span>
-          <span style="background:#f1f5f9;color:#64748b;border-radius:999px;padding:1px 9px;font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.04em">Opcional</span>
-        </div>
-        <div style="font-size:.78rem;color:#6b7280;margin-top:3px">${cfg.plano_descricao ? esc(cfg.plano_descricao) + ' — ' : 'Assine e economize em toda a loja — '}não é necessário para finalizar este pedido.</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:1.2rem;font-weight:900;color:var(--pq-red);white-space:nowrap">${brl(cfg.plano_preco_mensal)}<span style="font-size:.7rem;font-weight:400;color:var(--pq-muted)">/mês</span></div>
-        ${ctaHtml}
+  return `<section class="cart-club-card" aria-label="Clube de assinantes">
+    <div class="cart-club-top">
+      <div class="cart-club-star"><i class="fa fa-star"></i></div>
+      <div style="min-width:0;flex:1">
+        <div class="cart-club-eyebrow">Clube - opcional</div>
+        <div class="cart-club-title">${esc(cfg.plano_nome || 'Clube Fidelidade')}</div>
+        <div class="cart-club-desc">${desc}</div>
       </div>
     </div>
-    ${beneficiosHtml ? `<div style="display:flex;flex-wrap:wrap;column-gap:16px;row-gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid #ffe0e5">${beneficiosHtml}</div>` : ''}
-  </div>`;
+    <div class="cart-club-benefits">${beneficiosHtml}</div>
+    <div class="cart-club-price"><strong>${brl(cfg.plano_preco_mensal)}</strong><span>/mes - cancele quando quiser</span></div>
+    ${cfg.ja_assina || cfg.assinatura_pendente ? `<div class="cart-club-action">${ctaHtml}</div>` : ctaHtml}
+    <div class="cart-club-foot">Nao e necessario para finalizar este pedido.</div>
+  </section>`;
 }
-
 function payOptHtml(cnpj, val, label, checked) {
   const auto = (_descontosAuto[cnpj] || {}).pagamento || [];
   const regra = auto.find(r => r.forma_pagamento === val || r.forma_pagamento === 'todos');
@@ -1407,7 +1469,7 @@ function _calcApplicableTotal(cnpjloja, codigo) {
 }
 
 function _prodCat(nome) {
-  const n = (nome || '').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const n = (nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega)\b/.test(n)) return 'suplemento';
   if (/\b(fps|protetor|facial|creme|locao|gel|shampoo|sabonete|solar|hidratante)\b/.test(n)) return 'cosmetico';
   if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(n)) return 'medicamento';
@@ -1493,7 +1555,7 @@ async function recalcularCarrinhoServidor() {
   } catch {}
 }
 
-// ── Verificação de horário de funcionamento ────────────────────────────────
+// -- Verificação de horário de funcionamento --------------------------------
 async function verificarHorarioLojas(farmaciasPedidos) {
   const fechadas = [];
   await Promise.all(farmaciasPedidos.map(async fp => {
@@ -1555,7 +1617,7 @@ function mostrarModalHorario(lojasFechadas, farmaciasPedidos) {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 async function finalizarPedido() {
   const btn = document.getElementById('btn-finalizar');

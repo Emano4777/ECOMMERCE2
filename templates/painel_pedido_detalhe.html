@@ -29,6 +29,13 @@
 .status-btn.s-enviado:hover { background:#0d1e2d; color:#38bdf8; }
 .status-btn.s-cancelado:hover { background:#2a0810; color:#f08090; }
 .status-btn.s-entregue { border-color:#22c55e; color:#22c55e; }
+.previsao-chip {
+  background:#0d1016; border:1px solid var(--pk-line); color:var(--pk-txt);
+  border-radius:999px; padding:6px 13px; font-size:.78rem; font-weight:700;
+  cursor:pointer; font-family:inherit; transition:all .15s;
+}
+.previsao-chip:hover { border-color:var(--pk-yellow); color:var(--pk-yellow); }
+.previsao-chip.active { background:var(--pk-yellow); color:#111; border-color:var(--pk-yellow); }
 .pay-detail { margin-top:10px; display:grid; gap:6px; font-size:.8rem; color:var(--pk-muted); }
 .pay-detail strong { color:var(--pk-txt); }
 .pay-sync { margin-top:10px; border:1px solid var(--pk-line); background:#0d1016; color:var(--pk-txt); border-radius:8px; padding:7px 12px; font-weight:800; cursor:pointer; }
@@ -451,14 +458,29 @@
         <i class="fa fa-clock me-1"></i>Previsão de <span id="previsao-tipo-label">entrega</span>
         <span style="font-weight:400;color:var(--pk-muted);margin-left:4px">(opcional — será exibida ao cliente)</span>
       </div>
-      <input id="previsao-inp" type="text"
-             placeholder="Ex: Hoje às 18h, Amanhã dia 15/06, Em até 2 horas…"
-             style="width:100%;background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.85rem;box-sizing:border-box;margin-bottom:10px">
-      <div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:6px">
-        <i class="fa fa-calendar-clock me-1"></i>Horário exato (opcional — usado pra avisar o cliente se o pedido atrasar)
+
+      <div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:6px">Escolha um prazo rápido</div>
+      <div id="previsao-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <button type="button" class="previsao-chip" onclick="aplicarPresetPrevisao(15,this)">Em 15 min</button>
+        <button type="button" class="previsao-chip" onclick="aplicarPresetPrevisao(30,this)">Em 30 min</button>
+        <button type="button" class="previsao-chip" onclick="aplicarPresetPrevisao(60,this)">Em 1 hora</button>
+        <button type="button" class="previsao-chip" onclick="aplicarPresetPrevisao(120,this)">Em 2 horas</button>
+        <button type="button" class="previsao-chip" onclick="aplicarPresetPrevisao(1440,this)">Amanhã, mesmo horário</button>
       </div>
-      <input id="previsao-em-inp" type="datetime-local"
+
+      <div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:6px">
+        <i class="fa fa-calendar-clock me-1"></i>Ou escolha a data/hora exata
+      </div>
+      <input id="previsao-em-inp" type="datetime-local" onchange="atualizarLabelPrevisao()"
              style="width:100%;background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.85rem;box-sizing:border-box;margin-bottom:10px">
+
+      <div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:6px">
+        <i class="fa fa-message me-1"></i>Mensagem exibida ao cliente <span style="opacity:.75">(preenchida automaticamente — edite se quiser)</span>
+      </div>
+      <input id="previsao-inp" type="text"
+             placeholder="Escolha um prazo acima ou digite uma mensagem"
+             style="width:100%;background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:9px 12px;font-family:inherit;font-size:.85rem;box-sizing:border-box;margin-bottom:10px">
+
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" id="previsao-confirm-btn"
                 class="status-btn"
@@ -515,11 +537,40 @@
   {% endif %}
 
   <script>
+  const _previsaoTipoTexto = { retirada: { verbo: 'Pronto para retirada', ate: 'Disponível para retirada até' }, entrega: { verbo: 'Chega', ate: 'Chega até' } };
   function abrirPrevisao(statusVal, tipo) {
     document.getElementById('previsao-tipo-label').textContent = tipo === 'retirada' ? 'retirada' : 'entrega';
+    document.getElementById('previsao-box').dataset.tipo = tipo;
     document.getElementById('status-pending').value = statusVal;
     document.getElementById('previsao-box').style.display = 'block';
-    document.getElementById('previsao-inp').focus();
+    document.getElementById('previsao-em-inp').value = '';
+    document.getElementById('previsao-inp').value = '';
+    document.querySelectorAll('.previsao-chip').forEach(c => c.classList.remove('active'));
+  }
+  function _previsaoPad(n) { return String(n).padStart(2, '0'); }
+  function aplicarPresetPrevisao(minutos, chipEl) {
+    const d = new Date(Date.now() + minutos * 60000);
+    const local = `${d.getFullYear()}-${_previsaoPad(d.getMonth()+1)}-${_previsaoPad(d.getDate())}T${_previsaoPad(d.getHours())}:${_previsaoPad(d.getMinutes())}`;
+    document.getElementById('previsao-em-inp').value = local;
+    document.querySelectorAll('.previsao-chip').forEach(c => c.classList.remove('active'));
+    if (chipEl) chipEl.classList.add('active');
+    atualizarLabelPrevisao();
+  }
+  function atualizarLabelPrevisao() {
+    const val = document.getElementById('previsao-em-inp').value;
+    if (!val) return;
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return;
+    const agora = new Date();
+    const amanha = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + 1);
+    const hora = `${_previsaoPad(d.getHours())}:${_previsaoPad(d.getMinutes())}`;
+    let dia;
+    if (d.toDateString() === agora.toDateString()) dia = 'hoje';
+    else if (d.toDateString() === amanha.toDateString()) dia = 'amanhã';
+    else dia = `dia ${_previsaoPad(d.getDate())}/${_previsaoPad(d.getMonth()+1)}`;
+    const tipo = document.getElementById('previsao-box').dataset.tipo === 'retirada' ? 'retirada' : 'entrega';
+    const textos = _previsaoTipoTexto[tipo];
+    document.getElementById('previsao-inp').value = `${textos.ate} ${dia === 'hoje' ? 'hoje' : dia} às ${hora}`;
   }
   function confirmarPrevisao() {
     const statusVal = document.getElementById('status-pending').value;
@@ -539,6 +590,7 @@
     document.getElementById('previsao-inp').value = '';
     document.getElementById('previsao-em-inp').value = '';
     document.getElementById('status-pending').value = '';
+    document.querySelectorAll('.previsao-chip').forEach(c => c.classList.remove('active'));
   }
   </script>
   {% if pedido.tipo_entrega == 'entrega' and pedido.status == 'enviado' %}
