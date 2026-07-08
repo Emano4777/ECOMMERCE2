@@ -987,7 +987,9 @@
       padding:10px; background:#fff;
       display:flex; flex-direction:column; gap:7px;
       transition:transform .2s ease, box-shadow .2s ease;
+      color:inherit; text-decoration:none;
     }
+    .pq-rec-card.is-clickable { cursor:pointer; }
     .pq-rec-card:hover { transform:translateY(-4px); box-shadow:0 10px 28px rgba(0,0,0,.11); }
     @media(max-width:520px){ .pq-rec-card { flex:0 0 calc(50vw - 28px); } }
     .pq-rec-img-wrap {
@@ -2154,19 +2156,23 @@ function pqRecCardHtml(p, idx, addFnName, showView) {
   const url = (p.ean && p.cnpjloja)
     ? `/produto/${encodeURIComponent(p.ean)}?cnpj=${encodeURIComponent(p.cnpjloja)}&nome=${encodeURIComponent(p.nome||'')}`
     : null;
-  const viewBtn = (showView !== false && url)
+  const jsUrl = url ? JSON.stringify(url).replace(/'/g, '&#39;') : '';
+  const goAttrs = url
+    ? ` role="link" tabindex="0" aria-label="Ver detalhes de ${esc(p.nome||'produto')}" onclick='window.location.href=${jsUrl}' onkeydown='if((event.key==="Enter"||event.key===" ")&&event.target===this){event.preventDefault();window.location.href=${jsUrl}}'`
+    : '';
+  const viewBtn = (showView === true && url)
     ? `<a class="pq-rec-btn-view" href="${url}" title="Ver produto"><i class="fa fa-eye"></i></a>`
     : '';
   const lab = (p.laboratorio || p.fabricante || p.marca || '').trim();
   const brl = 'R$ ' + parseFloat(p.preco||0).toFixed(2).replace('.',',');
-  return `<article class="pq-rec-card">
+  return `<article class="pq-rec-card${url ? ' is-clickable' : ''}"${goAttrs}>
     <div class="pq-rec-img-wrap">${imgHtml}</div>
     <div class="pq-rec-motivo-badge"><i class="fa fa-wand-magic-sparkles"></i>${esc(p.motivo||'Relacionado')}</div>
     <div class="pq-rec-name">${esc(p.nome||'Produto')}</div>
     ${lab ? `<div class="pq-rec-lab" title="${esc(lab)}"><i class="fa fa-flask"></i><span>${esc(lab)}</span></div>` : ''}
     <div class="pq-rec-price">${brl}</div>
     <div class="pq-rec-actions">
-      <button class="pq-rec-btn-add" type="button" onclick="${addFnName}(${idx},this)">
+      <button class="pq-rec-btn-add" type="button" onclick="event.stopPropagation();${addFnName}(${idx},this)">
         <i class="fa fa-cart-plus"></i>Adicionar
       </button>
       ${viewBtn}
