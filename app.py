@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 POUPAQUI ECOMMERCE
 Ecommerce público da rede Poupaqui — inicialmente somente produtos DNS/Vitnatu.
@@ -4543,7 +4544,7 @@ def _apply_safe_catalog_images(produtos, cur=None, persist_placeholders=True):
         anvisa = {"tarja": produto.get("tarja") or ""}
         placeholder = _placeholder_for_tarja(anvisa.get("tarja"))
         imagem_atual = produto.get("imagem") or ""
-        _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _classificar_produto(produto.get("nome") or "")
+        _tipo_p_raw = produto.get("categoria") or med.get("tipo_ia") or _categoria_from_alpha_classificacao(produto.get("classificacao")) or _classificar_produto(produto.get("nome") or "")
         _tipo_p = _TIPO_ALIAS.get(_tipo_p_raw, _tipo_p_raw)
         _exibir_publicamente = produto.get("exibir_imagem_publica")
         _alpha_item = _is_alpha_product(produto)
@@ -5255,6 +5256,7 @@ _SQL_ALPHA_A7_BATCH = """
             ap.cnpjloja,
             ap.ean,
             ap.nome,
+            ap.classificacao,
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_venda,
             ap.preco_atual,
@@ -5305,6 +5307,7 @@ _SQL_ALPHA_A7_BATCH = """
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+        el.classificacao AS classificacao,
         el.qty,
         el.preco_venda AS preco,
         COALESCE(el.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -5495,6 +5498,14 @@ def _apply_saved_categories(produtos, cur=None):
                 cur.close()
             except Exception:
                 pass
+    # Produtos sincronizados via Alpha A7 que ainda nao passaram por essa
+    # classificacao (ex: EAN novo) usam a classificacao que o proprio Alpha
+    # ja manda, em vez de cair direto no fallback por nome.
+    for p in produtos:
+        if not p.get("categoria"):
+            cat = _categoria_from_alpha_classificacao(p.get("classificacao"))
+            if cat:
+                p["categoria"] = cat
     return produtos
 
 
@@ -5741,6 +5752,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+            apimg.classificacao AS classificacao,
             b.qty,
             CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
             COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -5771,6 +5783,8 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         (ean_keys, cnpjs, cnpjs, cnpjs),
     )
     rows = [dict(r) for r in cur.fetchall()]
+    for _r in rows:
+        _r["categoria"] = _categoria_produto(_r)
     if _catalogo_alpha_exclusivo():
         rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
 
@@ -5928,6 +5942,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+            apimg.classificacao AS classificacao,
             b.qty,
             CASE WHEN b.fonte_estoque = 'alpha_a7' THEN b.preco_base ELSE COALESCE(ep.preco_customizado, vg.preco_venda, av.preco_venda, b.preco_base) END AS preco,
             COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -5961,6 +5976,8 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
          cnpjs, patterns, patterns, patterns, patterns, limit),
     )
     rows = [dict(r) for r in cur.fetchall()]
+    for _r in rows:
+        _r["categoria"] = _categoria_produto(_r)
     if _catalogo_alpha_exclusivo():
         rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
     if not _catalogo_alpha_exclusivo():
@@ -6029,6 +6046,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+            ap.classificacao AS classificacao,
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_venda AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -6085,6 +6103,7 @@ def get_alpha_products_direct(cnpjs, limit=200):
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+            ap.classificacao AS classificacao,
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_venda AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
@@ -7941,7 +7960,7 @@ def _api_produtos_proximos_impl():
             "valor_frete": frete_valor,
         }
 
-        categoria = p.get("categoria") or _classificar_produto(p.get("nome") or "")
+        categoria = _categoria_produto(p)
         produto_view = {**p, "razao": razao, "logo_url": info.get("logo_url"), "distancia_km": dist, "categoria": categoria, **entrega_meta}
 
         produtos_view.append(produto_view)
@@ -8040,6 +8059,7 @@ def _api_produtos_proximos_impl():
                        CAST(estoque AS INTEGER) AS qty,
                        imagem_url AS imagem,
                        fabricante AS laboratorio,
+                       classificacao,
                        'alpha_a7' AS fonte_estoque
                 FROM ecommerce_alpha_produtos
                 WHERE cnpjloja = ANY(%s)
@@ -8069,7 +8089,7 @@ def _api_produtos_proximos_impl():
                     **p,
                     "razao": _public_store_name(info),
                     "distancia_km": dist,
-                    "categoria": _classificar_produto(p.get("nome") or ""),
+                    "categoria": _categoria_produto(p),
                     "requer_receita": False,
                     "aceita_entrega": aceita_entrega,
                     "raio_entrega_km": raio_entrega,
@@ -9618,7 +9638,7 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
 
 
 _COMPLEMENT_RULES = [
-    (r"\b(fralda|infantil|bebe|baby)\b", ["lenco umedecido", "toalha umedecida", "pomada assadura", "creme preventivo assadura", "sabonete bebe", "shampoo bebe", "algodao"]),
+    (r"\b(fralda|infantil|bebe|baby)\b", ["lenco umedecido", "toalha umedecida", "toalha umedecid", "pomada assadura", "creme preventivo assadura", "sabonete inf", "johnson baby", "granado bebe", "dove baby", "sh huggies kids", "talco granado bebe", "repelente bebe"]),
     (r"\b(protetor solar|solar|fps|bronzeador)\b", ["hidratante", "pos sol", "protetor labial", "agua termal", "repelente", "sabonete facial"]),
     (r"\b(gripe|resfriado|tosse|febre|antigripal|dorflex|analgesico|dipirona|paracetamol)\b", ["soro fisiologico", "soro nasal", "vitamina c", "termometro", "pastilha garganta", "mel propolis"]),
     (r"\b(whey|creatina|protein|bcaa|pre treino)\b", ["coqueteleira", "vitamina", "omega 3", "colageno", "barra proteina", "magnesio"]),
@@ -9626,12 +9646,12 @@ _COMPLEMENT_RULES = [
     (r"\b(sabonete facial|gel limpeza|acne|antiacne|rosto|facial)\b", ["hidratante facial", "protetor solar facial", "algodao", "agua micelar", "tonico facial"]),
     (r"\b(curativo|gaze|ferimento|machucado|antisseptico)\b", ["esparadrapo", "micropore", "algodao", "agua oxigenada", "alcool 70", "luva"]),
     (r"\b(escova dental|creme dental|enxaguante|fio dental)\b", ["fio dental", "enxaguante bucal", "escova dental", "creme dental", "limpador lingua"]),
-    (r"\b(bananinha|banana|pacoca|pa[c?]oquita|doce|barra cereal|snack)\b", ["agua mineral", "agua coco", "suco", "isotonico", "barra cereal", "biscoito", "chocolate", "castanha"]),
-    (r"\b(energetico|refrigerante|bebida|suco|agua mineral)\b", ["snack", "barra cereal", "biscoito", "castanha", "chocolate", "pacoca"]),
+    (r"\b(bananinha|banana|pacoca|pacoquita|doce|barra cereal|snack)\b", ["agua de coco", "agua mineral", "suco", "isotonico", "barra cereal", "biscoito", "chocolate", "castanha", "pacoca"]),
+    (r"\b(energetico|refrigerante|bebida|suco|agua mineral|agua de coco)\b", ["snack", "barra cereal", "biscoito", "castanha", "chocolate", "pacoca", "bananinha"]),
 ]
 
 
-def _local_complement_terms(base_names):
+def _local_complement_terms(base_names, classificacoes=None):
     text = _norm_text(" ".join(base_names))
     terms = []
     for pattern, mapped in _COMPLEMENT_RULES:
@@ -9640,6 +9660,10 @@ def _local_complement_terms(base_names):
                 n = _norm_text(term)
                 if n and n not in terms:
                     terms.append(n)
+    if len(terms) < 6:
+        for term in _local_complement_terms_alpha(classificacoes):
+            if term not in terms:
+                terms.append(term)
     return terms[:10]
 
 
@@ -9676,8 +9700,8 @@ def _ai_complement_terms(base_names):
     return cleaned[:8]
 
 
-def _complement_terms_for_items(base_names):
-    local = _local_complement_terms(base_names)
+def _complement_terms_for_items(base_names, classificacoes=None):
+    local = _local_complement_terms(base_names, classificacoes=classificacoes)
     if local:
         return local, "rules"
     ai_terms = _ai_complement_terms(base_names)
@@ -9689,7 +9713,7 @@ def _recommendation_reason(base_names, product_name, co_purchase=False, compleme
         return "Clientes tambem compraram"
     names = _norm_text(" ".join(base_names))
     prod = _norm_text(product_name)
-    if any(w in names for w in ["fralda", "infantil", "bebe", "baby"]) and any(w in prod for w in ["lenco", "toalha", "pomada", "assadura", "talco", "algodao"]):
+    if any(w in names for w in ["fralda", "infantil", "bebe", "baby"]) and any(w in prod for w in ["lenco", "toalha", "pomada", "assadura", "talco", "sabonete", "shampoo", "hidratante"]):
         return "Complementa cuidados do bebe"
     if any(w in names for w in ["protetor", "solar", "fps"]) and any(w in prod for w in ["hidratante", "pos sol", "labial", "facial", "repelente"]):
         return "Combina com protecao e cuidado da pele"
@@ -9714,7 +9738,7 @@ def _quick_alpha_products_by_eans(cnpjs, eans, limit=40):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT cnpjloja, ean, nome, CAST(estoque AS INTEGER) AS qty,
+            SELECT cnpjloja, ean, nome, classificacao, CAST(estoque AS INTEGER) AS qty,
                    preco_venda AS preco, imagem_url AS imagem, 'alpha_a7' AS fonte_estoque
             FROM ecommerce_alpha_produtos
             WHERE cnpjloja = ANY(%s)
@@ -9745,7 +9769,7 @@ def _quick_alpha_products_for_recommendations(cnpjs, terms=None, limit=16):
     if not cnpjs:
         return []
     terms = [_norm_text(t) for t in (terms or []) if _norm_text(t)]
-    patterns = [f"%{t}%" for t in terms[:3]]
+    patterns = [f"%{t}%" for t in terms[:12]]
     conn = None
     try:
         conn = _new_conn_batch()
@@ -9753,7 +9777,7 @@ def _quick_alpha_products_for_recommendations(cnpjs, terms=None, limit=16):
         if patterns:
             cur.execute(
                 """
-                SELECT cnpjloja, ean, nome, CAST(estoque AS INTEGER) AS qty,
+                SELECT cnpjloja, ean, nome, classificacao, CAST(estoque AS INTEGER) AS qty,
                        preco_venda AS preco, imagem_url AS imagem, 'alpha_a7' AS fonte_estoque
                 FROM ecommerce_alpha_produtos
                 WHERE cnpjloja = ANY(%s)
@@ -9768,7 +9792,7 @@ def _quick_alpha_products_for_recommendations(cnpjs, terms=None, limit=16):
         else:
             cur.execute(
                 """
-                SELECT cnpjloja, ean, nome, CAST(estoque AS INTEGER) AS qty,
+                SELECT cnpjloja, ean, nome, classificacao, CAST(estoque AS INTEGER) AS qty,
                        preco_venda AS preco, imagem_url AS imagem, 'alpha_a7' AS fonte_estoque
                 FROM ecommerce_alpha_produtos
                 WHERE cnpjloja = ANY(%s)
@@ -9797,7 +9821,7 @@ def _quick_products_by_terms(cnpjs, terms, limit=32):
     cnpjs = [c for c in (cnpjs or []) if c]
     if not cnpjs or not terms:
         return []
-    patterns = [f"%{t}%" for t in terms[:3]]
+    patterns = [f"%{t}%" for t in terms[:12]]
     eans = []
     conn = None
     try:
@@ -9923,7 +9947,7 @@ def _cached_complement_products(cnpjs, base_items, limit=20):
                 CROSS JOIN LATERAL jsonb_array_elements_text(cr.eans) WITH ORDINALITY AS x(ean, ord)
                 GROUP BY cr.cnpjloja, LTRIM(x.ean, '0')
             )
-            SELECT ap.cnpjloja, ap.ean, ap.nome, CAST(ap.estoque AS INTEGER) AS qty,
+            SELECT ap.cnpjloja, ap.ean, ap.nome, ap.classificacao, CAST(ap.estoque AS INTEGER) AS qty,
                    ap.preco_venda AS preco, ap.imagem_url AS imagem, 'alpha_a7' AS fonte_estoque,
                    w.ord, u.razao, u.endereco
             FROM wanted w
@@ -10042,7 +10066,35 @@ def _complement_cache_set(cnpjloja, base_ean, base_nome, termos, eans, fonte="ru
         return False
 
 
-def _is_probably_substitute(base_names, product_name, matched_terms=False):
+
+def _is_incoherent_complement(base_names, product_name):
+    base = _norm_text(" ".join(base_names or []))
+    prod = _norm_text(product_name or "")
+    if not prod:
+        return True
+    if any(w in base for w in ["fralda", "infantil", "bebe", "baby"]):
+        direct = ["lenco", "toalha", "pomada", "assadura", "hipoglos", "bepantol", "dexpantenol"]
+        baby_markers = ["bebe", "baby", "infantil", "kids", "johnson", "granado", "dove baby", "muriel"]
+        baby_hygiene = ["sabonete", "shampoo", "hidratante", "oleo", "locao", "talco", "repelente"]
+        if "fralda" in prod or "fd " in prod or "babysec" in prod or "pampers" in prod:
+            return True
+        if any(w in prod for w in direct):
+            return False
+        if any(w in prod for w in baby_hygiene) and any(w in prod for w in baby_markers):
+            return False
+        return True
+    if any(w in base for w in ["bananinha", "banana", "pacoca", "pacoquita", "doce", "snack"]):
+        food = ["chocolate", "barra", "biscoito", "agua de coco", "agua mineral", "suco", "isotonico", "castanha", "pacoca", "bebida", "cereal", "brownie"]
+        bad = ["tint", "tonaliz", "sabonete", "shampoo", "agua oxigenada", "agua boricada", "micelar", "enxaguante", "pres", "blowtex", "pasta", "creme", "locao"]
+        if any(w in prod for w in bad):
+            return True
+        return not any(w in prod for w in food)
+    return False
+
+
+def _is_probably_substitute(base_names, product_name, matched_terms=False, base_classificacao=None, product_classificacao=None):
+    if _alpha_classificacao_specific_match(base_classificacao, product_classificacao):
+        return True
     if matched_terms:
         return False
     base = _norm_text(" ".join(base_names))
@@ -10054,7 +10106,7 @@ def _is_probably_substitute(base_names, product_name, matched_terms=False):
     return any(w in base and w in prod for w in substitute_words)
 
 
-def _rank_complement_rows(rows, base_names, terms, sales_scores=None, exclude_eans=None):
+def _rank_complement_rows(rows, base_names, terms, sales_scores=None, exclude_eans=None, base_classificacao=None):
     sales_scores = sales_scores or {}
     exclude_eans = exclude_eans or set()
     term_tokens = [_recommendation_tokens(t) for t in (terms or [])]
@@ -10065,10 +10117,14 @@ def _rank_complement_rows(rows, base_names, terms, sales_scores=None, exclude_ea
             continue
         name = row.get("nome") or ""
         tokens = _recommendation_tokens(name)
-        term_hits = sum(1 for tt in term_tokens if tt and (tt <= tokens or len(tt & tokens) >= max(1, min(2, len(tt)))))
-        if _is_probably_substitute(base_names, name, matched_terms=bool(term_hits)):
+        term_matches = [idx for idx, tt in enumerate(term_tokens) if tt and (tt <= tokens or len(tt & tokens) >= max(1, min(2, len(tt))))]
+        term_hits = len(term_matches)
+        if _is_incoherent_complement(base_names, name):
             continue
-        score = term_hits * 1000 + min(int(row.get("qty") or 0), 80) + min(sales_scores.get(ean_key, 0), 200) * 0.2
+        if _is_probably_substitute(base_names, name, matched_terms=bool(term_hits), base_classificacao=base_classificacao, product_classificacao=row.get("classificacao")):
+            continue
+        best_term = min(term_matches) if term_matches else 99
+        score = term_hits * 1000 + max(0, 300 - best_term * 35) + min(int(row.get("qty") or 0), 80) + min(sales_scores.get(ean_key, 0), 200) * 0.2
         if term_hits <= 0 and terms:
             score -= 500
         ranked.append((score, row))
@@ -10076,13 +10132,16 @@ def _rank_complement_rows(rows, base_names, terms, sales_scores=None, exclude_ea
     return [r for _, r in ranked]
 
 
-def _build_complement_cache_for_item(cnpjloja, base_ean, base_nome, use_ai=True, limit=16):
+def _build_complement_cache_for_item(cnpjloja, base_ean, base_nome, base_classificacao=None, use_ai=True, limit=16):
     base_nome = base_nome or ""
-    terms, source = _complement_terms_for_items([base_nome]) if use_ai else (_local_complement_terms([base_nome]), "rules")
+    if use_ai:
+        terms, source = _complement_terms_for_items([base_nome], classificacoes=[base_classificacao])
+    else:
+        terms, source = _local_complement_terms([base_nome], classificacoes=[base_classificacao]), "rules"
     if not terms:
         return []
     rows = _quick_alpha_products_for_recommendations([cnpjloja], terms, limit=max(24, limit * 3))
-    ranked = _rank_complement_rows(rows, [base_nome], terms, exclude_eans={_ean_key(base_ean)})
+    ranked = _rank_complement_rows(rows, [base_nome], terms, exclude_eans={_ean_key(base_ean)}, base_classificacao=base_classificacao)
     eans = [_ean_key(r.get("ean")) for r in ranked[:limit] if _ean_key(r.get("ean"))]
     if eans:
         _complement_cache_set(cnpjloja, base_ean, base_nome, terms, eans, source)
@@ -10102,9 +10161,30 @@ def _schedule_complement_cache_build(cnpjs, itens):
     if not jobs:
         return
     def worker():
+        # Roda em thread separada (nao bloqueia a resposta da pagina) — por
+        # isso pode pagar uma consulta extra pra pegar a classificacao do
+        # Alpha de cada item antes de montar o cache de complementares.
+        classificacoes = {}
+        try:
+            wanted = [(cnpj, _ean_key(ean)) for cnpj, ean, _ in jobs[:6] if cnpj and _ean_key(ean)]
+            if wanted:
+                conn = _new_conn_batch()
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT cnpjloja, ean, classificacao FROM ecommerce_alpha_produtos "
+                    "WHERE cnpjloja = ANY(%s) AND LTRIM(COALESCE(ean,''),'0') = ANY(%s)",
+                    ([c for c, _ in wanted], [e for _, e in wanted]),
+                )
+                for r in cur.fetchall():
+                    classificacoes[(r["cnpjloja"], _ean_key(r["ean"]))] = r.get("classificacao")
+                cur.close()
+                conn.close()
+        except Exception:
+            classificacoes = {}
         for cnpj, ean, nome in jobs[:6]:
             try:
-                _build_complement_cache_for_item(cnpj, ean, nome, use_ai=True, limit=16)
+                base_classificacao = classificacoes.get((cnpj, _ean_key(ean)))
+                _build_complement_cache_for_item(cnpj, ean, nome, base_classificacao, use_ai=True, limit=16)
             except Exception as exc:
                 app.logger.warning("async complement build error: %s", exc)
     try:
@@ -10125,8 +10205,6 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
     if not cnpjs:
         return {"titulo": "Veja tambem", "subtitulo": "Produtos relacionados disponiveis", "produtos": []}
 
-    complement_terms = _local_complement_terms(base_names)
-    complement_source = "rules" if complement_terms else "cache"
     produtos = []
     seen_keys = set()
     cached_rows, cached_set = _cached_complement_products(cnpjs, itens, limit=limit)
@@ -10152,6 +10230,21 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
     for r in cur.fetchall():
         item = dict(r)
         loja_info[item["cnpjloja"]] = _public_store_name(item)
+
+    base_classificacoes = []
+    if exclude_eans:
+        try:
+            cur.execute(
+                "SELECT classificacao FROM ecommerce_alpha_produtos "
+                "WHERE cnpjloja = ANY(%s) AND LTRIM(COALESCE(ean,''),'0') = ANY(%s) "
+                "AND COALESCE(classificacao,'') <> ''",
+                (cnpjs, list(exclude_eans)),
+            )
+            base_classificacoes = [r["classificacao"] for r in cur.fetchall()]
+        except Exception:
+            base_classificacoes = []
+    complement_terms = _local_complement_terms(base_names, classificacoes=base_classificacoes)
+    complement_source = "rules" if complement_terms else "cache"
 
     co_scores = {}
     if exclude_eans:
@@ -10209,7 +10302,13 @@ def _build_recommendations(itens, cnpjlojas, limit=8, offset=0):
         from_cache = ean_key in cached_set
         term_hits = sum(1 for tt in term_tokens if tt and (tt <= tokens or len(tt & tokens) >= max(1, min(2, len(tt)))))
         overlap = len(base_tokens & tokens)
-        if _is_probably_substitute(base_names, pname, matched_terms=bool(term_hits or from_cache)):
+        if _is_incoherent_complement(base_names, pname):
+            continue
+        is_substitute = any(
+            _is_probably_substitute(base_names, pname, matched_terms=bool(term_hits or from_cache), base_classificacao=bc, product_classificacao=p.get("classificacao"))
+            for bc in (base_classificacoes or [None])
+        )
+        if is_substitute:
             continue
         score = (1200 if from_cache else 0) + co * 260 + term_hits * 220 + min(sales, 500) * 0.25
         if term_hits:
@@ -10267,7 +10366,7 @@ def api_recomendacoes():
     limit = data.get("limit") or 8
     try:
         rec_key = (
-            "recomendacoes_v16",
+            "recomendacoes_v22",
             tuple(sorted({(c or "").strip() for c in cnpjlojas if (c or "").strip()})),
             tuple(sorted(
                 (
@@ -18404,6 +18503,110 @@ def _classificar_produto(nome: str) -> str:
     if _TIPO_MEDICAMENTO.search(nome):
         return "medicamento"
     return ""
+
+
+# Mapeia o ramo raiz da classificacao que o proprio Alpha manda
+# (ex: "PRINCIPAL > HPC > INFANTIL" -> ramo "HPC") para as categorias que
+# ja existem no ecommerce hoje. Baseado na distribuicao real de
+# classificacao dos produtos ativos/em estoque sincronizados via Alpha A7 —
+# so cobre produtos com essa origem (fonte_estoque='alpha_a7'); produtos das
+# tabelas legadas (estoque/automatiza_estoque) nao tem esse campo e caem no
+# fallback por nome de sempre.
+_ALPHA_CLASSIFICACAO_CATEGORIA = {
+    "HPC":            "perfumaria",
+    "VAREJO":         "varejo",
+    "NUTRACEUTICOS":  "suplemento",
+    "DERMOCOSMETICO": "dermocosmetico",
+    "MARCA":          "medicamento",
+    "SIMILAR":        "medicamento",
+    "GENERICO":       "medicamento",
+    "ETICO":          "medicamento",
+    "REFERENCIA":     "medicamento",
+    "MEDICAMENTOS":   "medicamento",
+}
+
+
+def _categoria_from_alpha_classificacao(classificacao):
+    """Traduz a classificacao do Alpha pro conjunto de categorias do ecommerce.
+    Retorna None quando nao ha classificacao ou o ramo raiz nao e reconhecido —
+    nesse caso quem chamou deve cair no fallback por nome (_classificar_produto)."""
+    if not classificacao:
+        return None
+    partes = [p.strip().upper() for p in str(classificacao).split(">") if p.strip()]
+    if len(partes) < 2:
+        return None
+    return _ALPHA_CLASSIFICACAO_CATEGORIA.get(partes[1])
+
+
+def _categoria_produto(p):
+    """Resolve a categoria de um produto: categoria ja calculada > classificacao
+    do Alpha (quando o produto veio da sincronizacao Alpha A7) > fallback por
+    nome. Ordem de preferencia unica pra manter tudo consistente."""
+    return (
+        p.get("categoria")
+        or _categoria_from_alpha_classificacao(p.get("classificacao"))
+        or _classificar_produto(p.get("nome") or "")
+    )
+
+
+def _alpha_classificacao_leaf(classificacao):
+    """Extrai o 3o nivel (a 'gondola') da classificacao do Alpha, ex:
+    'PRINCIPAL > HPC > INFANTIL' -> 'INFANTIL'. E o nivel mais especifico
+    que existe de forma consistente hoje nos dados sincronizados."""
+    if not classificacao:
+        return ""
+    partes = [p.strip().upper() for p in str(classificacao).split(">") if p.strip()]
+    if len(partes) >= 3:
+        return partes[2]
+    return partes[-1] if partes else ""
+
+
+# Termos complementares por "gondola" (3o nivel) da classificacao do Alpha —
+# usado como 2a linha de tentativa em _local_complement_terms, depois das
+# regras por nome (_COMPLEMENT_RULES) e antes de gastar chamada de IA. Vem da
+# distribuicao real de produtos ativos/em estoque (consulta direta ao banco).
+# "OUTROS"/"OUTRO" ficam de fora de proposito: sao categorias curinga do Alpha
+# que misturam itens sem relacao nenhuma entre si (de escova dental a esmalte),
+# entao nao da pra confiar num termo generico pra elas.
+_ALPHA_CLASSIFICACAO_COMPLEMENT_TERMS = {
+    "INFANTIL": ["lenco umedecido", "pomada assadura", "sabonete inf", "shampoo infantil", "hidratante infantil", "colonia infantil"],
+    "MASCULINO": ["desodorante", "shampoo anticaspa", "creme de barbear", "gel pos barba", "preservativo", "gel fixador cabelo"],
+    "FEMININO": ["hidratante corporal", "esmalte", "protetor solar", "creme para pentear", "absorvente", "removedor esmalte"],
+    "DERMOCOSMETICO": ["protetor solar", "hidratante facial", "agua micelar", "sabonete facial", "protetor labial"],
+    "NUTRACEUTICOS": ["coqueteleira", "vitamina c", "omega 3", "colageno", "multivitaminico"],
+    "VITNATU": ["coqueteleira", "vitamina c", "omega 3", "colageno", "multivitaminico"],
+    "DIAGNOSTICO": ["tiras de teste", "alcool 70", "algodao", "lanceta", "seringa"],
+    "BOMBONIER": ["agua mineral", "refrigerante", "suco", "chiclete", "bala"],
+}
+
+
+def _local_complement_terms_alpha(classificacoes):
+    """Mesma ideia de _local_complement_terms, mas usando a classificacao que o
+    Alpha ja manda por produto em vez de regex em cima do nome. So entra quando
+    as regras por nome nao acharam nada — reduz quanto essa funcao precisa
+    cair na IA (limite de orcamento do cron)."""
+    terms = []
+    for classificacao in classificacoes or []:
+        leaf = _alpha_classificacao_leaf(classificacao)
+        for term in _ALPHA_CLASSIFICACAO_COMPLEMENT_TERMS.get(leaf, []):
+            n = _norm_text(term)
+            if n and n not in terms:
+                terms.append(n)
+    return terms[:10]
+
+
+def _alpha_classificacao_specific_match(a, b):
+    """True quando as duas classificacoes do Alpha sao identicas e especificas
+    o bastante (4+ niveis) pra indicar a mesma linha de produto — sinal forte
+    de substituto, nao de complemento. Classificacoes de so 3 niveis (a
+    maioria) sao "gondolas" amplas demais pra isso: HPC > INFANTIL, por
+    exemplo, mistura fralda e lenco umedecido, que sao complementares entre
+    si — por isso esse sinal so e aplicado quando ha um 4o nivel especifico."""
+    if not a or not b:
+        return False
+    pa = [p.strip().upper() for p in str(a).split(">") if p.strip()]
+    pb = [p.strip().upper() for p in str(b).split(">") if p.strip()]
+    return len(pa) >= 4 and pa == pb
 
 _ANVISA_SCHEMA_READY = False
 

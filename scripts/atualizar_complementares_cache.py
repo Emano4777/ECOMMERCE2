@@ -20,7 +20,7 @@ from app import (  # noqa: E402
 )
 
 
-def _load_products(max_products, only_cnpj=None):
+def _load_products(max_products, only_cnpj=None, force=False):
     conn = db()
     cur = conn.cursor()
     params = []
@@ -28,10 +28,22 @@ def _load_products(max_products, only_cnpj=None):
     if only_cnpj:
         where_cnpj = "AND ap.cnpjloja = %s"
         params.append(only_cnpj)
+    cache_filter = ""
+    if not force:
+        cache_filter = """
+          AND NOT EXISTS (
+              SELECT 1
+              FROM ecommerce_produto_complementares_cache c
+              WHERE c.cnpjloja = ap.cnpjloja
+                AND c.base_ean = LTRIM(COALESCE(ap.ean, ''), '0')
+                AND c.expires_at > NOW()
+                AND jsonb_array_length(c.eans) > 0
+          )
+        """
     params.append(int(max_products))
     cur.execute(
         f"""
-        SELECT ap.cnpjloja, ap.ean, ap.nome,
+        SELECT ap.cnpjloja, ap.ean, ap.nome, ap.classificacao,
                COALESCE(SUM(v.itens), 0) AS vendas_score,
                COALESCE(ap.estoque, 0) AS estoque
         FROM ecommerce_alpha_produtos ap
@@ -41,7 +53,8 @@ def _load_products(max_products, only_cnpj=None):
           AND COALESCE(ap.ean, '') <> ''
           AND COALESCE(ap.nome, '') <> ''
           {where_cnpj}
-        GROUP BY ap.cnpjloja, ap.ean, ap.nome, ap.estoque
+          {cache_filter}
+        GROUP BY ap.cnpjloja, ap.ean, ap.nome, ap.classificacao, ap.estoque
         ORDER BY COALESCE(SUM(v.itens), 0) DESC, COALESCE(ap.estoque, 0) DESC
         LIMIT %s
         """,
@@ -56,12 +69,13 @@ def _load_products(max_products, only_cnpj=None):
 def main():
     parser = argparse.ArgumentParser(description="Atualiza cache de produtos complementares.")
     parser.add_argument("--max-products", type=int, default=350)
-    parser.add_argument("--max-ai", type=int, default=80, help="Quantidade maxima de produtos sem regra local que podem chamar IA.")
+    parser.add_argument("--max-ai", type=int, default=80, help="Quantidade maxima de produtos que podem chamar IA nesta rodada.")
     parser.add_argument("--cnpj", default="")
+    parser.add_argument("--force", action="store_true", help="Reprocessa tambem produtos com cache valido.")
     args = parser.parse_args()
 
     _ensure_complement_cache_schema()
-    rows = _load_products(args.max_products, args.cnpj.strip() or None)
+    rows = _load_products(args.max_products, args.cnpj.strip() or None, force=args.force)
     ok = 0
     empty = 0
     errors = 0
@@ -71,7 +85,7 @@ def main():
         nome = row.get("nome") or ""
         use_ai = ai_left > 0
         try:
-            eans = _build_complement_cache_for_item(row["cnpjloja"], row["ean"], nome, use_ai=use_ai, limit=16)
+            eans = _build_complement_cache_for_item(row["cnpjloja"], row["ean"], nome, row.get("classificacao"), use_ai=use_ai, limit=16)
             if eans:
                 ok += 1
             else:
