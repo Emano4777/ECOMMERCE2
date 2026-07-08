@@ -427,9 +427,13 @@
 {% set e_medicamento = (tipo_produto == 'medicamento') or (anvisa and anvisa.encontrado) %}
 {% set d_serve_ia = anvisa.para_que_serve_ia if anvisa.para_que_serve_ia else None %}
 {% set d_usar_ia  = anvisa.como_tomar_ia    if anvisa.como_tomar_ia    else None %}
-{% set d_serve  = d_serve_ia or anvisa.serve_para  or (vitnatu.serve_para  if e_medicamento else None) %}
-{% set d_usar   = d_usar_ia  or anvisa.como_usar   or (vitnatu.como_usar   if e_medicamento else None) %}
-{% set d_alerta = anvisa.alertas             or (vitnatu.alertas          if e_medicamento else None) %}
+{% set d_serve_prod_ia = produto_info_ia.serve_para if produto_info_ia and produto_info_ia.serve_para else None %}
+{% set d_usar_prod_ia  = produto_info_ia.como_usar  if produto_info_ia and produto_info_ia.como_usar  else None %}
+{% set d_alerta_prod_ia = produto_info_ia.alertas    if produto_info_ia and produto_info_ia.alertas    else None %}
+{% set d_prod_ia_real = produto_info_ia and produto_info_ia.fonte in ('anthropic', 'anthropic_cache') %}
+{% set d_serve  = d_serve_ia or anvisa.serve_para  or (vitnatu.serve_para  if e_medicamento else None) or d_serve_prod_ia %}
+{% set d_usar   = d_usar_ia  or anvisa.como_usar   or (vitnatu.como_usar   if e_medicamento else None) or d_usar_prod_ia %}
+{% set d_alerta = anvisa.alertas             or (vitnatu.alertas          if e_medicamento else None) or d_alerta_prod_ia %}
 {% set d_comprar = vitnatu.porque_comprar if e_medicamento else None %}
 {% set tem_anvisa = anvisa and anvisa.encontrado and (anvisa.serve_para or anvisa.como_usar or anvisa.alertas or anvisa.url_bula) %}
 {% set anvisa_ativo = 'ativ' in (anvisa.situacao or '')|lower %}
@@ -741,7 +745,12 @@
     {% if d_serve %}
     <div class="pd-section open">
       <div class="pd-section-hd" onclick="toggleSec(this)">
-        <i class="fa fa-circle-check icon"></i>Para que serve{% if d_serve_ia %}<span class="badge-ia"><i class="fa fa-check-circle"></i> Informação validada</span>{% endif %}
+        <i class="fa fa-circle-check icon"></i>Para que serve
+        {% if d_serve_ia %}
+          <span class="badge-ia"><i class="fa fa-check-circle"></i> Informação validada</span>
+        {% elif d_serve_prod_ia and d_prod_ia_real %}
+          <span class="badge-ia"><i class="fa fa-wand-magic-sparkles"></i> Gerado por IA</span>
+        {% endif %}
         <i class="fa fa-chevron-down arrow"></i>
       </div>
       <div class="pd-section-body">
@@ -755,7 +764,12 @@
     {% if d_usar %}
     <div class="pd-section">
       <div class="pd-section-hd" onclick="toggleSec(this)">
-        <i class="fa fa-droplet icon"></i>Como usar{% if d_usar_ia %}<span class="badge-ia"><i class="fa fa-check-circle"></i> Informação validada</span>{% endif %}
+        <i class="fa fa-droplet icon"></i>Como usar
+        {% if d_usar_ia %}
+          <span class="badge-ia"><i class="fa fa-check-circle"></i> Informação validada</span>
+        {% elif d_usar_prod_ia and d_prod_ia_real %}
+          <span class="badge-ia"><i class="fa fa-wand-magic-sparkles"></i> Gerado por IA</span>
+        {% endif %}
         <i class="fa fa-chevron-down arrow"></i>
       </div>
       <div class="pd-section-body">

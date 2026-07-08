@@ -1040,10 +1040,13 @@ function searchTermsForQuery(q) {
   const base = normTxt(q).trim();
   if (!base) return [];
   const terms = [base];
-  Object.entries(SYMPTOM_TERMS).forEach(([symptom, mapped]) => {
-    if (base.includes(symptom) || symptom.includes(base)) terms.push(...mapped);
-  });
+  base.split(/\s+/).forEach(term => { if (term.length >= 4) terms.push(term); });
   return [...new Set(terms.map(normTxt).filter(Boolean))];
+}
+
+function hasPublicImage(p) {
+  const img = String(p?.imagem || '').trim();
+  return !!img && !/placeholder_broken|sem-imagem|no-image|\/placeholder/i.test(img);
 }
 
 function productExcludedForSymptomQuery(q, hay) {
@@ -1714,7 +1717,7 @@ function carregarProdutos(lat, lng, busca='') {
         return;
       }
       _serverSearchLoading = false;
-      allProdutos = data.produtos || [];
+      allProdutos = (data.produtos || []).filter(hasPublicImage);
       if (data.cnpjs_proximos && data.cnpjs_proximos.length) _cnpjsProximos = data.cnpjs_proximos;
       _encomendaLojas = [];
       if (data.lojas_proximas && data.lojas_proximas.length) {
@@ -1729,9 +1732,8 @@ function carregarProdutos(lat, lng, busca='') {
       const poupinhaBubble = document.getElementById('poupinha-bubble');
       const poupinhaMsg    = document.getElementById('poupinha-msg');
       if (poupinhaBubble && poupinhaMsg) {
-        const isNlQuery = requestedSearch && requestedSearch.trim().split(/\s+/).length >= 2;
         const temAlternativa = data.alternativa_para && allProdutos.length;
-        if ((isNlQuery || temAlternativa) && allProdutos.length) {
+        if ((data.saudacao || temAlternativa) && allProdutos.length) {
           poupinhaMsg.textContent    = data.saudacao || _poupinhaFallback(requestedSearch);
           poupinhaBubble.style.display = '';
         } else {
@@ -2265,7 +2267,7 @@ function processarFotoBusca(inp) {
         return;
       }
 
-      allProdutos = data.produtos || [];
+      allProdutos = (data.produtos || []).filter(hasPublicImage);
       if (data.cnpjs_proximos && data.cnpjs_proximos.length) _cnpjsProximos = data.cnpjs_proximos;
       _lastServerSearch = termoBusca;
       filterAndRender(true);

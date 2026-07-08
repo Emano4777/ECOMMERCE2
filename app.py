@@ -3213,7 +3213,18 @@ def _search_terms_for_query(query):
     if not base:
         return []
     terms = [base]
+    for t in re.split(r"\s+", base):
+        if len(t) >= 4 and t not in terms:
+            terms.append(t)
+    seen = set()
+    result = []
+    for t in terms:
+        if t and t not in seen:
+            seen.add(t)
+            result.append(t)
+    return result
     try:
+        raise RuntimeError("symptom search disabled")
         _ensure_produto_sintomas_schema()
         conn = db()
         cur = conn.cursor()
@@ -3228,7 +3239,7 @@ def _search_terms_for_query(query):
                OR LOWER(COALESCE(sintomas,'') || ' ' || COALESCE(termos_busca,'')) LIKE %s
             LIMIT 20
             """,
-            (base, f"%{base}%"),
+            (base, like_pattern),
         )
         for row in cur.fetchall():
             for field in (row.get("termos_busca") or "", row.get("principio_ativo") or ""):
@@ -3240,9 +3251,9 @@ def _search_terms_for_query(query):
     except Exception:
         pass
     # fallback ao dicionário hardcoded se a tabela não retornou expansão
-    if len(terms) <= 1:
+    if False and len(terms) <= 1:
         for symptom, mapped in _SYMPTOM_SEARCH_TERMS.items():
-            if symptom in base or base in symptom:
+            if re.search(r'(?<![a-z0-9])' + re.escape(symptom) + r'(?![a-z0-9])', base):
                 terms.extend(_norm_text(m) for m in mapped)
     seen = set()
     result = []
@@ -3585,6 +3596,7 @@ def _symptom_index_eans_for_query(query, limit=250):
     base = _norm_text(query)
     if not base:
         return []
+    like_pattern = f"%{base}%" if len(base) > 4 else "__sem_match__"
     try:
         _ensure_produto_sintomas_schema()
         conn = db()
@@ -3605,7 +3617,7 @@ def _symptom_index_eans_for_query(query, limit=250):
                 ean
             LIMIT %s
             """,
-            (base, f"%{base}%", limit),
+            (base, like_pattern, limit),
         )
         rows = [r["ean"] for r in cur.fetchall()]
         cur.close()
@@ -3746,13 +3758,22 @@ _NL_SYMPTOM_WORDS = {
 def _is_natural_language_query(query):
     """True para qualquer busca textual — a IA interpreta sintomas, marcas e princípios ativos.
     Exceção: EANs puros (8-14 dígitos) vão direto para busca por código."""
-    q = _norm_query_cache(query)
+    q = _norm_text(query)
     if not q:
         return False
     # EAN puro → busca direta
     if re.match(r'^\d{8,14}$', q.replace(' ', '')):
         return False
-    return True
+    return False
+    intent_markers = (
+        "para ", "pra ", "bom para", "estou com", "estou sentindo",
+        "preciso de", "o que tomar", "o que usar", "remedio para",
+        "remedio pra", "dor de", "contra "
+    )
+    if any(marker in f" {q} " for marker in intent_markers):
+        return True
+    words = set(q.split())
+    return any(w in _NL_SYMPTOM_WORDS for w in words)
 
 
 def _busca_fuzzy_pg_trgm(term, limit=60):
@@ -6026,10 +6047,13 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         return []
     q_norm = _norm_text(query)
     patterns = []
-    if q_norm:
-        patterns.append(f"%{q_norm}%")
+    for term in _search_terms_for_query(query):
+        if len(term) < 4 and not term.isdigit():
+            continue
+        if term and f"%{term}%" not in patterns:
+            patterns.append(f"%{term}%")
     q_raw = (query or "").strip().lower()
-    if q_raw and f"%{q_raw}%" not in patterns:
+    if q_raw and len(_norm_text(q_raw)) >= 4 and f"%{q_raw}%" not in patterns:
         patterns.append(f"%{q_raw}%")
     ean_q = _digits(query)
     if not patterns and not ean_q:
@@ -6063,12 +6087,27 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
           AND COALESCE(ap.estoque, 0) > 0
           AND (
             LOWER(ap.nome) LIKE ANY(%s)
+            OR LOWER(COALESCE(ap.fabricante, '')) LIKE ANY(%s)
+            OR LOWER(COALESCE(m.marca, '')) LIKE ANY(%s)
+            OR LOWER(COALESCE(pc.descricao_canon, '')) LIKE ANY(%s)
+            OR LOWER(COALESCE(pc.laboratorio, '')) LIKE ANY(%s)
+            OR LOWER(COALESCE(elab.laboratorio, '')) LIKE ANY(%s)
             OR COALESCE(ap.ean, '') LIKE %s
           )
         ORDER BY ap.nome
         LIMIT %s
         """,
-        (cnpjs, patterns or ["__sem_match__"], f"%{ean_q}%" if ean_q else "__sem_match__", int(limit)),
+        (
+            cnpjs,
+            patterns or ["__sem_match__"],
+            patterns or ["__sem_match__"],
+            patterns or ["__sem_match__"],
+            patterns or ["__sem_match__"],
+            patterns or ["__sem_match__"],
+            patterns or ["__sem_match__"],
+            f"%{ean_q}%" if ean_q else "__sem_match__",
+            int(limit),
+        ),
     )
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
@@ -6084,6 +6123,24 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     except Exception:
         pass
     _apply_saved_categories(rows)
+    required_terms = [
+        t for t in re.split(r"\s+", q_norm)
+        if len(t) >= 4 and not t.isdigit()
+    ]
+    if len(required_terms) >= 2:
+        filtered_rows = []
+        for r in rows:
+            hay = _norm_text(" ".join([
+                r.get("nome") or "",
+                r.get("laboratorio") or "",
+                r.get("marca") or "",
+                r.get("classificacao") or "",
+                r.get("categoria") or "",
+            ]))
+            if all(t in hay for t in required_terms):
+                filtered_rows.append(r)
+        rows = filtered_rows
+    rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
 
@@ -7565,28 +7622,33 @@ def api_produtos_destaque():
 def api_produtos_proximos():
     """Wrapper fino: evita 500 cru e cacheia a vitrine sem busca por alguns minutos."""
     cache_key = None
-    if not (request.args.get("q") or request.args.get("busca")):
-        try:
-            lat_cache = round(float(request.args.get("lat", 0) or 0), 2)
-            lng_cache = round(float(request.args.get("lng", 0) or 0), 2)
-            raio_cache = int(float(request.args.get("raio", 30) or 30))
-            home_cache = request.args.get("home") == "1"
-            cat_cache = (request.args.get("cat") or "").strip().lower()
-            # Filtro por categoria varre o catálogo completo da loja (mais
-            # lento que a vitrine normal) — cachear evita repetir essa
-            # varredura a cada clique na mesma categoria.
+    cache_ttl = 300
+    try:
+        lat_cache = round(float(request.args.get("lat", 0) or 0), 2)
+        lng_cache = round(float(request.args.get("lng", 0) or 0), 2)
+        raio_cache = int(float(request.args.get("raio", 30) or 30))
+        home_cache = request.args.get("home") == "1"
+        cat_cache = (request.args.get("cat") or "").strip().lower()
+        q_cache = _norm_text(request.args.get("q") or request.args.get("busca") or "")
+        # Filtro por categoria varre o catálogo completo da loja (mais
+        # lento que a vitrine normal) — cachear evita repetir essa
+        # varredura a cada clique na mesma categoria.
+        if q_cache:
+            cache_key = ("produtos_proximos_search_v3", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, q_cache, bool(_catalogo_alpha_exclusivo()))
+            cache_ttl = 90
+        else:
             cache_key = ("produtos_proximos_curve_a_v3", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, bool(_catalogo_alpha_exclusivo()))
-            cached = _home_api_cache_get(cache_key, 300)
-            if cached is not None:
-                return jsonify(cached)
-        except Exception:
-            cache_key = None
+        cached = _home_api_cache_get(cache_key, cache_ttl)
+        if cached is not None:
+            return jsonify(cached)
+    except Exception:
+        cache_key = None
     try:
         resp = _api_produtos_proximos_impl()
         if cache_key is not None and getattr(resp, "status_code", 200) == 200:
             payload = resp.get_json(silent=True)
             if isinstance(payload, dict) and payload.get("produtos"):
-                _home_api_cache_set(cache_key, payload, ttl_seconds=300)
+                _home_api_cache_set(cache_key, payload, ttl_seconds=cache_ttl)
         return resp
     except Exception:
         app.logger.exception("Erro em /api/produtos-proximos")
@@ -7696,6 +7758,7 @@ def _api_produtos_proximos_impl():
 
     cnpjs = [l["cnpjloja"] for l in proximas]
     produtos_raw = []
+    ia_result = None
     ia_filter_terms = None  # preenchido pelo caminho NL; usado no filtro final
     _nl_ean_src = set()    # EANs do índice de sintomas; base limpa para fallback NL sem IA
     _alternativa_para   = None  # nome da marca buscada quando não encontrada diretamente
@@ -7703,7 +7766,10 @@ def _api_produtos_proximos_impl():
 
     is_nl = _is_natural_language_query(busca_q) if busca_q else False
 
-    if busca_q:
+    if busca_q and _catalogo_alpha_exclusivo():
+        produtos_raw = get_alpha_products_direct_by_query(cnpjs, busca_q, limit=160)
+
+    if busca_q and not produtos_raw and (not _catalogo_alpha_exclusivo() or is_nl):
         if is_nl:
             # --- Caminho NL: IA + busca direta em paralelo ---
             query_norm_nl = _norm_query_cache(busca_q)
@@ -7817,18 +7883,21 @@ def _api_produtos_proximos_impl():
                 produtos_raw = get_dns_products_batch_by_name(cnpjs, _fb_terms[:4])
         else:
             # --- Caminho direto: waterfall passo 1 → 2 → 3 ---
-            search_terms = _search_terms_for_query(busca_q)
-            index_eans = _symptom_index_eans_for_query(busca_q, limit=300)
+            search_terms = [
+                t for t in _search_terms_for_query(busca_q)
+                if len(t) >= 4 or t.isdigit()
+            ]
+            index_eans = []
 
             # Passo 1: EAN index + nome
             real_eans = [e for e in index_eans if re.match(r"^789\d{10}$", e)]
             if real_eans:
                 produtos_raw = get_dns_products_batch_by_eans(cnpjs, real_eans[:120])
-            if not produtos_raw:
-                produtos_raw = get_dns_products_batch_by_name(cnpjs, search_terms or [busca_q])
+            if not produtos_raw and search_terms:
+                produtos_raw = get_dns_products_batch_by_name(cnpjs, search_terms)
 
             # Passo 2: fuzzy pg_trgm se menos de 3 resultados
-            if len(produtos_raw) < 3:
+            if search_terms and len(produtos_raw) < 3:
                 fuzzy_eans = _busca_fuzzy_pg_trgm(busca_q)
                 real_fuzzy = [e for e in fuzzy_eans if re.match(r"^789\d{10}$", e)]
                 if real_fuzzy:
@@ -7843,7 +7912,7 @@ def _api_produtos_proximos_impl():
             # Essa chamada e sincrona (bloqueia a request, sem paralelismo com o
             # caminho NL) — se a busca ja esta demorando muito, pula a IA em vez
             # de arriscar estourar o timeout da funcao serverless.
-            if len(produtos_raw) < 3 and (time.monotonic() - _busca_inicio) < 6.0:
+            if False and len(produtos_raw) < 3 and (time.monotonic() - _busca_inicio) < 6.0:
                 ia_result = _claude_busca_interpret(busca_q)
                 if ia_result:
                     ia_terms = []
@@ -8011,6 +8080,10 @@ def _api_produtos_proximos_impl():
                     _ft_patterns.append(re.compile(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])'))
                 else:
                     _ft_patterns.append(t)  # string → substring simples
+            _required_filter_terms = [
+                t for t in re.split(r"\s+", _norm_text(busca_q))
+                if len(t) >= 4 and not t.isdigit()
+            ]
             filtrados = []
             for p in produtos_view:
                 hay_raw = " ".join([
@@ -8027,6 +8100,8 @@ def _api_produtos_proximos_impl():
                 ])
                 hay = _norm_text(hay_raw)
                 if _product_excluded_for_symptom_query(busca_q, hay_raw):
+                    continue
+                if len(_required_filter_terms) >= 2 and not all(t in hay for t in _required_filter_terms):
                     continue
                 if any(
                     (pat.search(hay) if hasattr(pat, 'search') else pat in hay)
@@ -8067,32 +8142,36 @@ def _api_produtos_proximos_impl():
         try:
             q_norm_direct = _norm_text(busca_q)
             ean_direct = _digits(busca_q)
-            conn_alpha_direct = db()
-            cur_alpha_direct = conn_alpha_direct.cursor()
-            cur_alpha_direct.execute(
-                """
-                SELECT cnpjloja, ean, nome, preco_venda AS preco,
-                       CAST(estoque AS INTEGER) AS qty,
-                       imagem_url AS imagem,
-                       fabricante AS laboratorio,
-                       classificacao,
-                       'alpha_a7' AS fonte_estoque
-                FROM ecommerce_alpha_produtos
-                WHERE cnpjloja = ANY(%s)
-                  AND COALESCE(inativo,false)=false
-                  AND COALESCE(estoque,0)>0
-                  AND (
-                    LOWER(COALESCE(nome,'')) LIKE %s
-                    OR COALESCE(ean,'') LIKE %s
-                  )
-                ORDER BY nome
-                LIMIT 20
-                """,
-                (cnpjs, f"%{q_norm_direct}%" if q_norm_direct else "__sem_match__", f"%{ean_direct}%" if ean_direct else "__sem_match__"),
-            )
-            alpha_rows = [dict(r) for r in cur_alpha_direct.fetchall()]
-            cur_alpha_direct.close()
+            alpha_rows = []
+            if len(q_norm_direct) >= 4 or ean_direct:
+                conn_alpha_direct = db()
+                cur_alpha_direct = conn_alpha_direct.cursor()
+                cur_alpha_direct.execute(
+                    """
+                    SELECT cnpjloja, ean, nome, preco_venda AS preco,
+                           CAST(estoque AS INTEGER) AS qty,
+                           imagem_url AS imagem,
+                           fabricante AS laboratorio,
+                           classificacao,
+                           'alpha_a7' AS fonte_estoque
+                    FROM ecommerce_alpha_produtos
+                    WHERE cnpjloja = ANY(%s)
+                      AND COALESCE(inativo,false)=false
+                      AND COALESCE(estoque,0)>0
+                      AND (
+                        LOWER(COALESCE(nome,'')) LIKE %s
+                        OR COALESCE(ean,'') LIKE %s
+                      )
+                    ORDER BY nome
+                    LIMIT 20
+                    """,
+                    (cnpjs, f"%{q_norm_direct}%" if q_norm_direct else "__sem_match__", f"%{ean_direct}%" if ean_direct else "__sem_match__"),
+                )
+                alpha_rows = [dict(r) for r in cur_alpha_direct.fetchall()]
+                cur_alpha_direct.close()
             for p in alpha_rows:
+                if not _has_catalog_image(p):
+                    continue
                 info = loja_info.get(p["cnpjloja"], {})
                 dist = info.get("distancia_km")
                 aceita_entrega = bool(info.get("aceita_entrega"))
@@ -9487,6 +9566,14 @@ def _ean_key(value):
 
 
 def _sales_scores_for_cnpjs(cnpjs, limit=800):
+    """Score de curva A por FATURAMENTO (valor vendido), nao por quantidade de itens.
+
+    Curva A classica (Pareto/ABC) classifica produtos pela contribuicao em receita,
+    nao pelo volume de unidades. Um item barato e vendido em grande quantidade
+    (ex.: bala/doce de balcao) tem alto giro mas baixa relevancia de faturamento,
+    entao nao deve dominar o ranking sobre itens que geram mais receita.
+    Valores sao guardados em centavos (int) so para manter o score como inteiro.
+    """
     cnpjs = [c for c in (cnpjs or []) if c]
     if not cnpjs:
         return {}
@@ -9496,9 +9583,9 @@ def _sales_scores_for_cnpjs(cnpjs, limit=800):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT ean, SUM(CAST(COALESCE(itens,0) AS BIGINT)) AS total
+            SELECT ean, SUM(CAST(COALESCE(total_vendasgeral,0) AS NUMERIC)) AS total
             FROM vendageral
-            WHERE cnpj = ANY(%s) AND COALESCE(ean,'') <> '' AND COALESCE(itens,0) > 0
+            WHERE cnpj = ANY(%s) AND COALESCE(ean,'') <> '' AND COALESCE(total_vendasgeral,0) > 0
             GROUP BY ean
             ORDER BY total DESC
             LIMIT %s
@@ -9508,12 +9595,12 @@ def _sales_scores_for_cnpjs(cnpjs, limit=800):
         for r in cur.fetchall():
             k = _ean_key(r.get("ean"))
             if k:
-                scores[k] = scores.get(k, 0) + int(r.get("total") or 0)
+                scores[k] = scores.get(k, 0) + int(round(float(r.get("total") or 0) * 100))
         cur.execute(
             """
-            SELECT ean, SUM(CAST(COALESCE(quantidade_vendida,0) AS BIGINT)) AS total
+            SELECT ean, SUM(CAST(COALESCE(valor_final_vendido,0) AS NUMERIC)) AS total
             FROM automatiza_vendas
-            WHERE cnpj_loja = ANY(%s) AND COALESCE(ean,'') <> '' AND COALESCE(quantidade_vendida,0) > 0
+            WHERE cnpj_loja = ANY(%s) AND COALESCE(ean,'') <> '' AND COALESCE(valor_final_vendido,0) > 0
             GROUP BY ean
             ORDER BY total DESC
             LIMIT %s
@@ -9523,7 +9610,7 @@ def _sales_scores_for_cnpjs(cnpjs, limit=800):
         for r in cur.fetchall():
             k = _ean_key(r.get("ean"))
             if k:
-                scores[k] = scores.get(k, 0) + int(r.get("total") or 0)
+                scores[k] = scores.get(k, 0) + int(round(float(r.get("total") or 0) * 100))
         cur.close()
         conn.close()
     except Exception:
@@ -9532,6 +9619,42 @@ def _sales_scores_for_cnpjs(cnpjs, limit=800):
         except Exception:
             pass
     return scores
+
+
+def _apply_alpha_realtime_promo(rows):
+    """Aplica preco_promocional do Alpha direto da ecommerce_alpha_produtos, em
+    tempo real (sem depender do sync assincrono para ecommerce_promocoes, que
+    so cobre a loja default do Alpha). Usa o mesmo formato de 'promo' que o
+    card de produto ja sabe renderizar (badge + preco riscado)."""
+    now = datetime.now(timezone.utc)
+    for r in (rows or []):
+        if r.get("fonte_estoque") != "alpha_a7":
+            continue
+        preco_promo = r.get("preco_promocional")
+        if not preco_promo:
+            continue
+        try:
+            preco_promo = float(preco_promo)
+        except (TypeError, ValueError):
+            continue
+        preco_original = float(r.get("preco") or 0)
+        if preco_promo <= 0 or preco_original <= 0 or preco_promo >= preco_original:
+            continue
+        inicio = r.get("promo_inicio")
+        fim = r.get("promo_fim")
+        if inicio and inicio > now:
+            continue
+        if fim and fim < now:
+            continue
+        r["preco_original"] = preco_original
+        r["preco"] = preco_promo
+        r["promo"] = {
+            "so_assinantes": False,
+            "preco_promo": preco_promo,
+            "assinante_ativo": False,
+            "aplicada": True,
+            "preco_original": preco_original,
+        }
 
 
 def _curve_a_sort_products(produtos, sales_scores=None):
@@ -9568,7 +9691,8 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                            ap.classificacao,
                            CAST(ap.estoque AS INTEGER) AS qty, ap.preco_venda AS preco,
                            COALESCE(ap.imagem_url, epi.imagem_url) AS imagem,
-                           c.logo_url, a.ord, 'alpha_a7' AS fonte_estoque
+                           c.logo_url, a.ord, 'alpha_a7' AS fonte_estoque,
+                           ap.preco_promocional, ap.promo_inicio, ap.promo_fim
                     FROM alvo a
                     JOIN ecommerce_alpha_produtos ap ON LTRIM(COALESCE(ap.ean,''),'0') = a.ean_key
                     LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean,''),'0') = a.ean_key
@@ -9583,7 +9707,8 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                            CAST(e.estoque AS INTEGER) AS qty,
                            COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
                            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
-                           c.logo_url, a.ord, 'alpha' AS fonte_estoque
+                           c.logo_url, a.ord, 'alpha' AS fonte_estoque,
+                           NULL::numeric AS preco_promocional, NULL::timestamptz AS promo_inicio, NULL::timestamptz AS promo_fim
                     FROM alvo a
                     JOIN estoque e ON LTRIM(COALESCE(e.barras_norm, e.barras, ''),'0') = a.ean_key
                     LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = e.cnpj
@@ -9605,7 +9730,8 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                            CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                            COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
-                           c.logo_url, a.ord, 'auto' AS fonte_estoque
+                           c.logo_url, a.ord, 'auto' AS fonte_estoque,
+                           NULL::numeric AS preco_promocional, NULL::timestamptz AS promo_inicio, NULL::timestamptz AS promo_fim
                     FROM alvo a
                     JOIN automatiza_estoque ae ON LTRIM(COALESCE(ae.ean,''),'0') = a.ean_key
                     LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = ae.cnpj_loja
@@ -9631,6 +9757,7 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
             )
             rows = [dict(r) for r in cur.fetchall()]
             _apply_saved_categories(rows, cur)
+            _apply_alpha_realtime_promo(rows)
             cur.close()
             conn.close()
         except Exception as exc:
@@ -10756,6 +10883,238 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
     }
 
 
+_PRODUTO_DESCRICAO_IA_SCHEMA_READY = False
+
+
+def _ensure_produto_descricao_ia_schema():
+    global _PRODUTO_DESCRICAO_IA_SCHEMA_READY
+    if _PRODUTO_DESCRICAO_IA_SCHEMA_READY:
+        return
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ecommerce_produto_descricao_ia (
+            ean          TEXT PRIMARY KEY,
+            nome_norm    TEXT,
+            nome         TEXT,
+            tipo_produto TEXT,
+            marca        TEXT,
+            laboratorio  TEXT,
+            serve_para   TEXT,
+            como_usar    TEXT,
+            alertas      TEXT,
+            fonte        TEXT DEFAULT 'anthropic',
+            gerado_em    TIMESTAMPTZ DEFAULT NOW(),
+            atualizado_em TIMESTAMPTZ DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_prod_desc_ia_nome_norm ON ecommerce_produto_descricao_ia(nome_norm)")
+    conn.commit()
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _PRODUTO_DESCRICAO_IA_SCHEMA_READY = True
+
+
+def _produto_descricao_ia(
+    ean: str,
+    nome: str,
+    tipo_produto: str,
+    marca: str = "",
+    laboratorio: str = "",
+    allow_generate: bool = False,
+    allow_fallback: bool = False,
+) -> dict:
+    """Descricao curta para produtos no detalhe. Por padrao, apenas le cache."""
+    from datetime import datetime, timezone, timedelta
+    import json as _json
+
+    def _fallback_info(source="rules"):
+        tipo = (tipo_produto or "").strip().lower()
+        nome_base = (nome or "Este produto").strip()
+        if tipo in ("perfumaria", "dermocosmetico"):
+            return {
+                "serve_para": f"{nome_base} e indicado para cuidados pessoais, higiene ou rotina de beleza, conforme a finalidade descrita na embalagem.",
+                "como_usar": "Use conforme as instrucoes do rotulo, respeitando a frequencia, area de aplicacao e cuidados informados pelo fabricante.",
+                "alertas": "Evite contato com os olhos e suspenda o uso em caso de irritacao.",
+                "fonte": source,
+            }
+        if tipo == "suplemento":
+            return {
+                "serve_para": f"{nome_base} e um suplemento alimentar usado para complementar a rotina nutricional, conforme a composicao indicada no rotulo.",
+                "como_usar": "Consuma conforme a recomendacao da embalagem ou orientacao de nutricionista/profissional de saude.",
+                "alertas": "Suplementos nao substituem uma alimentacao equilibrada.",
+                "fonte": source,
+            }
+        if tipo == "nutricao":
+            return {
+                "serve_para": f"{nome_base} e um produto de alimentacao/nutricao para uso conforme a categoria e composicao descritas no rotulo.",
+                "como_usar": "Prepare ou consuma seguindo exatamente as instrucoes da embalagem.",
+                "alertas": "Verifique ingredientes, alergenicos e restricoes alimentares antes do uso.",
+                "fonte": source,
+            }
+        if tipo == "varejo":
+            return {
+                "serve_para": f"{nome_base} e um produto de apoio para uso cotidiano, cuidados, higiene, diagnostico ou conveniencia, conforme sua finalidade na embalagem.",
+                "como_usar": "Utilize de acordo com as instrucoes do fabricante e confira a integridade do produto antes do uso.",
+                "alertas": "Mantenha fora do alcance de criancas quando aplicavel.",
+                "fonte": source,
+            }
+        return {
+            "serve_para": f"{nome_base} e um produto vendido em farmacia para uso conforme a finalidade indicada pelo fabricante.",
+            "como_usar": "Siga as orientacoes do rotulo ou embalagem antes de usar.",
+            "alertas": "Em caso de duvida, fale com um farmaceutico.",
+            "fonte": source,
+        }
+
+    ean_key = _ean_key(ean)
+    nome = (nome or "").strip()
+    if not ean_key or not nome:
+        return {}
+
+    try:
+        _ensure_produto_descricao_ia_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT serve_para, como_usar, alertas, fonte, gerado_em
+            FROM ecommerce_produto_descricao_ia
+            WHERE ean=%s
+            LIMIT 1
+            """,
+            (ean_key,),
+        )
+        row = cur.fetchone()
+        if row and (row.get("serve_para") or row.get("como_usar")):
+            gerado = row.get("gerado_em")
+            if gerado and gerado.tzinfo is None:
+                gerado = gerado.replace(tzinfo=timezone.utc)
+            if gerado and (datetime.now(timezone.utc) - gerado) < timedelta(days=180):
+                cur.close()
+                conn.close()
+                return {
+                    "serve_para": row.get("serve_para") or "",
+                    "como_usar": row.get("como_usar") or "",
+                    "alertas": row.get("alertas") or "",
+                    "fonte": row.get("fonte") or "cache",
+                }
+
+        tipo_label = (tipo_produto or _classificar_produto(nome) or "produto").strip()
+        def _save_info(info: dict):
+            serve_para_save = (info.get("serve_para") or "").strip()
+            como_usar_save = (info.get("como_usar") or "").strip()
+            alertas_save = (info.get("alertas") or "").strip()
+            fonte_save = (info.get("fonte") or "rules").strip() or "rules"
+            if not (serve_para_save or como_usar_save):
+                return info
+            cur.execute(
+                """
+                INSERT INTO ecommerce_produto_descricao_ia
+                    (ean, nome_norm, nome, tipo_produto, marca, laboratorio, serve_para, como_usar, alertas, fonte, gerado_em, atualizado_em)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (ean) DO UPDATE SET
+                    nome_norm=EXCLUDED.nome_norm,
+                    nome=EXCLUDED.nome,
+                    tipo_produto=EXCLUDED.tipo_produto,
+                    marca=EXCLUDED.marca,
+                    laboratorio=EXCLUDED.laboratorio,
+                    serve_para=EXCLUDED.serve_para,
+                    como_usar=EXCLUDED.como_usar,
+                    alertas=EXCLUDED.alertas,
+                    fonte=EXCLUDED.fonte,
+                    gerado_em=NOW(),
+                    atualizado_em=NOW()
+                """,
+                (ean_key, _norm_text(nome), nome, tipo_label, marca or "", laboratorio or "", serve_para_save, como_usar_save, alertas_save, fonte_save),
+            )
+            conn.commit()
+            return info
+
+        prompt = (
+            "Voce escreve textos curtos e responsaveis para pagina de detalhe de produto de farmacia.\n"
+            "Nao invente indicacao medica especifica, nao prometa cura e nao informe dosagem.\n"
+            "Se for cosmetico, higiene, varejo, diagnostico, alimento ou suplemento, explique o uso comum pelo tipo do produto.\n"
+            "Se houver duvida, seja generico e recomende seguir o rotulo/embalagem.\n\n"
+            f"EAN: {ean_key}\n"
+            f"Nome do produto: {nome}\n"
+            f"Tipo/categoria: {tipo_label}\n"
+            f"Marca: {marca or 'nao informada'}\n"
+            f"Fabricante/laboratorio: {laboratorio or 'nao informado'}\n\n"
+            "Responda SOMENTE em JSON valido com estas chaves:\n"
+            "\"serve_para\": 1 ou 2 frases sobre a finalidade pratica do produto;\n"
+            "\"como_usar\": 1 ou 2 frases sobre modo de uso geral, sempre mandando seguir rotulo/embalagem;\n"
+            "\"alertas\": 1 frase curta de cuidado quando fizer sentido, ou string vazia.\n"
+            "Texto em portugues do Brasil, claro e profissional."
+        )
+        if not allow_generate:
+            cur.close()
+            conn.close()
+            return {}
+
+        raw = (_claude_haiku(prompt, max_tokens=320, timeout=5) or "").strip()
+        if not raw:
+            if allow_fallback:
+                info = _save_info(_fallback_info())
+                cur.close()
+                conn.close()
+                return info
+            cur.close()
+            conn.close()
+            return {}
+        match = re.search(r"\{[\s\S]+\}", raw)
+        data = _json.loads(match.group(0)) if match else {}
+        serve_para = (data.get("serve_para") or "").strip()
+        como_usar = (data.get("como_usar") or "").strip()
+        alertas = (data.get("alertas") or "").strip()
+        if len(serve_para) < 20 and len(como_usar) < 20:
+            if allow_fallback:
+                info = _save_info(_fallback_info())
+                cur.close()
+                conn.close()
+                return info
+            cur.close()
+            conn.close()
+            return {}
+
+        cur.execute(
+            """
+            INSERT INTO ecommerce_produto_descricao_ia
+                (ean, nome_norm, nome, tipo_produto, marca, laboratorio, serve_para, como_usar, alertas, fonte, gerado_em, atualizado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'anthropic', NOW(), NOW())
+            ON CONFLICT (ean) DO UPDATE SET
+                nome_norm=EXCLUDED.nome_norm,
+                nome=EXCLUDED.nome,
+                tipo_produto=EXCLUDED.tipo_produto,
+                marca=EXCLUDED.marca,
+                laboratorio=EXCLUDED.laboratorio,
+                serve_para=EXCLUDED.serve_para,
+                como_usar=EXCLUDED.como_usar,
+                alertas=EXCLUDED.alertas,
+                fonte='anthropic',
+                gerado_em=NOW(),
+                atualizado_em=NOW()
+            """,
+            (ean_key, _norm_text(nome), nome, tipo_label, marca or "", laboratorio or "", serve_para, como_usar, alertas),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"serve_para": serve_para, "como_usar": como_usar, "alertas": alertas, "fonte": "anthropic"}
+    except Exception as exc:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+        app.logger.warning("produto descricao ia: %s", exc)
+        return _fallback_info() if allow_fallback else {}
+
+
 @app.get("/produto/<ean>")
 def produto_detalhe(ean):
     cnpjloja  = (request.args.get("cnpj")  or "").strip()
@@ -11020,12 +11379,28 @@ def produto_detalhe(ean):
     nome   = (med["descricao"] if med else None) or _descricao_canon or (produto["nome"] if produto else None) or nome_hint or "Produto"
     tipo_produto = _classificar_produto(nome)
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
+    produto_info_ia = {}
     tarja = _detectar_tarja(anvisa) if _is_med else None
     placeholder_generico = None
     if not _is_med:
         # Produto claramente não-medicamento: limpar dados farmacêuticos que poderiam vir
         # de uma correspondência incorreta do EAN na base ANVISA
         anvisa = {}
+        produto_info_ia = _produto_descricao_ia(
+            ean,
+            nome,
+            tipo_produto,
+            (med.get("marca") if med else "") or "",
+            (med.get("laboratorio") if med else "") or "",
+        )
+    elif not (anvisa.get("serve_para") or anvisa.get("para_que_serve_ia")):
+        produto_info_ia = _produto_descricao_ia(
+            ean,
+            nome,
+            tipo_produto,
+            (med.get("marca") if med else "") or "",
+            (med.get("laboratorio") if med else "") or "",
+        )
     # Mesma lógica do _marcar_tarja_batch usado no card:
     # substitui imagem de farmácia concorrente e aplica caixa genérica quando tarja ou exibir=False
     if imagem and _looks_like_other_pharmacy_brand(imagem):
@@ -11096,6 +11471,7 @@ def produto_detalhe(ean):
         produto=produto if produto else {},
         loja=dict(loja) if loja else {},
         anvisa=anvisa,
+        produto_info_ia=produto_info_ia,
         tipo_produto=tipo_produto,
         tarja=tarja,
         requer_receita=requer_receita,
@@ -17556,6 +17932,106 @@ def api_alpha_sync():
 
 
 _CRON_SECRET = "poupaqui-alpha-cron-7x9k2m"
+
+
+def _cron_authorized():
+    auth = request.headers.get("Authorization", "")
+    return auth == f"Bearer {_CRON_SECRET}" or (request.args.get("secret") or "") == _CRON_SECRET
+
+
+@app.route("/api/cron/produto-descricao-ia", methods=["GET", "POST"])
+def api_cron_produto_descricao_ia():
+    """Preenche cache de descricoes IA para EANs ativos do catalogo, em lotes pequenos."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return jsonify({"ok": False, "erro": "ANTHROPIC_API_KEY_nao_configurada"}), 503
+
+    try:
+        limit = int(request.args.get("limit") or request.form.get("limit") or 4)
+    except Exception:
+        limit = 4
+    limit = max(1, min(limit, 50))
+
+    _ensure_produto_descricao_ia_schema()
+    conn = db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            WITH catalogo AS (
+                SELECT DISTINCT ON (LTRIM(COALESCE(ap.ean, ''), '0'))
+                    LTRIM(COALESCE(ap.ean, ''), '0') AS ean,
+                    COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+                    COALESCE(m.marca, '') AS marca,
+                    COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante, '') AS laboratorio,
+                    COALESCE(m.tipo_ia, pc.categoria, '') AS categoria,
+                    ap.classificacao
+                FROM ecommerce_alpha_produtos ap
+                LEFT JOIN medicamentos m
+                  ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                LEFT JOIN produto_canon pc
+                  ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                 AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+                LEFT JOIN ecommerce_lab_ean elab
+                  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+                WHERE COALESCE(ap.inativo, false) = false
+                  AND COALESCE(ap.estoque, 0) > 0
+                  AND COALESCE(ap.ean, '') <> ''
+                  AND COALESCE(ap.nome, '') <> ''
+                ORDER BY LTRIM(COALESCE(ap.ean, ''), '0'), COALESCE(ap.estoque, 0) DESC
+            )
+            SELECT c.*
+            FROM catalogo c
+            LEFT JOIN ecommerce_produto_descricao_ia d ON d.ean = c.ean
+            WHERE d.ean IS NULL
+            ORDER BY c.nome
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        pendentes = [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    processados = []
+    falhas = []
+    for row in pendentes:
+        ean_row = row.get("ean") or ""
+        nome_row = row.get("nome") or ""
+        tipo_row = (
+            _TIPO_ALIAS.get((row.get("categoria") or "").lower(), (row.get("categoria") or "").lower())
+            or _categoria_from_alpha_classificacao(row.get("classificacao"))
+            or _classificar_produto(nome_row)
+            or "produto"
+        )
+        info = _produto_descricao_ia(
+            ean_row,
+            nome_row,
+            tipo_row,
+            row.get("marca") or "",
+            row.get("laboratorio") or "",
+            allow_generate=True,
+            allow_fallback=True,
+        )
+        if info.get("serve_para") or info.get("como_usar"):
+            processados.append({"ean": ean_row, "nome": nome_row[:80], "fonte": info.get("fonte") or "anthropic"})
+        else:
+            falhas.append({"ean": ean_row, "nome": nome_row[:80]})
+
+    return jsonify({
+        "ok": True,
+        "selecionados": len(pendentes),
+        "processados": len(processados),
+        "falhas": len(falhas),
+        "itens": processados[:10],
+        "falhas_itens": falhas[:10],
+    })
+
 
 @app.post("/api/cron/wa-diagnostico")
 def api_cron_wa_diagnostico():
