@@ -7565,13 +7565,17 @@ def api_produtos_destaque():
 def api_produtos_proximos():
     """Wrapper fino: evita 500 cru e cacheia a vitrine sem busca por alguns minutos."""
     cache_key = None
-    if not (request.args.get("q") or request.args.get("busca") or request.args.get("cat")):
+    if not (request.args.get("q") or request.args.get("busca")):
         try:
             lat_cache = round(float(request.args.get("lat", 0) or 0), 2)
             lng_cache = round(float(request.args.get("lng", 0) or 0), 2)
             raio_cache = int(float(request.args.get("raio", 30) or 30))
             home_cache = request.args.get("home") == "1"
-            cache_key = ("produtos_proximos_curve_a_v3", lat_cache, lng_cache, raio_cache, home_cache, bool(_catalogo_alpha_exclusivo()))
+            cat_cache = (request.args.get("cat") or "").strip().lower()
+            # Filtro por categoria varre o catálogo completo da loja (mais
+            # lento que a vitrine normal) — cachear evita repetir essa
+            # varredura a cada clique na mesma categoria.
+            cache_key = ("produtos_proximos_curve_a_v3", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, bool(_catalogo_alpha_exclusivo()))
             cached = _home_api_cache_get(cache_key, 300)
             if cached is not None:
                 return jsonify(cached)
@@ -7906,6 +7910,12 @@ def _api_produtos_proximos_impl():
                             seen_search.add(key)
                     except Exception:
                         continue
+    elif cat_filter:
+        # Filtro por categoria precisa varrer o catálogo completo da loja, não
+        # só o recorte de mais vendidos que a vitrine de curva A usa (top ~160
+        # EANs por score de venda) — senão categorias menos vendidas (ex:
+        # suplemento) somem mesmo tendo produtos em estoque.
+        produtos_raw = get_alpha_products_direct(cnpjs, limit=2000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
     else:
         produtos_raw = _curve_a_products_for_cnpjs(cnpjs, limit=(90 if home_mode else 500)) or get_dns_products_batch(cnpjs)
 
@@ -9555,6 +9565,7 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                 WITH alvo AS (SELECT * FROM unnest(%s::text[]) WITH ORDINALITY AS t(ean_key, ord)),
                 alpha_a7 AS (
                     SELECT ap.cnpjloja, ap.ean, ap.nome, ap.fabricante AS laboratorio,
+                           ap.classificacao,
                            CAST(ap.estoque AS INTEGER) AS qty, ap.preco_venda AS preco,
                            COALESCE(ap.imagem_url, epi.imagem_url) AS imagem,
                            c.logo_url, a.ord, 'alpha_a7' AS fonte_estoque
@@ -9568,6 +9579,7 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                 ),
                 alpha AS (
                     SELECT e.cnpj AS cnpjloja, e.barras AS ean, e.descricao AS nome, NULL::text AS laboratorio,
+                           NULL::text AS classificacao,
                            CAST(e.estoque AS INTEGER) AS qty,
                            COALESCE(ep.preco_customizado, vg.preco_venda, e.preco_referencial) AS preco,
                            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
@@ -9589,6 +9601,7 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                 ),
                 auto AS (
                     SELECT ae.cnpj_loja AS cnpjloja, ae.ean, ae.descricao_produto AS nome, NULL::text AS laboratorio,
+                           NULL::text AS classificacao,
                            CAST(ae.quantidade_estoque AS INTEGER) AS qty,
                            COALESCE(ep.preco_customizado, av.preco_venda, ae.valor_final_produto) AS preco,
                            COALESCE(epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
@@ -9617,6 +9630,7 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                 (top_eans, cnpjs, cnpjs, cnpjs, int(max(limit * 5, 80))),
             )
             rows = [dict(r) for r in cur.fetchall()]
+            _apply_saved_categories(rows, cur)
             cur.close()
             conn.close()
         except Exception as exc:
@@ -9651,7 +9665,10 @@ _COMPLEMENT_RULES = [
     (r"\b(shampoo|condicionador|tintura|cabelo|capilar)\b", ["mascara capilar", "creme pentear", "reparador pontas", "escova", "pente", "leave in"]),
     (r"\b(sabonete facial|gel limpeza|acne|antiacne|rosto|facial)\b", ["hidratante facial", "protetor solar facial", "algodao", "agua micelar", "tonico facial"]),
     (r"\b(curativo|gaze|ferimento|machucado|antisseptico)\b", ["esparadrapo", "micropore", "algodao", "agua oxigenada", "alcool 70", "luva"]),
-    (r"\b(escova dental|creme dental|enxaguante|fio dental)\b", ["fio dental", "enxaguante bucal", "escova dental", "creme dental", "limpador lingua"]),
+    (r"\bfio dental\b", ["escova dental", "creme dental", "enxaguante bucal", "limpador lingua"]),
+    (r"\bescova dental\b", ["creme dental", "fio dental", "enxaguante bucal", "limpador lingua"]),
+    (r"\bcreme dental\b", ["escova dental", "fio dental", "enxaguante bucal", "limpador lingua"]),
+    (r"\benxaguante\b", ["escova dental", "creme dental", "fio dental", "limpador lingua"]),
     (r"\b(bananinha|banana|pacoca|pacoquita|doce|barra cereal|snack)\b", ["agua de coco", "agua mineral", "suco", "isotonico", "barra cereal", "biscoito", "chocolate", "castanha", "pacoca"]),
     (r"\b(energetico|refrigerante|bebida|suco|agua mineral|agua de coco)\b", ["snack", "barra cereal", "biscoito", "castanha", "chocolate", "pacoca", "bananinha"]),
 ]
@@ -10108,6 +10125,7 @@ def _is_probably_substitute(base_names, product_name, matched_terms=False, base_
     substitute_words = [
         "fralda", "dipirona", "paracetamol", "ibuprofeno", "dorflex", "shampoo",
         "condicionador", "protetor solar", "creme dental", "escova dental", "bananinha",
+        "fio dental", "enxaguante",
     ]
     return any(w in base and w in prod for w in substitute_words)
 
