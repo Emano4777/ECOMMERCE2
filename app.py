@@ -10208,7 +10208,12 @@ def _schedule_complement_cache_build(cnpjs, itens):
         for cnpj, ean, nome in jobs[:6]:
             try:
                 base_classificacao = classificacoes.get((cnpj, _ean_key(ean)))
-                _build_complement_cache_for_item(cnpj, ean, nome, base_classificacao, use_ai=True, limit=16)
+                # use_ai=False: visita ao vivo so usa regras locais (nome +
+                # classificacao do Alpha), de graca. IA fica só por conta do
+                # cron batch (scripts/atualizar_complementares_cache.py), que
+                # tem orcamento controlado — assim trafego real do site nunca
+                # gasta IA por fora do orcamento combinado.
+                _build_complement_cache_for_item(cnpj, ean, nome, base_classificacao, use_ai=False, limit=16)
             except Exception as exc:
                 app.logger.warning("async complement build error: %s", exc)
     try:
