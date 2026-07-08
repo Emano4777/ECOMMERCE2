@@ -11068,7 +11068,9 @@ def _produto_descricao_ia(
             (ean_key,),
         )
         row = cur.fetchone()
-        if row and not bypass_cache and (row.get("serve_para") or row.get("como_usar")):
+        row_fonte = (row.get("fonte") if row else "") or ""
+        cache_aceitavel = row_fonte not in ("rules", "rules_v2", "rules_v3")
+        if row and not bypass_cache and cache_aceitavel and (row.get("serve_para") or row.get("como_usar")):
             gerado = row.get("gerado_em")
             if gerado and gerado.tzinfo is None:
                 gerado = gerado.replace(tzinfo=timezone.utc)
@@ -11114,19 +11116,21 @@ def _produto_descricao_ia(
             return info
 
         prompt = (
-            "Voce escreve textos curtos e responsaveis para pagina de detalhe de produto de farmacia.\n"
-            "Nao invente indicacao medica especifica, nao prometa cura e nao informe dosagem.\n"
-            "Se for cosmetico, higiene, varejo, diagnostico, alimento ou suplemento, explique o uso comum pelo tipo do produto.\n"
-            "Se houver duvida, seja generico e recomende seguir o rotulo/embalagem.\n\n"
+            "Voce escreve uma explicacao especifica para a pagina de detalhe de um produto vendido em farmacia.\n"
+            "O cliente quer entender O QUE E o item e PARA QUE SERVE na pratica.\n"
+            "Use o nome, EAN, marca e fabricante para inferir o produto exato. Nao responda com frases genericas como "
+            "'produto de apoio', 'uso cotidiano', 'conforme finalidade da embalagem' ou similares.\n"
+            "Nao invente indicacao medica especifica, nao prometa cura e nao informe dosagem. Para produtos tecnicos "
+            "(lanceta, lancetador, tiras, inalador, aparelho), explique a funcao do item em linguagem simples.\n\n"
             f"EAN: {ean_key}\n"
             f"Nome do produto: {nome}\n"
             f"Tipo/categoria: {tipo_label}\n"
             f"Marca: {marca or 'nao informada'}\n"
             f"Fabricante/laboratorio: {laboratorio or 'nao informado'}\n\n"
             "Responda SOMENTE em JSON valido com estas chaves:\n"
-            "\"serve_para\": 1 ou 2 frases sobre a finalidade pratica do produto;\n"
-            "\"como_usar\": 1 ou 2 frases sobre modo de uso geral, sempre mandando seguir rotulo/embalagem;\n"
-            "\"alertas\": 1 frase curta de cuidado quando fizer sentido, ou string vazia.\n"
+            "\"serve_para\": 2 frases especificas dizendo o que e o produto e para que ele serve;\n"
+            "\"como_usar\": 1 ou 2 frases de uso geral, sem posologia, com orientacao de seguir rotulo/manual quando aplicavel;\n"
+            "\"alertas\": 1 frase curta de cuidado especifico quando fizer sentido, ou string vazia.\n"
             "Texto em portugues do Brasil, claro e profissional."
         )
         if not allow_generate:
@@ -11470,6 +11474,8 @@ def produto_detalhe(ean):
             tipo_produto,
             (med.get("marca") if med else "") or "",
             (med.get("laboratorio") if med else "") or "",
+            allow_generate=True,
+            allow_fallback=False,
         )
     elif not (anvisa.get("serve_para") or anvisa.get("para_que_serve_ia")):
         produto_info_ia = _produto_descricao_ia(
@@ -11478,6 +11484,8 @@ def produto_detalhe(ean):
             tipo_produto,
             (med.get("marca") if med else "") or "",
             (med.get("laboratorio") if med else "") or "",
+            allow_generate=True,
+            allow_fallback=False,
         )
     # Mesma lógica do _marcar_tarja_batch usado no card:
     # substitui imagem de farmácia concorrente e aplica caixa genérica quando tarja ou exibir=False
@@ -18096,7 +18104,7 @@ def api_cron_produto_descricao_ia():
             row.get("marca") or "",
             row.get("laboratorio") or "",
             allow_generate=True,
-            allow_fallback=True,
+            allow_fallback=False,
             bypass_cache=(force_mode == "rules"),
         )
         if info.get("serve_para") or info.get("como_usar"):
