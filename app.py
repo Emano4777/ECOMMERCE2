@@ -3053,6 +3053,43 @@ def _batch_cache_set(key: tuple, data: list):
         _batch_cache[key] = {"data": data, "ts": time.time()}
 
 
+# Cache por loja individual do resultado de _SQL_ALPHA_A7_BATCH. A query em si
+# e cara (varias EXISTS correlacionadas por linha pra checar imagem) e o
+# _batch_cache acima so acerta quando o MESMO conjunto exato de CNPJs se repete
+# — o que quase nunca acontece na home, ja que "lojas proximas" muda por
+# usuario/geolocalizacao. Cacheando por loja isoladamente, requests com
+# conjuntos de lojas diferentes mas sobrepostos reaproveitam o que ja foi
+# calculado pra cada loja nos ultimos 5 minutos.
+_alpha_a7_store_cache: dict = {}
+_alpha_a7_store_cache_lock = threading.Lock()
+
+
+def _alpha_a7_store_cache_get_many(cnpjs):
+    now = time.time()
+    hit, miss = {}, []
+    with _alpha_a7_store_cache_lock:
+        for c in cnpjs:
+            e = _alpha_a7_store_cache.get(c)
+            if e and now - e["ts"] < _BATCH_CACHE_TTL:
+                hit[c] = e["rows"]
+            else:
+                miss.append(c)
+    return hit, miss
+
+
+def _alpha_a7_store_cache_set_many(cnpjs_queried, rows):
+    by_cnpj: dict = {c: [] for c in cnpjs_queried}
+    for r in rows:
+        by_cnpj.setdefault(r["cnpjloja"], []).append(r)
+    now = time.time()
+    with _alpha_a7_store_cache_lock:
+        for c, rs in by_cnpj.items():
+            _alpha_a7_store_cache[c] = {"rows": rs, "ts": now}
+        if len(_alpha_a7_store_cache) > 500:
+            for old_key in sorted(_alpha_a7_store_cache, key=lambda k: _alpha_a7_store_cache[k]["ts"])[:200]:
+                del _alpha_a7_store_cache[old_key]
+
+
 def _batch_cache_clear():
     with _batch_cache_lock:
         _batch_cache.clear()
@@ -5563,8 +5600,13 @@ def get_dns_products_batch(cnpjs):
     if _alpha_enabled():
         try:
             _ensure_alpha_schema()
-            cur.execute(_SQL_ALPHA_A7_BATCH, (cnpjs,))
-            alpha_a7 = cur.fetchall()
+            cached_by_store, cnpjs_faltando = _alpha_a7_store_cache_get_many(cnpjs)
+            alpha_a7 = [row for rows in cached_by_store.values() for row in rows]
+            if cnpjs_faltando:
+                cur.execute(_SQL_ALPHA_A7_BATCH, (cnpjs_faltando,))
+                fresh_rows = cur.fetchall()
+                alpha_a7.extend(fresh_rows)
+                _alpha_a7_store_cache_set_many(cnpjs_faltando, fresh_rows)
         except Exception as exc:
             app.logger.warning("batch catalogo alpha a7 indisponivel: %s", exc)
     alpha = []
