@@ -130,6 +130,7 @@
   <form method="post" action="{{ url_for('painel_login_post') }}">
     <label for="usuario">Usuário</label>
     <input type="text" id="usuario" name="usuario" autocomplete="username"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
            placeholder="seu usuário" autofocus required/>
 
     <label for="senha">Senha</label>

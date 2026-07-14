@@ -17446,7 +17446,7 @@ def painel_login_post():
     cur.execute(
         """
         SELECT id, cnpjloja, usuario, senha, razao, uf, endereco, is_admin
-        FROM users WHERE usuario = %s LIMIT 1
+        FROM users WHERE LOWER(usuario) = LOWER(%s) LIMIT 1
         """,
         (usuario,),
     )
@@ -17475,7 +17475,7 @@ def painel_login_post():
             SELECT m.id, m.cnpjloja, m.nome, m.senha_hash, u.razao, u.uf, u.endereco
             FROM ecommerce_motoboys m
             JOIN users u ON u.cnpjloja = m.cnpjloja
-            WHERE m.usuario=%s AND COALESCE(m.ativo, TRUE)=TRUE
+            WHERE LOWER(m.usuario)=LOWER(%s) AND COALESCE(m.ativo, TRUE)=TRUE
             LIMIT 1
             """,
             (usuario,),
@@ -17507,7 +17507,7 @@ def painel_login_post():
             SELECT l.id, l.cnpjloja, l.nome, l.senha_hash, u.razao, u.uf, u.endereco
             FROM ecommerce_lojistas l
             JOIN users u ON u.cnpjloja = l.cnpjloja
-            WHERE l.usuario=%s AND COALESCE(l.ativo, TRUE)=TRUE
+            WHERE LOWER(l.usuario)=LOWER(%s) AND COALESCE(l.ativo, TRUE)=TRUE
             LIMIT 1
             """,
             (usuario,),

@@ -45,7 +45,14 @@
       "PowerShell($content = Get-Content \"C:\\\\Users\\\\emano\\\\.claude\\\\projects\\\\c--Users-emano-dns-ecommerce\\\\bf1c4442-9da8-44de-937b-275cfd67a335\\\\tool-results\\\\mcp-claude_ai_Supabase-get_logs-1779293109847.txt\" -Raw; $matches2 = [regex]::Matches\\($content, '\\(?i\\)\\(home_widget|user_system_notif|pesquisa_voz\\)[^\\\\n]{0,300}'\\); $matches2 | ForEach-Object { $_.Value } | Select-Object -First 20)",
       "PowerShell($content = Get-Content \"C:\\\\Users\\\\emano\\\\.claude\\\\projects\\\\c--Users-emano-dns-ecommerce\\\\bf1c4442-9da8-44de-937b-275cfd67a335\\\\tool-results\\\\mcp-claude_ai_Supabase-get_logs-1779293109847.txt\" -Raw; $matches2 = [regex]::Matches\\($content, '\"event_message\":\"[^\"]{0,400}\\(lock|Lock|timeout|Timeout|canceling|deadlock|wait\\)[^\"]{0,200}'\\); $matches2 | ForEach-Object { $_.Value } | Select-Object -First 20)",
       "mcp__claude_ai_Supabase__apply_migration",
-      "PowerShell(Set-Location \"C:\\\\Users\\\\emano\\\\pedidoeletronico\\\\pedidoeletronico\"; \\(git show HEAD:app.py | Select-String \"_INTEL_SUGESTAO_JOBS_TABLE_READY\"\\) | Select-Object -First 5)"
+      "PowerShell(Set-Location \"C:\\\\Users\\\\emano\\\\pedidoeletronico\\\\pedidoeletronico\"; \\(git show HEAD:app.py | Select-String \"_INTEL_SUGESTAO_JOBS_TABLE_READY\"\\) | Select-Object -First 5)",
+      "Bash(vercel remove *)",
+      "Bash(vercel --prod --yes --scope emano4777s-projects)",
+      "Bash(vercel inspect *)",
+      "Bash(vercel teams *)",
+      "WebFetch(domain:www.vercel-status.com)",
+      "Bash(python3 -)",
+      "Bash(pip show *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"
