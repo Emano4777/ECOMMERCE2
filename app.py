@@ -582,7 +582,46 @@ def _alpha_catalog_has_products(cur, cnpjloja=None):
         return False
 
 
+def _alpha_catalog_sync_worker():
+    """Trabalho pesado do sync (conecta no Alpha remoto + upsert em lote) —
+    roda em thread separada, com conexões próprias, sem depender do cursor/
+    conexão da request que disparou. Ver _alpha_catalog_sync_if_needed."""
+    if not _alpha_catalog_sync_lock.acquire(blocking=False):
+        return {"ok": False, "skipped": "sync_em_andamento"}
+    try:
+        # PG advisory lock serializes o sync entre instâncias Vercel concorrentes.
+        # Sem isso, múltiplos cold-starts disparam ensure_local_schema() ao mesmo
+        # tempo → ALTER TABLE ecommerce_pedidos concorrente → deadlock → 504.
+        _lk_conn = db()
+        _lk_cur = _lk_conn.cursor()
+        _lk_cur.execute("SELECT pg_try_advisory_lock(20260707)")
+        _lk_row = _lk_cur.fetchone()
+        _has_pg_lock = bool((_lk_row or {}).get("pg_try_advisory_lock", False))
+        _lk_cur.close()
+        if not _has_pg_lock:
+            return {"ok": True, "skipped": "sync_serializado_outro_processo"}
+        try:
+            result = _alpha_sync_products_safe(limit=5000)
+            app.logger.warning("alpha catalog autosync result: %s", result)
+            return result
+        finally:
+            try:
+                _ul_cur = _lk_conn.cursor()
+                _ul_cur.execute("SELECT pg_advisory_unlock(20260707)")
+                _ul_cur.fetchone()
+                _ul_cur.close()
+            except Exception:
+                pass
+    finally:
+        _alpha_catalog_sync_lock.release()
+
+
 def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
+    """Dispara o sync do catálogo Alpha quando devido (a cada 300s), sem
+    bloquear a request que chamou — o sync roda em background porque conecta
+    num banco remoto (Alpha) e faz upsert de milhares de linhas, podendo
+    estourar o timeout da função serverless se rodasse inline (era a causa
+    dos timeouts intermitentes no precificador e em outras telas)."""
     if not _catalogo_alpha_exclusivo():
         return {"ok": False, "erro": "alpha_nao_configurado"}
     own_conn = None
@@ -595,35 +634,9 @@ def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
         global _alpha_catalog_last_attempt
         if not force and now_ts - _alpha_catalog_last_attempt < 300:
             return {"ok": True, "skipped": "tentativa_recente", "has_products": has_products}
-        if not _alpha_catalog_sync_lock.acquire(blocking=False):
-            return {"ok": False, "skipped": "sync_em_andamento"}
-        try:
-            _alpha_catalog_last_attempt = now_ts
-            # PG advisory lock serializes o sync entre instâncias Vercel concorrentes.
-            # Sem isso, múltiplos cold-starts disparam ensure_local_schema() ao mesmo
-            # tempo → ALTER TABLE ecommerce_pedidos concorrente → deadlock → 504.
-            _lk_conn = db()
-            _lk_cur = _lk_conn.cursor()
-            _lk_cur.execute("SELECT pg_try_advisory_lock(20260707)")
-            _lk_row = _lk_cur.fetchone()
-            _has_pg_lock = bool((_lk_row or {}).get("pg_try_advisory_lock", False))
-            _lk_cur.close()
-            if not _has_pg_lock:
-                return {"ok": True, "skipped": "sync_serializado_outro_processo"}
-            try:
-                result = _alpha_sync_products_safe(limit=5000)
-                app.logger.warning("alpha catalog autosync result: %s", result)
-                return result
-            finally:
-                try:
-                    _ul_cur = _lk_conn.cursor()
-                    _ul_cur.execute("SELECT pg_advisory_unlock(20260707)")
-                    _ul_cur.fetchone()
-                    _ul_cur.close()
-                except Exception:
-                    pass
-        finally:
-            _alpha_catalog_sync_lock.release()
+        _alpha_catalog_last_attempt = now_ts
+        threading.Thread(target=_alpha_catalog_sync_worker, daemon=True).start()
+        return {"ok": True, "started_async": True, "has_products": has_products}
     finally:
         if own_conn is not None:
             try:
@@ -17783,10 +17796,9 @@ def precificador():
     if eans:
         conn = db()
         cur = conn.cursor()
-        placeholders = ",".join(["%s"] * len(eans))
         cur.execute(
-            f"SELECT * FROM ecommerce_competitor_prices WHERE ean IN ({placeholders}) ORDER BY consultado_em DESC",
-            eans,
+            "SELECT * FROM ecommerce_competitor_prices WHERE ean = ANY(%s) ORDER BY consultado_em DESC",
+            (eans,),
         )
         for row in cur.fetchall():
             d = dict(row)
