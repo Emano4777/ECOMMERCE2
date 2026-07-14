@@ -17611,12 +17611,13 @@ def painel_motoboys_status(motoboy_id):
     _ensure_motoboy_schema()
     ativo = request.form.get("ativo") == "1"
     cnpjloja = session.get("cnpjloja")
-    cur = db().cursor()
+    conn = db()
+    cur = conn.cursor()
     cur.execute(
         "UPDATE ecommerce_motoboys SET ativo=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
         (ativo, motoboy_id, cnpjloja),
     )
-    db().commit()
+    conn.commit()
     cur.close()
     flash("Acesso do motoboy atualizado.", "success")
     return redirect(url_for("painel_motoboys"))
@@ -17631,7 +17632,8 @@ def painel_motoboys_senha(motoboy_id):
         flash("A nova senha precisa ter pelo menos 6 caracteres.", "error")
         return redirect(url_for("painel_motoboys"))
     cnpjloja = session.get("cnpjloja")
-    cur = db().cursor()
+    conn = db()
+    cur = conn.cursor()
     cur.execute(
         """
         UPDATE ecommerce_motoboys
@@ -17640,7 +17642,7 @@ def painel_motoboys_senha(motoboy_id):
         """,
         (generate_password_hash(senha), motoboy_id, cnpjloja),
     )
-    db().commit()
+    conn.commit()
     cur.close()
     flash("Senha do motoboy atualizada.", "success")
     return redirect(url_for("painel_motoboys"))
@@ -17717,12 +17719,13 @@ def painel_lojistas_status(lojista_id):
     _ensure_lojista_schema()
     ativo = request.form.get("ativo") == "1"
     cnpjloja = session.get("cnpjloja")
-    cur = db().cursor()
+    conn = db()
+    cur = conn.cursor()
     cur.execute(
         "UPDATE ecommerce_lojistas SET ativo=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
         (ativo, lojista_id, cnpjloja),
     )
-    db().commit()
+    conn.commit()
     cur.close()
     flash("Acesso atualizado.", "success")
     return redirect(url_for("painel_lojistas"))
@@ -17739,7 +17742,8 @@ def painel_lojistas_senha(lojista_id):
         flash("A nova senha precisa ter pelo menos 6 caracteres.", "error")
         return redirect(url_for("painel_lojistas"))
     cnpjloja = session.get("cnpjloja")
-    cur = db().cursor()
+    conn = db()
+    cur = conn.cursor()
     cur.execute(
         """
         UPDATE ecommerce_lojistas
@@ -17748,7 +17752,7 @@ def painel_lojistas_senha(lojista_id):
         """,
         (generate_password_hash(senha), lojista_id, cnpjloja),
     )
-    db().commit()
+    conn.commit()
     cur.close()
     flash("Senha atualizada.", "success")
     return redirect(url_for("painel_lojistas"))
