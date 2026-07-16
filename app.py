@@ -6587,9 +6587,7 @@ def _marketing_link_seguro(value):
 
 @app.get("/api/popup-loja")
 def api_popup_loja():
-    """Retorna a campanha ativa da loja mais próxima do consumidor logado."""
-    if not session.get("consumidor_id"):
-        return jsonify({"popup": None})
+    """Retorna a campanha ativa da loja mais próxima do visitante."""
     _ensure_popup_schema()
     try:
         lat = float(request.args.get("lat", 0))

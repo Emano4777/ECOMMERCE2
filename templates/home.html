@@ -1378,7 +1378,7 @@ function renderCupons(produtos){
       <div class="coupon-store">${hEsc(c.razao || 'Cupom Poupaqui')}${c.valido_ate ? ' · até ' + hEsc(c.valido_ate) : ''}</div>
     </div>`).join('') || '<div class="home-empty">Nenhum cupom disponível para sua região no momento.</div>';
 }
-function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); }
+function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); }
 
 // â”€â”€ Economia com IA Poupinha â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function carregarEconomiaIa(lat, lng, produtosProximos) {
