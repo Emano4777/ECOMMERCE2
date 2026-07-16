@@ -722,6 +722,7 @@ def inject_globals():
         "SUPABASE_URL": SUPABASE_URL,
         "SUPABASE_ANON": SUPABASE_ANON,
         "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),
+        "META_PIXEL_ID": os.getenv("META_PIXEL_ID", "1676450676965810"),
     }
 
 def _consumidor_from_session():

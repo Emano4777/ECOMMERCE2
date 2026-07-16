@@ -1745,6 +1745,16 @@ async function finalizarPedido() {
     }
   }
 
+  if (typeof fbq !== 'undefined') {
+    fbq('track', 'InitiateCheckout', {
+      value: cart.reduce((s,i) => s + (parseFloat(i.preco)||0) * (i.qty||1), 0),
+      currency: 'BRL',
+      content_type: 'product',
+      contents: cart.map(i => ({id: i.ean, quantity: i.qty||1})),
+      num_items: cart.reduce((s,i) => s + (i.qty||1), 0),
+    });
+  }
+
   try {
     const r = await fetch('/api/checkout', {
       method: 'POST',

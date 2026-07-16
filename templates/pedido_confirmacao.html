@@ -302,6 +302,25 @@ const itensConfirmacao = [
     {% endfor %}
   {% endfor %}
 ];
+if (typeof fbq !== 'undefined') {
+  var _pqPedidoIds = [{% for entry in pedidos %}{{ entry.pedido.id|tojson }},{% endfor %}];
+  if (_pqPedidoIds.length) {
+    var _pqFbKey = 'fb_purchase_' + _pqPedidoIds.slice().sort().join('_');
+    if (!sessionStorage.getItem(_pqFbKey)) {
+      sessionStorage.setItem(_pqFbKey, '1');
+      {% set ns = namespace(total=0) %}
+      {% for entry in pedidos %}{% set ns.total = ns.total + (entry.pedido.total|float) %}{% endfor %}
+      fbq('track', 'Purchase', {
+        value: {{ ns.total }},
+        currency: 'BRL',
+        content_type: 'product',
+        contents: itensConfirmacao.map(function(i){ return {id: i.ean, quantity: 1}; }),
+        order_id: _pqPedidoIds.join(','),
+      });
+    }
+  }
+}
+
 let _confRecItems = [];
 function addConfRec(idx, btn) {
   const p = _confRecItems[idx];
