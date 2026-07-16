@@ -1495,6 +1495,36 @@ def _ensure_banner_schema():
         _mark_migration_done("banners")
 
 
+def _ensure_popup_schema():
+    key = "popups_loja_v1"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_popups_loja (
+                id          SERIAL PRIMARY KEY,
+                cnpjloja    TEXT NOT NULL UNIQUE,
+                imagem_url  TEXT NOT NULL,
+                titulo      TEXT NOT NULL,
+                mensagem    TEXT,
+                link_url    TEXT,
+                botao_texto TEXT DEFAULT 'Ver oferta',
+                ativo       BOOLEAN DEFAULT TRUE,
+                criado_em   TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_popups_ativos ON ecommerce_popups_loja(ativo, cnpjloja)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 # Cache simples para a API de banners (evita query a cada requisição)
 _banner_cache: dict = {}
 _banner_cache_lock = threading.Lock()
@@ -6540,6 +6570,186 @@ def painel_banners_delete(banner_id):
 
 
 # ─── ROTAS PÚBLICAS ───────────────────────────────────────────────────────────
+
+# --- POPUPS DE LOJA ---------------------------------------------------------
+
+def _marketing_link_seguro(value):
+    value = (value or "").strip()[:500]
+    if not value:
+        return None
+    if value.startswith("/") and not value.startswith("//"):
+        return value
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return value
+    return None
+
+
+@app.get("/api/popup-loja")
+def api_popup_loja():
+    """Retorna a campanha ativa da loja mais próxima do consumidor logado."""
+    if not session.get("consumidor_id"):
+        return jsonify({"popup": None})
+    _ensure_popup_schema()
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+        raio = min(max(float(request.args.get("raio", 80)), 1), 200)
+    except (TypeError, ValueError):
+        return jsonify({"popup": None})
+    if not (lat and lng):
+        return jsonify({"popup": None})
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT p.id, p.cnpjloja, p.imagem_url, p.titulo, p.mensagem,
+               p.link_url, p.botao_texto, p.atualizado_em, u.razao,
+               (6371 * acos(
+                   cos(radians(%s)) * cos(radians(g.lat)) *
+                   cos(radians(g.lng) - radians(%s)) +
+                   sin(radians(%s)) * sin(radians(g.lat))
+               )) AS distancia_km
+        FROM ecommerce_popups_loja p
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        JOIN ecommerce_lojas_geo g ON g.cnpjloja = p.cnpjloja
+        WHERE p.ativo = TRUE
+          AND (6371 * acos(
+                   cos(radians(%s)) * cos(radians(g.lat)) *
+                   cos(radians(g.lng) - radians(%s)) +
+                   sin(radians(%s)) * sin(radians(g.lat))
+               )) <= %s
+        ORDER BY distancia_km, p.atualizado_em DESC
+        LIMIT 1
+    """, (lat, lng, lat, lat, lng, lat, raio))
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"popup": None})
+    atualizado = row.get("atualizado_em")
+    return jsonify({"popup": {
+        "id": row["id"],
+        "cnpjloja": row["cnpjloja"],
+        "imagem_url": row["imagem_url"],
+        "titulo": row["titulo"],
+        "mensagem": row.get("mensagem") or "",
+        "link_url": row.get("link_url") or "",
+        "botao_texto": row.get("botao_texto") or "Ver oferta",
+        "razao": row.get("razao") or "",
+        "distancia_km": round(float(row.get("distancia_km") or 0), 1),
+        "versao": atualizado.isoformat() if atualizado else str(row["id"]),
+    }})
+
+
+@app.get("/painel/popups")
+@painel_required
+def painel_popups():
+    _ensure_popup_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, imagem_url, titulo, mensagem, link_url, botao_texto,
+               ativo, criado_em, atualizado_em
+        FROM ecommerce_popups_loja WHERE cnpjloja=%s
+    """, (session["cnpjloja"],))
+    popup = cur.fetchone()
+    cur.close()
+    return render_template("painel_popups.html", popup=popup)
+
+
+@app.post("/painel/popups/salvar")
+@painel_required
+def painel_popups_salvar():
+    _ensure_popup_schema()
+    cnpjloja = session["cnpjloja"]
+    titulo = (request.form.get("titulo") or "").strip()[:120]
+    mensagem = (request.form.get("mensagem") or "").strip()[:500]
+    botao_texto = (request.form.get("botao_texto") or "Ver oferta").strip()[:40] or "Ver oferta"
+    link_original = (request.form.get("link_url") or "").strip()
+    link_url = _marketing_link_seguro(link_original)
+    ativo = request.form.get("ativo") == "1"
+    if not titulo:
+        flash("Informe o título do popup.", "danger")
+        return redirect(url_for("painel_popups"))
+    if link_original and not link_url:
+        flash("Link inválido. Use uma rota interna iniciada por / ou uma URL http/https.", "danger")
+        return redirect(url_for("painel_popups"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT imagem_url FROM ecommerce_popups_loja WHERE cnpjloja=%s", (cnpjloja,))
+    atual = cur.fetchone()
+    imagem_url = atual.get("imagem_url") if atual else None
+    imagem = request.files.get("imagem")
+    if imagem and imagem.filename:
+        ext = (imagem.filename.rsplit(".", 1)[-1] if "." in imagem.filename else "jpg").lower()
+        content_type = {
+            "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"
+        }.get(ext)
+        if not content_type:
+            cur.close()
+            flash("Use uma imagem JPG, PNG ou WEBP.", "danger")
+            return redirect(url_for("painel_popups"))
+        raw = imagem.read(4 * 1024 * 1024 + 1)
+        if len(raw) > 4 * 1024 * 1024:
+            cur.close()
+            flash("A imagem deve ter no máximo 4 MB.", "danger")
+            return redirect(url_for("painel_popups"))
+        storage_path = f"popups/{cnpjloja}/{int(time.time())}-{secrets.token_hex(6)}.{ext}"
+        imagem_url = upload_to_supabase_storage(raw, storage_path, content_type)
+        if not imagem_url:
+            cur.close()
+            flash("Não foi possível enviar a imagem. Tente novamente.", "danger")
+            return redirect(url_for("painel_popups"))
+    if not imagem_url:
+        cur.close()
+        flash("Selecione a imagem do popup.", "danger")
+        return redirect(url_for("painel_popups"))
+
+    cur.execute("""
+        INSERT INTO ecommerce_popups_loja
+          (cnpjloja, imagem_url, titulo, mensagem, link_url, botao_texto, ativo)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET
+          imagem_url=EXCLUDED.imagem_url, titulo=EXCLUDED.titulo,
+          mensagem=EXCLUDED.mensagem, link_url=EXCLUDED.link_url,
+          botao_texto=EXCLUDED.botao_texto, ativo=EXCLUDED.ativo,
+          atualizado_em=NOW()
+    """, (cnpjloja, imagem_url, titulo, mensagem or None, link_url, botao_texto, ativo))
+    conn.commit()
+    cur.close()
+    flash("Popup salvo com sucesso.", "success")
+    return redirect(url_for("painel_popups"))
+
+
+@app.post("/painel/popups/toggle")
+@painel_required
+def painel_popups_toggle():
+    _ensure_popup_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE ecommerce_popups_loja
+        SET ativo=NOT ativo, atualizado_em=NOW()
+        WHERE cnpjloja=%s
+    """, (session["cnpjloja"],))
+    conn.commit()
+    cur.close()
+    return redirect(url_for("painel_popups"))
+
+
+@app.post("/painel/popups/excluir")
+@painel_required
+def painel_popups_excluir():
+    _ensure_popup_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ecommerce_popups_loja WHERE cnpjloja=%s", (session["cnpjloja"],))
+    conn.commit()
+    cur.close()
+    flash("Popup excluído.", "success")
+    return redirect(url_for("painel_popups"))
+
 
 @app.get("/")
 def index():
@@ -17251,7 +17461,7 @@ def painel_notificacoes_enviar():
     imagem_url = None
     imagem = request.files.get("imagem")
     if imagem and imagem.filename:
-        raw = imagem.read()
+        raw = imagem.read(3 * 1024 * 1024 + 1)
         if len(raw) > 3 * 1024 * 1024:
             flash("A imagem deve ter no máximo 3 MB.", "error")
             return redirect(url_for("painel_notificacoes"))

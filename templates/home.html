@@ -748,6 +748,21 @@
 .promo-pop-btn:hover { opacity:.88; color:#fff; }
 .promo-pop-skip { background:none; border:none; color:#94a3b8; font-size:.8rem; cursor:pointer; text-decoration:underline; padding:2px; }
 
+/* Popup configurado pela loja */
+.store-pop-overlay { position:fixed; inset:0; background:rgba(15,23,42,.62); z-index:9850; display:none; align-items:center; justify-content:center; padding:16px; backdrop-filter:blur(3px); animation:fadeIn .25s ease; }
+.store-pop-card { position:relative; background:#fff; border-radius:24px; width:100%; max-width:430px; max-height:calc(100vh - 32px); overflow:auto; box-shadow:0 32px 80px rgba(0,0,0,.42); animation:popSlideUp .38s cubic-bezier(.34,1.56,.64,1); }
+.store-pop-close { position:absolute; z-index:2; top:11px; right:11px; width:36px; height:36px; border-radius:50%; border:1px solid rgba(255,255,255,.5); background:rgba(15,23,42,.62); color:#fff; display:grid; place-items:center; cursor:pointer; }
+.store-pop-image-link { display:block; background:#f1f5f9; }
+.store-pop-image { display:block; width:100%; aspect-ratio:1; object-fit:cover; }
+.store-pop-content { padding:19px 22px 22px; text-align:center; }
+.store-pop-store { color:#64748b; font-size:.69rem; font-weight:900; text-transform:uppercase; letter-spacing:.05em; margin-bottom:7px; }
+.store-pop-title { color:#0f172a; font-size:1.25rem; line-height:1.25; font-weight:900; margin:0 0 8px; }
+.store-pop-message { color:#64748b; font-size:.86rem; line-height:1.55; margin:0 0 15px; white-space:pre-line; }
+.store-pop-cta { display:block; width:100%; background:linear-gradient(135deg,#d6112e,#870015); color:#fff; border-radius:13px; padding:13px; font-size:.92rem; font-weight:900; text-decoration:none; }
+.store-pop-cta:hover { color:#fff; opacity:.9; }
+.store-pop-distance { color:#94a3b8; font-size:.68rem; margin-top:9px; }
+@media(max-width:480px){ .store-pop-card { max-width:360px; } .store-pop-content { padding:16px 18px 19px; } }
+
 /* â”€â”€ CROSS-SELL POPUP (bottom-sheet) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .cs-pop-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.48); z-index:9900; backdrop-filter:blur(2px); align-items:flex-end; justify-content:center; }
 .cs-pop { width:100%; max-width:540px; background:#fff; border-radius:28px 28px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,.18); animation:csSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards; }
@@ -1389,7 +1404,7 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
 }
 const lat = localStorage.getItem('pq_lat');
 const lng = localStorage.getItem('pq_lng');
-if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
+if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
 
 // â”€â”€ Mais comprados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function carregarMaisComprados(){
@@ -1479,6 +1494,51 @@ function carregarBanners(lat, lng){
 }
 
 // â”€â”€ Comprar novamente (sÃ³ logados) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function carregarPopupLoja(lat, lng) {
+  if (!lat || !lng) return;
+  window._popupLojaPending = true;
+  fetch(`/api/popup-loja?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
+    .then(r => r.json())
+    .then(data => {
+      const p = data.popup;
+      window._popupLojaPending = false;
+      if (!p) return;
+      const seenKey = `pq_store_popup_${p.id}_${p.versao}`;
+      const lastSeen = parseInt(localStorage.getItem(seenKey) || '0', 10);
+      if (lastSeen && Date.now() - lastSeen < 7 * 86400000) return;
+      const overlay = document.getElementById('store-pop');
+      if (!overlay) return;
+      const href = p.link_url || `/loja/${encodeURIComponent(p.cnpjloja || '')}`;
+      document.getElementById('store-pop-image').src = p.imagem_url;
+      document.getElementById('store-pop-image').alt = p.titulo || 'Oferta da loja';
+      document.getElementById('store-pop-image-link').href = href;
+      document.getElementById('store-pop-store').textContent = p.razao || 'Loja Poupaqui';
+      document.getElementById('store-pop-title').textContent = p.titulo || '';
+      const message = document.getElementById('store-pop-message');
+      message.textContent = p.mensagem || '';
+      message.style.display = p.mensagem ? '' : 'none';
+      const cta = document.getElementById('store-pop-cta');
+      cta.href = href;
+      cta.textContent = p.botao_texto || 'Ver oferta';
+      document.getElementById('store-pop-distance').textContent = p.distancia_km ? `Loja a ${String(p.distancia_km).replace('.', ',')} km de você` : '';
+      localStorage.setItem(seenKey, String(Date.now()));
+      window._popupLojaAberto = true;
+      overlay.style.display = 'flex';
+    })
+    .catch(() => { window._popupLojaPending = false; });
+}
+
+function fecharPopupLoja() {
+  const overlay = document.getElementById('store-pop');
+  if (!overlay) return;
+  overlay.style.animation = 'popFadeOut .22s ease forwards';
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    overlay.style.animation = '';
+    window._popupLojaAberto = false;
+  }, 230);
+}
+
 _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
   .then(d=>{
     if(!d.logado || !(d.produtos||[]).length) return;
@@ -1860,7 +1920,7 @@ function abrirKitDrawer(tema) {
   if (!last || Date.now() - parseInt(last) > 7 * 86400000) {
     setTimeout(function(){
       var el = document.getElementById('promo-pop');
-      if (el) el.style.display = 'flex';
+      if (el && !window._popupLojaAberto && !window._popupLojaPending) el.style.display = 'flex';
     }, 2200);
   }
 })();
@@ -1873,7 +1933,7 @@ function fecharCsPop() {
 }
 function _abrirCsPopup(prods, mensagem) {
   var el = document.getElementById('cs-pop-wrap');
-  if (!el || sessionStorage.getItem('pq_cs_shown')) return;
+  if (!el || sessionStorage.getItem('pq_cs_shown') || window._popupLojaAberto) return;
   var grid = document.getElementById('cs-pop-prods');
   var msgEl = document.getElementById('cs-pop-msg');
   if (msgEl && mensagem) msgEl.textContent = mensagem;
@@ -1903,6 +1963,25 @@ function fecharPromoPop() {
 </script>
 
 {# â”€â”€ Popup promocional â”€â”€ #}
+<div id="store-pop" class="store-pop-overlay" style="display:none"
+     onclick="if(event.target===this)fecharPopupLoja()">
+  <div class="store-pop-card" role="dialog" aria-modal="true" aria-labelledby="store-pop-title">
+    <button class="store-pop-close" type="button" onclick="fecharPopupLoja()" aria-label="Fechar popup">
+      <i class="fa fa-times"></i>
+    </button>
+    <a id="store-pop-image-link" class="store-pop-image-link" href="#" onclick="fecharPopupLoja()">
+      <img id="store-pop-image" class="store-pop-image" alt="Oferta da loja">
+    </a>
+    <div class="store-pop-content">
+      <div id="store-pop-store" class="store-pop-store"></div>
+      <h2 id="store-pop-title" class="store-pop-title"></h2>
+      <p id="store-pop-message" class="store-pop-message"></p>
+      <a id="store-pop-cta" class="store-pop-cta" href="#" onclick="fecharPopupLoja()">Ver oferta</a>
+      <div id="store-pop-distance" class="store-pop-distance"></div>
+    </div>
+  </div>
+</div>
+
 <div id="promo-pop" class="promo-pop-overlay" style="display:none"
      onclick="if(event.target===this)fecharPromoPop()">
   <div class="promo-pop-card">

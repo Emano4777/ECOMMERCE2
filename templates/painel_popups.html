@@ -1,0 +1,137 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Popup promocional{% endblock %}
+
+{% block extra_style %}
+<style>
+.pop-grid { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(300px,.95fr); gap:18px; align-items:start; }
+.pop-card { background:#111722; border:1px solid var(--pk-line); border-radius:12px; padding:20px; }
+.pop-title { font-size:.92rem; font-weight:900; color:var(--pk-txt); margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.pop-field { margin-bottom:14px; }
+.pop-field label { display:block; font-size:.76rem; font-weight:800; color:var(--pk-muted); margin-bottom:6px; }
+.pop-help { color:var(--pk-muted); font-size:.72rem; line-height:1.45; margin-top:5px; }
+.pop-dim { display:flex; gap:12px; align-items:center; padding:12px; border:1px solid var(--pk-line); background:#0b0f17; border-radius:10px; margin-bottom:16px; }
+.pop-dim-shape { width:74px; aspect-ratio:1; border:2px dashed var(--pk-yellow); border-radius:8px; display:grid; place-items:center; flex-shrink:0; color:var(--pk-yellow); font-size:.65rem; font-weight:900; text-align:center; }
+.pop-dim strong { color:var(--pk-yellow); }
+.pop-preview-shell { max-width:390px; margin:0 auto; border-radius:22px; overflow:hidden; background:#fff; color:#111827; box-shadow:0 18px 46px rgba(0,0,0,.38); }
+.pop-preview-img { width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#202633; }
+.pop-preview-empty { width:100%; aspect-ratio:1; display:grid; place-items:center; background:#0b0f17; color:#4b5563; font-size:2.8rem; }
+.pop-preview-body { padding:18px 20px 20px; text-align:center; }
+.pop-preview-store { color:#64748b; font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; margin-bottom:7px; }
+.pop-preview-body h3 { font-size:1.2rem; line-height:1.25; margin:0 0 8px; font-weight:900; }
+.pop-preview-body p { color:#64748b; font-size:.82rem; line-height:1.5; margin:0 0 14px; white-space:pre-line; }
+.pop-preview-btn { display:block; width:100%; background:linear-gradient(135deg,#d6112e,#980019); color:#fff; border-radius:12px; padding:12px; font-size:.88rem; font-weight:900; }
+.pop-status { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:5px 10px; font-size:.72rem; font-weight:900; }
+.pop-status.on { color:#22c55e; background:#0d2d1a; border:1px solid #22c55e55; }
+.pop-status.off { color:#f08090; background:#1e0810; border:1px solid #f0809055; }
+.pop-actions { display:flex; gap:8px; margin-top:14px; }
+.pop-actions form { flex:1; }
+.pop-action { width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--pk-line); background:#181c24; color:var(--pk-txt); font-size:.78rem; font-weight:800; cursor:pointer; }
+.pop-action:hover { border-color:var(--pk-yellow); color:var(--pk-yellow); }
+.pop-action.danger:hover { border-color:#f87171; color:#f87171; }
+@media(max-width:900px){ .pop-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page-head">
+  <h1 class="pk-page-title"><i class="fa fa-window-restore me-2" style="color:var(--pk-yellow)"></i>Popup promocional</h1>
+  <p class="pk-page-sub">Configure uma campanha que aparece ao consumidor logado quando ele acessa o site próximo à sua loja.</p>
+</div>
+
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in msgs %}
+    <div class="alert alert-{{ 'success' if cat=='success' else 'danger' }} mb-3" style="border-radius:10px;font-size:.85rem">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="pop-grid">
+  <div class="pop-card">
+    <div class="pop-title"><i class="fa fa-pen-to-square" style="color:var(--pk-yellow)"></i>{{ 'Editar campanha' if popup else 'Criar campanha' }}</div>
+    <div class="pop-dim">
+      <div class="pop-dim-shape">1080<br>×<br>1080 px</div>
+      <div class="pop-help" style="margin:0">
+        <strong>Imagem quadrada recomendada: 1080 × 1080 px.</strong><br>
+        Mínimo 600 × 600 px, proporção 1:1, JPG/PNG/WEBP e até 4 MB. Mantenha textos importantes longe das bordas.
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('painel_popups_salvar') }}" enctype="multipart/form-data">
+      <div class="pop-field">
+        <label>Imagem do popup {{ '(deixe vazio para manter a atual)' if popup else '' }}</label>
+        <input class="pk-input" id="pop-image-input" type="file" name="imagem" accept="image/jpeg,image/png,image/webp" {{ '' if popup else 'required' }}>
+      </div>
+      <div class="pop-field">
+        <label>Título</label>
+        <input class="pk-input" id="pop-title-input" name="titulo" maxlength="120" required placeholder="Ex: Semana da beleza com até 30% OFF" value="{{ popup.titulo if popup else '' }}">
+      </div>
+      <div class="pop-field">
+        <label>Texto complementar</label>
+        <textarea class="pk-input" id="pop-message-input" name="mensagem" rows="4" maxlength="500" placeholder="Explique a oferta de forma curta e objetiva.">{{ popup.mensagem if popup else '' }}</textarea>
+      </div>
+      <div class="pop-field">
+        <label>Link clicável</label>
+        <input class="pk-input" name="link_url" maxlength="500" placeholder="/loja/{{ session.cnpjloja }} ou https://..." value="{{ popup.link_url if popup else '' }}">
+        <div class="pop-help">Pode ser uma página interna do Poupaqui ou um endereço completo com http/https.</div>
+      </div>
+      <div class="pop-field">
+        <label>Texto do botão</label>
+        <input class="pk-input" id="pop-button-input" name="botao_texto" maxlength="40" value="{{ popup.botao_texto if popup else 'Ver oferta' }}">
+      </div>
+      <label style="display:flex;align-items:center;gap:9px;color:var(--pk-txt);font-size:.82rem;font-weight:800;margin:2px 0 18px">
+        <input type="checkbox" name="ativo" value="1" {% if not popup or popup.ativo %}checked{% endif %}>
+        Publicar campanha ao salvar
+      </label>
+      <button class="btn-pk-yellow" type="submit"><i class="fa fa-floppy-disk me-1"></i>Salvar popup</button>
+    </form>
+  </div>
+
+  <div class="pop-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px">
+      <div class="pop-title" style="margin:0"><i class="fa fa-eye" style="color:var(--pk-yellow)"></i>Prévia</div>
+      {% if popup %}<span class="pop-status {{ 'on' if popup.ativo else 'off' }}"><i class="fa fa-circle" style="font-size:.5rem"></i>{{ 'Ativo' if popup.ativo else 'Inativo' }}</span>{% endif %}
+    </div>
+    <div class="pop-preview-shell">
+      {% if popup %}
+        <img id="pop-preview-image" class="pop-preview-img" src="{{ popup.imagem_url }}" alt="Imagem do popup">
+      {% else %}
+        <div id="pop-preview-empty" class="pop-preview-empty"><i class="fa fa-image"></i></div>
+        <img id="pop-preview-image" class="pop-preview-img" alt="Imagem do popup" style="display:none">
+      {% endif %}
+      <div class="pop-preview-body">
+        <div class="pop-preview-store"><i class="fa fa-store me-1"></i>Sua loja</div>
+        <h3 id="pop-preview-title">{{ popup.titulo if popup else 'Título da sua campanha' }}</h3>
+        <p id="pop-preview-message">{{ popup.mensagem if popup and popup.mensagem else 'O texto complementar aparecerá aqui.' }}</p>
+        <span class="pop-preview-btn" id="pop-preview-button">{{ popup.botao_texto if popup else 'Ver oferta' }}</span>
+      </div>
+    </div>
+    {% if popup %}
+    <div class="pop-actions">
+      <form method="post" action="{{ url_for('painel_popups_toggle') }}"><button class="pop-action" type="submit"><i class="fa fa-{{ 'eye-slash' if popup.ativo else 'eye' }} me-1"></i>{{ 'Desativar' if popup.ativo else 'Ativar' }}</button></form>
+      <form method="post" action="{{ url_for('painel_popups_excluir') }}" onsubmit="return confirm('Excluir este popup?')"><button class="pop-action danger" type="submit"><i class="fa fa-trash me-1"></i>Excluir</button></form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  const title = document.getElementById('pop-title-input');
+  const message = document.getElementById('pop-message-input');
+  const button = document.getElementById('pop-button-input');
+  const file = document.getElementById('pop-image-input');
+  title.addEventListener('input', () => document.getElementById('pop-preview-title').textContent = title.value || 'Título da sua campanha');
+  message.addEventListener('input', () => document.getElementById('pop-preview-message').textContent = message.value || 'O texto complementar aparecerá aqui.');
+  button.addEventListener('input', () => document.getElementById('pop-preview-button').textContent = button.value || 'Ver oferta');
+  file.addEventListener('change', function(){
+    const selected = this.files[0];
+    if (!selected) return;
+    const image = document.getElementById('pop-preview-image');
+    image.src = URL.createObjectURL(selected);
+    image.style.display = 'block';
+    const empty = document.getElementById('pop-preview-empty');
+    if (empty) empty.style.display = 'none';
+  });
+})();
+</script>
+{% endblock %}
