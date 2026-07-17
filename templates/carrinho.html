@@ -177,6 +177,8 @@
 .checkout-address-title { margin-top:13px;font-size:.67rem;font-weight:900;text-transform:uppercase;letter-spacing:.45px;color:#8b7b78; }
 .pickup-card { margin-top:10px;border:1.5px solid #fecdd3;background:#fff7f8;border-radius:12px;padding:12px 14px;display:flex;gap:11px;align-items:flex-start; }
 .pickup-card-icon { width:34px;height:34px;border-radius:9px;background:var(--pq-red);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.pickup-card-icon.has-logo { background:#fff;border:1px solid #e5e7eb;overflow:hidden; }
+.pickup-card-icon img { width:100%;height:100%;object-fit:cover;display:block; }
 .pickup-card strong { display:block;font-size:.82rem;color:#111827; }
 .pickup-card span { display:block;font-size:.73rem;color:#64748b;line-height:1.4;margin-top:2px;overflow-wrap:anywhere; }
 .pickup-tip { margin-top:8px;display:flex;gap:7px;align-items:flex-start;color:#64748b;font-size:.72rem;line-height:1.4; }
@@ -619,9 +621,12 @@ function addressChoiceHtml(cnpj) {
 
 function pickupContextHtml(cfg, razao) {
   const endereco = cfg.endereco || 'Consulte o endereço da farmácia após finalizar o pedido.';
+  const lojaIcon = cfg.logo_url
+    ? `<div class="pickup-card-icon has-logo"><img src="${esc(cfg.logo_url)}" alt="Logo ${esc(razao || cfg.razao || 'da farmácia')}" onerror="this.style.display='none';this.nextElementSibling.style.display='';this.parentElement.classList.remove('has-logo')"><i class="fa fa-store" style="display:none"></i></div>`
+    : `<div class="pickup-card-icon"><i class="fa fa-store"></i></div>`;
   return `<div class="checkout-address-title">Retirar em</div>
     <div class="pickup-card">
-      <span class="pickup-card-icon"><i class="fa fa-store"></i></span>
+      ${lojaIcon}
       <div style="min-width:0"><strong>${esc(razao || cfg.razao || 'Drogaria Poupaqui')}</strong><span><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>${esc(endereco)}</span></div>
     </div>
     <div class="pickup-tip"><i class="fa fa-circle-info" style="margin-top:2px"></i><span>Você receberá uma confirmação quando o pedido estiver pronto para retirada.</span></div>`;
