@@ -12169,7 +12169,8 @@ def api_busca_sugestoes():
             _cur.execute(
                 "SELECT u.cnpjloja, g.lat, g.lng FROM users u "
                 "LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja "
-                "WHERE u.is_admin = FALSE"
+                "JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja "
+                "WHERE u.is_admin = FALSE AND COALESCE(c.catalogo_publico, FALSE) = TRUE"
             )
             for _r in _cur.fetchall():
                 if lat_usr and lng_usr and _r["lat"] and _r["lng"]:
@@ -12198,6 +12199,37 @@ def api_busca_sugestoes():
     try:
         conn = _new_conn_batch()
         cur = conn.cursor()
+
+        # No modo exclusivo, as sugestões devem vir da mesma fonte Alpha/A7 da
+        # vitrine. As tabelas legadas podem conter itens que já saíram de linha.
+        if _catalogo_alpha_exclusivo():
+            _alpha_catalog_sync_if_needed(cur=cur)
+            alpha_conditions = " AND ".join(
+                "(LOWER(ap.nome) LIKE %s OR LOWER(COALESCE(ap.fabricante, '')) LIKE %s)"
+                for _ in patterns
+            )
+            alpha_args = [cnpjs]
+            for pattern in patterns:
+                alpha_args.extend([pattern, pattern])
+            cur.execute(
+                f"""
+                SELECT UPPER(TRIM(ap.nome)) AS nome
+                FROM ecommerce_alpha_produtos ap
+                WHERE ap.cnpjloja = ANY(%s)
+                  AND COALESCE(ap.inativo, FALSE) = FALSE
+                  AND COALESCE(ap.estoque, 0) > 0
+                  AND COALESCE(TRIM(ap.nome), '') <> ''
+                  AND {alpha_conditions}
+                GROUP BY UPPER(TRIM(ap.nome))
+                ORDER BY MIN(LENGTH(TRIM(ap.nome))), UPPER(TRIM(ap.nome))
+                LIMIT 8
+                """,
+                alpha_args,
+            )
+            rows = [r["nome"] for r in cur.fetchall() if r.get("nome")]
+            cur.close()
+            conn.close()
+            return jsonify({"sugestoes": rows, "voce_quis_dizer": None})
 
         # ── busca direta ────────────────────────────────────────
         cur.execute(

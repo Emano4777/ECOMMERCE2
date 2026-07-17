@@ -2097,7 +2097,7 @@ async function _homeSugFetch(q) {
     const lng = localStorage.getItem('pq_lng') || '';
     if (lat) params.set('lat', lat);
     if (lng) params.set('lng', lng);
-    const r = await fetch('https://wosjlqxbfajctoeztrug.supabase.co/functions/v1/busca-sugestoes?' + params, {signal: _hSugCtrl.signal});
+    const r = await fetch('/api/busca/sugestoes?' + params, {signal: _hSugCtrl.signal});
     if (!r.ok) return;
     const d = await r.json();
     _homeSugRender(q, d.sugestoes || [], d.voce_quis_dizer || null);

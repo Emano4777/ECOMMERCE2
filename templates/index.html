@@ -916,6 +916,7 @@
 
 <!-- Grade de produtos -->
 <div class="prod-grid" id="prod-grid" style="display:none"></div>
+<div id="search-order-cta" style="display:none"></div>
 <div class="idx-pager" id="idx-pager" style="display:none"></div>
 
 <noscript>
@@ -1304,6 +1305,7 @@ function renderProdutos(lista) {
   skelGrid.style.display = 'none';
   prodGrid.style.display = '';
   if (!lista.length) {
+    renderSearchOrderCta(false);
     if (_serverSearchLoading) {
       const termo = (document.getElementById('search-inp')?.value || '').trim();
       prodGrid.innerHTML = `<div class="idx-empty">
@@ -1354,6 +1356,27 @@ function renderProdutos(lista) {
     return;
   }
   prodGrid.innerHTML = lista.map((p,i) => cardHtml(p,i)).join('');
+  renderSearchOrderCta(true);
+}
+
+function renderSearchOrderCta(hasResults) {
+  const host = document.getElementById('search-order-cta');
+  if (!host) return;
+  const termo = (document.getElementById('search-inp')?.value || '').trim();
+  if (!hasResults || termo.length < 2 || !_encomendaLojas.length) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  host.innerHTML = `<div style="margin:18px auto 4px;max-width:620px;padding:10px 12px 10px 16px;border:1px solid #dbeafe;border-radius:14px;background:linear-gradient(135deg,#f8fbff,#eff6ff);display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 2px 10px rgba(37,99,235,.06)">
+    <div style="min-width:0;display:flex;align-items:center;gap:10px;color:#334155;font-size:.82rem;line-height:1.35">
+      <i class="fa fa-box-open" style="color:#2563eb;flex-shrink:0"></i>
+      <span><strong>Não achou o que procura?</strong> Faça sua encomenda.</span>
+    </div>
+    <button id="search-order-cta-btn" type="button" style="flex-shrink:0;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:8px 12px;font-size:.78rem;font-weight:800;font-family:inherit;cursor:pointer;white-space:nowrap">Solicitar</button>
+  </div>`;
+  document.getElementById('search-order-cta-btn')?.addEventListener('click', () => abrirModalEncomenda(termo));
+  host.style.display = 'block';
 }
 
 function filtrar(q) {
@@ -2081,7 +2104,7 @@ async function _sugestoesFetch(q) {
       if (lat) params.set('lat', lat);
       if (lng) params.set('lng', lng);
     }
-    const r = await fetch(`https://wosjlqxbfajctoeztrug.supabase.co/functions/v1/busca-sugestoes?${params}`, {signal});
+    const r = await fetch(`/api/busca/sugestoes?${params}`, {signal});
     if (!r.ok) return;
     const d = await r.json();
     _sugestoesRender(q, d.sugestoes || [], d.voce_quis_dizer || null);
