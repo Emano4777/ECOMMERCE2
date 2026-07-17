@@ -1525,6 +1525,39 @@ def _ensure_popup_schema():
         _mark_migration_done(key)
 
 
+def _ensure_consumidor_enderecos_schema():
+    key = "consumidor_enderecos_v1"
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ecommerce_consumidor_enderecos (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL REFERENCES ecommerce_consumidores(id) ON DELETE CASCADE,
+                tipo TEXT NOT NULL CHECK (tipo IN ('casa','trabalho','outro')),
+                endereco TEXT NOT NULL,
+                numero TEXT,
+                complemento TEXT,
+                lat DOUBLE PRECISION NOT NULL,
+                lng DOUBLE PRECISION NOT NULL,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (consumidor_id, tipo)
+            )
+            """
+        )
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 # Cache simples para a API de banners (evita query a cada requisição)
 _banner_cache: dict = {}
 _banner_cache_lock = threading.Lock()
@@ -2876,6 +2909,70 @@ def _known_city_location_result(termo, cidade, uf):
             "country_code": "br",
         },
     }
+
+
+@app.get("/api/consumidor/enderecos")
+def api_consumidor_enderecos():
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"enderecos": []})
+    _ensure_consumidor_enderecos_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, tipo, endereco, numero, complemento, lat, lng, atualizado_em
+           FROM ecommerce_consumidor_enderecos
+           WHERE consumidor_id=%s
+           ORDER BY CASE tipo WHEN 'casa' THEN 1 WHEN 'trabalho' THEN 2 ELSE 3 END""",
+        (consumidor_id,),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return jsonify({"enderecos": rows})
+
+
+@app.post("/api/consumidor/enderecos")
+def api_consumidor_endereco_salvar():
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"ok": False, "login_required": True}), 401
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get("tipo") or "outro").strip().lower()
+    endereco = (data.get("endereco") or "").strip()[:400]
+    numero = (data.get("numero") or "").strip()[:30]
+    complemento = (data.get("complemento") or "").strip()[:160]
+    lat = _to_float_or_none(data.get("lat"))
+    lng = _to_float_or_none(data.get("lng"))
+    if tipo not in {"casa", "trabalho", "outro"} or not endereco or lat is None or lng is None:
+        return jsonify({"ok": False, "erro": "Endereço inválido."}), 400
+
+    _ensure_consumidor_enderecos_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO ecommerce_consumidor_enderecos
+               (consumidor_id, tipo, endereco, numero, complemento, lat, lng)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (consumidor_id, tipo) DO UPDATE SET
+               endereco=EXCLUDED.endereco, numero=EXCLUDED.numero,
+               complemento=EXCLUDED.complemento, lat=EXCLUDED.lat, lng=EXCLUDED.lng,
+               atualizado_em=NOW()
+           RETURNING id, tipo, endereco, numero, complemento, lat, lng""",
+        (consumidor_id, tipo, endereco, numero or None, complemento or None, lat, lng),
+    )
+    saved = dict(cur.fetchone())
+    cur.execute(
+        """UPDATE ecommerce_consumidores
+           SET endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
+           WHERE id=%s""",
+        (endereco, lat, lng, consumidor_id),
+    )
+    conn.commit()
+    cur.close()
+    session["consumidor_endereco"] = endereco
+    session["consumidor_lat"] = lat
+    session["consumidor_lng"] = lng
+    return jsonify({"ok": True, "endereco": saved})
 
 
 @app.get("/api/localizacao")

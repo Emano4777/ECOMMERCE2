@@ -571,8 +571,14 @@
       padding: 24px;
       width: 100%;
       max-width: 460px;
+      max-height: calc(100vh - 90px);
+      overflow-y: auto;
       box-shadow: 0 20px 60px rgba(0,0,0,.2);
       animation: slideDown .2s ease;
+    }
+    @media(max-width:500px) {
+      .pq-loc-overlay { padding:12px; align-items:center; }
+      .pq-loc-modal { padding:20px; max-height:calc(100vh - 24px); }
     }
     @keyframes slideDown { from { opacity:0; transform:translateY(-10px) } to { opacity:1; transform:none } }
     .pq-loc-modal h5 { font-weight: 800; margin-bottom: 16px; font-size: 1rem; }
@@ -645,6 +651,14 @@
     .pq-loc-result i { color: var(--pq-red); margin-top: 3px; }
     .pq-loc-result-title { font-weight: 900; color: var(--pq-text); font-size: .9rem; }
     .pq-loc-result-sub { color: var(--pq-muted); font-size: .78rem; line-height: 1.35; margin-top: 2px; }
+    .pq-address-types { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+    .pq-address-types button { min-width:0; height:64px; border:1px solid #e2dcd9; border-radius:11px; background:#fff; color:#302827; font:700 .75rem inherit; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; }
+    .pq-address-types button.active { border:2px solid var(--pq-red); background:#fff6f7; color:var(--pq-red); }
+    .pq-address-types button span { font-size:1rem; }
+    .pq-loc-saved-card { width:100%;border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:9px 11px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer;color:var(--pq-text); }
+    .pq-loc-saved-card i { width:18px;color:var(--pq-red);text-align:center; }
+    .pq-loc-saved-card strong { display:block;font-size:.78rem;text-transform:capitalize; }
+    .pq-loc-saved-card small { display:block;color:var(--pq-muted);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:330px; }
     .pq-loc-recents {
       display: none;
       margin-top: 12px;
@@ -1283,6 +1297,7 @@
 <!-- MODAL LOCALIZAÇÃO -->
 <div class="pq-loc-overlay" id="loc-overlay" onclick="if(event.target===this)fecharModalLoc()">
   <div class="pq-loc-modal">
+    <div id="loc-search-step">
     <h5><i class="fa fa-location-dot me-2" style="color:var(--pq-red)"></i>Onde você está?</h5>
 
     <button class="btn-gps" onclick="usarGPS()">
@@ -1314,7 +1329,38 @@
     </div>
     <div id="modal-status" style="margin-top:10px;font-size:.8rem;color:var(--pq-muted)"></div>
     <div id="modal-loc-results" class="pq-loc-results"></div>
+    <div id="modal-loc-saved" class="pq-loc-recents"></div>
     <div id="modal-loc-recents" class="pq-loc-recents"></div>
+    </div>
+
+    <div id="loc-confirm-step" style="display:none">
+      <button type="button" onclick="voltarBuscaEndereco()" style="border:0;background:none;padding:0 0 12px;color:#475569;font:700 .8rem inherit;cursor:pointer"><i class="fa fa-arrow-left me-1"></i>Voltar</button>
+      <h5 style="margin-bottom:6px">Confirme seu endereço</h5>
+      <div id="loc-confirm-base" style="font-size:.8rem;color:#64748b;line-height:1.4;margin-bottom:16px"></div>
+      <div style="background:#f7f3f2;border-radius:14px;padding:14px;display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:10px">
+        <label style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase">Complemento
+          <input id="loc-complemento" type="text" maxlength="160" placeholder="Apto, bloco, referência" style="display:block;width:100%;margin-top:5px;height:38px;border:1px solid #ddd4d1;border-radius:8px;padding:0 10px;font:inherit;box-sizing:border-box">
+        </label>
+        <label style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase">Número
+          <input id="loc-numero" type="text" maxlength="30" placeholder="Nº" inputmode="numeric" style="display:block;width:100%;margin-top:5px;height:38px;border:1px solid #ddd4d1;border-radius:8px;padding:0 10px;font:inherit;box-sizing:border-box">
+        </label>
+      </div>
+      <div style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase;margin:18px 0 8px">Salvar endereço como</div>
+      <div class="pq-address-types">
+        <button type="button" data-address-type="casa" class="active" onclick="selecionarTipoEndereco(this)"><span>🏠</span>Casa</button>
+        <button type="button" data-address-type="trabalho" onclick="selecionarTipoEndereco(this)"><span>💼</span>Trabalho</button>
+        <button type="button" data-address-type="outro" onclick="selecionarTipoEndereco(this)"><span>📍</span>Outro</button>
+      </div>
+      <button id="loc-save-btn" type="button" onclick="salvarEnderecoConfirmado()" style="width:100%;margin-top:18px;border:0;border-radius:11px;background:var(--pq-red);color:#fff;padding:12px;font:900 .9rem inherit;cursor:pointer">Salvar e continuar</button>
+      <div id="loc-save-status" style="font-size:.76rem;color:var(--pq-red);margin-top:8px;text-align:center"></div>
+    </div>
+
+    <div id="loc-success-step" style="display:none;text-align:center;padding:28px 8px 18px">
+      <div style="width:54px;height:54px;border-radius:50%;background:#bbf7d0;color:#166534;display:flex;align-items:center;justify-content:center;font-size:1.7rem;margin:0 auto 18px">✓</div>
+      <h5>Endereço salvo!</h5>
+      <p style="font-size:.8rem;color:#64748b;margin:0 0 18px">Agora vamos mostrar os produtos disponíveis para entrega no seu endereço.</p>
+      <button type="button" onclick="concluirEnderecoSalvo()" style="border:0;border-radius:10px;background:#181313;color:#fff;padding:10px 22px;font:800 .82rem inherit;cursor:pointer">Ver produtos</button>
+    </div>
   </div>
 </div>
 
@@ -1419,6 +1465,12 @@ const LOC_KEY_NOME = 'pq_loc_nome';
 const LOC_KEY_RECENTS = 'pq_loc_recents';
 const LOC_KEY_TS   = 'pq_loc_ts';
 const LOC_CACHE_TTL = 24 * 3600 * 1000; // 24h
+const LOC_USER_LOGGED = {{ (consumidor is not none)|tojson }};
+const LOC_SESSION_ADDRESS = {{ ((consumidor.endereco if consumidor else '') or '')|tojson }};
+const LOC_SESSION_LAT = {{ (consumidor.lat if consumidor and consumidor.lat is not none else none)|tojson }};
+const LOC_SESSION_LNG = {{ (consumidor.lng if consumidor and consumidor.lng is not none else none)|tojson }};
+let _pendingAddress = null;
+let _selectedAddressType = 'casa';
 
 const _GM_KEY = {{ GOOGLE_MAPS_KEY | tojson }};
 const _GM_ENABLED = false; // ← mude para true para ativar Google Maps
@@ -1465,7 +1517,15 @@ async function _geocodeGM(query) {
   return { lat: loc.lat, lng: loc.lng, nome: d.results[0].formatted_address };
 }
 
-function abrirModalLoc()  { document.getElementById('loc-overlay').classList.add('show'); renderRecentLocs(); document.getElementById('modal-cidade-inp').focus(); }
+function abrirModalLoc()  {
+  document.getElementById('loc-overlay').classList.add('show');
+  document.getElementById('loc-search-step').style.display = '';
+  document.getElementById('loc-confirm-step').style.display = 'none';
+  document.getElementById('loc-success-step').style.display = 'none';
+  renderRecentLocs();
+  carregarEnderecosSalvos();
+  document.getElementById('modal-cidade-inp').focus();
+}
 function fecharModalLoc() { document.getElementById('loc-overlay').classList.remove('show'); }
 
 function setLocNome(nome) {
@@ -1576,12 +1636,13 @@ async function confirmarGPS() {
     } catch(e) {}
   }
 
-  localStorage.setItem(LOC_KEY_LAT, lat);
-  localStorage.setItem(LOC_KEY_LNG, lng);
-  localStorage.setItem(LOC_KEY_TS, Date.now());
-  setLocNome(nome);
-  fecharModalLoc();
-  if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
+  const searchInp = document.getElementById('modal-cidade-inp');
+  if (searchInp) searchInp.value = nome;
+  abrirConfirmacaoEndereco(
+    {lat:String(lat), lon:String(lng), display_name:nome, address:{}},
+    {label:nome, title:nome, sub:''}
+  );
+  document.getElementById('gps-preview').style.display = 'none';
 }
 
 function buscarCidadeLegacy() {
@@ -1691,6 +1752,99 @@ function saveRecentLoc(lat, lng, label) {
   localStorage.setItem(LOC_KEY_RECENTS, JSON.stringify(recents));
 }
 
+async function carregarEnderecosSalvos() {
+  const box = document.getElementById('modal-loc-saved');
+  if (!box || !LOC_USER_LOGGED) { if (box) box.style.display = 'none'; return; }
+  try {
+    const r = await fetch('/api/consumidor/enderecos');
+    const data = await r.json();
+    const items = data.enderecos || [];
+    if (!items.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    const icons = {casa:'fa-house', trabalho:'fa-briefcase', outro:'fa-location-dot'};
+    box.innerHTML = '<div class="pq-loc-recent-title">Meus endereços</div>' + items.map((x,i) =>
+      `<button type="button" class="pq-loc-saved-card" data-saved-idx="${i}"><i class="fa ${icons[x.tipo] || icons.outro}"></i><span style="min-width:0"><strong>${esc(x.tipo)}</strong><small>${esc(x.endereco)}</small></span></button>`
+    ).join('');
+    box.style.display = 'flex'; box.classList.add('show');
+    box.querySelectorAll('[data-saved-idx]').forEach(btn => btn.addEventListener('click', () => {
+      const x = items[Number(btn.dataset.savedIdx)];
+      selecionarLocalizacao(x.lat, x.lng, x.endereco);
+    }));
+  } catch (_) { box.style.display = 'none'; }
+}
+
+function _numeroDigitado() {
+  const raw = (document.getElementById('modal-cidade-inp')?.value || '').trim();
+  const match = raw.match(/(?:,|\s)\s*(\d+[A-Za-z0-9/-]*)\s*(?:,|$)/);
+  return match ? match[1] : '';
+}
+
+function abrirConfirmacaoEndereco(d, formatted) {
+  const a = d.address || {};
+  _pendingAddress = {
+    lat: parseFloat(d.lat), lng: parseFloat(d.lon),
+    road: a.road || a.pedestrian || '', bairro: a.suburb || a.neighbourhood || '',
+    cidade: a.city || a.town || a.village || a.municipality || '',
+    uf: (a.state_code || '').replace('BR-',''), cep: a.postcode || '',
+    baseLabel: formatted.label || d.display_name || ''
+  };
+  const numero = a.house_number || _numeroDigitado();
+  document.getElementById('loc-numero').value = numero;
+  document.getElementById('loc-complemento').value = '';
+  document.getElementById('loc-confirm-base').textContent = formatted.label || d.display_name || '';
+  document.getElementById('loc-save-status').textContent = '';
+  document.getElementById('loc-search-step').style.display = 'none';
+  document.getElementById('loc-confirm-step').style.display = '';
+  document.querySelectorAll('[data-address-type]').forEach(b => b.classList.toggle('active', b.dataset.addressType === 'casa'));
+  _selectedAddressType = 'casa';
+  setTimeout(() => document.getElementById('loc-numero').focus(), 50);
+}
+
+function voltarBuscaEndereco() {
+  document.getElementById('loc-confirm-step').style.display = 'none';
+  document.getElementById('loc-search-step').style.display = '';
+}
+
+function selecionarTipoEndereco(btn) {
+  _selectedAddressType = btn.dataset.addressType || 'outro';
+  document.querySelectorAll('[data-address-type]').forEach(b => b.classList.toggle('active', b === btn));
+}
+
+async function salvarEnderecoConfirmado() {
+  if (!_pendingAddress) return;
+  const numero = document.getElementById('loc-numero').value.trim();
+  const complemento = document.getElementById('loc-complemento').value.trim();
+  const status = document.getElementById('loc-save-status');
+  if (!numero) { status.textContent = 'Informe o número do endereço.'; document.getElementById('loc-numero').focus(); return; }
+  const p = _pendingAddress;
+  const rua = p.road || p.baseLabel.split(' - ')[0].replace(/,\s*\d+.*$/, '');
+  const endereco = [rua && `${rua}, ${numero}`, complemento, p.bairro, [p.cidade,p.uf].filter(Boolean).join('/'), p.cep && `CEP ${p.cep}`].filter(Boolean).join(' - ');
+  const btn = document.getElementById('loc-save-btn');
+  btn.disabled = true; btn.textContent = 'Salvando...'; status.textContent = '';
+  let lat = p.lat, lng = p.lng;
+  try {
+    const precise = await fetchLocalizacao(endereco, parseCidadeUf(endereco));
+    const best = (precise || []).find(x => x.address && (x.address.house_number || x.address.road)) || (precise || [])[0];
+    if (best) { lat = parseFloat(best.lat); lng = parseFloat(best.lon); }
+  } catch (_) {}
+  if (LOC_USER_LOGGED) {
+    try {
+      const r = await fetch('/api/consumidor/enderecos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tipo:_selectedAddressType,endereco,numero,complemento,lat,lng})});
+      if (!r.ok) throw new Error('save');
+    } catch (_) { status.textContent = 'Não foi possível salvar. Tente novamente.'; btn.disabled=false; btn.textContent='Salvar e continuar'; return; }
+  }
+  localStorage.setItem(LOC_KEY_LAT, lat); localStorage.setItem(LOC_KEY_LNG, lng); localStorage.setItem(LOC_KEY_TS, Date.now());
+  saveRecentLoc(lat, lng, endereco); setLocNome(endereco);
+  _pendingAddress = {...p, lat, lng, endereco};
+  document.getElementById('loc-confirm-step').style.display = 'none';
+  document.getElementById('loc-success-step').style.display = '';
+  btn.disabled = false; btn.textContent = 'Salvar e continuar';
+}
+
+function concluirEnderecoSalvo() {
+  fecharModalLoc();
+  if (_pendingAddress && typeof onLocationReady === 'function') onLocationReady(_pendingAddress.lat, _pendingAddress.lng);
+}
+
 function renderRecentLocs() {
   const box = document.getElementById('modal-loc-recents');
   if (!box) return;
@@ -1743,7 +1897,7 @@ function renderLocResults(data) {
     btn.addEventListener('click', () => {
       const d = data[parseInt(btn.dataset.idx, 10)];
       const f = formatLocResult(d);
-      selecionarLocalizacao(d.lat, d.lon, f.label);
+      abrirConfirmacaoEndereco(d, f);
     });
   });
 }
@@ -1855,14 +2009,19 @@ function buscarCidadeDebounced() {
 }
 
 (function init() {
-  const savedNome = localStorage.getItem(LOC_KEY_NOME);
-  const savedLat  = localStorage.getItem(LOC_KEY_LAT);
-  const savedLng  = localStorage.getItem(LOC_KEY_LNG);
+  const savedNome = localStorage.getItem(LOC_KEY_NOME) || LOC_SESSION_ADDRESS;
+  const savedLat  = localStorage.getItem(LOC_KEY_LAT) || LOC_SESSION_LAT;
+  const savedLng  = localStorage.getItem(LOC_KEY_LNG) || LOC_SESSION_LNG;
   const savedTs   = parseInt(localStorage.getItem(LOC_KEY_TS) || '0');
 
-  if (savedNome) document.getElementById('loc-addr-text').textContent = savedNome;
+  if (savedNome) {
+    document.getElementById('loc-addr-text').textContent = savedNome;
+    if (!localStorage.getItem(LOC_KEY_NOME)) localStorage.setItem(LOC_KEY_NOME, savedNome);
+  }
 
   if (savedLat && savedLng) {
+    if (!localStorage.getItem(LOC_KEY_LAT)) localStorage.setItem(LOC_KEY_LAT, savedLat);
+    if (!localStorage.getItem(LOC_KEY_LNG)) localStorage.setItem(LOC_KEY_LNG, savedLng);
     if (typeof onLocationReady === 'function') onLocationReady(parseFloat(savedLat), parseFloat(savedLng));
     // Cache expirado (>24h): atualiza silenciosamente em background
     if (Date.now() - savedTs > LOC_CACHE_TTL) {
