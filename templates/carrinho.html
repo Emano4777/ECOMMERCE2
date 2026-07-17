@@ -174,6 +174,15 @@
 .address-choice strong { display:block; font-size:.74rem; font-weight:900; color:#111827; }
 .address-choice span { display:block; margin-top:2px; font-size:.7rem; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media(max-width:560px){ .address-choice { grid-template-columns:1fr; } }
+.checkout-address-title { margin-top:13px;font-size:.67rem;font-weight:900;text-transform:uppercase;letter-spacing:.45px;color:#8b7b78; }
+.pickup-card { margin-top:10px;border:1.5px solid #fecdd3;background:#fff7f8;border-radius:12px;padding:12px 14px;display:flex;gap:11px;align-items:flex-start; }
+.pickup-card-icon { width:34px;height:34px;border-radius:9px;background:var(--pq-red);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.pickup-card strong { display:block;font-size:.82rem;color:#111827; }
+.pickup-card span { display:block;font-size:.73rem;color:#64748b;line-height:1.4;margin-top:2px;overflow-wrap:anywhere; }
+.pickup-tip { margin-top:8px;display:flex;gap:7px;align-items:flex-start;color:#64748b;font-size:.72rem;line-height:1.4; }
+.address-choice-card { position:relative; }
+.address-choice-icon { width:24px;height:24px;border-radius:7px;background:#f8fafc;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.78rem; }
+.address-choice label.selected .address-choice-icon { background:#ffe4e8;color:var(--pq-red); }
 
 /* SUBTOTAL */
 .cart-subtotal {
@@ -508,6 +517,8 @@ const _cupomAplicado = {};     // {cnpjloja: {codigo, desconto, msg}}
 const _descontosAuto = {};     // {cnpjloja: {pagamento:[], quantidade:[]}}
 const _receitaUrl = {};        // {cnpjloja: url} — receita médica anexada
 const _receitaDeclaracaoOk = {}; // {cnpjloja: true} — cliente confirmou receita digital original
+let _enderecosSalvos = [];
+const _deliveryModes = {};
 const CONSUMIDOR_ENDERECO = {{ (consumidor.endereco if consumidor else '')|tojson }};
 const CONSUMIDOR_LAT = {{ (consumidor.lat if consumidor else none)|tojson }};
 const CONSUMIDOR_LNG = {{ (consumidor.lng if consumidor else none)|tojson }};
@@ -555,6 +566,11 @@ function getProfileAddress() {
 function getDeliveryAddressChoice() {
   const current = getCurrentLocationAddress();
   const profile = getProfileAddress();
+  if (DELIVERY_ADDRESS_MODE.startsWith('saved:')) {
+    const id = DELIVERY_ADDRESS_MODE.slice(6);
+    const saved = _enderecosSalvos.find(x => String(x.id) === id);
+    if (saved) return {label:saved.endereco || '', lat:saved.lat || '', lng:saved.lng || ''};
+  }
   if (DELIVERY_ADDRESS_MODE === 'current' && current.label) return current;
   if (DELIVERY_ADDRESS_MODE === 'profile' && profile.label) return profile;
   return current.label ? current : profile;
@@ -575,16 +591,40 @@ function addressChoiceHtml(cnpj) {
   const profile = getProfileAddress();
   const selected = getDeliveryAddressChoice();
   const activeMode = selected.label === current.label && current.label ? 'current' : 'profile';
+  const savedCards = _enderecosSalvos.map(x => {
+    const mode = `saved:${x.id}`;
+    const active = DELIVERY_ADDRESS_MODE === mode;
+    const icons = {casa:'🏠', trabalho:'💼', outro:'📍'};
+    const label = x.tipo ? x.tipo.charAt(0).toUpperCase() + x.tipo.slice(1) : 'Outro';
+    return `<label class="address-choice-card ${active ? 'selected' : ''}">
+      <input type="radio" name="addr-${esc(cnpj)}" value="${esc(mode)}" ${active ? 'checked' : ''} onchange="setDeliveryAddressMode('${esc(mode)}')">
+      <span class="address-choice-icon">${icons[x.tipo] || icons.outro}</span>
+      <div style="min-width:0"><strong>${esc(label)}</strong><span>${esc(shortAddr(x.endereco))}</span></div>
+    </label>`;
+  }).join('');
+  const profileCard = !_enderecosSalvos.length && profile.label ? `<label class="address-choice-card ${activeMode === 'profile' ? 'selected' : ''}">
+      <input type="radio" name="addr-${esc(cnpj)}" value="profile" ${activeMode === 'profile' ? 'checked' : ''} onchange="setDeliveryAddressMode('profile')">
+      <span class="address-choice-icon">🏠</span>
+      <div style="min-width:0"><strong>Endereço do cadastro</strong><span>${esc(shortAddr(profile.label))}</span></div>
+    </label>` : '';
   return `<div class="address-choice" role="radiogroup" aria-label="Endereço de entrega">
-    <label class="${activeMode === 'current' ? 'selected' : ''}">
+    ${savedCards}${profileCard}
+    <label class="address-choice-card ${activeMode === 'current' ? 'selected' : ''}">
       <input type="radio" name="addr-${esc(cnpj)}" value="current" ${activeMode === 'current' ? 'checked' : ''} ${current.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('current')">
-      <div style="min-width:0"><strong>Usar localização atual</strong><span>${esc(shortAddr(current.label))}</span></div>
-    </label>
-    <label class="${activeMode === 'profile' ? 'selected' : ''}">
-      <input type="radio" name="addr-${esc(cnpj)}" value="profile" ${activeMode === 'profile' ? 'checked' : ''} ${profile.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('profile')">
-      <div style="min-width:0"><strong>Usar endereço do cadastro</strong><span>${esc(shortAddr(profile.label))}</span></div>
+      <span class="address-choice-icon">📍</span>
+      <div style="min-width:0"><strong>Localização atual</strong><span>${esc(shortAddr(current.label))}</span></div>
     </label>
   </div>`;
+}
+
+function pickupContextHtml(cfg, razao) {
+  const endereco = cfg.endereco || 'Consulte o endereço da farmácia após finalizar o pedido.';
+  return `<div class="checkout-address-title">Retirar em</div>
+    <div class="pickup-card">
+      <span class="pickup-card-icon"><i class="fa fa-store"></i></span>
+      <div style="min-width:0"><strong>${esc(razao || cfg.razao || 'Drogaria Poupaqui')}</strong><span><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>${esc(endereco)}</span></div>
+    </div>
+    <div class="pickup-tip"><i class="fa fa-circle-info" style="margin-top:2px"></i><span>Você receberá uma confirmação quando o pedido estiver pronto para retirada.</span></div>`;
 }
 
 function brl(v) {
@@ -1046,10 +1086,11 @@ function renderCart() {
     if (showPix) payOpts += payOptHtml(cnpj, 'pix',       '<i class="fa fa-qrcode"></i>PIX', !showWpp);
     if (showMp)  payOpts += payOptHtml(cnpj, 'mercadopago','<i class="fa fa-credit-card"></i>Cartão', false);
 
-    let entregaOpts = deliveryOptHtml(cnpj, 'retirada', '<i class="fa fa-store"></i>Retirada na loja', true);
-    if (entregaOk) entregaOpts += deliveryOptHtml(cnpj, 'entrega', '<i class="fa fa-motorcycle"></i>Entrega', false);
+    const deliverySelected = _deliveryModes[cnpj] === 'entrega' && (entregaOk || podeAgendar) ? 'entrega' : 'retirada';
+    let entregaOpts = deliveryOptHtml(cnpj, 'retirada', '<i class="fa fa-store"></i>Retirada na loja', deliverySelected === 'retirada');
+    if (entregaOk) entregaOpts += deliveryOptHtml(cnpj, 'entrega', '<i class="fa fa-motorcycle"></i>Entrega', deliverySelected === 'entrega');
     if (podeAgendar) {
-      entregaOpts += deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, '<i class="fa fa-calendar-check"></i>Agendar entrega');
+      entregaOpts += deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, '<i class="fa fa-calendar-check"></i>Agendar entrega', deliverySelected === 'entrega');
     }
     let entregaMsg = 'Esta loja não oferece entrega. Disponível apenas retirada.';
     let minPedidoAvisoHtml = '';
@@ -1153,10 +1194,14 @@ function renderCart() {
       <div class="pay-section">
         <div class="pay-label">Recebimento</div>
         <div class="pay-options" id="delivery-opts-${esc(cnpj)}">${entregaOpts}</div>
-        ${entregaMsg ? `<div class="delivery-note">${entregaMsg}</div>` : ''}
         ${minPedidoAvisoHtml}
-        ${addressChoiceHtml(cnpj)}
-        <div class="delivery-address"><i class="fa fa-location-dot"></i><span>${esc(getDeliveryAddressChoice().label || 'Endereço não informado')}</span></div>
+        <div id="pickup-context-${esc(cnpj)}" style="display:${deliverySelected === 'entrega' ? 'none' : ''}">${pickupContextHtml(cfg, g.razao)}</div>
+        <div id="delivery-context-${esc(cnpj)}" style="display:${deliverySelected === 'entrega' ? '' : 'none'}">
+          ${entregaMsg ? `<div class="delivery-note">${entregaMsg}</div>` : ''}
+          <div class="checkout-address-title">Entregar em</div>
+          ${addressChoiceHtml(cnpj)}
+          <div class="delivery-address"><i class="fa fa-location-dot"></i><span>${esc(getDeliveryAddressChoice().label || 'Endereço não informado')}</span></div>
+        </div>
       </div>
       ${receitaUploadHtml}
       ${renderDescontoQuantidade(cnpj, g.itens)}
@@ -1389,15 +1434,20 @@ function diaEntregaLabel(proximoDiaEntrega) {
   return `${proximoDiaEntrega.nome_dia}, ${dia}/${mes}`;
 }
 
-function deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, label) {
-  return `<label class="pay-opt" id="delivery-${esc(cnpj)}-entrega-agendada"
+function deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, label, checked=false) {
+  return `<label class="pay-opt${checked ? ' selected' : ''}" id="delivery-${esc(cnpj)}-entrega-agendada"
     onclick="onDeliveryChange('${esc(cnpj)}','entrega')">
-    <input type="radio" name="delivery-${esc(cnpj)}" value="entrega" data-agendada-data="${esc(proximoDiaEntrega.data)}"/>
+    <input type="radio" name="delivery-${esc(cnpj)}" value="entrega" data-agendada-data="${esc(proximoDiaEntrega.data)}"${checked ? ' checked' : ''}/>
     ${label} — ${diaEntregaLabel(proximoDiaEntrega)}
   </label>`;
 }
 
 function onDeliveryChange(cnpj, val) {
+  _deliveryModes[cnpj] = val;
+  const pickupContext = document.getElementById(`pickup-context-${cnpj}`);
+  const deliveryContext = document.getElementById(`delivery-context-${cnpj}`);
+  if (pickupContext) pickupContext.style.display = val === 'entrega' ? 'none' : '';
+  if (deliveryContext) deliveryContext.style.display = val === 'entrega' ? '' : 'none';
   const uploadDiv = document.getElementById(`receita-upload-${cnpj}`);
   if (uploadDiv) {
     uploadDiv.style.display = val === 'entrega' ? '' : 'none';
@@ -1571,6 +1621,18 @@ async function carregarConfigLojas() {
     fetch(`/api/descontos-auto?cnpj=${encodeURIComponent(cnpj)}`)
       .then(r => r.json()).then(d => { _descontosAuto[cnpj] = d; }).catch(() => { _descontosAuto[cnpj] = {}; }),
   ]));
+}
+
+async function carregarEnderecosCheckout() {
+  try {
+    const r = await fetch('/api/consumidor/enderecos');
+    if (!r.ok) return;
+    const data = await r.json();
+    _enderecosSalvos = data.enderecos || [];
+    if (_enderecosSalvos.length && !DELIVERY_ADDRESS_MODE.startsWith('saved:')) {
+      DELIVERY_ADDRESS_MODE = `saved:${_enderecosSalvos[0].id}`;
+    }
+  } catch (_) {}
 }
 
 async function recalcularCarrinhoServidor() {
@@ -1835,6 +1897,7 @@ async function finalizarPedido() {
     }
   } catch {}
   await recalcularCarrinhoServidor();
+  await carregarEnderecosCheckout();
   await carregarConfigLojas();
   renderCart();
 })();

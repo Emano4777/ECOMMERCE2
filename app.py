@@ -9838,7 +9838,9 @@ def api_config_lojas():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT u.cnpjloja, u.razao, u.endereco, u.telefone, c.logo_url,
+        SELECT u.cnpjloja, u.razao,
+               COALESCE(NULLIF(TRIM(u.endereco2), ''), u.endereco) AS endereco,
+               u.telefone, c.logo_url,
                COALESCE(c.whatsapp_pedidos, u.telefone) AS whatsapp_pedidos,
                COALESCE(c.aceita_whatsapp, FALSE)       AS aceita_whatsapp,
                COALESCE(c.aceita_pix, TRUE)             AS aceita_pix,
