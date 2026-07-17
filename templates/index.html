@@ -1368,7 +1368,16 @@ function renderProdutos(lista) {
 
 function renderSearchOrderCta(hasResults) {
   const termo = (document.getElementById('search-inp')?.value || '').trim();
-  if (!hasResults || termo.length < 2 || !_encomendaLojas.length) {
+  const categoria = (catSel?.value || INITIAL_PARAMS.get('cat') || '').trim();
+  const categoriaTexto = categoria
+    ? (((catSel?.selectedOptions?.[0]?.value === categoria
+        ? catSel.selectedOptions[0].textContent
+        : categoria) || categoria).trim())
+    : '';
+  const produtoEncomenda = termo.length >= 2
+    ? termo
+    : (categoriaTexto ? `Produto de ${categoriaTexto}` : '');
+  if (!hasResults || !produtoEncomenda || !_encomendaLojas.length) {
     return;
   }
   badgeOk.classList.add('idx-order-cta');
@@ -1376,9 +1385,9 @@ function renderSearchOrderCta(hasResults) {
   badgeOk.title = 'Solicitar encomenda de outro produto';
   badgeOk.setAttribute('role', 'button');
   badgeOk.setAttribute('tabindex', '0');
-  badgeOk.onclick = () => abrirModalEncomenda(termo);
+  badgeOk.onclick = () => abrirModalEncomenda(produtoEncomenda);
   badgeOk.onkeydown = e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirModalEncomenda(termo); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirModalEncomenda(produtoEncomenda); }
   };
   badgeOk.style.display = 'inline-flex';
 }
