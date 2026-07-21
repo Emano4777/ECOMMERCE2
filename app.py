@@ -8638,6 +8638,11 @@ def api_mais_comprados():
         LIMIT 20
     """, (cnpjs,))
     produtos = [dict(r) for r in cur.fetchall()]
+    try:
+        _marcar_tarja_batch(produtos, conn)
+    except Exception as exc:
+        app.logger.warning("mais_comprados marcar_tarja error: %s", exc)
+    produtos = [p for p in produtos if _has_catalog_image(p)]
     cur.close()
     return jsonify({"produtos": produtos})
 
@@ -9675,7 +9680,11 @@ def api_kit_produtos():
         return jsonify({"label": kit["label"], "icon": kit["icon"], "produtos": []})
 
     cur.close()
-    rows = [r for r in rows if r.get("imagem") and float(r.get("preco") or 0) > 0]
+    try:
+        _marcar_tarja_batch(rows, conn)
+    except Exception as exc:
+        app.logger.warning("kit_produtos marcar_tarja error: %s", exc)
+    rows = [r for r in rows if _has_catalog_image(r) and float(r.get("preco") or 0) > 0]
     return jsonify({"label": kit["label"], "icon": kit["icon"], "produtos": rows[:10]})
 
 
@@ -9708,6 +9717,11 @@ def api_comprar_novamente():
         LIMIT 20
     """, (consumidor_id,))
     produtos = [dict(r) for r in cur.fetchall()]
+    try:
+        _marcar_tarja_batch(produtos, conn)
+    except Exception as exc:
+        app.logger.warning("comprar_novamente marcar_tarja error: %s", exc)
+    produtos = [p for p in produtos if _has_catalog_image(p)]
     cur.close()
     return jsonify({"produtos": produtos, "logado": True})
 
@@ -10137,6 +10151,12 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
                 pass
     if _catalogo_alpha_exclusivo():
         rows = [r for r in rows if r.get("fonte_estoque") == "alpha_a7"]
+    try:
+        _conn_tarja = _new_conn_batch()
+        _marcar_tarja_batch(rows, _conn_tarja)
+        _conn_tarja.close()
+    except Exception as exc:
+        app.logger.warning("curve_a marcar_tarja error: %s", exc)
     rows = [r for r in rows if _has_catalog_image(r) and float(r.get("preco") or 0) > 0]
     rows = _dedupe_products_for_display(rows)
     rows = _curve_a_sort_products(rows, sales_scores)
@@ -11757,11 +11777,42 @@ def produto_detalhe(ean):
                 (_chave_anvisa,),
             )
             _row_anv = cur.fetchone()
+            _row_anv = dict(_row_anv) if _row_anv else None
+            # Mesmo fallback conservador do _marcar_tarja_batch: entre todos os
+            # fabricantes conhecidos do mesmo principio ativo, checa se algum e
+            # MAIS restritivo — nunca deixa uma busca generica "exibir=True"
+            # vencer um fabricante confirmado tarjado. So sobrescreve os campos
+            # de bloqueio (tarja/exibir/receita_retida); texto descritivo
+            # continua vindo do match exato quando existir.
+            _first_word = _chave_anvisa.split(" ", 1)[0]
+            cur.execute(
+                "SELECT chave, tarja, receita_retida, exibir_imagem_publica "
+                "FROM anvisa_cache WHERE SPLIT_PART(chave, ' ', 1) = %s AND encontrado = TRUE",
+                (_first_word,),
+            )
+            _candidatos = [dict(r) for r in cur.fetchall()]
             if _row_anv:
-                anvisa = dict(_row_anv)
-                for _campo in ("serve_para", "como_usar", "alertas"):
-                    if anvisa.get(_campo):
-                        anvisa[_campo] = _normalizar_bula(anvisa[_campo])
+                _candidatos.append(_row_anv)
+
+            def _restritividade(row):
+                if row.get("exibir_imagem_publica") is False:
+                    return 2
+                if (row.get("exibir_imagem_publica") is None
+                        and (row.get("tarja") or "").strip().lower() in ("preta", "vermelha")):
+                    return 1
+                return 0
+
+            anvisa = _row_anv or {}
+            if _candidatos:
+                _mais_restritivo = max(_candidatos, key=_restritividade)
+                if _restritividade(_mais_restritivo) > _restritividade(_row_anv or {}):
+                    anvisa = dict(anvisa)
+                    anvisa["tarja"] = _mais_restritivo.get("tarja")
+                    anvisa["receita_retida"] = _mais_restritivo.get("receita_retida")
+                    anvisa["exibir_imagem_publica"] = _mais_restritivo.get("exibir_imagem_publica")
+            for _campo in ("serve_para", "como_usar", "alertas"):
+                if anvisa.get(_campo):
+                    anvisa[_campo] = _normalizar_bula(anvisa[_campo])
         except Exception:
             pass
 
@@ -11859,12 +11910,10 @@ def produto_detalhe(ean):
     if _is_med:
         _exibir = anvisa.get("exibir_imagem_publica")
         _nao_exibir = _exibir is False
-        _exibir_confirmado = _exibir is True  # IA ou ANVISA confirmou explicitamente
-        # Fonte oficial explicita prevalece; tarja e fallback apenas quando a regra e desconhecida.
-        _bloquear_img = _nao_exibir or (
-            _exibir is None and tarja in ("preta", "vermelha")
-        )
-        if not _bloquear_img and not _exibir_confirmado and imagem and _looks_like_other_pharmacy_brand(imagem):
+        # Tarja preta/vermelha confirmada bloqueia sempre — exibir_imagem_publica=True
+        # nunca sobrepoe tarja conhecida (ver mesmo fix em _marcar_tarja_batch).
+        _bloquear_img = _nao_exibir or tarja in ("preta", "vermelha")
+        if not _bloquear_img and imagem and _looks_like_other_pharmacy_brand(imagem):
             _bloquear_img = True
         if _bloquear_img:
             # Caixinha de tarja só para produtos realmente tarjados — OTC/suplemento sem imagem = sem imagem
@@ -19671,10 +19720,12 @@ _ANVISA_STOP_WORDS = {
     "conta","seringa","caneta","nebulizador","inalador","vaporizador",
     # Rótulos comerciais — não aparecem em registros ANVISA
     "generico","generica","similar","bioequivalente",
-    # Prefixos de sal farmacológico (nunca são o nome ANVISA)
+    # Prefixos de sal farmacológico (nunca são o nome ANVISA) — inclui
+    # abreviações como aparecem em medicamentos.descricao (ex: "CLOR.").
     "cloridrato","bromidrato","dicloridrato","hemitartarato","hemifumarato",
     "maleato","fumarato","succinato","besilato","tartarato",
     "monoidratado","monoidratada","hemif","succ",
+    "clor","dclor","brom","sulf","malt","fum","besil","tart",
     # Sufixos de forma/composição que mascaram INN quando 2ª palavra
     "hidroclor","medoxomila","flacodin",
     # Nomes de laboratório que aparecem como 2ª palavra no estoque
@@ -20035,12 +20086,13 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
-            # Fonte oficial explicita prevalece; tarja e fallback quando a regra e desconhecida.
+            # Tarja preta/vermelha confirmada bloqueia sempre — "exibir_imagem_publica=True"
+            # nunca sobrepoe tarja conhecida (buscas genericas na ANVISA por vezes retornam
+            # exibir=True pra um registro diferente do produto real, o que liberava foto de
+            # medicamento tarjado). exibir=True so importa quando a tarja e desconhecida.
             _exibir = row.get("exibir_imagem_publica")
             _nao_exibir = _exibir is False
-            _bloquear = _nao_exibir or (
-                _exibir is None and tarja in ("preta", "vermelha")
-            )
+            _bloquear = _nao_exibir or tarja in ("preta", "vermelha")
             # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
             _imagem_atual = (produtos[idx].get("imagem") or "").strip()
             if not _bloquear and _imagem_atual and _looks_like_other_pharmacy_brand(_imagem_atual):
@@ -20059,28 +20111,49 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                 for idx in indices:
                     _aplicar(idx, rows_by_chave[ch])
 
-        # Fallback: chaves de uma única palavra (ex: "LOSARTANA") que não encontraram
-        # resultado — tenta prefixo "LOSARTANA %" para herdar tarja de variantes conhecidas.
-        missing_single = [ch for ch in chaves_map if ch not in rows_by_chave and " " not in ch]
-        if missing_single:
+        # Fallback: chaves (de uma ou mais palavras) que nao encontraram
+        # resultado exato — ex: "PROPRANOLOL QUIMICA" (fabricante "Neo Quimica"
+        # nao capturado com esse recorte) ou "LOSARTANA" isolado. Tenta por
+        # principio ativo (1a palavra) entre TODOS os fabricantes conhecidos e
+        # usa o resultado MAIS CONSERVADOR — nunca o mais permissivo — pra
+        # nunca liberar imagem de medicamento tarjado so porque o fabricante
+        # especifico nao foi capturado no anvisa_cache.
+        missing = [ch for ch in chaves_map if ch not in rows_by_chave]
+        if missing:
+            first_words = sorted({ch.split(" ", 1)[0] for ch in missing if ch})
             try:
                 cur.execute(
-                    "SELECT DISTINCT ON (SPLIT_PART(chave, ' ', 1)) "
-                    "SPLIT_PART(chave, ' ', 1) AS first_word, "
+                    "SELECT SPLIT_PART(chave, ' ', 1) AS first_word, "
                     "chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
                     "receita_retida, venda_online_permitida, "
                     "exibir_imagem_publica, dizeres_receita, dizeres_imagem "
                     "FROM anvisa_cache "
-                    "WHERE SPLIT_PART(chave, ' ', 1) = ANY(%s) AND encontrado = TRUE "
-                    "  AND STRPOS(chave, ' ') > 0 "
-                    "ORDER BY SPLIT_PART(chave, ' ', 1), chave",
-                    (missing_single,),
+                    "WHERE SPLIT_PART(chave, ' ', 1) = ANY(%s) AND encontrado = TRUE",
+                    (first_words,),
                 )
-                prefix_by_word = {r["first_word"]: r for r in cur.fetchall()}
+                candidatos_by_word: dict[str, list] = {}
+                for r in cur.fetchall():
+                    candidatos_by_word.setdefault(r["first_word"], []).append(r)
+
+                def _restritividade(row):
+                    if row.get("exibir_imagem_publica") is False:
+                        return 2
+                    if (row.get("exibir_imagem_publica") is None
+                            and (row.get("tarja") or "").strip().lower() in ("preta", "vermelha")):
+                        return 1
+                    return 0
+
+                prefix_by_word = {
+                    word: max(candidatos, key=_restritividade)
+                    for word, candidatos in candidatos_by_word.items()
+                }
                 for ch, indices in chaves_map.items():
-                    if ch in prefix_by_word:
+                    if ch in rows_by_chave:
+                        continue
+                    first_word = ch.split(" ", 1)[0]
+                    if first_word in prefix_by_word:
                         for idx in indices:
-                            _aplicar(idx, prefix_by_word[ch])
+                            _aplicar(idx, prefix_by_word[first_word])
             except Exception:
                 pass
 
