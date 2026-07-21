@@ -308,7 +308,14 @@ def _new_conn(statement_timeout_ms: int = 10000):
         dsn,
         cursor_factory=RealDictCursor,
         connect_timeout=10,
-        options=f"-c statement_timeout={statement_timeout_ms}",
+        # idle_in_transaction_session_timeout: se uma funcao serverless for
+        # encerrada/matada no meio de uma transacao (timeout do Vercel, cold
+        # start reciclado etc.), a conexao fica "idle in transaction" pra
+        # sempre, segurando lock e travando qualquer outra requisicao que
+        # tente rodar o mesmo DDL idempotente (ja aconteceu 2x com o ALTER
+        # TABLE de _anvisa_schema). O Postgres mata sozinho depois de 20s
+        # parado no meio de uma transacao, mesmo sem statement rodando.
+        options=f"-c statement_timeout={statement_timeout_ms} -c idle_in_transaction_session_timeout=20000",
     )
 
 
