@@ -5425,6 +5425,7 @@ def get_dns_products(
                     combined.append(d)
 
     _apply_safe_catalog_images(combined, cur=cur, persist_placeholders=persist_image_updates)
+    _apply_saved_categories(combined, cur)
     _marcar_tarja_batch(combined, cur.connection, ensure_schema=ensure_anvisa_schema)
     # Remove imagens de farmácias concorrentes que escaparam dos filtros anteriores
     for _p in combined:
@@ -5866,6 +5867,7 @@ def get_dns_products_batch(cnpjs):
                     combined.append(dict(row))
 
     _apply_safe_catalog_images(combined, cur=cur)
+    _apply_saved_categories(combined, cur)
     _marcar_tarja_batch(combined, conn)
     for _p in combined:
         _img = (_p.get("imagem") or "").strip()
@@ -5876,7 +5878,6 @@ def get_dns_products_batch(cnpjs):
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
                 _p["imagem_bloqueada_anvisa"] = True
-    _apply_saved_categories(combined, cur)
     cur.close()
     try:
         conn.close()
@@ -6012,6 +6013,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
     except Exception:
         pass
     _apply_safe_catalog_images(rows)
+    _apply_saved_categories(rows)
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
@@ -6201,6 +6203,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
     except Exception:
         pass
     _apply_safe_catalog_images(rows)
+    _apply_saved_categories(rows)
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
@@ -6299,13 +6302,13 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     except Exception:
         pass
     _apply_safe_catalog_images(rows)
+    _apply_saved_categories(rows)
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
         conn2.close()
     except Exception:
         pass
-    _apply_saved_categories(rows)
     required_terms = [
         t for t in re.split(r"\s+", q_norm)
         if len(t) >= 4 and not t.isdigit()
@@ -6371,13 +6374,13 @@ def get_alpha_products_direct(cnpjs, limit=200):
     except Exception:
         pass
     _apply_safe_catalog_images(rows)
+    _apply_saved_categories(rows)
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
         conn2.close()
     except Exception:
         pass
-    _apply_saved_categories(rows)
     rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
     return _dedupe_products_for_display(rows)
@@ -8638,6 +8641,7 @@ def api_mais_comprados():
         LIMIT 20
     """, (cnpjs,))
     produtos = [dict(r) for r in cur.fetchall()]
+    _apply_saved_categories(produtos, cur)
     try:
         _marcar_tarja_batch(produtos, conn)
     except Exception as exc:
@@ -9546,6 +9550,7 @@ def api_home_insights():
         try:
             resultado["para_voce"] = _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos)
             if resultado["para_voce"]:
+                _apply_saved_categories(resultado["para_voce"])
                 _marcar_tarja_batch(resultado["para_voce"], conn, ensure_schema=False)
         except Exception as e:
             app.logger.warning(f"para_voce: {e}")
@@ -9680,6 +9685,7 @@ def api_kit_produtos():
         return jsonify({"label": kit["label"], "icon": kit["icon"], "produtos": []})
 
     cur.close()
+    _apply_saved_categories(rows)
     try:
         _marcar_tarja_batch(rows, conn)
     except Exception as exc:
@@ -9717,6 +9723,7 @@ def api_comprar_novamente():
         LIMIT 20
     """, (consumidor_id,))
     produtos = [dict(r) for r in cur.fetchall()]
+    _apply_saved_categories(produtos, cur)
     try:
         _marcar_tarja_batch(produtos, conn)
     except Exception as exc:
