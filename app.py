@@ -19570,12 +19570,15 @@ _ALPHA_CLASSIFICACAO_CATEGORIA = {
     "VAREJO":         "varejo",
     "NUTRACEUTICOS":  "suplemento",
     "DERMOCOSMETICO": "dermocosmetico",
-    "MARCA":          "medicamento",
-    "SIMILAR":        "medicamento",
-    "GENERICO":       "medicamento",
-    "ETICO":          "medicamento",
-    "REFERENCIA":     "medicamento",
-    "MEDICAMENTOS":   "medicamento",
+    # Subtipos de medicamento preservados (nao lumped em "medicamento"
+    # generico) — o Alpha ja manda essa distincao pronta, mesmo vocabulario
+    # granular usado em ecommerce_classificacao_ean.tipo.
+    "MARCA":          "referencia",
+    "SIMILAR":        "similar",
+    "GENERICO":       "generico",
+    "ETICO":          "referencia",
+    "REFERENCIA":     "referencia",
+    "MEDICAMENTOS":   "referencia",
 }
 
 
