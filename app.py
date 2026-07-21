@@ -11803,7 +11803,9 @@ def produto_detalhe(ean):
                 return 0
 
             anvisa = _row_anv or {}
-            if _candidatos:
+            # override_manual = excecao confirmada manualmente — vale como
+            # esta, nunca perde pra familia (ver mesmo tratamento em _marcar_tarja_batch).
+            if _candidatos and not (_row_anv or {}).get("override_manual"):
                 _mais_restritivo = max(_candidatos, key=_restritividade)
                 if _restritividade(_mais_restritivo) > _restritividade(_row_anv or {}):
                     anvisa = dict(anvisa)
@@ -19697,6 +19699,7 @@ def _anvisa_schema():
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_dominio TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_confianca TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_consultada_em TIMESTAMPTZ")
+    cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS override_manual BOOLEAN DEFAULT FALSE")
     conn.commit()
     cur.close()
     _ANVISA_SCHEMA_READY = True
@@ -20065,7 +20068,8 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
     try:
         cur.execute(
             "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
-            "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, dizeres_imagem "
+            "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, "
+            "dizeres_imagem, override_manual "
             "FROM anvisa_cache WHERE chave = ANY(%s) AND encontrado = TRUE",
             (list(chaves_map.keys()),),
         )
@@ -20106,21 +20110,26 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                     produtos[idx]["imagem_padrao_poupaqui"] = True
                     produtos[idx]["imagem_bloqueada_anvisa"] = True
 
-        for ch, indices in chaves_map.items():
-            if ch in rows_by_chave:
-                for idx in indices:
-                    _aplicar(idx, rows_by_chave[ch])
+        def _restritividade(row):
+            if row.get("exibir_imagem_publica") is False:
+                return 2
+            if (row.get("exibir_imagem_publica") is None
+                    and (row.get("tarja") or "").strip().lower() in ("preta", "vermelha")):
+                return 1
+            return 0
 
-        # Fallback: chaves (de uma ou mais palavras) que nao encontraram
-        # resultado exato — ex: "PROPRANOLOL QUIMICA" (fabricante "Neo Quimica"
-        # nao capturado com esse recorte) ou "LOSARTANA" isolado. Tenta por
-        # principio ativo (1a palavra) entre TODOS os fabricantes conhecidos e
-        # usa o resultado MAIS CONSERVADOR — nunca o mais permissivo — pra
-        # nunca liberar imagem de medicamento tarjado so porque o fabricante
-        # especifico nao foi capturado no anvisa_cache.
-        missing = [ch for ch in chaves_map if ch not in rows_by_chave]
-        if missing:
-            first_words = sorted({ch.split(" ", 1)[0] for ch in missing if ch})
+        # Sempre compara o match exato (se existir) com a familia inteira do
+        # mesmo principio ativo (1a palavra da chave, todos os fabricantes
+        # cadastrados) e usa o resultado MAIS CONSERVADOR dos dois — nunca o
+        # mais permissivo. Isso cobre tanto chave sem match exato (ex:
+        # "PROPRANOLOL QUIMICA", fabricante "Neo Quimica" nao capturado com
+        # esse recorte) quanto chave COM match exato porem permissivo (ex:
+        # busca generica "PROPRANOLOL" retornou exibir=True enquanto todo
+        # fabricante especifico cadastrado — Ayerst, Cimed, Sigma... — e
+        # tarja vermelha confirmada).
+        first_words = sorted({ch.split(" ", 1)[0] for ch in chaves_map if ch})
+        prefix_by_word: dict[str, dict] = {}
+        if first_words:
             try:
                 cur.execute(
                     "SELECT SPLIT_PART(chave, ' ', 1) AS first_word, "
@@ -20134,28 +20143,31 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                 candidatos_by_word: dict[str, list] = {}
                 for r in cur.fetchall():
                     candidatos_by_word.setdefault(r["first_word"], []).append(r)
-
-                def _restritividade(row):
-                    if row.get("exibir_imagem_publica") is False:
-                        return 2
-                    if (row.get("exibir_imagem_publica") is None
-                            and (row.get("tarja") or "").strip().lower() in ("preta", "vermelha")):
-                        return 1
-                    return 0
-
                 prefix_by_word = {
                     word: max(candidatos, key=_restritividade)
                     for word, candidatos in candidatos_by_word.items()
                 }
-                for ch, indices in chaves_map.items():
-                    if ch in rows_by_chave:
-                        continue
-                    first_word = ch.split(" ", 1)[0]
-                    if first_word in prefix_by_word:
-                        for idx in indices:
-                            _aplicar(idx, prefix_by_word[first_word])
             except Exception:
-                pass
+                prefix_by_word = {}
+
+        for ch, indices in chaves_map.items():
+            exato = rows_by_chave.get(ch)
+            # override_manual = excecao confirmada manualmente (ex.: produto
+            # revisado e liberado apos auditoria) — vale como esta, sem
+            # comparar com a familia; qualquer outro match exato (em geral
+            # resultado de busca generica na ANVISA) e tratado como nao
+            # confiavel e perde pro sinal mais restritivo da familia.
+            if exato is not None and exato.get("override_manual"):
+                escolhido = exato
+            else:
+                familia = prefix_by_word.get(ch.split(" ", 1)[0])
+                if exato is not None and familia is not None:
+                    escolhido = familia if _restritividade(familia) > _restritividade(exato) else exato
+                else:
+                    escolhido = exato if exato is not None else familia
+            if escolhido is not None:
+                for idx in indices:
+                    _aplicar(idx, escolhido)
 
     except Exception:
         pass
