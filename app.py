@@ -11687,7 +11687,7 @@ def produto_detalhe(ean):
                            ap.preco_venda AS preco,
                            COALESCE(%s, ap.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
                            'alpha_a7' AS fonte_estoque,
-                           ap.alpha_o_id
+                           ap.alpha_o_id, ap.classificacao
                     FROM ecommerce_alpha_produtos ap
                     LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
                     LEFT JOIN medicamentos_imagens mi  ON mi.medicamento_id = m.id
@@ -11915,6 +11915,15 @@ def produto_detalhe(ean):
         # Tarja preta/vermelha confirmada bloqueia sempre — exibir_imagem_publica=True
         # nunca sobrepoe tarja conhecida (ver mesmo fix em _marcar_tarja_batch).
         _bloquear_img = _nao_exibir or tarja in ("preta", "vermelha")
+        # Classificacao MIPs (Medicamento Isento de Prescricao) vem direto do
+        # fornecedor Alpha por EAN especifico — sinal mais confiavel que o
+        # fallback por familia da ANVISA (que so conhece o principio ativo,
+        # nao a apresentacao exata). Um SKU MIPs nunca deveria ficar bloqueado
+        # so porque outra apresentacao da mesma marca e tarjada.
+        _classificacao = (produto.get("classificacao") if produto else "") or ""
+        _eh_mip = "MIP" in _classificacao.upper()
+        if _eh_mip and not _exige_receita_digital_entrega(anvisa, nome):
+            _bloquear_img = _nao_exibir
         if not _bloquear_img and imagem and _looks_like_other_pharmacy_brand(imagem):
             _bloquear_img = True
         if _bloquear_img:
@@ -20097,6 +20106,15 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             _exibir = row.get("exibir_imagem_publica")
             _nao_exibir = _exibir is False
             _bloquear = _nao_exibir or tarja in ("preta", "vermelha")
+            # Classificacao MIPs (Medicamento Isento de Prescricao) vem direto
+            # do fornecedor Alpha por EAN especifico — sinal mais confiavel
+            # que o fallback por familia da ANVISA (que so conhece o
+            # principio ativo, nao a apresentacao exata). Um SKU MIPs nunca
+            # deveria ficar bloqueado so porque outra apresentacao da mesma
+            # marca e tarjada.
+            _classificacao = (produtos[idx].get("classificacao") or "").upper()
+            if "MIP" in _classificacao and not produtos[idx]["receita_retida"]:
+                _bloquear = _nao_exibir
             # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
             _imagem_atual = (produtos[idx].get("imagem") or "").strip()
             if not _bloquear and _imagem_atual and _looks_like_other_pharmacy_brand(_imagem_atual):
