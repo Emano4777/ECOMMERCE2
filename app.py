@@ -18223,6 +18223,24 @@ def precificador():
     for _p in bloqueados_sem_imagem:
         _p["sem_imagem"] = True
 
+    # Preco liquido = o que o cliente realmente paga (preco base menos
+    # promocao/assinatura vigente). Calculado a parte, sem tocar em p["preco"],
+    # pra nao mudar a comparacao com concorrente que ja usa p.preco como base.
+    for _p in produtos:
+        _p["preco_bruto_precificador"] = _p.get("preco")
+    _attach_product_promos(produtos)
+    _apply_alpha_realtime_promo(produtos)
+    for _p in produtos:
+        _preco_com_desconto = _p.get("preco")
+        _p["preco"] = _p.pop("preco_bruto_precificador", None)
+        _p["preco_liquido"] = _preco_com_desconto if _preco_com_desconto is not None else _p.get("preco")
+
+    categorias_disponiveis = sorted({
+        (p.get("categoria") or "").strip()
+        for p in produtos
+        if (p.get("categoria") or "").strip()
+    })
+
     # Carrega preços concorrentes cacheados no banco
     eans = [p["ean"] for p in produtos if p.get("ean")]
     competitor_map = {}   # {ean: {slug: {preco, preco_original, disponivel, url, consultado_em}}}
@@ -18247,6 +18265,7 @@ def precificador():
         "precificador.html",
         produtos=produtos,
         bloqueados_sem_imagem=bloqueados_sem_imagem,
+        categorias_disponiveis=categorias_disponiveis,
         q=q,
         razao=session.get("razao"),
         cnpjloja=cnpjloja,

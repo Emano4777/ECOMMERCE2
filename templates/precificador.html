@@ -294,6 +294,14 @@
   {% if extras %}
   <div class="pf-stat"><strong>{{ extras }}</strong> adicionados manualmente</div>
   {% endif %}
+  {% if categorias_disponiveis %}
+  <select id="pf-filtro-categoria" class="pf-stat" style="cursor:pointer" onchange="pfFiltrarCategoria(this.value)">
+    <option value="">Todas as categorias</option>
+    {% for cat in categorias_disponiveis %}
+    <option value="{{ cat }}">{{ cat | capitalize }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
 </div>
 
 {% if bloqueados_sem_imagem %}
@@ -358,13 +366,14 @@
           <th>EAN</th>
           <th>Estoque</th>
           <th>Preço base</th>
+          <th>Preço líq.</th>
           <th class="conc-cell">Concorrentes <span style="font-size:.68rem;opacity:.5;font-weight:400">Raia · SP</span></th>
           <th style="width:120px">Ações</th>
         </tr>
       </thead>
       <tbody>
         {% for p in produtos %}
-        <tr id="row-{{ p.ean }}" {% if p.oculto %}class="row-hidden"{% endif %} data-sem-imagem="{{ 'true' if p.sem_imagem else 'false' }}">
+        <tr id="row-{{ p.ean }}" {% if p.oculto %}class="row-hidden"{% endif %} data-sem-imagem="{{ 'true' if p.sem_imagem else 'false' }}" data-categoria="{{ p.categoria or '' }}">
           <!-- THUMB -->
           <td style="text-align:center">
             {% if p.imagem %}
@@ -411,6 +420,20 @@
             </div>
             {% if p.custo %}
               <div style="font-size:.73rem;color:#5a6480">custo: {{ money(p.custo) }}</div>
+            {% endif %}
+          </td>
+
+          <!-- PREÇO LÍQUIDO (o que o cliente paga de fato, com promoção/assinatura aplicada) -->
+          {% set _base = (p.preco or p.preco_ref or 0)|float %}
+          {% set _liq = (p.preco_liquido or _base)|float %}
+          <td>
+            {% if _liq > 0 and _base > 0 and _liq < _base %}
+              <div style="font-size:.73rem;color:var(--pk-muted);text-decoration:line-through">{{ money(_base) }}</div>
+              <div style="font-weight:800;color:#22c55e">{{ money(_liq) }}</div>
+            {% elif _liq > 0 %}
+              <div style="font-weight:700">{{ money(_liq) }}</div>
+            {% else %}
+              <div class="preco-ref">—</div>
             {% endif %}
           </td>
 
@@ -493,7 +516,7 @@
   <!-- CARDS MOBILE -->
   <div class="pf-cards-list">
     {% for p in produtos %}
-    <div class="pf-card {% if p.oculto %}card-hidden{% endif %}" id="card-{{ p.ean }}" data-sem-imagem="{{ 'true' if p.sem_imagem else 'false' }}">
+    <div class="pf-card {% if p.oculto %}card-hidden{% endif %}" id="card-{{ p.ean }}" data-sem-imagem="{{ 'true' if p.sem_imagem else 'false' }}" data-categoria="{{ p.categoria or '' }}">
       <div class="pf-card-top">
         {% if p.imagem %}
           <img src="{{ p.imagem }}" class="prod-thumb" loading="lazy"
@@ -522,6 +545,18 @@
         <div>
           <div style="font-size:.72rem;color:var(--pk-muted)">Preço base</div>
           <div class="preco-ref">{% if p.preco_ref %}{{ money(p.preco_ref) }}{% else %}—{% endif %}</div>
+        </div>
+        {% set _base_m = (p.preco or p.preco_ref or 0)|float %}
+        {% set _liq_m = (p.preco_liquido or _base_m)|float %}
+        <div>
+          <div style="font-size:.72rem;color:var(--pk-muted)">Preço líq.</div>
+          {% if _liq_m > 0 and _base_m > 0 and _liq_m < _base_m %}
+            <div style="font-weight:800;color:#22c55e">{{ money(_liq_m) }}</div>
+          {% elif _liq_m > 0 %}
+            <div style="font-weight:700">{{ money(_liq_m) }}</div>
+          {% else %}
+            <div class="preco-ref">—</div>
+          {% endif %}
         </div>
       </div>
 
@@ -663,27 +698,43 @@ function _pfToast(msg, tipo) {
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 3000);
 }
 
-// ── Filtro: só produtos sem imagem ───────────────────────────────────────────
+// ── Filtros: sem imagem + categoria (combinam entre si) ──────────────────────
 let pfFiltroSemImagemAtivo = false;
+let pfFiltroCategoriaAtiva = '';
 
 function pfToggleFiltroSemImagem(btn) {
   pfFiltroSemImagemAtivo = !pfFiltroSemImagemAtivo;
   btn.classList.toggle('ativo', pfFiltroSemImagemAtivo);
+  pfAplicarFiltros();
+}
 
+function pfFiltrarCategoria(categoria) {
+  pfFiltroCategoriaAtiva = categoria || '';
+  pfAplicarFiltros();
+}
+
+function pfAplicarFiltros() {
+  let visiveis = 0;
   document.querySelectorAll('[data-sem-imagem]').forEach(el => {
     const semImagem = el.dataset.semImagem === 'true';
-    el.style.display = (!pfFiltroSemImagemAtivo || semImagem) ? '' : 'none';
+    const passaSemImagem = !pfFiltroSemImagemAtivo || semImagem;
+    const passaCategoria = !pfFiltroCategoriaAtiva || el.dataset.categoria === pfFiltroCategoriaAtiva;
+    const mostrar = passaSemImagem && passaCategoria;
+    el.style.display = mostrar ? '' : 'none';
+    if (mostrar) visiveis++;
   });
 
   let vazio = document.getElementById('pf-filtro-vazio');
-  if (pfFiltroSemImagemAtivo && document.querySelectorAll('[data-sem-imagem="true"]').length === 0) {
+  if ((pfFiltroSemImagemAtivo || pfFiltroCategoriaAtiva) && visiveis === 0) {
     if (!vazio) {
       vazio = document.createElement('div');
       vazio.id = 'pf-filtro-vazio';
       vazio.className = 'pf-filtro-vazio';
-      vazio.innerHTML = '<i class="fa fa-circle-check fa-2x mb-2" style="color:#22c55e;display:block"></i>Nenhum produto sem imagem por aqui.';
       document.getElementById('form-salvar')?.prepend(vazio);
     }
+    vazio.innerHTML = pfFiltroSemImagemAtivo
+      ? '<i class="fa fa-circle-check fa-2x mb-2" style="color:#22c55e;display:block"></i>Nenhum produto sem imagem por aqui.'
+      : '<i class="fa fa-circle-info fa-2x mb-2" style="color:var(--pk-muted);display:block"></i>Nenhum produto nessa categoria.';
     vazio.style.display = '';
   } else if (vazio) {
     vazio.style.display = 'none';
