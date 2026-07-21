@@ -11875,7 +11875,13 @@ def produto_detalhe(ean):
     if not imagem and cnpjloja:
         imagem = _fill_one_catalog_image(cnpjloja, ean, nome_busca)
     nome   = (med["descricao"] if med else None) or _descricao_canon or (produto["nome"] if produto else None) or nome_hint or "Produto"
-    tipo_produto = _classificar_produto(nome)
+    # Categoria confiavel do Alpha tem prioridade sobre o regex por nome
+    # (mesmo raciocinio do _marcar_tarja_batch): nomes sem indicio de dosagem
+    # (ex: "Geleia Real Liofilizada") caem no regex como nao reconhecido e
+    # arriscam ser tratados como medicamento por padrao.
+    tipo_produto = (
+        _categoria_from_alpha_classificacao(produto.get("classificacao")) if produto else None
+    ) or _classificar_produto(nome)
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
     produto_info_ia = {}
     tarja = _detectar_tarja(anvisa) if _is_med else None
@@ -20064,8 +20070,18 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
     nomes = [p.get("nome") or "" for p in produtos]
 
     chaves_map: dict[str, list[int]] = {}
-    for i, nome in enumerate(nomes):
-        ch = _anvisa_chave(nome)
+    for i, produto in enumerate(produtos):
+        # Categoria confiavel (Alpha/classificacao_ean) tem prioridade sobre
+        # o regex por nome: produtos sem indicio de dosagem no nome (ex:
+        # "Geleia Real Liofilizada") caem no regex como "" (nao reconhecido)
+        # e sao tratados como medicamento por padrao, arriscando contaminacao
+        # cruzada na familia da chave (ex: "GELEIA REAL" vs "GELEIA CAPILAR").
+        # Se ja sabemos que a categoria e suplemento/perfumaria/etc., nem
+        # precisa computar chave nem consultar anvisa_cache.
+        _categoria_conhecida = (produto.get("categoria") or "").strip().lower()
+        if _categoria_conhecida and _categoria_conhecida in _TIPOS_NAO_MEDICAMENTO:
+            continue
+        ch = _anvisa_chave(nomes[i])
         if not ch or ch in _CHAVES_OTC_ISENTO:
             continue
         chaves_map.setdefault(ch, []).append(i)
