@@ -6896,6 +6896,16 @@ def api_vitnatu_produtos():
     except (ValueError, TypeError):
         lat_usr, lng_usr = 0.0, 0.0
 
+    # Cada combinacao (lat,lng) diferente de usuario disparava a query cara do
+    # catalogo geral do zero -- sob trafego concorrente isso empilhava varias
+    # execucoes de minutos no Postgres compartilhado e derrubava outras rotas
+    # (ja aconteceu em producao). Cache de 5min por geo-bucket, igual outras
+    # rotas da home.
+    _vt_cache_key = ("vitnatu_produtos_v1", round(lat_usr, 2), round(lng_usr, 2))
+    _vt_cached = _home_api_cache_get(_vt_cache_key, 300)
+    if _vt_cached is not None:
+        return jsonify(_vt_cached)
+
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
     conn = db()
     cur  = conn.cursor()
@@ -6975,7 +6985,9 @@ def api_vitnatu_produtos():
             p["distancia_km"] = info.get("distancia_km")
             produtos.append(p)
         produtos.sort(key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
-        return jsonify({"produtos": produtos, "n_lojas": len({p["cnpjloja"] for p in produtos})})
+        _vt_payload = {"produtos": produtos, "n_lojas": len({p["cnpjloja"] for p in produtos})}
+        _home_api_cache_set(_vt_cache_key, _vt_payload, ttl_seconds=300)
+        return jsonify(_vt_payload)
 
     _VITNATU_FILTER = """
         AND (
@@ -7102,7 +7114,9 @@ def api_vitnatu_produtos():
         produtos.append(p)
 
     produtos.sort(key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
-    return jsonify({"produtos": produtos, "n_lojas": len({p["cnpjloja"] for p in produtos})})
+    _vt_payload = {"produtos": produtos, "n_lojas": len({p["cnpjloja"] for p in produtos})}
+    _home_api_cache_set(_vt_cache_key, _vt_payload, ttl_seconds=300)
+    return jsonify(_vt_payload)
 
 
 @app.get("/ofertas")
