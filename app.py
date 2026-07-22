@@ -9448,14 +9448,6 @@ def _build_home_curva_payload(cnpjs, sem_farmacia_proxima=False):
     })
 
 
-def _refresh_home_curva_cache_async(cache_key, cnpjs, sem_farmacia_proxima=False):
-    def _run():
-        payload = _build_home_curva_payload(cnpjs, sem_farmacia_proxima)
-        if payload.get("produtos"):
-            _home_curva_cache_set(cache_key, payload, ttl_minutes=30)
-    threading.Thread(target=_run, daemon=True).start()
-
-
 @app.get("/api/home/curva-a")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_home_curva_a():
@@ -9469,9 +9461,7 @@ def api_home_curva_a():
         return jsonify({"produtos": [], "trending_lojas": [], "cnpjs_proximos": [], "lojas_proximas": [], "sem_farmacia_proxima": False})
     cache_key = _home_curva_cache_key(cnpjs)
     cached, fresh = _home_curva_cache_get(cache_key, allow_stale=True)
-    if cached and cached.get("produtos"):
-        if not fresh:
-            _refresh_home_curva_cache_async(cache_key, cnpjs, sem_farmacia_proxima)
+    if cached and cached.get("produtos") and fresh:
         # sem_farmacia_proxima depende da distancia do usuario atual, nao do
         # conjunto de cnpjs (que pode colidir com o cache de outro usuario
         # quando ha poucas lojas cadastradas) — sempre usa o valor calculado
@@ -9479,9 +9469,20 @@ def api_home_curva_a():
         cached = dict(cached)
         cached["sem_farmacia_proxima"] = sem_farmacia_proxima
         return jsonify(cached)
+    # Cache vencido ou inexistente: reconstroi na hora (sincrono). Um refresh
+    # em thread solta (fire-and-forget) nao e confiavel em serverless -- a
+    # funcao pode ser congelada/encerrada antes da thread terminar de gravar,
+    # deixando o cache preso pra sempre numa versao antiga (ja aconteceu:
+    # payload sem nenhum campo de tarja ficou servido por muito mais que os
+    # 30min de TTL). Custa uma latencia extra so na 1a requisicao apos expirar.
     payload = _build_home_curva_payload(cnpjs, sem_farmacia_proxima)
     if payload.get("produtos"):
         _home_curva_cache_set(cache_key, payload, ttl_minutes=30)
+    elif cached and cached.get("produtos"):
+        # Reconstrucao falhou (ex.: catalogo vazio momentaneo) -- melhor
+        # servir o stale do que uma tela vazia.
+        payload = dict(cached)
+    payload["sem_farmacia_proxima"] = sem_farmacia_proxima
     return jsonify(payload)
 
 
