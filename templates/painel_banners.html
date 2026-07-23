@@ -144,6 +144,13 @@
       {% else %}
       <div style="font-size:.72rem;color:var(--pk-muted)"><i class="fa fa-globe me-1"></i>Visível para todos</div>
       {% endif %}
+      {% if b.expira_em %}
+        {% if b.expira_em < now %}
+        <div style="font-size:.72rem;color:#f08090"><i class="fa fa-calendar-xmark me-1"></i>Expirou em {{ b.expira_em.strftime('%d/%m/%Y') }}</div>
+        {% else %}
+        <div style="font-size:.72rem;color:var(--pk-yellow)"><i class="fa fa-calendar-clock me-1"></i>Expira em {{ b.expira_em.strftime('%d/%m/%Y') }}</div>
+        {% endif %}
+      {% endif %}
       <div style="font-size:.72rem;color:var(--pk-muted)">{{ b.criado_em.strftime('%d/%m/%Y') if b.criado_em else '' }}</div>
       <div class="bnr-actions">
         <form method="post" action="{{ url_for('painel_banners_toggle', banner_id=b.id) }}" style="flex:1">
@@ -151,6 +158,9 @@
             <i class="fa fa-{% if b.ativo %}eye-slash{% else %}eye{% endif %} me-1"></i>{{ 'Desativar' if b.ativo else 'Ativar' }}
           </button>
         </form>
+        <button type="button" class="bnr-btn" style="flex:1" onclick="toggleBnrEdit({{ b.id }})">
+          <i class="fa fa-pen me-1"></i>Editar
+        </button>
         <form method="post" action="{{ url_for('painel_banners_delete', banner_id=b.id) }}"
               style="flex:1" onsubmit="return confirm('Excluir este banner?')">
           <button type="submit" class="bnr-btn danger" style="width:100%">
@@ -161,6 +171,24 @@
       <form method="post" action="{{ url_for('painel_banners_toggle_logados', banner_id=b.id) }}">
         <button type="submit" class="bnr-btn" style="width:100%">
           <i class="fa fa-{% if b.somente_logados %}globe{% else %}user-lock{% endif %} me-1"></i>{{ 'Mostrar para todos' if b.somente_logados else 'Restringir a logados' }}
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('painel_banners_editar', banner_id=b.id) }}" id="bnr-edit-{{ b.id }}"
+            style="display:none;flex-direction:column;gap:8px;margin-top:6px;padding-top:10px;border-top:1px solid var(--pk-line)">
+        <div>
+          <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Título</label>
+          <input type="text" name="titulo" class="pk-input" maxlength="120" value="{{ b.titulo or '' }}">
+        </div>
+        <div>
+          <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Link ao clicar</label>
+          <input type="url" name="link_url" class="pk-input" placeholder="https://..." value="{{ b.link_url or '' }}">
+        </div>
+        <div>
+          <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Válido até (opcional)</label>
+          <input type="date" name="expira_em" class="pk-input" value="{{ b.expira_em.strftime('%Y-%m-%d') if b.expira_em else '' }}">
+        </div>
+        <button type="submit" class="bnr-btn" style="background:var(--pk-yellow);color:#111;border:none">
+          <i class="fa fa-check me-1"></i>Salvar alterações
         </button>
       </form>
     </div>
@@ -190,6 +218,10 @@ function previewBanner(input) {
     fields.style.display  = 'block';
   };
   reader.readAsDataURL(file);
+}
+function toggleBnrEdit(id) {
+  const form = document.getElementById('bnr-edit-' + id);
+  form.style.display = (form.style.display === 'flex') ? 'none' : 'flex';
 }
 </script>
 {% endblock %}

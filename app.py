@@ -1498,6 +1498,7 @@ def _ensure_banner_schema():
             )
         """)
         cur.execute("ALTER TABLE ecommerce_banners ADD COLUMN IF NOT EXISTS somente_logados BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_banners ADD COLUMN IF NOT EXISTS expira_em TIMESTAMPTZ")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_banners_cnpj ON ecommerce_banners(cnpjloja)")
         conn.commit()
         cur.close()
@@ -1530,6 +1531,7 @@ def _ensure_popup_schema():
             )
         """)
         cur.execute("ALTER TABLE ecommerce_popups_loja ADD COLUMN IF NOT EXISTS somente_logados BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_popups_loja ADD COLUMN IF NOT EXISTS expira_em TIMESTAMPTZ")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_popups_ativos ON ecommerce_popups_loja(ativo, cnpjloja)")
         conn.commit()
         cur.close()
@@ -4464,14 +4466,20 @@ def _download_image_for_storage(image_url):
 
 
 def _upsert_catalog_image(cur, cnpjloja, ean, image_url):
+    # So sobrescreve se a loja ainda nao tem foto propria (ou so tem a
+    # caixinha generica) — preenchimento automatico nunca pode apagar uma
+    # foto que a loja mesmo enviou pelo precificador.
     cur.execute(
         """
         INSERT INTO ecommerce_produto_imagens (cnpjloja, ean, imagem_url)
         VALUES (%s, %s, %s)
         ON CONFLICT (cnpjloja, ean) DO UPDATE
           SET imagem_url=EXCLUDED.imagem_url, updated_at=NOW()
+          WHERE ecommerce_produto_imagens.imagem_url IS NULL
+             OR TRIM(ecommerce_produto_imagens.imagem_url) = ''
+             OR ecommerce_produto_imagens.imagem_url = ANY(%s)
         """,
-        (cnpjloja, ean, image_url),
+        (cnpjloja, ean, image_url, list(_MEDICINE_PLACEHOLDER_URLS)),
     )
 
 
@@ -4497,8 +4505,11 @@ def _upsert_catalog_image_all_stores(cur, ean, image_url):
         WHERE cnpjloja IS NOT NULL AND ean IS NOT NULL AND TRIM(ean) <> ''
         ON CONFLICT (cnpjloja, ean) DO UPDATE
           SET imagem_url=EXCLUDED.imagem_url, updated_at=NOW()
+          WHERE ecommerce_produto_imagens.imagem_url IS NULL
+             OR TRIM(ecommerce_produto_imagens.imagem_url) = ''
+             OR ecommerce_produto_imagens.imagem_url = ANY(%s)
         """,
-        (image_url, ean_digits, ean_digits),
+        (image_url, ean_digits, ean_digits, list(_MEDICINE_PLACEHOLDER_URLS)),
     )
 
 
@@ -4532,6 +4543,11 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
         row = cur.fetchone()
         placeholder = None
         image_url = _first_valid_url(row["imagem"] if row else None)
+        if image_url in _MEDICINE_PLACEHOLDER_URLS:
+            # medicamentos.imagem as vezes fica poluido com a caixinha generica
+            # (ex: item com classe "Generico" que nao e medicamento de verdade) —
+            # nao propaga isso como se fosse foto real do produto.
+            image_url = None
         if image_url and _looks_like_other_pharmacy_brand(image_url):
             image_url = None
         if image_url and placeholder and _image_has_other_pharmacy_text(image_url):
@@ -4581,7 +4597,9 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
             )
             cosmos_row = cur.fetchone()
             if cosmos_row:
-                image_url = _first_valid_url(cosmos_row["imagem_cosmos"])
+                _cosmos_url = _first_valid_url(cosmos_row["imagem_cosmos"])
+                if _cosmos_url not in _MEDICINE_PLACEHOLDER_URLS:
+                    image_url = _cosmos_url
         if not image_url:
             source_urls = [_fetch_exact_barcode_image_url(ean_digits)]
             if nome:
@@ -6578,6 +6596,7 @@ def api_banners():
         JOIN ecommerce_lojas_geo g ON g.cnpjloja = b.cnpjloja
         WHERE b.ativo = TRUE
           AND (b.somente_logados = FALSE OR %s)
+          AND (b.expira_em IS NULL OR b.expira_em > NOW())
           AND (6371 * acos(
                    cos(radians(%s)) * cos(radians(g.lat)) *
                    cos(radians(g.lng) - radians(%s)) +
@@ -6617,13 +6636,13 @@ def painel_banners():
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT id, imagem_url, link_url, titulo, ativo, ordem, somente_logados, criado_em "
+        "SELECT id, imagem_url, link_url, titulo, ativo, ordem, somente_logados, expira_em, criado_em "
         "FROM ecommerce_banners WHERE cnpjloja=%s ORDER BY ordem, criado_em DESC",
         (cnpjloja,),
     )
     banners = cur.fetchall()
     cur.close()
-    return render_template("painel_banners.html", banners=banners)
+    return render_template("painel_banners.html", banners=banners, now=datetime.now(timezone.utc))
 
 
 @app.post("/painel/banners/upload")
@@ -6711,6 +6730,36 @@ def painel_banners_toggle_logados(banner_id):
     return redirect(url_for("painel_banners"))
 
 
+@app.post("/painel/banners/<int:banner_id>/editar")
+@painel_required
+def painel_banners_editar(banner_id):
+    _ensure_banner_schema()
+    cnpjloja = session["cnpjloja"]
+    titulo   = (request.form.get("titulo")   or "").strip()[:120]
+    link_url = (request.form.get("link_url") or "").strip()[:300]
+    prazo_raw = (request.form.get("expira_em") or "").strip()
+    expira_em = None
+    if prazo_raw:
+        try:
+            expira_em = datetime.strptime(prazo_raw, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+        except ValueError:
+            flash("Data de validade inválida.", "danger")
+            return redirect(url_for("painel_banners"))
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_banners SET titulo=%s, link_url=%s, expira_em=%s "
+        "WHERE id=%s AND cnpjloja=%s",
+        (titulo or None, link_url or None, expira_em, banner_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    with _banner_cache_lock:
+        _banner_cache.clear()
+    flash("Banner atualizado.", "success")
+    return redirect(url_for("painel_banners"))
+
+
 @app.post("/painel/banners/<int:banner_id>/delete")
 @painel_required
 def painel_banners_delete(banner_id):
@@ -6775,6 +6824,7 @@ def api_popup_loja():
         JOIN ecommerce_lojas_geo g ON g.cnpjloja = p.cnpjloja
         WHERE p.ativo = TRUE
           AND (p.somente_logados = FALSE OR %s)
+          AND (p.expira_em IS NULL OR p.expira_em > NOW())
           AND (6371 * acos(
                    cos(radians(%s)) * cos(radians(g.lat)) *
                    cos(radians(g.lng) - radians(%s)) +
@@ -6810,12 +6860,12 @@ def painel_popups():
     cur = conn.cursor()
     cur.execute("""
         SELECT id, imagem_url, titulo, mensagem, link_url, botao_texto,
-               ativo, somente_logados, criado_em, atualizado_em
+               ativo, somente_logados, expira_em, criado_em, atualizado_em
         FROM ecommerce_popups_loja WHERE cnpjloja=%s
     """, (session["cnpjloja"],))
     popup = cur.fetchone()
     cur.close()
-    return render_template("painel_popups.html", popup=popup)
+    return render_template("painel_popups.html", popup=popup, now=datetime.now(timezone.utc))
 
 
 @app.post("/painel/popups/salvar")
@@ -6830,6 +6880,14 @@ def painel_popups_salvar():
     link_url = _marketing_link_seguro(link_original)
     ativo = request.form.get("ativo") == "1"
     somente_logados = request.form.get("somente_logados") == "1"
+    prazo_raw = (request.form.get("expira_em") or "").strip()
+    expira_em = None
+    if prazo_raw:
+        try:
+            expira_em = datetime.strptime(prazo_raw, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+        except ValueError:
+            flash("Data de validade inválida.", "danger")
+            return redirect(url_for("painel_popups"))
     if not titulo:
         flash("Informe o título do popup.", "danger")
         return redirect(url_for("painel_popups"))
@@ -6870,15 +6928,16 @@ def painel_popups_salvar():
 
     cur.execute("""
         INSERT INTO ecommerce_popups_loja
-          (cnpjloja, imagem_url, titulo, mensagem, link_url, botao_texto, ativo, somente_logados)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+          (cnpjloja, imagem_url, titulo, mensagem, link_url, botao_texto, ativo, somente_logados, expira_em)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (cnpjloja) DO UPDATE SET
           imagem_url=EXCLUDED.imagem_url, titulo=EXCLUDED.titulo,
           mensagem=EXCLUDED.mensagem, link_url=EXCLUDED.link_url,
           botao_texto=EXCLUDED.botao_texto, ativo=EXCLUDED.ativo,
           somente_logados=EXCLUDED.somente_logados,
+          expira_em=EXCLUDED.expira_em,
           atualizado_em=NOW()
-    """, (cnpjloja, imagem_url, titulo, mensagem or None, link_url, botao_texto, ativo, somente_logados))
+    """, (cnpjloja, imagem_url, titulo, mensagem or None, link_url, botao_texto, ativo, somente_logados, expira_em))
     conn.commit()
     cur.close()
     flash("Popup salvo com sucesso.", "success")
