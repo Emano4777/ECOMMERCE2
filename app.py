@@ -4993,7 +4993,7 @@ _SQL_ALPHA = """
     )
     SELECT
         el.barras                                                            AS ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.descricao)             AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)             AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         el.qty,
@@ -5075,7 +5075,7 @@ _SQL_AUTO = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.descricao_produto)           AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao_produto)           AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)                 AS laboratorio,
         m.marca                                                                   AS marca,
         el.qty,
@@ -5120,7 +5120,7 @@ _SQL_ALPHA_FAST = """
     )
     SELECT
         el.barras                                                            AS ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.descricao)             AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)             AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         el.qty,
@@ -5157,7 +5157,7 @@ _SQL_AUTO_FAST = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.descricao_produto)           AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao_produto)           AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)                 AS laboratorio,
         m.marca                                                                   AS marca,
         el.qty,
@@ -5206,7 +5206,7 @@ _SQL_ALPHA_A7 = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.nome) AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.nome) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         el.qty,
@@ -5557,7 +5557,7 @@ _SQL_ALPHA_A7_BATCH = """
     SELECT
         el.cnpjloja,
         el.ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.nome) AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.nome) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -5631,7 +5631,7 @@ _SQL_ALPHA_BATCH = """
     SELECT
         el.cnpjloja,
         el.barras                                                             AS ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.descricao)              AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)              AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         COALESCE(m.tipo_ia, pc.categoria)  AS categoria,
@@ -5696,7 +5696,7 @@ _SQL_AUTO_BATCH = """
     SELECT
         el.cnpjloja,
         el.ean,
-        COALESCE(m.descricao, pc.descricao_canon, el.descricao)                   AS nome,
+        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)                   AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)               AS laboratorio,
         m.marca                                                                   AS marca,
         COALESCE(m.tipo_ia, pc.categoria)        AS categoria,
@@ -5849,7 +5849,7 @@ def get_dns_products_batch(cnpjs):
 
             cur.execute("""
                 SELECT e.cnpj AS cnpjloja, e.barras AS ean,
-                       COALESCE(m.descricao, pc.descricao_canon, e.descricao) AS nome,
+                       COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), e.descricao) AS nome,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -5889,7 +5889,7 @@ def get_dns_products_batch(cnpjs):
 
             cur.execute("""
                 SELECT ae.cnpj_loja AS cnpjloja, ae.ean,
-                       COALESCE(m.descricao, pc.descricao_canon, ae.descricao_produto) AS nome,
+                       COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ae.descricao_produto) AS nome,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -6007,7 +6007,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         SELECT
             b.cnpjloja,
             b.ean,
-            COALESCE(m.descricao, pc.descricao_canon, b.nome_raw) AS nome,
+            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), b.nome_raw) AS nome,
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -6198,7 +6198,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         SELECT
             b.cnpjloja,
             b.ean,
-            COALESCE(m.descricao, pc.descricao_canon, b.nome_raw) AS nome,
+            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), b.nome_raw) AS nome,
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -6306,7 +6306,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         SELECT
             ap.cnpjloja,
             ap.ean,
-            COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -6398,7 +6398,7 @@ def get_alpha_products_direct(cnpjs, limit=200):
         SELECT
             ap.cnpjloja,
             ap.ean,
-            COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -11828,7 +11828,7 @@ def produto_detalhe(ean):
                 _ensure_alpha_schema()
                 cur.execute(
                     """
-                    SELECT ap.ean, COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+                    SELECT ap.ean, COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
                            CAST(ap.estoque AS INTEGER) AS qty,
                            ap.preco_venda AS preco,
                            COALESCE(%s, ap.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
@@ -18678,7 +18678,7 @@ def api_cron_produto_descricao_ia():
             WITH catalogo AS (
                 SELECT DISTINCT ON (LTRIM(COALESCE(ap.ean, ''), '0'))
                     LTRIM(COALESCE(ap.ean, ''), '0') AS ean,
-                    COALESCE(m.descricao, pc.descricao_canon, ap.nome) AS nome,
+                    COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
                     COALESCE(m.marca, '') AS marca,
                     COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante, '') AS laboratorio,
                     COALESCE(m.tipo_ia, pc.categoria, '') AS categoria,
