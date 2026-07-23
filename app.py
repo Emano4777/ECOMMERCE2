@@ -6309,6 +6309,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
           AND COALESCE(ap.estoque, 0) > 0
           AND (
             LOWER(ap.nome) LIKE ANY(%s)
+            OR LOWER(COALESCE(m.descricao, '')) LIKE ANY(%s)
             OR LOWER(COALESCE(ap.fabricante, '')) LIKE ANY(%s)
             OR LOWER(COALESCE(m.marca, '')) LIKE ANY(%s)
             OR LOWER(COALESCE(pc.descricao_canon, '')) LIKE ANY(%s)
@@ -6321,6 +6322,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         """,
         (
             cnpjs,
+            patterns or ["__sem_match__"],
             patterns or ["__sem_match__"],
             patterns or ["__sem_match__"],
             patterns or ["__sem_match__"],
