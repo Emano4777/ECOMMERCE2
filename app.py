@@ -26,6 +26,7 @@ import re
 import ssl
 import unicodedata
 import base64
+import difflib
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
@@ -3355,6 +3356,24 @@ def _norm_text(value):
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _termo_bate_aproximado(termo, hay):
+    """Compara um termo de busca contra um texto tolerando abreviacao
+    (ex: 'umedecido' bate com 'umed') e erro de digitacao/plural
+    (ex: 'umidecido' bate com 'umedecido')."""
+    if termo in hay:
+        return True
+    prefixo = termo[:4]
+    if len(prefixo) >= 4 and re.search(r"\b" + re.escape(prefixo), hay):
+        return True
+    limite = 0.82 if len(termo) <= 6 else 0.78
+    for palavra in hay.split():
+        if len(palavra) < 4:
+            continue
+        if difflib.SequenceMatcher(None, termo, palavra).ratio() >= limite:
+            return True
+    return False
+
+
 _SYMPTOM_SEARCH_TERMS = {
     "febre": [
         "febre", "antitermico", "antitermica", "dipirona", "paracetamol",
@@ -6340,7 +6359,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
                 r.get("classificacao") or "",
                 r.get("categoria") or "",
             ]))
-            if all(t in hay for t in required_terms):
+            if all(_termo_bate_aproximado(t, hay) for t in required_terms):
                 filtered_rows.append(r)
         rows = filtered_rows
     rows = [r for r in rows if _has_catalog_image(r)]
@@ -8523,7 +8542,7 @@ def _api_produtos_proximos_impl():
                 hay = _norm_text(hay_raw)
                 if _product_excluded_for_symptom_query(busca_q, hay_raw):
                     continue
-                if len(_required_filter_terms) >= 2 and not all(t in hay for t in _required_filter_terms):
+                if len(_required_filter_terms) >= 2 and not all(_termo_bate_aproximado(t, hay) for t in _required_filter_terms):
                     continue
                 if any(
                     (pat.search(hay) if hasattr(pat, 'search') else pat in hay)
@@ -12131,7 +12150,7 @@ def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
         "- Se a imagem NAO for embalagem de medicamento retorne: {\"erro\":\"imagem_invalida\"}"
     )
     payload = json.dumps({
-        "model": "claude-sonnet-4-6",
+        "model": "claude-sonnet-5",
         "max_tokens": 200,
         "messages": [{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
