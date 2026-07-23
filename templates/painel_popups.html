@@ -76,9 +76,13 @@
         <label>Texto do botão</label>
         <input class="pk-input" id="pop-button-input" name="botao_texto" maxlength="40" value="{{ popup.botao_texto if popup else 'Ver oferta' }}">
       </div>
-      <label style="display:flex;align-items:center;gap:9px;color:var(--pk-txt);font-size:.82rem;font-weight:800;margin:2px 0 18px">
+      <label style="display:flex;align-items:center;gap:9px;color:var(--pk-txt);font-size:.82rem;font-weight:800;margin:2px 0 10px">
         <input type="checkbox" name="ativo" value="1" {% if not popup or popup.ativo %}checked{% endif %}>
         Publicar campanha ao salvar
+      </label>
+      <label style="display:flex;align-items:center;gap:9px;color:var(--pk-txt);font-size:.82rem;font-weight:700;margin:2px 0 18px">
+        <input type="checkbox" name="somente_logados" value="1" {% if popup and popup.somente_logados %}checked{% endif %}>
+        Mostrar só para clientes logados (divulgação específica)
       </label>
       <button class="btn-pk-yellow" type="submit"><i class="fa fa-floppy-disk me-1"></i>Salvar popup</button>
     </form>
@@ -89,6 +93,9 @@
       <div class="pop-title" style="margin:0"><i class="fa fa-eye" style="color:var(--pk-yellow)"></i>Prévia</div>
       {% if popup %}<span class="pop-status {{ 'on' if popup.ativo else 'off' }}"><i class="fa fa-circle" style="font-size:.5rem"></i>{{ 'Ativo' if popup.ativo else 'Inativo' }}</span>{% endif %}
     </div>
+    {% if popup and popup.somente_logados %}
+    <div style="font-size:.72rem;color:var(--pk-yellow);margin:-8px 0 12px"><i class="fa fa-user-lock me-1"></i>Só para clientes logados</div>
+    {% endif %}
     <div class="pop-preview-shell">
       {% if popup %}
         <img id="pop-preview-image" class="pop-preview-img" src="{{ popup.imagem_url }}" alt="Imagem do popup">

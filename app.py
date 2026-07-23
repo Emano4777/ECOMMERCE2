@@ -1492,9 +1492,11 @@ def _ensure_banner_schema():
                 titulo     TEXT,
                 ativo      BOOLEAN DEFAULT TRUE,
                 ordem      INTEGER DEFAULT 0,
+                somente_logados BOOLEAN NOT NULL DEFAULT FALSE,
                 criado_em  TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE ecommerce_banners ADD COLUMN IF NOT EXISTS somente_logados BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_banners_cnpj ON ecommerce_banners(cnpjloja)")
         conn.commit()
         cur.close()
@@ -1521,10 +1523,12 @@ def _ensure_popup_schema():
                 link_url    TEXT,
                 botao_texto TEXT DEFAULT 'Ver oferta',
                 ativo       BOOLEAN DEFAULT TRUE,
+                somente_logados BOOLEAN NOT NULL DEFAULT FALSE,
                 criado_em   TIMESTAMPTZ DEFAULT NOW(),
                 atualizado_em TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE ecommerce_popups_loja ADD COLUMN IF NOT EXISTS somente_logados BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ecommerce_popups_ativos ON ecommerce_popups_loja(ativo, cnpjloja)")
         conn.commit()
         cur.close()
@@ -6520,11 +6524,14 @@ def api_banners():
         lat = lng = 0.0
         raio = 80.0
 
-    # Chave de cache por grade de 0.05° (~5 km)
+    logado = bool(session.get("consumidor_id"))
+
+    # Chave de cache por grade de 0.05° (~5 km) + estado de login (banners
+    # so-para-logados nao podem vazar pro cache de visitante anonimo).
     if lat and lng:
-        cache_key = f"banners:{round(lat/0.05)*50}:{round(lng/0.05)*50}"
+        cache_key = f"banners:{round(lat/0.05)*50}:{round(lng/0.05)*50}:{'log' if logado else 'anon'}"
     else:
-        cache_key = "banners:global"
+        cache_key = f"banners:global:{'log' if logado else 'anon'}"
 
     cached = _banner_cache_get(cache_key)
     if cached is not None:
@@ -6549,6 +6556,7 @@ def api_banners():
         JOIN users u ON u.cnpjloja = b.cnpjloja
         JOIN ecommerce_lojas_geo g ON g.cnpjloja = b.cnpjloja
         WHERE b.ativo = TRUE
+          AND (b.somente_logados = FALSE OR %s)
           AND (6371 * acos(
                    cos(radians(%s)) * cos(radians(g.lat)) *
                    cos(radians(g.lng) - radians(%s)) +
@@ -6556,7 +6564,7 @@ def api_banners():
                )) <= %s
         ORDER BY distancia_km, b.ordem, b.criado_em DESC
         LIMIT 20
-    """, (lat, lng, lat, lat, lng, lat, raio))
+    """, (lat, lng, lat, logado, lat, lng, lat, raio))
 
     rows = cur.fetchall()
     cur.close()
@@ -6588,7 +6596,7 @@ def painel_banners():
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "SELECT id, imagem_url, link_url, titulo, ativo, ordem, criado_em "
+        "SELECT id, imagem_url, link_url, titulo, ativo, ordem, somente_logados, criado_em "
         "FROM ecommerce_banners WHERE cnpjloja=%s ORDER BY ordem, criado_em DESC",
         (cnpjloja,),
     )
@@ -6625,12 +6633,13 @@ def painel_banners_upload():
 
     titulo   = (request.form.get("titulo")   or "").strip()[:120]
     link_url = (request.form.get("link_url") or "").strip()[:300]
+    somente_logados = request.form.get("somente_logados") == "1"
 
     conn = db()
     cur  = conn.cursor()
     cur.execute(
-        "INSERT INTO ecommerce_banners (cnpjloja, imagem_url, link_url, titulo) VALUES (%s,%s,%s,%s)",
-        (cnpjloja, url, link_url or None, titulo or None),
+        "INSERT INTO ecommerce_banners (cnpjloja, imagem_url, link_url, titulo, somente_logados) VALUES (%s,%s,%s,%s,%s)",
+        (cnpjloja, url, link_url or None, titulo or None, somente_logados),
     )
     conn.commit()
     cur.close()
@@ -6652,6 +6661,25 @@ def painel_banners_toggle(banner_id):
     cur  = conn.cursor()
     cur.execute(
         "UPDATE ecommerce_banners SET ativo = NOT ativo "
+        "WHERE id=%s AND cnpjloja=%s",
+        (banner_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    with _banner_cache_lock:
+        _banner_cache.clear()
+    return redirect(url_for("painel_banners"))
+
+
+@app.post("/painel/banners/<int:banner_id>/toggle-logados")
+@painel_required
+def painel_banners_toggle_logados(banner_id):
+    _ensure_banner_schema()
+    cnpjloja = session["cnpjloja"]
+    conn = db()
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_banners SET somente_logados = NOT somente_logados "
         "WHERE id=%s AND cnpjloja=%s",
         (banner_id, cnpjloja),
     )
@@ -6710,6 +6738,7 @@ def api_popup_loja():
     if not (lat and lng):
         return jsonify({"popup": None})
 
+    logado = bool(session.get("consumidor_id"))
     conn = db()
     cur = conn.cursor()
     cur.execute("""
@@ -6724,6 +6753,7 @@ def api_popup_loja():
         JOIN users u ON u.cnpjloja = p.cnpjloja
         JOIN ecommerce_lojas_geo g ON g.cnpjloja = p.cnpjloja
         WHERE p.ativo = TRUE
+          AND (p.somente_logados = FALSE OR %s)
           AND (6371 * acos(
                    cos(radians(%s)) * cos(radians(g.lat)) *
                    cos(radians(g.lng) - radians(%s)) +
@@ -6731,7 +6761,7 @@ def api_popup_loja():
                )) <= %s
         ORDER BY distancia_km, p.atualizado_em DESC
         LIMIT 1
-    """, (lat, lng, lat, lat, lng, lat, raio))
+    """, (lat, lng, lat, logado, lat, lng, lat, raio))
     row = cur.fetchone()
     cur.close()
     if not row:
@@ -6759,7 +6789,7 @@ def painel_popups():
     cur = conn.cursor()
     cur.execute("""
         SELECT id, imagem_url, titulo, mensagem, link_url, botao_texto,
-               ativo, criado_em, atualizado_em
+               ativo, somente_logados, criado_em, atualizado_em
         FROM ecommerce_popups_loja WHERE cnpjloja=%s
     """, (session["cnpjloja"],))
     popup = cur.fetchone()
@@ -6778,6 +6808,7 @@ def painel_popups_salvar():
     link_original = (request.form.get("link_url") or "").strip()
     link_url = _marketing_link_seguro(link_original)
     ativo = request.form.get("ativo") == "1"
+    somente_logados = request.form.get("somente_logados") == "1"
     if not titulo:
         flash("Informe o título do popup.", "danger")
         return redirect(url_for("painel_popups"))
@@ -6818,14 +6849,15 @@ def painel_popups_salvar():
 
     cur.execute("""
         INSERT INTO ecommerce_popups_loja
-          (cnpjloja, imagem_url, titulo, mensagem, link_url, botao_texto, ativo)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
+          (cnpjloja, imagem_url, titulo, mensagem, link_url, botao_texto, ativo, somente_logados)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (cnpjloja) DO UPDATE SET
           imagem_url=EXCLUDED.imagem_url, titulo=EXCLUDED.titulo,
           mensagem=EXCLUDED.mensagem, link_url=EXCLUDED.link_url,
           botao_texto=EXCLUDED.botao_texto, ativo=EXCLUDED.ativo,
+          somente_logados=EXCLUDED.somente_logados,
           atualizado_em=NOW()
-    """, (cnpjloja, imagem_url, titulo, mensagem or None, link_url, botao_texto, ativo))
+    """, (cnpjloja, imagem_url, titulo, mensagem or None, link_url, botao_texto, ativo, somente_logados))
     conn.commit()
     cur.close()
     flash("Popup salvo com sucesso.", "success")

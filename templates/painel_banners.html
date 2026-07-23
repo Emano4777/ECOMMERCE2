@@ -104,6 +104,10 @@
           <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Link ao clicar no banner (opcional)</label>
           <input type="url" name="link_url" class="pk-input" placeholder="https://...">
         </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--pk-txt);cursor:pointer">
+          <input type="checkbox" name="somente_logados" value="1" style="width:16px;height:16px">
+          Mostrar só para clientes logados (divulgação específica)
+        </label>
         <button type="submit" class="btn btn-primary" style="border-radius:8px;font-weight:700;padding:10px 28px;background:var(--pk-yellow);color:#111;border:none;width:fit-content">
           <i class="fa fa-upload me-2"></i>Publicar Banner
         </button>
@@ -135,6 +139,11 @@
         </span>
       </div>
       {% if b.link_url %}<div class="bnr-link"><i class="fa fa-link me-1" style="font-size:.65rem"></i>{{ b.link_url }}</div>{% endif %}
+      {% if b.somente_logados %}
+      <div style="font-size:.72rem;color:var(--pk-yellow)"><i class="fa fa-user-lock me-1"></i>Só para clientes logados</div>
+      {% else %}
+      <div style="font-size:.72rem;color:var(--pk-muted)"><i class="fa fa-globe me-1"></i>Visível para todos</div>
+      {% endif %}
       <div style="font-size:.72rem;color:var(--pk-muted)">{{ b.criado_em.strftime('%d/%m/%Y') if b.criado_em else '' }}</div>
       <div class="bnr-actions">
         <form method="post" action="{{ url_for('painel_banners_toggle', banner_id=b.id) }}" style="flex:1">
@@ -149,6 +158,11 @@
           </button>
         </form>
       </div>
+      <form method="post" action="{{ url_for('painel_banners_toggle_logados', banner_id=b.id) }}">
+        <button type="submit" class="bnr-btn" style="width:100%">
+          <i class="fa fa-{% if b.somente_logados %}globe{% else %}user-lock{% endif %} me-1"></i>{{ 'Mostrar para todos' if b.somente_logados else 'Restringir a logados' }}
+        </button>
+      </form>
     </div>
   </div>
   {% endfor %}
