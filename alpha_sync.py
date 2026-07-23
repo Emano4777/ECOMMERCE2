@@ -195,6 +195,9 @@ def _row_price(row):
     return row.get("o_precovenda")
 
 
+_IMAGE_PLACEHOLDER_FILTER = "imagem_url NOT ILIKE '%%CAIXA_GEN%%POUPAQUI%%' AND imagem_url NOT ILIKE '%%ChatGPT_Image%%'"
+
+
 def _image_map(cur, cnpjloja, eans):
     clean = sorted({_digits(e).lstrip("0") for e in eans if _digits(e)})
     if not clean:
@@ -208,24 +211,35 @@ def _image_map(cur, cnpjloja, eans):
             FROM ecommerce_produto_imagens
             WHERE cnpjloja=%s AND LTRIM(COALESCE(ean,''), '0') = ANY(%s)
               AND imagem_url IS NOT NULL AND TRIM(imagem_url) <> ''
+              AND {placeholder_filter}
             UNION ALL
             SELECT LTRIM(COALESCE(ean,''), '0') AS ean_key, imagem_cosmos AS imagem_url, atualizado_em AS updated_at
             FROM produto_canon
             WHERE LTRIM(COALESCE(ean,''), '0') = ANY(%s)
               AND imagem_cosmos IS NOT NULL AND TRIM(imagem_cosmos) <> ''
               AND fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+              AND {placeholder_filter_cosmos}
             UNION ALL
+            -- medicamentos/medicamentos_imagens e usado so como ultimo recurso:
+            -- timestamp fixo no epoch para nunca "vencer" uma foto real e mais
+            -- recente da propria loja (updated_at real) so por ter sido lido
+            -- agora nesta consulta.
             SELECT LTRIM(COALESCE(m.barra_norm, m.barra,''), '0') AS ean_key,
                    COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) AS imagem_url,
-                   NOW() AS updated_at
+                   TIMESTAMP '1970-01-01' AS updated_at
             FROM medicamentos m
             LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
             WHERE LTRIM(COALESCE(m.barra_norm, m.barra,''), '0') = ANY(%s)
               AND COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) IS NOT NULL
+              AND COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) NOT ILIKE '%%CAIXA_GEN%%POUPAQUI%%'
+              AND COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem), '')) NOT ILIKE '%%ChatGPT_Image%%'
         ) imgs
         WHERE ean_key <> ''
         ORDER BY ean_key, updated_at DESC NULLS LAST
-        """,
+        """.format(
+            placeholder_filter=_IMAGE_PLACEHOLDER_FILTER,
+            placeholder_filter_cosmos=_IMAGE_PLACEHOLDER_FILTER.replace("imagem_url", "imagem_cosmos"),
+        ),
         (cnpjloja, clean, clean, clean),
     )
     return {r["ean_key"]: r["imagem_url"] for r in cur.fetchall()}
