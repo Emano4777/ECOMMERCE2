@@ -82,13 +82,13 @@
 {% endwith %}
 
 <!-- Upload de novo banner -->
-{% if banners|length < 5 %}
+{% if banners|length < 6 %}
 <div class="bnr-upload-box mb-4">
   <form method="post" action="{{ url_for('painel_banners_upload') }}" enctype="multipart/form-data" id="bnr-form">
     <label class="bnr-upload-label" for="bnr-file-input">
       <i class="fa fa-cloud-upload-alt"></i>
       <span style="font-weight:700;color:var(--pk-txt)">Clique para enviar um banner</span>
-      <span class="bnr-limit">JPG, PNG ou WEBP · Máx 4 MB · até 5 banners por loja</span>
+      <span class="bnr-limit">JPG, PNG ou WEBP · Máx 4 MB · até 6 banners por loja</span>
       <span class="bnr-limit" style="color:var(--pk-yellow);font-size:.68rem"><i class="fa fa-ruler-combined me-1"></i>Dimensão recomendada: <strong>1815 × 445 px</strong> (proporção ~4:1)</span>
     </label>
     <input type="file" id="bnr-file-input" name="imagem" accept="image/jpeg,image/png,image/webp" onchange="previewBanner(this)">
@@ -117,7 +117,7 @@
 </div>
 {% else %}
 <div class="alert mb-4" style="background:#1a1200;border:1px solid #fbbf2455;border-radius:10px;color:#fbbf24;font-size:.85rem">
-  <i class="fa fa-triangle-exclamation me-2"></i>Limite de 5 banners atingido. Exclua um para adicionar novo.
+  <i class="fa fa-triangle-exclamation me-2"></i>Limite de 6 banners atingido. Exclua um para adicionar novo.
 </div>
 {% endif %}
 
