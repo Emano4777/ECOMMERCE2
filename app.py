@@ -6506,12 +6506,11 @@ def _ensure_motoboy_schema():
 @app.get("/api/banners")
 def api_banners():
     """
-    Retorna banners de lojas próximas. Só exibido para consumidores logados.
+    Retorna banners de lojas próximas. Publico geral (nao exige login) --
+    filtra so por proximidade, igual o restante da vitrine.
     Query params: lat, lng, raio (km, default 80)
     Cacheado por grade de ~5km (evita query a cada abertura da home).
     """
-    if not session.get("consumidor_id"):
-        return jsonify({"banners": []})
     _ensure_banner_schema()
     try:
         lat  = float(request.args.get("lat", 0))
