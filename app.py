@@ -5424,11 +5424,19 @@ def get_dns_products(
     if q:
         like = f"%{q.lower()}%"
         busca_alpha = "AND (LOWER(e.descricao) LIKE %s OR COALESCE(e.barras_norm, e.barras, '') LIKE %s)"
-        busca_alpha_a7 = "AND (LOWER(ap.nome) LIKE %s OR COALESCE(ap.ean, '') LIKE %s)"
         busca_auto  = "AND (LOWER(ae.descricao_produto) LIKE %s OR COALESCE(ae.ean, '') LIKE %s)"
         args_alpha.extend([like, f"%{q}%"])
-        args_alpha_a7.extend([like, f"%{q}%"])
         args_auto.extend([like, f"%{q}%"])
+
+        # alpha_a7: exigir a frase inteira como substring literal perdia
+        # produtos com o nome da marca grudado (ex: busca "baby sec" nao
+        # encontrava "FRALDA BABYSEC..."). LIKE ALL exige cada palavra
+        # significativa separadamente, igual a busca do catalogo publico.
+        _patterns_a7 = [f"%{t}%" for t in re.split(r"\s+", _norm_text(q)) if _termo_significativo(t)]
+        if not _patterns_a7:
+            _patterns_a7 = [like]
+        busca_alpha_a7 = "AND (LOWER(ap.nome) LIKE ALL(%s) OR COALESCE(ap.ean, '') LIKE %s)"
+        args_alpha_a7.extend([_patterns_a7, f"%{q}%"])
 
     if skip_image_filter:
         imagem_alpha_a7 = ""
