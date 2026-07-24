@@ -13225,8 +13225,9 @@ def meus_pedidos():
             prev_em and p.get("status") not in ("entregue", "cancelado") and agora > prev_em
         )
 
-    # Mapa pedido_id → reclamação ativa + itens (preview de imagens)
+    # Mapa pedido_id → reclamação ativa / pendência aberta pela loja + itens (preview de imagens)
     rec_map = {}
+    pend_map = {}
     itens_map = {}
     if pedidos:
         ids = tuple(str(p["id"]) for p in pedidos)
@@ -13239,6 +13240,16 @@ def meus_pedidos():
             pid = str(row["pedido_id"])
             if pid not in rec_map:
                 rec_map[pid] = dict(row)
+
+        _ensure_pendencia_schema()
+        cur.execute(
+            f"SELECT pedido_id, id, status FROM ecommerce_pedido_pendencias WHERE pedido_id IN ({placeholders}) AND consumidor_id=%s ORDER BY aberta_em DESC",
+            (*ids, session["consumidor_id"]),
+        )
+        for row in cur.fetchall():
+            pid = str(row["pedido_id"])
+            if pid not in pend_map:
+                pend_map[pid] = dict(row)
 
         cur.execute(
             f"SELECT pedido_id, ean, nome, qty, preco_unitario, imagem FROM ecommerce_pedido_itens WHERE pedido_id IN ({placeholders}) ORDER BY id",
@@ -13254,7 +13265,7 @@ def meus_pedidos():
         p["itens_preview"] = _itens_p[:3]
         p["primeiro_item_nome"] = _itens_p[0]["nome"] if _itens_p else ""
     return render_template(
-        "meus_pedidos.html", pedidos=pedidos, rec_map=rec_map,
+        "meus_pedidos.html", pedidos=pedidos, rec_map=rec_map, pend_map=pend_map,
         motivos=_MOTIVOS_RECLAMACAO, economia_total=economia_total,
     )
 
@@ -17224,6 +17235,14 @@ def painel_pendencia_abrir(pedido_id):
         pedido_id, "pendencia_aberta", "Um problema com seu pedido",
         descricao,
     )
+    try:
+        _email_pendencia_pedido(
+            pedido_id,
+            url_for("minha_pendencia", pendencia_id=pend_id, _external=True),
+            descricao,
+        )
+    except Exception:
+        pass
     flash("Pendência aberta. O cliente foi avisado.", "success")
     return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pend_id))
 
@@ -17349,6 +17368,16 @@ def painel_pendencia_refund(pendencia_id):
         pend["pedido_id"], "reembolso", "Reembolso processado",
         f"Reembolsamos {fmt_brl(info['valor'])} referentes ao seu pedido.",
     )
+    try:
+        _email_pendencia_pedido(
+            pend["pedido_id"],
+            url_for("minha_pendencia", pendencia_id=pendencia_id, _external=True),
+            f"Reembolsamos {fmt_brl(info['valor'])} referentes ao seu pedido via Mercado Pago.",
+            assunto=f"💸 Reembolso do pedido #{str(pend['pedido_id'])[:8].upper()}",
+            titulo="Reembolso processado",
+        )
+    except Exception:
+        pass
     flash(f"Reembolso de {fmt_brl(info['valor'])} processado com sucesso.", "success")
     return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
 
@@ -17406,6 +17435,16 @@ def painel_pendencia_resolver(pendencia_id):
         pend["pedido_id"], "pendencia_resolvida", _STATUS_PENDENCIA_LABEL.get(resolucao, resolucao),
         _msgs_sistema[resolucao],
     )
+    try:
+        _email_pendencia_pedido(
+            pend["pedido_id"],
+            url_for("minha_pendencia", pendencia_id=pendencia_id, _external=True),
+            _msgs_sistema[resolucao],
+            assunto=f"Pedido #{str(pend['pedido_id'])[:8].upper()} — {_STATUS_PENDENCIA_LABEL.get(resolucao, resolucao)}",
+            titulo=_STATUS_PENDENCIA_LABEL.get(resolucao, resolucao),
+        )
+    except Exception:
+        pass
     flash("Pendência atualizada.", "success")
     return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
 
@@ -24415,6 +24454,54 @@ def _email_status_pedido(pedido_id: str, novo_status: str):
         )
     except Exception as exc:
         app.logger.warning("_email_status_pedido error: %s", exc)
+
+
+def _email_pendencia_pedido(
+    pedido_id: str, url_pendencia: str, descricao: str,
+    assunto: str = None, titulo: str = None,
+):
+    """Avisa o consumidor por e-mail sobre uma pendência aberta pela loja no
+    pedido (ex: faltou estoque) ou sua resolução. Chamado de forma sincrona —
+    mesma logica de _email_status_pedido, sem depender de thread (nao roda
+    de forma confiavel no Vercel serverless)."""
+    if not RESEND_API_KEY:
+        return
+    try:
+        conn2 = _new_conn()
+        cur2 = conn2.cursor()
+        cur2.execute(
+            """
+            SELECT p.cliente_nome, p.cliente_email, u.razao
+            FROM ecommerce_pedidos p
+            JOIN users u ON u.cnpjloja = p.cnpjloja
+            WHERE p.id = %s LIMIT 1
+            """,
+            (pedido_id,),
+        )
+        row = cur2.fetchone()
+        cur2.close()
+        conn2.close()
+        if not row:
+            return
+        email = (row.get("cliente_email") or "").strip()
+        if not email or "@" not in email:
+            return
+        nome  = (row.get("cliente_nome") or "Cliente").split()[0]
+        razao = row.get("razao") or "Farmácia"
+        corpo = (
+            f"<p>Olá, <b>{html.escape(nome)}</b>!</p>"
+            f"<p>A farmácia <b>{html.escape(razao)}</b> tem uma atualização sobre seu pedido "
+            f"<b>#{pedido_id[:8].upper()}</b>.</p>"
+            f"<div class='info-box'>{html.escape(descricao)}</div>"
+            f"<p><a class='btn' href='{url_pendencia}'>Ver conversa com a farmácia</a></p>"
+        )
+        _send_email(
+            email,
+            assunto or f"⚠️ Problema com o pedido #{pedido_id[:8].upper()}",
+            _email_html_wrapper(titulo or "A farmácia precisa falar com você", corpo),
+        )
+    except Exception as exc:
+        app.logger.warning("_email_pendencia_pedido error: %s", exc)
 
 
 # ─── RECUPERAÇÃO DE SENHA ─────────────────────────────────────────────────────

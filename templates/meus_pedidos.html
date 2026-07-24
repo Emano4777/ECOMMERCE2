@@ -390,6 +390,7 @@
   <div class="orders-list">
     {% for p in pedidos %}
     {% set rec = rec_map.get(p.id|string) %}
+    {% set pend = pend_map.get(p.id|string) %}
     {% set _sl = {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue','cancelado':'Cancelado'} %}
     {% set grupo = 'andamento' if p.status in ['pendente', 'pago', 'pronto_retirada', 'enviado'] else p.status %}
     <article class="order-card" data-status="{{ p.status }}" data-group="{{ grupo }}" data-search="{{ (p.razao ~ ' ' ~ p.id ~ ' ' ~ p.forma_pagamento ~ ' ' ~ _sl.get(p.status, p.status))|lower }}">
@@ -446,7 +447,18 @@
         </button>
       </div>
 
-      {% if rec %}
+      {% if pend %}
+      <div class="rec-strip rec-strip-aberta">
+        <div class="rec-strip-label">
+          {% if pend.status in ('aberta', 'em_andamento') %}<i class="fa fa-triangle-exclamation"></i>A loja teve um problema com este pedido
+          {% elif pend.status == 'encomenda' %}<i class="fa fa-box"></i>Este pedido virou encomenda
+          {% elif pend.status == 'cancelada' %}<i class="fa fa-circle-xmark"></i>Este pedido foi cancelado pela loja
+          {% else %}<i class="fa fa-circle-check"></i>Pendência resolvida — pedido mantido
+          {% endif %}
+        </div>
+        <a class="rec-strip-link" href="{{ url_for('minha_pendencia', pendencia_id=pend.id) }}">Ver conversa</a>
+      </div>
+      {% elif rec %}
       <div class="rec-strip rec-strip-{{ rec.status }}">
         <div class="rec-strip-label">
           {% if rec.status == 'aberta' %}<i class="fa fa-hourglass-half"></i>Reclamação aberta aguardando resposta da farmácia
