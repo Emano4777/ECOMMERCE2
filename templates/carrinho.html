@@ -1029,7 +1029,23 @@ function renderCart() {
     const g = groups[cnpj];
     const cfg = _configLojas[cnpj] || {};
     const sub = g.itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
-    const sideClubHtml = assinaturaCardHtml(cnpj, cfg);
+    // Simula quanto essa mesma cesta custaria se o cliente ja fosse assinante
+    // desta loja: soma o desconto por quantidade (qtd atingida) + a promocao
+    // so-assinante ainda nao aplicada. So conta o que realmente bate o minimo
+    // hoje, pra nao prometer economia que a cesta atual nao teria direito.
+    let economiaClube = 0;
+    g.itens.forEach(item => {
+      const pqi = item.promo_qtd;
+      const qtyi = item.qty || 1;
+      if (pqi && pqi.so_assinantes && qtyi >= pqi.qtd_minima) {
+        economiaClube += ((item.preco||0) - pqi.preco_unit_promo) * qtyi;
+      }
+      const promoi = item.promo;
+      if (promoi && promoi.so_assinantes && !promoi.aplicada && promoi.preco_promo > 0 && promoi.preco_promo < (promoi.preco_original||0)) {
+        economiaClube += (promoi.preco_original - promoi.preco_promo) * qtyi;
+      }
+    });
+    const sideClubHtml = assinaturaCardHtml(cnpj, cfg, economiaClube, sub);
     if (sideClubHtml) sideClubCards.push(sideClubHtml);
 
     let itensHtml = g.itens.map(item => {
@@ -1043,9 +1059,19 @@ function renderCart() {
         ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
         : `<div class="cart-item-img-ph"><i class="fa fa-pills"></i></div>`;
       const pq = item.promo_qtd;
-      const pqHtml = pq
-        ? `<div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-layer-group"></i>${pq.so_assinantes ? 'Assine e pague' : 'Compre e pague'} ${brl(pq.preco_unit_promo)} cada a partir de ${pq.qtd_minima} un.</div>`
-        : '';
+      const pqQty = item.qty || 1;
+      const pqAtingiu = pq && pqQty >= pq.qtd_minima;
+      const pqEconomia = pq ? (precoItem - pq.preco_unit_promo) * pqQty : 0;
+      const pqRotulo = pq && pq.so_assinantes ? 'Só assinantes' : 'Oferta por quantidade';
+      const pqHtml = !pq ? '' : pqAtingiu
+        ? `<div style="font-size:.74rem;color:#fff;font-weight:800;margin-top:5px;background:linear-gradient(90deg,var(--pq-red),#c81e3a);border-radius:8px;padding:6px 10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+             <i class="fa fa-layer-group"></i>
+             <span>${esc(pqRotulo)}: essas ${pqQty} un. sairiam por <strong>${brl(pq.preco_unit_promo * pqQty)}</strong> — economize <strong>${brl(pqEconomia)}</strong>${pq.so_assinantes ? ' assinando o clube' : ''}</span>
+           </div>`
+        : `<div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:4px;background:#fff5f6;border:1px dashed #ffb3bf;border-radius:8px;padding:5px 10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+             <i class="fa fa-layer-group"></i>
+             <span>Adicione mais ${pq.qtd_minima - pqQty} un. e ${pq.so_assinantes ? 'sendo assinante ' : ''}pague ${brl(pq.preco_unit_promo)} cada a partir de ${pq.qtd_minima} un.</span>
+           </div>`;
       return `<div class="cart-item">
         ${imgTag}
         <div class="cart-item-info">
@@ -1367,7 +1393,7 @@ async function atualizarStatusHorarioCarrinho(cnpjs) {
   }));
 }
 
-function assinaturaCardHtml(cnpj, cfg) {
+function assinaturaCardHtml(cnpj, cfg, economiaClube=0, subAtual=0) {
   if (!cfg.plano_ativo) return '';
   const rawBenefits = (cfg.plano_beneficios || '').split('\n').map(b => b.trim()).filter(Boolean);
   const benefits = rawBenefits.length ? rawBenefits : [
@@ -1387,10 +1413,26 @@ function assinaturaCardHtml(cnpj, cfg) {
   } else if (cfg.assinatura_pendente) {
     ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" class="cart-club-btn is-pending"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
   } else {
+    const ctaLabel = economiaClube > 0 ? 'Assinar e economizar agora' : 'Conhecer o Clube';
     ctaHtml = `<form method="post" action="/assinar/${encodeURIComponent(cnpj)}" class="cart-club-action">
-      <button type="submit" class="cart-club-btn">Conhecer o Clube <i class="fa fa-chevron-right"></i></button>
+      <button type="submit" class="cart-club-btn">${ctaLabel} <i class="fa fa-chevron-right"></i></button>
     </form>`;
   }
+  // So simula economia pra quem ainda nao e assinante — pra quem ja assina, o
+  // desconto ja esta refletido no preco normal dos itens, mostrar de novo aqui
+  // seria redundante (e daria a entender que teria mais economia por vir).
+  const simulacaoHtml = (economiaClube > 0 && !cfg.ja_assina && !cfg.assinatura_pendente)
+    ? `<div style="background:#fff5f6;border:1.5px solid #ffc2cc;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+         <div style="font-size:.72rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">
+           <i class="fa fa-calculator me-1"></i>Simulação com sua cesta atual
+         </div>
+         <div style="font-size:.86rem;color:#333;line-height:1.5">
+           Sendo assinante, essa cesta sairia por
+           <strong style="color:var(--pq-red)">${brl(subAtual - economiaClube)}</strong>
+           em vez de ${brl(subAtual)} — <strong style="color:var(--pq-red)">economize ${brl(economiaClube)}</strong> agora.
+         </div>
+       </div>`
+    : '';
   return `<section class="cart-club-card" aria-label="Clube de assinantes">
     <div class="cart-club-top">
       <div class="cart-club-star"><i class="fa fa-star"></i></div>
@@ -1400,6 +1442,7 @@ function assinaturaCardHtml(cnpj, cfg) {
         <div class="cart-club-desc">${desc}</div>
       </div>
     </div>
+    ${simulacaoHtml}
     <div class="cart-club-benefits">${beneficiosHtml}</div>
     <div class="cart-club-price"><strong>${brl(cfg.plano_preco_mensal)}</strong><span>/mes - cancele quando quiser</span></div>
     ${cfg.ja_assina || cfg.assinatura_pendente ? `<div class="cart-club-action">${ctaHtml}</div>` : ctaHtml}
