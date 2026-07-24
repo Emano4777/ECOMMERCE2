@@ -1866,6 +1866,13 @@ def _ensure_reclamacao_schema():
             )
         """)
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS prioridade_reduzida BOOLEAN DEFAULT FALSE")
+        # Permite cancelar o pedido e/ou reembolsar direto pela reclamacao —
+        # sem isso a loja teria que abrir uma pendencia separada (novo chat)
+        # só pra ter acesso ao botao de estorno, o que nao faz sentido quando
+        # o cliente ja abriu uma reclamacao pro mesmo problema.
+        cur.execute("ALTER TABLE ecommerce_reclamacoes ADD COLUMN IF NOT EXISTS valor_reembolsado NUMERIC")
+        cur.execute("ALTER TABLE ecommerce_reclamacoes ADD COLUMN IF NOT EXISTS mp_refund_id TEXT")
+        cur.execute("ALTER TABLE ecommerce_reclamacoes ADD COLUMN IF NOT EXISTS reembolsado_em TIMESTAMPTZ")
         conn.commit()
         cur.close()
         _schema_ready.add("reclamacao")
@@ -17042,7 +17049,7 @@ def painel_reclamacao_detalhe(reclamacao_id):
 
     # Pedido relacionado
     cur.execute(
-        "SELECT id, status, total, criado_em FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
+        "SELECT id, status, total, criado_em, mp_payment_id, pagamento_status FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
         (rec["pedido_id"],),
     )
     pedido = cur.fetchone()
@@ -17136,6 +17143,114 @@ def painel_reclamacao_marcar_resolvido(reclamacao_id):
     conn.commit()
     cur.close()
     flash("Reclamação marcada como resolvida. O cliente tem 72 horas para confirmar.", "success")
+    return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+
+@app.post("/painel/reclamacoes/<reclamacao_id>/cancelar-pedido")
+@painel_required
+def painel_reclamacao_cancelar_pedido(reclamacao_id):
+    """Cancela o pedido direto pela reclamacao — evita a loja ter que abrir
+    uma pendencia separada (novo chat) so pra ter essa acao quando o cliente
+    ja abriu uma reclamacao sobre o mesmo problema."""
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pedido_id, status FROM ecommerce_reclamacoes WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (reclamacao_id, cnpjloja),
+    )
+    rec = cur.fetchone()
+    if not rec or rec["status"] == "finalizada":
+        flash("Ação inválida para o status atual.", "error")
+        cur.close()
+        return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+    cur.execute(
+        "UPDATE ecommerce_reclamacoes SET status='finalizada', finalizada_em=NOW() WHERE id=%s",
+        (reclamacao_id,),
+    )
+    cur.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (reclamacao_id, "❌ A farmácia cancelou este pedido."),
+    )
+    cur.execute(
+        "UPDATE ecommerce_pedidos SET status='cancelado', atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+        (rec["pedido_id"], cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    _registrar_status_pedido(rec["pedido_id"], "cancelado")
+    _notificar_pedido_evento(
+        rec["pedido_id"], "reclamacao_pedido_cancelado", "Pedido cancelado",
+        "A farmácia cancelou este pedido durante o atendimento da sua reclamação.",
+    )
+    try:
+        _email_pendencia_pedido(
+            rec["pedido_id"],
+            url_for("minha_reclamacao", reclamacao_id=reclamacao_id, _external=True),
+            "A farmácia cancelou este pedido durante o atendimento da sua reclamação.",
+            assunto=f"Pedido #{str(rec['pedido_id'])[:8].upper()} cancelado",
+            titulo="Pedido cancelado",
+        )
+    except Exception:
+        pass
+    flash("Pedido cancelado e reclamação finalizada.", "success")
+    return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+
+@app.post("/painel/reclamacoes/<reclamacao_id>/reembolsar")
+@painel_required
+def painel_reclamacao_refund(reclamacao_id):
+    """Aciona o estorno via Mercado Pago direto pela reclamacao (mesma
+    _mp_estornar_pagamento usada pela pendencia) — restrito ao login
+    principal da loja (nao entra na whitelist do papel lojista)."""
+    _ensure_reclamacao_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pedido_id FROM ecommerce_reclamacoes WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (reclamacao_id, cnpjloja),
+    )
+    rec = cur.fetchone()
+    cur.close()
+    if not rec:
+        flash("Reclamação não encontrada.", "error")
+        return redirect(url_for("painel_reclamacoes"))
+
+    ok, info = _mp_estornar_pagamento(rec["pedido_id"], cnpjloja)
+    if not ok:
+        flash(info, "error")
+        return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+    conn2 = db()
+    cur2 = conn2.cursor()
+    cur2.execute(
+        "UPDATE ecommerce_reclamacoes SET valor_reembolsado=%s, mp_refund_id=%s, reembolsado_em=NOW() WHERE id=%s",
+        (info["valor"], info["refund_id"], reclamacao_id),
+    )
+    cur2.execute(
+        "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (reclamacao_id, f"💸 Reembolso de {fmt_brl(info['valor'])} processado via Mercado Pago (ref. {info['refund_id']})."),
+    )
+    conn2.commit()
+    cur2.close()
+    _notificar_pedido_evento(
+        rec["pedido_id"], "reembolso", "Reembolso processado",
+        f"Reembolsamos {fmt_brl(info['valor'])} referentes ao seu pedido.",
+    )
+    try:
+        _email_pendencia_pedido(
+            rec["pedido_id"],
+            url_for("minha_reclamacao", reclamacao_id=reclamacao_id, _external=True),
+            f"Reembolsamos {fmt_brl(info['valor'])} referentes ao seu pedido via Mercado Pago.",
+            assunto=f"💸 Reembolso do pedido #{str(rec['pedido_id'])[:8].upper()}",
+            titulo="Reembolso processado",
+        )
+    except Exception:
+        pass
+    flash(f"Reembolso de {fmt_brl(info['valor'])} processado com sucesso.", "success")
     return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
 
 

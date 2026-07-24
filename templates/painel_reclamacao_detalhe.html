@@ -52,6 +52,13 @@
 .btn-resolver { width:100%; background:#22c55e; color:#111; border:none; border-radius:10px; padding:11px 18px; font-weight:900; font-size:.92rem; cursor:pointer; margin-top:4px; }
 .btn-resolver:hover { background:#16a34a; }
 .btn-resolver:disabled { opacity:.5; cursor:default; }
+
+/* reembolso / cancelar pedido */
+.btn-refund { width:100%; background:#f87171; color:#111; border:none; border-radius:10px; padding:11px 18px; font-weight:900; font-size:.92rem; cursor:pointer; margin-top:4px; }
+.btn-refund:hover { background:#ef4444; }
+.refund-ok { background:#0d2d1a; border:1px solid #22c55e55; border-radius:8px; padding:10px 12px; font-size:.82rem; color:#22c55e; }
+.btn-cancelar-pedido { width:100%; background:transparent; border:1.5px solid #f87171; color:#f87171; border-radius:10px; padding:10px 16px; font-weight:800; font-size:.86rem; cursor:pointer; margin-top:8px; }
+.btn-cancelar-pedido:hover { background:#2a0810; }
 </style>
 {% endblock %}
 
@@ -165,7 +172,27 @@
       {% endif %}
     </div>
 
-    {# Ação: marcar como resolvido #}
+    {# Reembolso — acao independente, nao precisa abrir uma pendencia separada #}
+    <div class="side-card">
+      <div class="side-title" style="color:#f87171"><i class="fa fa-hand-holding-dollar"></i>Reembolso</div>
+      {% if rec.reembolsado_em %}
+        <div class="refund-ok">
+          <i class="fa fa-circle-check me-1"></i>{{ money(rec.valor_reembolsado) }} reembolsado em {{ rec.reembolsado_em.strftime('%d/%m/%Y %H:%M') }}
+        </div>
+      {% elif pedido and pedido.mp_payment_id and pedido.pagamento_status != 'refunded' %}
+        <p style="font-size:.82rem;color:var(--pk-muted);line-height:1.5;margin-bottom:10px">
+          Devolve o valor total pago pelo cliente via Mercado Pago. Ação irreversível.
+        </p>
+        <form method="post" action="{{ url_for('painel_reclamacao_refund', reclamacao_id=rec.id) }}"
+              onsubmit="return confirm('Reembolsar {{ money(pedido.total) }} para o cliente via Mercado Pago? Esta ação não pode ser desfeita.')">
+          <button class="btn-refund" type="submit"><i class="fa fa-hand-holding-dollar me-1"></i>Reembolsar {{ money(pedido.total) }}</button>
+        </form>
+      {% else %}
+        <div style="font-size:.82rem;color:var(--pk-muted)">Sem pagamento Mercado Pago identificado para reembolso automático.</div>
+      {% endif %}
+    </div>
+
+    {# Ação: marcar como resolvido / cancelar pedido #}
     {% if status in ('aberta', 'em_andamento') %}
     <div class="side-card">
       <div class="side-title"><i class="fa fa-circle-check"></i>Resolver reclamação</div>
@@ -177,6 +204,12 @@
           <i class="fa fa-check me-1"></i>Marcar como resolvida
         </button>
       </form>
+      {% if pedido and pedido.status not in ('cancelado', 'entregue') %}
+      <form method="post" action="{{ url_for('painel_reclamacao_cancelar_pedido', reclamacao_id=rec.id) }}"
+            onsubmit="return confirm('Cancelar este pedido? A reclamação será finalizada.')">
+        <button class="btn-cancelar-pedido" type="submit"><i class="fa fa-ban me-1"></i>Cancelar pedido</button>
+      </form>
+      {% endif %}
     </div>
     {% endif %}
 
