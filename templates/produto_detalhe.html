@@ -582,7 +582,7 @@
           <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
           {% endif %}
           {% if promo_qtd %}
-          <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;box-sizing:border-box;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
             <i class="fa fa-layer-group"></i>{{ 'Assine e pague' if promo_qtd.so_assinantes else 'Compre e pague' }}
             R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }} cada, a partir de {{ promo_qtd.qtd_minima }} unidades
           </div>
