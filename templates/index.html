@@ -1166,7 +1166,7 @@ function cardHtml(p, idx) {
     ? `<span class="prod-dist"><i class="fa fa-route me-1"></i>${p.distancia_km} km</span>`
     : '';
   const entregaBadge = p.entrega_disponivel
-    ? `<span class="prod-dist"><i class="fa fa-motorcycle me-1"></i>${p.requer_receita ? 'Entrega com receita digital' : (p.valor_frete ? 'Entrega ' + brl(p.valor_frete) : 'Entrega grátis')}</span>`
+    ? `<span class="prod-dist"><i class="fa fa-motorcycle me-1"></i>${p.requer_receita ? 'Entrega com receita digital' : (p.valor_frete ? 'Entrega disponível' : 'Entrega grátis')}</span>`
     : '';
   return `
     <div class="prod-card" onclick="location.href='${prodUrl}'" style="cursor:pointer">
