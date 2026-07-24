@@ -113,7 +113,7 @@ CONTENT = [
     p("Dados técnicos exibidos no painel", "Heading2"),
     bullet("APP ID: identifica a aplicação Mercado Livre usada pelo Poupaqui."),
     bullet("Webhook URL: endpoint que recebe notificações de pedidos do Mercado Livre. No código é /ml/webhook."),
-    bullet("Callback URL: endereço para onde o Mercado Livre retorna depois da autorização. No código atual aparece https://ecommerce-2-rosy.vercel.app/ml/callback."),
+    bullet("Callback URL: endereço para onde o Mercado Livre retorna depois da autorização. No código atual aparece https://www.drogariaspoupaqui.com.br/ml/callback."),
     p("Parte 3 - Mercado Envios", "Heading1"),
     p("O que é necessário ativar no Mercado Livre", "Heading2"),
     numbered("Entre na conta vendedora do Mercado Livre."),

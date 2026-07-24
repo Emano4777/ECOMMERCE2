@@ -4,7 +4,7 @@ Captura screenshots automáticos do Poupaqui Ecommerce para a proposta comercial
 import os, time
 from playwright.sync_api import sync_playwright
 
-BASE = "https://ecommerce-2-rosy.vercel.app"
+BASE = "https://www.drogariaspoupaqui.com.br"
 OUT  = r"c:\Users\emano\dns-ecommerce\screenshots"
 os.makedirs(OUT, exist_ok=True)
 

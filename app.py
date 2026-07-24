@@ -81,7 +81,7 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 # ─── MERCADO LIVRE ─────────────────────────────────────────────────────────────
 ML_APP_ID    = os.getenv("ML_APP_ID", "")
 ML_SECRET    = os.getenv("ML_CLIENT_SECRET", "")
-ML_REDIRECT  = os.getenv("ML_REDIRECT_URI", "https://ecommerce-2-rosy.vercel.app/ml/callback")
+ML_REDIRECT  = os.getenv("ML_REDIRECT_URI", "https://www.drogariaspoupaqui.com.br/ml/callback")
 ML_AUTH_URL  = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 ML_API_BASE  = "https://api.mercadolibre.com"
@@ -1079,7 +1079,7 @@ def _wa_notif_pedido_loja(pedido_id: str, msg: str):
 
 
 def _wa_base_url():
-    return os.getenv('PUBLIC_BASE_URL', 'https://ecommerce-2-rosy.vercel.app').rstrip('/')
+    return os.getenv('PUBLIC_BASE_URL', 'https://www.drogariaspoupaqui.com.br').rstrip('/')
 
 
 # ─── FIM WA SENDER ───────────────────────────────────────────────────────────
