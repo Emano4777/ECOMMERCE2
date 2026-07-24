@@ -1726,12 +1726,29 @@ function formatLocResult(d) {
     return { title: d.display_name || d.name || 'Endereço informado', sub: cep ? `CEP ${cep}` : 'Endereço padronizado', label: d.display_name || d.name || 'Endereço informado' };
   }
   const cidade = a.city || a.town || a.village || a.municipality || a.county || '';
-  const uf = (a.state_code || '').replace('BR-', '') || '';
+  // Nominatim (sem Google Maps) nao manda "state_code" — so o campo sintetico
+  // que o proprio fetchLocalizacao cria quando usa a API do Google. Pro
+  // resultado puro do Nominatim, o estado vem em "ISO3166-2-lvl4" (ex.:
+  // "BR-SP") ou em "state" (nome completo, ex.: "São Paulo"). Sem isso, dois
+  // lugares com o mesmo nome de cidade em estados diferentes (ex.: "São
+  // Pedro" existe em varios estados) ficavam impossiveis de distinguir.
+  const ufRaw = a.state_code || a['ISO3166-2-lvl4'] || a.state || '';
+  const uf = ufRaw.replace(/^BR-/, '');
   const bairro = a.suburb || a.neighbourhood || a.city_district || '';
   const rua = a.road || a.pedestrian || a.footway || '';
   const numero = a.house_number || '';
   const cep = a.postcode || '';
-  const title = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade].filter(Boolean).slice(0, 3).join(' - ') || cidade || d.name || 'Local encontrado';
+  const enderecoParts = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade].filter(Boolean);
+  let title;
+  if (enderecoParts.length) {
+    title = enderecoParts.slice(0, 3).join(' - ');
+    // Resultado a nivel de bairro/cidade (sem rua) — nome de cidade/bairro se
+    // repete em varios estados, entao o estado entra direto no titulo (em
+    // negrito) pra nao passar despercebido, em vez de só no texto pequeno.
+    if (!rua && uf) title += ` - ${uf}`;
+  } else {
+    title = d.name || 'Local encontrado';
+  }
   const sub = [cidade, uf, cep, a.country].filter(Boolean).join(' - ');
   return { title, sub, label: [title, sub].filter(Boolean).join(' - ') };
 }
