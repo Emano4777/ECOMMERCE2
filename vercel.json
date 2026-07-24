@@ -19,6 +19,6 @@
   "env": {
     "RESEND_FROM": "Poupaqui <noreply@drogariaspoupaqui.com.br>",
     "RATE_LIMIT_PUBLIC_API": "60",
-    "PUBLIC_BASE_URL": "https://ecommerce-2-rosy.vercel.app"
+    "PUBLIC_BASE_URL": "https://www.drogariaspoupaqui.com.br"
   }
 }
