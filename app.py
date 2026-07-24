@@ -136,6 +136,18 @@ RESEND_FROM    = os.getenv("RESEND_FROM", "Poupaqui <noreply@drogariaspoupaqui.c
 WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "")
 
 
+def _anthropic_api_key():
+    """Le e limpa a ANTHROPIC_API_KEY. Necessario porque a variavel configurada
+    no Vercel tem um BOM (\\ufeff) na frente — .strip() sozinho nao remove
+    esse caractere (nao conta como espaco em branco pro Python), e ele
+    quebra QUALQUER chamada HTTP que usa a chave num header
+    ("'latin-1' codec can't encode character '\\ufeff'..."), fazendo toda
+    chamada a API da Anthropic falhar silenciosamente (cai no except e
+    retorna None). Toda chamada a API da Anthropic deve ler a chave por
+    aqui, nunca direto via os.getenv."""
+    return os.getenv("ANTHROPIC_API_KEY", "").strip().lstrip("﻿").strip()
+
+
 def _send_email(to: str, subject: str, html_body: str) -> bool:
     """Envia e-mail via Resend API. Retorna True se enviou, False se falhou/não configurado."""
     if not RESEND_API_KEY or not to or "@" not in to:
@@ -4089,7 +4101,7 @@ def _claude_busca_interpret(query):
     Checa cache antes de chamar a API e salva resultado após chamada bem-sucedida.
     Retorna dict {principios_ativos, nomes_tecnicos, categorias, termos_busca} ou None.
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = _anthropic_api_key()
     if not api_key:
         return None
     query_norm = _norm_query_cache(query)
@@ -9774,7 +9786,7 @@ def api_home_insights():
             app.logger.warning(f"para_voce: {e}")
 
         try:
-            api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            api_key = _anthropic_api_key()
             if api_key and resultado["para_voce"]:
                 nomes = [p.get("nome", "") for p in resultado["para_voce"][:6] if p.get("nome")]
                 _cs = _cross_sell_ia(consumidor_id, nomes, conn, api_key, cnpjs_proximos)
@@ -9787,7 +9799,7 @@ def api_home_insights():
             app.logger.warning(f"cross_sell: {e}")
 
         try:
-            api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            api_key = _anthropic_api_key()
             if api_key:
                 nome_consumidor = session.get("consumidor_nome", "")
                 nomes_hist = [p.get("nome", "") for p in (resultado["para_voce"] or [])[:5] if p.get("nome")]
@@ -11162,7 +11174,7 @@ def api_recomendacoes():
 
 def _claude_haiku(prompt: str, max_tokens: int = 300, timeout: int = 5) -> str | None:
     """Chama Claude Haiku e retorna o texto da resposta ou None em caso de erro."""
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = _anthropic_api_key()
     if not api_key:
         return None
     payload = json.dumps({
@@ -12049,7 +12061,7 @@ def produto_detalhe(ean):
     # (funciona mesmo para OTC/suplementos sem entrada ANVISA)
     if _chave_anvisa:
         try:
-            _api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            _api_key = _anthropic_api_key()
             if _api_key:
                 _ia_desc = _enriquecer_descricao_ia(
                     _chave_anvisa, nome_busca,
@@ -12235,7 +12247,7 @@ _MED_DOSAGE_RE = re.compile(
 
 
 def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = _anthropic_api_key()
     if not api_key:
         return None
     prompt = (
@@ -12274,7 +12286,7 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
 def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
     """Identifica medicamento a partir de foto de embalagem. Retorna dict com
     nome/laboratorio/dosagem/ean, ou {"erro":"imagem_invalida"}, ou None se falhar."""
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = _anthropic_api_key()
     if not api_key:
         return None
     prompt = (
@@ -12423,7 +12435,7 @@ def api_receita_analisar():
         meds = _parse_receita_text(texto)
         return jsonify({"ok": True, "medicamentos": meds, "metodo": "ocr"})
 
-    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    has_anthropic = bool(_anthropic_api_key())
     has_ocr       = bool(_ocr_space_api_key())
     if not has_anthropic and not has_ocr:
         return jsonify({
@@ -17762,7 +17774,7 @@ def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
 def _claude_suporte_responder(pergunta, pedido_ctx=None):
     """Chama Claude Haiku pra responder uma pergunta de suporte. Retorna o
     texto da resposta ou None em qualquer falha (sem API key, timeout, erro)."""
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = _anthropic_api_key()
     if not api_key:
         return None
     user_msg = pergunta.strip()[:2000]
@@ -19923,7 +19935,7 @@ def api_cron_produto_descricao_ia():
     """Preenche cache de descricoes IA para EANs ativos do catalogo, em lotes pequenos."""
     if not _cron_authorized():
         return jsonify({"ok": False, "erro": "unauthorized"}), 401
-    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+    if not _anthropic_api_key():
         return jsonify({"ok": False, "erro": "ANTHROPIC_API_KEY_nao_configurada"}), 503
 
     try:
