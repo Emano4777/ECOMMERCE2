@@ -632,6 +632,17 @@
         <div style="font-weight:800;font-size:.9rem;color:#111827">Retirada na loja — {{ pedido.razao }}</div>
         {% if pedido.loja_endereco %}
         <div style="font-size:.78rem;color:var(--pq-muted);margin-top:4px">{{ pedido.loja_endereco }}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button type="button"
+            onclick="navigator.clipboard.writeText({{ pedido.loja_endereco | tojson }}).then(()=>{this.innerHTML='<i class=\'fa fa-check me-1\'></i>Copiado!';}).catch(()=>alert('Não foi possível copiar.'))"
+            style="border:1px solid #ddd;border-radius:6px;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;background:#fff;font-family:inherit">
+            <i class="fa fa-copy me-1"></i>Copiar endereço
+          </button>
+          <a href="https://www.google.com/maps/search/?api=1&query={{ pedido.loja_endereco | urlencode }}" target="_blank" rel="noopener"
+             style="border:1px solid #ddd;border-radius:6px;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;background:#fff;font-family:inherit;text-decoration:none;color:#111827;display:inline-flex;align-items:center">
+            <i class="fa fa-map-location-dot me-1"></i>Como chegar
+          </a>
+        </div>
         {% endif %}
       </div>
       {% endif %}

@@ -134,7 +134,21 @@
     <div class="lbl">Recebimento</div>
     <div class="val">{{ 'Entrega' if pedido.tipo_entrega == 'entrega' else 'Retirada na loja' }}</div>
     {% if pedido.tipo_entrega == 'entrega' %}
-      {% if pedido.endereco_entrega %}<div style="font-size:.8rem;color:var(--pk-muted);margin-top:4px">{{ pedido.endereco_entrega }}</div>{% endif %}
+      {% if pedido.endereco_entrega %}
+      <div style="font-size:.8rem;color:var(--pk-muted);margin-top:4px">{{ pedido.endereco_entrega }}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <button type="button"
+          onclick="navigator.clipboard.writeText({{ pedido.endereco_entrega | tojson }}).then(()=>{this.innerHTML='<i class=\'fa fa-check me-1\'></i>Copiado!';}).catch(()=>alert('Não foi possível copiar.'))"
+          style="border:1px solid var(--pk-line);background:transparent;color:var(--pk-muted);border-radius:6px;padding:5px 10px;font-size:.74rem;font-weight:700;cursor:pointer;font-family:inherit">
+          <i class="fa fa-copy me-1"></i>Copiar endereço
+        </button>
+        <a href="https://www.google.com/maps/search/?api=1&query={% if pedido.entrega_lat is not none and pedido.entrega_lng is not none %}{{ pedido.entrega_lat }}%2C{{ pedido.entrega_lng }}{% else %}{{ pedido.endereco_entrega | urlencode }}{% endif %}"
+           target="_blank" rel="noopener"
+           style="border:1px solid var(--pk-line);background:transparent;color:var(--pk-muted);border-radius:6px;padding:5px 10px;font-size:.74rem;font-weight:700;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center">
+          <i class="fa fa-diamond-turn-right me-1"></i>Abrir no Google Maps
+        </a>
+      </div>
+      {% endif %}
       {% if pedido.entrega_distancia_km is not none %}<div style="font-size:.8rem;color:var(--pk-muted)">Distância: {{ pedido.entrega_distancia_km }} km</div>{% endif %}
       {% if pedido.data_entrega_agendada %}
       <div style="font-size:.8rem;color:#60a5fa;font-weight:800;margin-top:6px;display:flex;align-items:center;gap:6px">

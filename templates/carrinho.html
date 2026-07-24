@@ -183,7 +183,7 @@
 .pickup-card span { display:block;font-size:.73rem;color:#64748b;line-height:1.4;margin-top:2px;overflow-wrap:anywhere; }
 .pickup-tip { margin-top:8px;display:flex;gap:7px;align-items:flex-start;color:#64748b;font-size:.72rem;line-height:1.4; }
 .address-choice-card { position:relative; }
-.address-choice-icon { width:24px;height:24px;border-radius:7px;background:#f8fafc;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.78rem; }
+.address-choice-icon { width:24px;height:24px;border-radius:7px;background:#f8fafc;color:#64748b;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.78rem; }
 .address-choice label.selected .address-choice-icon { background:#ffe4e8;color:var(--pq-red); }
 
 /* SUBTOTAL */
@@ -597,24 +597,28 @@ function addressChoiceHtml(cnpj) {
   const savedCards = _enderecosSalvos.map(x => {
     const mode = `saved:${x.id}`;
     const active = DELIVERY_ADDRESS_MODE === mode;
-    const icons = {casa:'🏠', trabalho:'💼', outro:'📍'};
+    // Mesmo icone/estilo (FontAwesome, nao emoji) usado na lista "Meus
+    // enderecos" do base_public.html — emoji nao respeita a cor definida
+    // em CSS (.selected .address-choice-icon), entao ficava com estilo
+    // visualmente diferente/destoante do resto do site quando selecionado.
+    const icons = {casa:'fa-house', trabalho:'fa-briefcase', outro:'fa-location-dot'};
     const label = x.tipo ? x.tipo.charAt(0).toUpperCase() + x.tipo.slice(1) : 'Outro';
     return `<label class="address-choice-card ${active ? 'selected' : ''}">
       <input type="radio" name="addr-${esc(cnpj)}" value="${esc(mode)}" ${active ? 'checked' : ''} onchange="setDeliveryAddressMode('${esc(mode)}')">
-      <span class="address-choice-icon">${icons[x.tipo] || icons.outro}</span>
+      <span class="address-choice-icon"><i class="fa ${icons[x.tipo] || icons.outro}"></i></span>
       <div style="min-width:0"><strong>${esc(label)}</strong><span>${esc(shortAddr(x.endereco))}</span></div>
     </label>`;
   }).join('');
   const profileCard = !_enderecosSalvos.length && profile.label ? `<label class="address-choice-card ${activeMode === 'profile' ? 'selected' : ''}">
       <input type="radio" name="addr-${esc(cnpj)}" value="profile" ${activeMode === 'profile' ? 'checked' : ''} onchange="setDeliveryAddressMode('profile')">
-      <span class="address-choice-icon">🏠</span>
+      <span class="address-choice-icon"><i class="fa fa-house"></i></span>
       <div style="min-width:0"><strong>Endereço do cadastro</strong><span>${esc(shortAddr(profile.label))}</span></div>
     </label>` : '';
   return `<div class="address-choice" role="radiogroup" aria-label="Endereço de entrega">
     ${savedCards}${profileCard}
     <label class="address-choice-card ${activeMode === 'current' ? 'selected' : ''}">
       <input type="radio" name="addr-${esc(cnpj)}" value="current" ${activeMode === 'current' ? 'checked' : ''} ${current.label ? '' : 'disabled'} onchange="setDeliveryAddressMode('current')">
-      <span class="address-choice-icon">📍</span>
+      <span class="address-choice-icon"><i class="fa fa-location-dot"></i></span>
       <div style="min-width:0"><strong>Localização atual</strong><span>${esc(shortAddr(current.label))}</span></div>
     </label>
   </div>`;
