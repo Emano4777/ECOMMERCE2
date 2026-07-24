@@ -581,6 +581,12 @@
           <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
           <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
           {% endif %}
+          {% if promo_qtd %}
+          <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
+            <i class="fa fa-layer-group"></i>{{ 'Assine e pague' if promo_qtd.so_assinantes else 'Compre e pague' }}
+            R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }} cada, a partir de {{ promo_qtd.qtd_minima }} unidades
+          </div>
+          {% endif %}
           <div id="pd-cupom-block" style="display:none;margin-top:8px">
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
               <span id="pd-preco-cupom" style="font-size:1.6rem;font-weight:900;color:#16a34a"></span>

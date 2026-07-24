@@ -1042,11 +1042,16 @@ function renderCart() {
       const imgTag = item.imagem
         ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
         : `<div class="cart-item-img-ph"><i class="fa fa-pills"></i></div>`;
+      const pq = item.promo_qtd;
+      const pqHtml = pq
+        ? `<div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-layer-group"></i>${pq.so_assinantes ? 'Assine e pague' : 'Compre e pague'} ${brl(pq.preco_unit_promo)} cada a partir de ${pq.qtd_minima} un.</div>`
+        : '';
       return `<div class="cart-item">
         ${imgTag}
         <div class="cart-item-info">
           <div class="cart-item-nome">${esc(item.nome)}</div>
           <div class="cart-item-preco">${precoHtml}</div>
+          ${pqHtml}
         </div>
         <div class="cart-item-right">
           <div class="qty-ctrl">

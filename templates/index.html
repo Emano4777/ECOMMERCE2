@@ -1253,6 +1253,16 @@ function cardHtml(p, idx) {
         return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span style="white-space:nowrap">${brl(precoPor)}</span></div>`;
       })()}
       ${(() => {
+        const pq = p.promo_qtd;
+        const slot = "min-height:26px;box-sizing:border-box;padding:5px 12px";
+        if (!pq) return `<div aria-hidden="true" style="${slot};font-size:.64rem;visibility:hidden">-</div>`;
+        const rotulo = pq.so_assinantes ? 'Assine e pague' : 'Compre e pague';
+        return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #ffd0d8;background:#fff5f6;font-size:.66rem;color:var(--pq-red);font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap">
+          <span style="display:flex;align-items:center;gap:4px"><i class="fa fa-layer-group" style="font-size:.56rem"></i>${rotulo} ${brl(pq.preco_unit_promo)} cada</span>
+          <span style="white-space:nowrap;opacity:.85">a partir de ${pq.qtd_minima} un.</span>
+        </div>`;
+      })()}
+      ${(() => {
         const plano = _planosIndex[p.cnpjloja];
         const slot = "min-height:38px;box-sizing:border-box;padding:6px 12px";
         if (!plano) return `<div aria-hidden="true" style="${slot};font-size:.64rem;visibility:hidden">-</div>`;

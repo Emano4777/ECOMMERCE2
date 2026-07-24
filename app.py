@@ -3696,6 +3696,127 @@ def _attach_product_promos(produtos):
         pass
 
 
+def _promo_quantidade_info(ean, cnpjloja, preco_atual):
+    """Retorna a melhor promo de 'desconto automatico por quantidade'
+    (ecommerce_cupons, tipo_regra='quantidade') vigente pra esse EAN+loja,
+    pra exibir como teaser/incentivo pra QUALQUER visitante — inclusive
+    quem nao e assinante e quem nao esta logado. Nunca aplica desconto
+    aqui, so calcula quanto SERIA cobrado por unidade a partir da
+    quantidade minima, pra mostrar como chamada "assine e pague X".
+    Retorna None se nao houver promo aplicavel."""
+    if not ean or not cnpjloja or not preco_atual:
+        return None
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT c.desconto_tipo, c.desconto_valor, c.qtd_minima, c.so_assinantes,
+                   c.escopo, COALESCE(c.escopo_eans, '') AS escopo_eans
+            FROM ecommerce_cupons c
+            JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
+            WHERE c.ativo = TRUE
+              AND COALESCE(c.tipo_regra, 'codigo') = 'quantidade'
+              AND COALESCE(c.qtd_minima, 0) > 0
+              AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+            """,
+            (cnpjloja,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        ean_d = _digits(ean)
+        melhor = None
+        for r in rows:
+            escopo = r.get("escopo") or "todos"
+            if escopo == "produto":
+                eans_escopo = {_digits(x) for x in re.split(r"[,\s]+", r["escopo_eans"]) if x.strip()}
+                if ean_d not in eans_escopo:
+                    continue
+            elif escopo == "categoria":
+                continue  # teaser por categoria fica fora do escopo por ora
+            qtd_minima = int(r["qtd_minima"] or 0)
+            if r["desconto_tipo"] == "pct":
+                preco_unit_promo = round(preco_atual * (1 - float(r["desconto_valor"]) / 100), 2)
+            else:
+                preco_unit_promo = round(preco_atual - (float(r["desconto_valor"]) / qtd_minima), 2)
+            if preco_unit_promo <= 0 or preco_unit_promo >= preco_atual:
+                continue
+            if melhor is None or preco_unit_promo < melhor["preco_unit_promo"]:
+                melhor = {
+                    "qtd_minima": qtd_minima,
+                    "preco_unit_promo": preco_unit_promo,
+                    "so_assinantes": bool(r["so_assinantes"]),
+                }
+        return melhor
+    except Exception:
+        return None
+
+
+def _attach_quantidade_promos(produtos):
+    """Versao em lote de _promo_quantidade_info pra listas de produtos
+    (catalogo/carrinho) — evita 1 query por produto. Anexa 'promo_qtd' em
+    cada item (None se nao houver promo aplicavel)."""
+    if not produtos:
+        return
+    try:
+        cnpjs = sorted({_digits(p.get("cnpjloja")) for p in produtos if _digits(p.get("cnpjloja"))})
+        if not cnpjs:
+            return
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT cl.cnpjloja, c.desconto_tipo, c.desconto_valor, c.qtd_minima, c.so_assinantes,
+                   c.escopo, COALESCE(c.escopo_eans, '') AS escopo_eans
+            FROM ecommerce_cupons c
+            JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id
+            WHERE c.ativo = TRUE
+              AND COALESCE(c.tipo_regra, 'codigo') = 'quantidade'
+              AND COALESCE(c.qtd_minima, 0) > 0
+              AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+              AND regexp_replace(COALESCE(cl.cnpjloja,''), '\\D', '', 'g') = ANY(%s)
+            """,
+            (cnpjs,),
+        )
+        regras = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        if not regras:
+            return
+        por_loja = {}
+        for r in regras:
+            por_loja.setdefault(_digits(r["cnpjloja"]), []).append(r)
+        for p in produtos:
+            cnpj_key = _digits(p.get("cnpjloja"))
+            preco_atual = float(p.get("preco") or 0)
+            if not cnpj_key or preco_atual <= 0:
+                continue
+            ean_d = _digits(p.get("ean"))
+            melhor = None
+            for r in por_loja.get(cnpj_key, []):
+                escopo = r.get("escopo") or "todos"
+                if escopo == "produto":
+                    eans_escopo = {_digits(x) for x in re.split(r"[,\s]+", r["escopo_eans"]) if x.strip()}
+                    if ean_d not in eans_escopo:
+                        continue
+                elif escopo == "categoria":
+                    continue
+                qtd_minima = int(r["qtd_minima"] or 0)
+                if r["desconto_tipo"] == "pct":
+                    preco_unit_promo = round(preco_atual * (1 - float(r["desconto_valor"]) / 100), 2)
+                else:
+                    preco_unit_promo = round(preco_atual - (float(r["desconto_valor"]) / qtd_minima), 2)
+                if preco_unit_promo <= 0 or preco_unit_promo >= preco_atual:
+                    continue
+                if melhor is None or preco_unit_promo < melhor["preco_unit_promo"]:
+                    melhor = {
+                        "qtd_minima": qtd_minima,
+                        "preco_unit_promo": preco_unit_promo,
+                        "so_assinantes": bool(r["so_assinantes"]),
+                    }
+            if melhor:
+                p["promo_qtd"] = melhor
+    except Exception:
+        pass
+
+
 def _assinante_ativo(cnpjloja: str, consumidor_id: str | None = None) -> bool:
     consumidor_id = str(consumidor_id or session.get("consumidor_id") or "")
     if not consumidor_id or not cnpjloja:
@@ -8651,6 +8772,7 @@ def _api_produtos_proximos_impl():
     produtos_view = _dedupe_products_for_display(produtos_view)
     _attach_product_symptoms(produtos_view)
     _attach_product_promos(produtos_view)
+    _attach_quantidade_promos(produtos_view)
 
     if busca_q:
         if is_nl and not ia_filter_terms:
@@ -12223,6 +12345,10 @@ def produto_detalhe(ean):
         except Exception:
             status_entrega = None
 
+    promo_qtd = None
+    if loja and loja.get("cnpjloja") and produto and produto.get("preco"):
+        promo_qtd = _promo_quantidade_info(ean, loja["cnpjloja"], float(produto["preco"]))
+
     return render_template(
         "produto_detalhe.html",
         ean=ean, nome=nome, imagem=imagem,
@@ -12240,6 +12366,7 @@ def produto_detalhe(ean):
         ja_assina=ja_assina,
         assinatura_pendente=assinatura_pendente,
         status_entrega=status_entrega,
+        promo_qtd=promo_qtd,
     )
 
 
@@ -12954,6 +13081,7 @@ def api_carrinho_get():
             "receita_retida": requer_receita,
         })
     cur.close()
+    _attach_quantidade_promos(items)
     return jsonify({"items": items})
 
 
@@ -12980,6 +13108,7 @@ def api_carrinho_recalcular():
         else:
             novo.pop("promo", None)
         items.append(novo)
+    _attach_quantidade_promos(items)
     return jsonify({"items": items})
 
 
