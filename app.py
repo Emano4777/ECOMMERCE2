@@ -22389,15 +22389,21 @@ def admin_anvisa_debug():
 def admin_anvisa_cache():
     _anvisa_schema()
     filtro = (request.args.get("f") or "todos").strip()
+    q = (request.args.get("q") or "").strip()
     conn = db()
     cur  = conn.cursor()
 
+    where = []
+    params = []
     if filtro == "encontrado":
-        cur.execute("SELECT * FROM anvisa_cache WHERE encontrado=TRUE ORDER BY criado_em DESC LIMIT 500")
+        where.append("encontrado=TRUE")
     elif filtro == "nao_encontrado":
-        cur.execute("SELECT * FROM anvisa_cache WHERE encontrado=FALSE ORDER BY criado_em DESC LIMIT 500")
-    else:
-        cur.execute("SELECT * FROM anvisa_cache ORDER BY criado_em DESC LIMIT 500")
+        where.append("encontrado=FALSE")
+    if q:
+        where.append("(chave ILIKE %s OR nome_anvisa ILIKE %s)")
+        params += [f"%{q}%", f"%{q}%"]
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    cur.execute(f"SELECT * FROM anvisa_cache {where_sql} ORDER BY criado_em DESC LIMIT 500", params)
 
     rows = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT COUNT(*) AS t, SUM(CASE WHEN encontrado THEN 1 ELSE 0 END) AS ok FROM anvisa_cache")
@@ -22405,10 +22411,39 @@ def admin_anvisa_cache():
     cur.close()
 
     return render_template("admin_anvisa.html",
-        rows=rows, filtro=filtro,
+        rows=rows, filtro=filtro, q=q,
         total=stats["t"] or 0,
         total_ok=stats["ok"] or 0,
     )
+
+
+@app.post("/painel/admin/anvisa/<int:cache_id>/corrigir")
+@admin_required
+def admin_anvisa_corrigir(cache_id):
+    """Correcao manual de tarja/exibicao de imagem — a IA (_enriquecer_descricao_ia)
+    e a comparacao por familia (produto_detalhe) respeitam override_manual=TRUE e
+    nunca sobrescrevem essa escolha depois (ver _detectar_tarja / linha ~12199)."""
+    _anvisa_schema()
+    tarja = (request.form.get("tarja") or "").strip().lower()
+    if tarja not in ("sem_tarja", "vermelha", "preta"):
+        flash("Selecione uma classificação de tarja válida.", "error")
+        return redirect(request.referrer or url_for("admin_anvisa_cache"))
+    exibir_opt = (request.form.get("exibir_imagem") or "auto").strip().lower()
+    exibir_val = {"sim": True, "nao": False}.get(exibir_opt)  # None = automático (segue a tarja)
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE anvisa_cache
+           SET tarja_ia=%s, tarja_ia_confianca='manual', override_manual=TRUE,
+               exibir_imagem_publica=%s
+           WHERE id=%s""",
+        (tarja, exibir_val, cache_id),
+    )
+    conn.commit()
+    cur.close()
+    flash("Classificação corrigida manualmente.", "success")
+    return redirect(request.referrer or url_for("admin_anvisa_cache"))
 
 
 # ─── PRODUTO CANON ────────────────────────────────────────────────────────────

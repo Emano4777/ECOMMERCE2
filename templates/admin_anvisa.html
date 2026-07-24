@@ -27,6 +27,32 @@
   color:var(--pk-muted); font-size:.75rem; line-height:1.4;
   max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+.av-search { display:flex; gap:8px; margin-bottom:14px; max-width:360px; }
+.av-search input {
+  flex:1; padding:8px 12px; border-radius:8px; border:1px solid var(--pk-line);
+  background:#0d1016; color:#fff; font:inherit; font-size:.82rem;
+}
+.av-search button {
+  padding:8px 14px; border-radius:8px; border:none; background:var(--pk-yellow);
+  color:#111; font-weight:800; font-size:.82rem; cursor:pointer;
+}
+.badge-manual { background:#1a1030; color:#c084fc; padding:2px 8px; border-radius:10px; font-size:.72rem; font-weight:700; white-space:nowrap; }
+.av-corrigir-btn {
+  border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted);
+  border-radius:6px; padding:3px 9px; font-size:.72rem; font-weight:700; cursor:pointer; font-family:inherit;
+}
+.av-corrigir-btn:hover { background:#1e1a08; color:var(--pk-yellow); border-color:var(--pk-yellow); }
+.av-corrigir-form {
+  display:none; margin-top:8px; padding:10px; background:#0d1016; border:1px solid var(--pk-line);
+  border-radius:8px; gap:8px; flex-direction:column; min-width:220px;
+}
+.av-corrigir-form.show { display:flex; }
+.av-corrigir-form select {
+  width:100%; padding:6px 8px; border-radius:6px; border:1px solid var(--pk-line);
+  background:#14181f; color:#fff; font:inherit; font-size:.78rem;
+}
+.av-corrigir-form label { font-size:.7rem; color:var(--pk-muted); text-transform:uppercase; font-weight:700; }
+.av-corrigir-form button { margin-top:2px; padding:6px 10px; border:none; border-radius:6px; background:var(--pk-yellow); color:#111; font-weight:800; font-size:.78rem; cursor:pointer; }
 </style>
 {% endblock %}
 
@@ -67,6 +93,12 @@
   </a>
 </div>
 
+<form class="av-search" method="get">
+  <input type="hidden" name="f" value="{{ filtro }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="Buscar por chave ou nome ANVISA...">
+  <button type="submit"><i class="fa fa-magnifying-glass"></i></button>
+</form>
+
 {% if rows %}
 <div class="pk-card" style="padding:0;overflow:hidden">
   <table class="av-table">
@@ -76,6 +108,7 @@
         <th>Nome ANVISA</th>
         <th>Laboratório</th>
         <th>Status</th>
+        <th>Tarja</th>
         <th style="text-align:center">Para que serve</th>
         <th style="text-align:center">Como usar</th>
         <th style="text-align:center">Alertas</th>
@@ -108,6 +141,48 @@
           {% else %}
             <span class="badge-fail">{{ r.situacao or 'Inativo' }}</span>
           {% endif %}
+        </td>
+        <td style="min-width:190px">
+          {% set tarja_efetiva = r.tarja_ia or r.tarja %}
+          {% if tarja_efetiva == 'vermelha' %}
+            <span class="badge-fail">Vermelha</span>
+          {% elif tarja_efetiva == 'preta' %}
+            <span class="badge-fail">Preta</span>
+          {% elif tarja_efetiva == 'sem_tarja' %}
+            <span class="badge-ok">Sem tarja (OTC)</span>
+          {% else %}
+            <span class="badge-no">Não classificado</span>
+          {% endif %}
+          {% if r.override_manual %}
+            <span class="badge-manual" title="Corrigido manualmente — a IA não sobrescreve mais">
+              <i class="fa fa-user-pen"></i> manual
+            </span>
+          {% endif %}
+          <div style="margin-top:5px">
+            <button type="button" class="av-corrigir-btn" onclick="document.getElementById('av-form-{{ r.id }}').classList.toggle('show')">
+              <i class="fa fa-pen me-1"></i>Corrigir
+            </button>
+          </div>
+          <form id="av-form-{{ r.id }}" class="av-corrigir-form"
+                method="post" action="{{ url_for('admin_anvisa_corrigir', cache_id=r.id) }}">
+            <div>
+              <label>Classificação correta</label>
+              <select name="tarja">
+                <option value="sem_tarja" {% if tarja_efetiva=='sem_tarja' %}selected{% endif %}>Sem tarja (venda livre)</option>
+                <option value="vermelha" {% if tarja_efetiva=='vermelha' %}selected{% endif %}>Tarja vermelha</option>
+                <option value="preta" {% if tarja_efetiva=='preta' %}selected{% endif %}>Tarja preta</option>
+              </select>
+            </div>
+            <div>
+              <label>Imagem real do produto</label>
+              <select name="exibir_imagem">
+                <option value="auto" {% if r.exibir_imagem_publica is none %}selected{% endif %}>Automático (segue a tarja)</option>
+                <option value="sim" {% if r.exibir_imagem_publica == true %}selected{% endif %}>Sempre mostrar</option>
+                <option value="nao" {% if r.exibir_imagem_publica == false %}selected{% endif %}>Sempre esconder (caixa genérica)</option>
+              </select>
+            </div>
+            <button type="submit">Salvar correção</button>
+          </form>
         </td>
         <td style="text-align:center">
           {% if r.serve_para %}
