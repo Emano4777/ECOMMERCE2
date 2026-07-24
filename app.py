@@ -230,6 +230,31 @@ def _enviar_email_verificacao(user_id: str, email: str) -> bool:
     return _send_email(email, "✉️ Confirme seu e-mail — Poupaqui", _email_html_wrapper("Confirme seu e-mail", corpo))
 
 
+def _notificar_admin_novo_consumidor(nome, email, telefone):
+    """Avisa o admin por e-mail sempre que uma conta de consumidor final e criada
+    — unico jeito hoje de saber que alguem de fora (nao o proprio admin testando)
+    comecou a usar o site, ja que o carrinho em si e so localStorage (nao da pra
+    rastrear item adicionado ao carrinho antes de criar conta/finalizar pedido)."""
+    if not RESEND_API_KEY or not ADMIN_SUPPORT_EMAIL:
+        return
+    try:
+        corpo = (
+            f"<p>Uma nova conta de cliente foi criada na Poupaqui.</p>"
+            f"<div class='info-box'>"
+            f"<strong>Nome:</strong> {html.escape(nome or '—')}<br>"
+            f"<strong>E-mail:</strong> {html.escape(email or '—')}<br>"
+            f"<strong>WhatsApp:</strong> {html.escape(telefone or '—')}"
+            f"</div>"
+        )
+        _send_email(
+            ADMIN_SUPPORT_EMAIL,
+            "👤 Nova conta de cliente criada — Poupaqui",
+            _email_html_wrapper("Novo cliente cadastrado", corpo),
+        )
+    except Exception as exc:
+        app.logger.warning("_notificar_admin_novo_consumidor error: %s", exc)
+
+
 # ─── RATE LIMITING (in-memory, best-effort) ───────────────────────────────────
 
 _rl_store: dict = {}
@@ -13349,6 +13374,7 @@ def consumidor_criar_conta_post():
         session.pop("google_signup", None)
     else:
         _enviar_email_verificacao(str(user["id"]), user["email"])
+    _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"])
     return redirect(next_url)
 
 
