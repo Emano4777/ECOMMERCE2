@@ -3413,6 +3413,22 @@ def _norm_text(value):
     return re.sub(r"\s+", " ", value).strip()
 
 
+_BUSCA_STOPWORDS = {
+    "de", "da", "do", "das", "dos", "com", "sem", "para", "pra", "por",
+    "uma", "um", "que", "nas", "nos", "nao", "the", "and",
+}
+
+
+def _termo_significativo(t):
+    """Palavra relevante o suficiente pra exigir no filtro AND da busca.
+    len>=4 sozinho excluia palavras curtas mas distintivas de marca (ex:
+    'sec' em 'baby sec'/'babysec'), fazendo 'baby sec' (separado) devolver
+    qualquer coisa com 'baby' sem checar 'sec' — 'babysec' (junto) batia
+    certo por ser um unico termo >=4. Ver len>=3 + stopwords em vez de so
+    len>=4."""
+    return len(t) >= 3 and t not in _BUSCA_STOPWORDS and not t.isdigit()
+
+
 def _termo_bate_aproximado(termo, hay):
     """Compara um termo de busca contra um texto tolerando abreviacao
     (ex: 'umedecido' bate com 'umed') e erro de digitacao/plural
@@ -6420,10 +6436,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         conn2.close()
     except Exception:
         pass
-    required_terms = [
-        t for t in re.split(r"\s+", q_norm)
-        if len(t) >= 4 and not t.isdigit()
-    ]
+    required_terms = [t for t in re.split(r"\s+", q_norm) if _termo_significativo(t)]
     if len(required_terms) >= 2:
         filtered_rows = []
         for r in rows:
@@ -8644,10 +8657,7 @@ def _api_produtos_proximos_impl():
                     _ft_patterns.append(re.compile(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])'))
                 else:
                     _ft_patterns.append(t)  # string → substring simples
-            _required_filter_terms = [
-                t for t in re.split(r"\s+", _norm_text(busca_q))
-                if len(t) >= 4 and not t.isdigit()
-            ]
+            _required_filter_terms = [t for t in re.split(r"\s+", _norm_text(busca_q)) if _termo_significativo(t)]
             filtrados = []
             for p in produtos_view:
                 hay_raw = " ".join([
