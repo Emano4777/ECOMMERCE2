@@ -691,6 +691,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>window.PQ_SUPORTE_PEDIDO_ID = "{{ pedido.id }}";</script>
 <script>
 /* ── Cross-sell IA no detalhe do pedido ─────────────────── */
 let _detRecItems = [];

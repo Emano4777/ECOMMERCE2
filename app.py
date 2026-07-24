@@ -17232,7 +17232,7 @@ def painel_reclamacao_refund(reclamacao_id):
     )
     cur2.execute(
         "INSERT INTO ecommerce_reclamacao_msgs (reclamacao_id, autor, mensagem) VALUES (%s, 'loja', %s)",
-        (reclamacao_id, f"💸 Reembolso de {fmt_brl(info['valor'])} processado via Mercado Pago (ref. {info['refund_id']})."),
+        (reclamacao_id, f"💸 Reembolso de {fmt_brl(info['valor'])} processado com sucesso."),
     )
     conn2.commit()
     cur2.close()
@@ -17475,7 +17475,7 @@ def painel_pendencia_refund(pendencia_id):
     )
     cur2.execute(
         "INSERT INTO ecommerce_pendencia_msgs (pendencia_id, autor, mensagem) VALUES (%s, 'loja', %s)",
-        (pendencia_id, f"💸 Reembolso de {fmt_brl(info['valor'])} processado via Mercado Pago (ref. {info['refund_id']})."),
+        (pendencia_id, f"💸 Reembolso de {fmt_brl(info['valor'])} processado com sucesso."),
     )
     conn2.commit()
     cur2.close()
@@ -17562,6 +17562,615 @@ def painel_pendencia_resolver(pendencia_id):
         pass
     flash("Pendência atualizada.", "success")
     return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+
+# ─── SUPORTE NÍVEL 1 COM IA ──────────────────────────────────────────────────
+# Chat flutuante em toda tela do consumidor. A IA (Claude Haiku) responde
+# perguntas gerais (cacheadas por similaridade via pg_trgm) e perguntas sobre
+# pedidos especificos (sempre ao vivo, nunca cacheado — dado muda a cada
+# minuto). So escalona pra um humano quando o cliente pede explicitamente
+# (nunca por decisao da propria IA).
+
+ADMIN_SUPPORT_EMAIL = os.getenv("ADMIN_SUPPORT_EMAIL", "emano4775@gmail.com")
+
+_SUPORTE_SISTEMA_PROMPT = (
+    "Você é a Poupinha, assistente de atendimento nível 1 da Poupaqui (rede de farmácias parceiras). "
+    "Responda de forma curta, simpática e direta, sem excesso de emojis.\n\n"
+    "Perguntas frequentes:\n"
+    "- Frete: cada farmácia da rede define seu próprio valor de frete no checkout; assinantes do "
+    "clube Poupaqui costumam ter frete grátis nas compras. Nunca invente um valor fixo — oriente "
+    "o cliente a conferir no checkout ou explique que cada loja define seu valor.\n"
+    "- Troca/devolução: é tratada direto com a farmácia que vendeu o produto. Oriente o cliente a "
+    'abrir uma reclamação em Meus Pedidos > o pedido > "Tive um problema com este pedido" '
+    "(disponível depois que o pedido é pago/enviado/entregue) — isso abre um chat direto com a farmácia.\n"
+    "- Pagamento: cartão de débito (sem juros) ou crédito (pode ter juros conforme parcelamento), "
+    "e Pix (sem taxas).\n\n"
+    "Se não souber responder com confiança, diga que o cliente pode pedir para falar com um "
+    "atendente humano clicando no botão da tela. Você nunca decide sozinha encaminhar para "
+    "atendente — isso só acontece se o cliente pedir explicitamente."
+)
+
+
+def _ensure_suporte_schema():
+    if "suporte" in _schema_ready:
+        return
+    with _schema_lock:
+        if "suporte" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        try:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        except Exception:
+            pass
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_ia_suporte_cache (
+                id SERIAL PRIMARY KEY,
+                pergunta_norm TEXT NOT NULL,
+                pergunta_original TEXT NOT NULL,
+                resposta TEXT NOT NULL,
+                hits INTEGER NOT NULL DEFAULT 0,
+                criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ia_suporte_cache_norm ON ecommerce_ia_suporte_cache USING gin (pergunta_norm gin_trgm_ops)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_suporte_chats (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                pedido_id UUID,
+                cnpjloja TEXT,
+                status TEXT NOT NULL DEFAULT 'bot',
+                motivo_escalonamento TEXT,
+                aberta_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                escalada_em TIMESTAMPTZ,
+                finalizada_em TIMESTAMPTZ,
+                ultima_atividade_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_chats_consumidor ON ecommerce_suporte_chats(consumidor_id, ultima_atividade_em DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_chats_loja ON ecommerce_suporte_chats(cnpjloja, status) WHERE cnpjloja IS NOT NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_chats_admin ON ecommerce_suporte_chats(status) WHERE status = 'escalada_admin'")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_suporte_msgs (
+                id SERIAL PRIMARY KEY,
+                chat_id UUID NOT NULL,
+                autor TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                origem_cache BOOLEAN DEFAULT FALSE,
+                enviada_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_msgs_chat ON ecommerce_suporte_msgs(chat_id, enviada_em)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("suporte")
+        _mark_migration_done("suporte")
+
+
+_SUPORTE_TOPICOS = [
+    (
+        re.compile(r"\bfrete|entrega gr[aá]tis|frete gr[aá]tis|valor da entrega\b", re.IGNORECASE),
+        "Cada farmácia da nossa rede define seu próprio valor de frete no checkout do pedido. "
+        "Assinantes do clube Poupaqui costumam ter frete grátis nas compras — confira se sua "
+        "loja participa na hora de finalizar o pedido.",
+    ),
+    (
+        re.compile(r"\btroc|devolu[cç][aã]o|cancelar (o )?pedido|produto (veio )?errado|veio com defeito\b", re.IGNORECASE),
+        "Trocas e devoluções são tratadas direto com a farmácia que vendeu o produto. Depois que "
+        'seu pedido for pago, enviado ou entregue, vá em "Meus Pedidos" > o pedido > "Tive um '
+        'problema com este pedido" — isso abre um chat direto com a farmácia.',
+    ),
+    (
+        re.compile(r"\bpagamento|\bpagar\b|cart[aã]o|pix|parcel", re.IGNORECASE),
+        "Você pode pagar com cartão de débito (sem juros), cartão de crédito (pode ter juros "
+        "conforme o parcelamento) ou Pix (sem taxas).",
+    ),
+]
+
+
+def _suporte_resposta_topico(pergunta):
+    """Detecta perguntas de FAQ por palavra-chave antes de cair no cache por
+    similaridade de texto. Necessario porque perguntas curtas em linguagem
+    natural variam demais na forma escrita (ex: "quais formas de pagamento"
+    vs "como posso pagar" tem baixa similaridade de string mesmo sendo o
+    mesmo assunto) — palavra-chave e mais confiavel que trigram pra um
+    conjunto pequeno e conhecido de topicos."""
+    for padrao, resposta in _SUPORTE_TOPICOS:
+        if padrao.search(pergunta):
+            return resposta
+    return None
+
+
+def _suporte_cache_buscar(pergunta):
+    """Cache de perguntas genericas (sem pedido vinculado) por match exato
+    ou similaridade (pg_trgm). Retorna a resposta cacheada ou None."""
+    norm = _norm_text(pergunta)
+    if len(norm) < 4:
+        return None
+    try:
+        _ensure_suporte_schema()
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, resposta FROM ecommerce_ia_suporte_cache WHERE pergunta_norm=%s AND expires_at > NOW() LIMIT 1",
+            (norm,),
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.execute(
+                """
+                SELECT id, resposta FROM ecommerce_ia_suporte_cache
+                WHERE expires_at > NOW() AND similarity(pergunta_norm, %s) > 0.35
+                ORDER BY similarity(pergunta_norm, %s) DESC LIMIT 1
+                """,
+                (norm, norm),
+            )
+            row = cur.fetchone()
+        if row:
+            cur.execute("UPDATE ecommerce_ia_suporte_cache SET hits=hits+1 WHERE id=%s", (row["id"],))
+            conn.commit()
+            cur.close()
+            return row["resposta"]
+        cur.close()
+    except Exception:
+        pass
+    return None
+
+
+def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
+    """Persiste em background — nao bloqueia a resposta ao cliente (mesmo
+    padrao de _busca_cache_set)."""
+    def _persist():
+        try:
+            conn2 = _new_conn()
+            cur2 = conn2.cursor()
+            cur2.execute(
+                """
+                INSERT INTO ecommerce_ia_suporte_cache (pergunta_norm, pergunta_original, resposta, expires_at)
+                VALUES (%s, %s, %s, NOW() + INTERVAL '14 days')
+                """,
+                (pergunta_norm, pergunta_original[:500], resposta),
+            )
+            conn2.commit()
+            cur2.close()
+            conn2.close()
+        except Exception:
+            pass
+    threading.Thread(target=_persist, daemon=True).start()
+
+
+def _claude_suporte_responder(pergunta, pedido_ctx=None):
+    """Chama Claude Haiku pra responder uma pergunta de suporte. Retorna o
+    texto da resposta ou None em qualquer falha (sem API key, timeout, erro)."""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    user_msg = pergunta.strip()[:2000]
+    if pedido_ctx:
+        user_msg = (
+            f"Contexto do pedido #{pedido_ctx.get('id_curto','')} do cliente:\n"
+            f"Status: {pedido_ctx.get('status_label','')}\n"
+            f"Feito em: {pedido_ctx.get('criado_em','')}\n"
+            f"Itens: {pedido_ctx.get('itens_resumo','')}\n"
+            f"Total: {pedido_ctx.get('total_fmt','')}\n"
+            f"Entrega: {pedido_ctx.get('tipo_entrega','')}\n\n"
+            f"Pergunta do cliente: {user_msg}"
+        )
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 500,
+        "system": _SUPORTE_SISTEMA_PROMPT,
+        "messages": [{"role": "user", "content": user_msg}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        text = (data.get("content") or [{}])[0].get("text", "").strip()
+        return text or None
+    except Exception as exc:
+        app.logger.warning("_claude_suporte_responder error: %s", exc)
+        return None
+
+
+def _pedido_ctx_para_ia(pedido_id, consumidor_id):
+    """Monta um resumo compacto do pedido pra injetar no prompt (controla
+    custo de tokens — nao manda a linha crua do banco). Retorna None se o
+    pedido nao existir ou nao pertencer a esse consumidor."""
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status, total, criado_em, tipo_entrega FROM ecommerce_pedidos WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (pedido_id, consumidor_id),
+    )
+    pedido = cur.fetchone()
+    if not pedido:
+        cur.close()
+        return None
+    cur.execute("SELECT nome, qty FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id LIMIT 10", (pedido_id,))
+    itens = cur.fetchall()
+    cur.close()
+    itens_resumo = ", ".join(f"{i['qty']}x {i['nome']}" for i in itens) or "sem itens"
+    return {
+        "id_curto": str(pedido["id"])[:8].upper(),
+        "status_label": _STATUS_LABEL.get(pedido["status"], pedido["status"]),
+        "criado_em": pedido["criado_em"].strftime("%d/%m/%Y") if pedido["criado_em"] else "",
+        "itens_resumo": itens_resumo,
+        "total_fmt": fmt_brl(pedido["total"]),
+        "tipo_entrega": "Entrega" if (pedido.get("tipo_entrega") or "retirada") == "entrega" else "Retirada na loja",
+    }
+
+
+def _pedidos_recentes_consumidor(consumidor_id, limit=5):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status, total, criado_em FROM ecommerce_pedidos WHERE consumidor_id=%s ORDER BY criado_em DESC LIMIT %s",
+        (consumidor_id, limit),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return [
+        {
+            "id": str(r["id"]),
+            "label": f"#{str(r['id'])[:8].upper()} - {r['criado_em'].strftime('%d/%m/%Y') if r['criado_em'] else ''} - {fmt_brl(r['total'])}",
+        }
+        for r in rows
+    ]
+
+
+def _notificar_admin_suporte(chat_id, resumo):
+    """Unico canal de aviso ao admin — nao existe inbox/notificacao de admin
+    hoje, so o e-mail configurado em ADMIN_SUPPORT_EMAIL."""
+    if not RESEND_API_KEY or not ADMIN_SUPPORT_EMAIL:
+        return
+    try:
+        corpo = (
+            f"<p>Um cliente pediu para falar com um atendente sobre um assunto geral da plataforma.</p>"
+            f"<div class='info-box'>{html.escape(resumo)}</div>"
+            f"<p><a class='btn' href='{_public_base_url() or ''}/admin/suporte/{chat_id}'>Ver conversa</a></p>"
+        )
+        _send_email(
+            ADMIN_SUPPORT_EMAIL,
+            "🆘 Novo chat de suporte escalado",
+            _email_html_wrapper("Suporte — atendimento humano solicitado", corpo),
+        )
+    except Exception as exc:
+        app.logger.warning("_notificar_admin_suporte error: %s", exc)
+
+
+def _suporte_chat_ativo(consumidor_id, pedido_id=None):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM ecommerce_suporte_chats WHERE consumidor_id=%s AND status != 'resolvida' ORDER BY ultima_atividade_em DESC LIMIT 1",
+        (consumidor_id,),
+    )
+    chat = cur.fetchone()
+    if chat:
+        cur.close()
+        return dict(chat)
+    cur.execute(
+        "INSERT INTO ecommerce_suporte_chats (consumidor_id, pedido_id) VALUES (%s, %s) RETURNING *",
+        (consumidor_id, pedido_id),
+    )
+    chat = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return dict(chat)
+
+
+@app.get("/api/suporte/abrir")
+def api_suporte_abrir():
+    if not session.get("consumidor_id"):
+        return jsonify({"ok": False, "login_required": True})
+    _ensure_suporte_schema()
+    consumidor_id = session["consumidor_id"]
+    pedido_id = (request.args.get("pedido_id") or "").strip() or None
+    if pedido_id and not _pedido_ctx_para_ia(pedido_id, consumidor_id):
+        pedido_id = None  # pedido invalido/nao pertence a esse cliente — ignora
+    chat = _suporte_chat_ativo(consumidor_id, pedido_id)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT autor, mensagem, enviada_em FROM ecommerce_suporte_msgs WHERE chat_id=%s ORDER BY enviada_em", (chat["id"],))
+    msgs = [dict(m) for m in cur.fetchall()]
+    cur.close()
+    for m in msgs:
+        m["enviada_em"] = m["enviada_em"].isoformat() if m["enviada_em"] else None
+    return jsonify({"ok": True, "chat_id": str(chat["id"]), "status": chat["status"], "pedido_id": str(chat["pedido_id"]) if chat["pedido_id"] else None, "msgs": msgs})
+
+
+@app.post("/api/suporte/mensagem")
+@_consumer_required
+def api_suporte_mensagem():
+    _ensure_suporte_schema()
+    consumidor_id = session["consumidor_id"]
+    data = request.get_json(silent=True) or {}
+    chat_id = (data.get("chat_id") or "").strip()
+    mensagem = (data.get("mensagem") or "").strip()
+    if not chat_id or not mensagem:
+        return jsonify({"ok": False, "erro": "Mensagem vazia."}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM ecommerce_suporte_chats WHERE id=%s AND consumidor_id=%s LIMIT 1", (chat_id, consumidor_id))
+    chat = cur.fetchone()
+    if not chat:
+        cur.close()
+        return jsonify({"ok": False, "erro": "Chat não encontrado."}), 404
+
+    cur.execute(
+        "INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem) VALUES (%s, 'consumidor', %s)",
+        (chat_id, mensagem[:2000]),
+    )
+    cur.execute("UPDATE ecommerce_suporte_chats SET ultima_atividade_em=NOW() WHERE id=%s", (chat_id,))
+    conn.commit()
+
+    if chat["status"] != "bot":
+        cur.close()
+        return jsonify({"ok": True, "resposta": None, "aguardando_humano": True})
+
+    pedido_ctx = None
+    resposta = None
+    from_cache = False
+    if chat["pedido_id"]:
+        pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
+        resposta = _claude_suporte_responder(mensagem, pedido_ctx=pedido_ctx)
+    else:
+        resposta = _suporte_resposta_topico(mensagem)
+        if resposta:
+            from_cache = True
+        else:
+            resposta = _suporte_cache_buscar(mensagem)
+            if resposta:
+                from_cache = True
+            else:
+                resposta = _claude_suporte_responder(mensagem)
+                if resposta:
+                    _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
+
+    if not resposta:
+        resposta = "No momento não consigo responder automaticamente. Você pode tentar novamente ou falar com um atendente."
+
+    cur.execute(
+        "INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem, origem_cache) VALUES (%s, 'ia', %s, %s)",
+        (chat_id, resposta, from_cache),
+    )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True, "resposta": resposta, "pode_escalar": True})
+
+
+@app.post("/api/suporte/escalar")
+@_consumer_required
+def api_suporte_escalar():
+    _ensure_suporte_schema()
+    consumidor_id = session["consumidor_id"]
+    data = request.get_json(silent=True) or {}
+    chat_id = (data.get("chat_id") or "").strip()
+    pedido_id_escolhido = (data.get("pedido_id") or "").strip() or None
+    geral = bool(data.get("geral"))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM ecommerce_suporte_chats WHERE id=%s AND consumidor_id=%s LIMIT 1", (chat_id, consumidor_id))
+    chat = cur.fetchone()
+    if not chat:
+        cur.close()
+        return jsonify({"ok": False, "erro": "Chat não encontrado."}), 404
+
+    pedido_id = chat["pedido_id"] or pedido_id_escolhido
+    if not pedido_id and not geral:
+        cur.close()
+        return jsonify({
+            "ok": True, "precisa_escolher": True,
+            "pedidos_recentes": _pedidos_recentes_consumidor(consumidor_id),
+        })
+
+    cur.execute(
+        "SELECT mensagem FROM ecommerce_suporte_msgs WHERE chat_id=%s AND autor='consumidor' ORDER BY enviada_em DESC LIMIT 1",
+        (chat_id,),
+    )
+    ultima = cur.fetchone()
+    motivo = (ultima["mensagem"] if ultima else "") or ""
+
+    if pedido_id:
+        cur.execute("SELECT cnpjloja FROM ecommerce_pedidos WHERE id=%s AND consumidor_id=%s LIMIT 1", (pedido_id, consumidor_id))
+        pedido_row = cur.fetchone()
+        if not pedido_row:
+            cur.close()
+            return jsonify({"ok": False, "erro": "Pedido inválido."}), 400
+        cur.execute(
+            "UPDATE ecommerce_suporte_chats SET status='escalada_loja', pedido_id=%s, cnpjloja=%s, motivo_escalonamento=%s, escalada_em=NOW() WHERE id=%s",
+            (pedido_id, pedido_row["cnpjloja"], motivo[:500], chat_id),
+        )
+        conn.commit()
+        cur.close()
+        _wa_notif_pedido_loja(
+            pedido_id,
+            f"🆘 Cliente pediu atendimento humano no suporte (pedido #{str(pedido_id)[:8].upper()}): {motivo[:200]}",
+        )
+        return jsonify({"ok": True, "status": "escalada_loja"})
+
+    cur.execute(
+        "UPDATE ecommerce_suporte_chats SET status='escalada_admin', motivo_escalonamento=%s, escalada_em=NOW() WHERE id=%s",
+        (motivo[:500], chat_id),
+    )
+    conn.commit()
+    cur.close()
+    _notificar_admin_suporte(chat_id, motivo[:500])
+    return jsonify({"ok": True, "status": "escalada_admin"})
+
+
+@app.get("/painel/suporte")
+@painel_required
+def painel_suporte():
+    _ensure_suporte_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT s.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel
+        FROM ecommerce_suporte_chats s
+        JOIN ecommerce_consumidores c ON c.id = s.consumidor_id
+        WHERE s.cnpjloja=%s AND s.status IN ('escalada_loja','resolvida')
+        ORDER BY s.ultima_atividade_em DESC LIMIT 200
+        """,
+        (cnpjloja,),
+    )
+    chats = cur.fetchall()
+    cur.close()
+    return render_template("painel_suporte.html", chats=chats)
+
+
+@app.get("/painel/suporte/<chat_id>")
+@painel_required
+def painel_suporte_detalhe(chat_id):
+    _ensure_suporte_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT s.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel
+        FROM ecommerce_suporte_chats s
+        JOIN ecommerce_consumidores c ON c.id = s.consumidor_id
+        WHERE s.id=%s AND s.cnpjloja=%s LIMIT 1
+        """,
+        (chat_id, cnpjloja),
+    )
+    chat = cur.fetchone()
+    if not chat:
+        flash("Chat não encontrado.", "error")
+        cur.close()
+        return redirect(url_for("painel_suporte"))
+    cur.execute("SELECT * FROM ecommerce_suporte_msgs WHERE chat_id=%s ORDER BY enviada_em", (chat_id,))
+    msgs = cur.fetchall()
+    pedido = None
+    if chat["pedido_id"]:
+        cur.execute("SELECT id, status, total FROM ecommerce_pedidos WHERE id=%s LIMIT 1", (chat["pedido_id"],))
+        pedido = cur.fetchone()
+    cur.close()
+    return render_template("painel_suporte_detalhe.html", chat=dict(chat), msgs=msgs, pedido=dict(pedido) if pedido else None)
+
+
+@app.post("/painel/suporte/<chat_id>/mensagem")
+@painel_required
+def painel_suporte_mensagem(chat_id):
+    _ensure_suporte_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, consumidor_id, status FROM ecommerce_suporte_chats WHERE id=%s AND cnpjloja=%s LIMIT 1", (chat_id, cnpjloja))
+    chat = cur.fetchone()
+    if not chat or chat["status"] == "resolvida":
+        cur.close()
+        return redirect(url_for("painel_suporte"))
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if len(mensagem) < 2:
+        flash("Digite uma mensagem.", "error")
+        cur.close()
+        return redirect(url_for("painel_suporte_detalhe", chat_id=chat_id))
+    encerrar = request.form.get("encerrar") == "1"
+    cur.execute("INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem) VALUES (%s, 'loja', %s)", (chat_id, mensagem))
+    if encerrar:
+        cur.execute("UPDATE ecommerce_suporte_chats SET status='resolvida', finalizada_em=NOW() WHERE id=%s", (chat_id,))
+    else:
+        cur.execute("UPDATE ecommerce_suporte_chats SET ultima_atividade_em=NOW() WHERE id=%s", (chat_id,))
+    conn.commit()
+    cur.close()
+    _notificar_consumidor(
+        chat["consumidor_id"], "suporte", "Resposta da farmácia no suporte", mensagem[:200],
+        url="/minhas-reclamacoes",
+    )
+    return redirect(url_for("painel_suporte_detalhe", chat_id=chat_id))
+
+
+@app.get("/admin/suporte")
+@admin_required
+def admin_suporte():
+    _ensure_suporte_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT s.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel
+        FROM ecommerce_suporte_chats s
+        JOIN ecommerce_consumidores c ON c.id = s.consumidor_id
+        WHERE s.status IN ('escalada_admin','resolvida')
+        ORDER BY s.ultima_atividade_em DESC LIMIT 200
+        """,
+    )
+    chats = cur.fetchall()
+    cur.close()
+    return render_template("admin_suporte.html", chats=chats)
+
+
+@app.get("/admin/suporte/<chat_id>")
+@admin_required
+def admin_suporte_detalhe(chat_id):
+    _ensure_suporte_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT s.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel
+        FROM ecommerce_suporte_chats s
+        JOIN ecommerce_consumidores c ON c.id = s.consumidor_id
+        WHERE s.id=%s LIMIT 1
+        """,
+        (chat_id,),
+    )
+    chat = cur.fetchone()
+    if not chat:
+        flash("Chat não encontrado.", "error")
+        cur.close()
+        return redirect(url_for("admin_suporte"))
+    cur.execute("SELECT * FROM ecommerce_suporte_msgs WHERE chat_id=%s ORDER BY enviada_em", (chat_id,))
+    msgs = cur.fetchall()
+    cur.close()
+    return render_template("admin_suporte_detalhe.html", chat=dict(chat), msgs=msgs)
+
+
+@app.post("/admin/suporte/<chat_id>/mensagem")
+@admin_required
+def admin_suporte_mensagem(chat_id):
+    _ensure_suporte_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, consumidor_id, status FROM ecommerce_suporte_chats WHERE id=%s LIMIT 1", (chat_id,))
+    chat = cur.fetchone()
+    if not chat or chat["status"] == "resolvida":
+        cur.close()
+        return redirect(url_for("admin_suporte"))
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if len(mensagem) < 2:
+        flash("Digite uma mensagem.", "error")
+        cur.close()
+        return redirect(url_for("admin_suporte_detalhe", chat_id=chat_id))
+    encerrar = request.form.get("encerrar") == "1"
+    cur.execute("INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem) VALUES (%s, 'admin', %s)", (chat_id, mensagem))
+    if encerrar:
+        cur.execute("UPDATE ecommerce_suporte_chats SET status='resolvida', finalizada_em=NOW() WHERE id=%s", (chat_id,))
+    else:
+        cur.execute("UPDATE ecommerce_suporte_chats SET ultima_atividade_em=NOW() WHERE id=%s", (chat_id,))
+    conn.commit()
+    cur.close()
+    _notificar_consumidor(
+        chat["consumidor_id"], "suporte", "Resposta da equipe Poupaqui no suporte", mensagem[:200],
+        url="/minhas-reclamacoes",
+    )
+    return redirect(url_for("admin_suporte_detalhe", chat_id=chat_id))
 
 
 # ─── PAINEL: ENCOMENDAS ──────────────────────────────────────────────────────
