@@ -1,0 +1,120 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Pendência do pedido{% endblock %}
+
+{% block extra_style %}
+<style>
+.pnd-wrap { max-width:760px; margin:0 auto; padding:28px 16px 80px; }
+.pnd-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.pnd-top h1 { font-size:1.3rem; font-weight:900; margin:0; display:flex; align-items:center; gap:9px; }
+.back-link { color:var(--pq-red); font-weight:800; text-decoration:none; font-size:.9rem; }
+
+/* status banner */
+.pnd-status-banner { border-radius:14px; padding:14px 18px; margin-bottom:14px; display:flex; gap:12px; align-items:flex-start; }
+.pnd-status-banner.aberta       { background:#fff7dd; border:1.5px solid #fde68a; }
+.pnd-status-banner.em_andamento { background:#eaf6ff; border:1.5px solid #bae6fd; }
+.pnd-status-banner.encomenda    { background:#eaf6ff; border:1.5px solid #bae6fd; }
+.pnd-status-banner.cancelada    { background:#fef2f2; border:1.5px solid #fecaca; }
+.pnd-status-banner.resolvida    { background:#f0fff4; border:1.5px solid #86efac; }
+.pnd-status-icon { font-size:1.4rem; flex-shrink:0; margin-top:2px; }
+.pnd-status-title { font-weight:900; font-size:.95rem; margin-bottom:3px; }
+.pnd-status-sub { font-size:.83rem; color:#444; line-height:1.5; }
+
+/* info card */
+.pnd-info { background:#fff; border:1px solid var(--pq-border); border-radius:14px; padding:16px 18px; margin-bottom:14px; }
+.pnd-info-row { display:flex; gap:8px; font-size:.85rem; margin-bottom:5px; color:#555; }
+.pnd-info-row strong { color:#222; min-width:90px; }
+
+/* chat */
+.chat-box { background:#fff; border:1px solid var(--pq-border); border-radius:14px; overflow:hidden; margin-bottom:14px; }
+.chat-head { padding:12px 18px; background:#fafafa; border-bottom:1px solid var(--pq-border); font-weight:800; font-size:.9rem; display:flex; align-items:center; gap:8px; }
+.chat-msgs { padding:16px 18px; display:flex; flex-direction:column; gap:10px; max-height:420px; overflow-y:auto; }
+.msg { max-width:80%; }
+.msg-cliente { align-self:flex-end; }
+.msg-loja    { align-self:flex-start; }
+.msg-bubble { padding:10px 14px; border-radius:14px; font-size:.88rem; line-height:1.5; }
+.msg-cliente .msg-bubble { background:var(--pq-red); color:#fff; border-bottom-right-radius:4px; }
+.msg-loja    .msg-bubble { background:#f3f4f6; color:#111; border-bottom-left-radius:4px; }
+.msg-meta { font-size:.72rem; color:var(--pq-muted); margin-top:3px; }
+.msg-cliente .msg-meta { text-align:right; }
+.chat-input { border-top:1px solid var(--pq-border); padding:14px 18px; display:flex; gap:10px; }
+.chat-input textarea { flex:1; border:1px solid var(--pq-border); border-radius:10px; padding:9px 12px; font-family:inherit; font-size:.9rem; resize:none; outline:none; }
+.chat-input textarea:focus { border-color:var(--pq-red); }
+.btn-send { background:var(--pq-red); color:#fff; border:none; border-radius:10px; padding:9px 18px; font-weight:800; font-size:.9rem; cursor:pointer; white-space:nowrap; }
+.btn-send:hover { background:#9b0d22; }
+
+@media(max-width:600px){ .msg { max-width:95%; } .chat-input { flex-wrap:wrap; } .chat-input textarea { min-height:70px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pnd-wrap">
+  <div class="pnd-top">
+    <h1><i class="fa fa-triangle-exclamation" style="color:var(--pq-red)"></i>Pendência do pedido</h1>
+    <a class="back-link" href="{{ url_for('meu_pedido_detalhe', pedido_id=pend.pedido_id) }}">← Voltar ao pedido</a>
+  </div>
+
+  {% set status = pend.status %}
+  <div class="pnd-status-banner {{ status }}">
+    <div class="pnd-status-icon">
+      {% if status == 'aberta' %}<i class="fa fa-hourglass-half" style="color:#d97706"></i>
+      {% elif status == 'em_andamento' %}<i class="fa fa-comments" style="color:#0284c7"></i>
+      {% elif status == 'encomenda' %}<i class="fa fa-box" style="color:#0284c7"></i>
+      {% elif status == 'cancelada' %}<i class="fa fa-circle-xmark" style="color:#dc2626"></i>
+      {% else %}<i class="fa fa-circle-check" style="color:#16a34a"></i>
+      {% endif %}
+    </div>
+    <div>
+      <div class="pnd-status-title">{{ status_label.get(status, status) }}</div>
+      {% if status == 'aberta' %}
+        <div class="pnd-status-sub">A farmácia <strong>{{ pend.razao }}</strong> teve um problema com seu pedido. Veja abaixo e responda pelo chat.</div>
+      {% elif status == 'em_andamento' %}
+        <div class="pnd-status-sub">Vocês estão negociando uma solução. Acompanhe o chat abaixo.</div>
+      {% elif status == 'cancelada' %}
+        <div class="pnd-status-sub">A farmácia cancelou este pedido. Se você pagou, confira a seção de reembolso no pedido.</div>
+      {% elif status == 'encomenda' %}
+        <div class="pnd-status-sub">A farmácia converteu este pedido em encomenda — combine os detalhes pelo chat.</div>
+      {% else %}
+        <div class="pnd-status-sub">Pendência resolvida — seu pedido segue normalmente.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="pnd-info">
+    <div class="pnd-info-row"><strong>Farmácia</strong> {{ pend.razao }}</div>
+    <div class="pnd-info-row"><strong>Motivo</strong> {{ motivos.get(pend.motivo, pend.motivo) }}</div>
+    <div class="pnd-info-row"><strong>Aberta em</strong> {{ pend.aberta_em.strftime('%d/%m/%Y %H:%M') if pend.aberta_em else '—' }}</div>
+    <div class="pnd-info-row"><strong>Protocolo</strong> <code style="font-size:.82rem">{{ pend.id|string|upper|truncate(8,true,'') }}</code></div>
+  </div>
+
+  <div class="chat-box">
+    <div class="chat-head"><i class="fa fa-comments" style="color:var(--pq-red)"></i>Conversa com a farmácia</div>
+    <div class="chat-msgs" id="chat-msgs">
+      {% if not msgs %}
+        <div style="color:var(--pq-muted);font-size:.85rem;text-align:center;padding:20px 0">Nenhuma mensagem ainda.</div>
+      {% endif %}
+      {% for m in msgs %}
+      <div class="msg msg-{{ m.autor }}">
+        <div class="msg-bubble">{{ m.mensagem }}</div>
+        <div class="msg-meta">
+          {{ 'Você' if m.autor == 'cliente' else pend.razao }} · {{ m.enviada_em.strftime('%d/%m %H:%M') if m.enviada_em else '' }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if status in ('aberta', 'em_andamento') %}
+    <form class="chat-input" method="post" action="{{ url_for('pendencia_cliente_mensagem', pendencia_id=pend.id) }}">
+      <textarea name="mensagem" rows="2" placeholder="Digite sua mensagem para a farmácia…" required></textarea>
+      <button class="btn-send" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+    </form>
+    {% else %}
+    <div style="padding:12px 18px;border-top:1px solid var(--pq-border);font-size:.83rem;color:var(--pq-muted);text-align:center">
+      <i class="fa fa-lock me-1"></i>Pendência encerrada — chat fechado
+    </div>
+    {% endif %}
+  </div>
+</div>
+<script>
+  const cm = document.getElementById('chat-msgs');
+  if (cm) cm.scrollTop = cm.scrollHeight;
+</script>
+{% endblock %}

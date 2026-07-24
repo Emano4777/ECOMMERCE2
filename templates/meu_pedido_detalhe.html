@@ -525,6 +525,32 @@
   </div>
   {% endif %}
 
+  {# ── PENDÊNCIA (aberta pela loja) ─────────────────────────────────── #}
+  {% if pendencia %}
+    {% set ps = pendencia.status %}
+    <div style="background:{% if ps == 'resolvida' %}#f0fff4{% elif ps == 'cancelada' %}#fef2f2{% elif ps == 'encomenda' %}#eaf6ff{% else %}#fff7dd{% endif %};border:1.5px solid {% if ps == 'resolvida' %}#86efac{% elif ps == 'cancelada' %}#fecaca{% elif ps == 'encomenda' %}#bae6fd{% else %}#fbbf24{% endif %};border-radius:14px;padding:16px 18px;margin-top:4px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          <i class="fa fa-triangle-exclamation" style="color:{% if ps == 'resolvida' %}#16a34a{% elif ps == 'cancelada' %}#dc2626{% elif ps == 'encomenda' %}#0284c7{% else %}#d97706{% endif %}"></i>
+          <div>
+            <div style="font-weight:900;font-size:.88rem;color:{% if ps == 'resolvida' %}#15803d{% elif ps == 'cancelada' %}#991b1b{% elif ps == 'encomenda' %}#075985{% else %}#92400e{% endif %}">
+              {% if ps in ('aberta', 'em_andamento') %}A loja teve um problema com este pedido
+              {% elif ps == 'encomenda' %}Este pedido virou encomenda
+              {% elif ps == 'cancelada' %}Este pedido foi cancelado pela loja
+              {% else %}Pendência resolvida — pedido mantido
+              {% endif %}
+            </div>
+            <div style="font-size:.78rem;color:#6b7280;margin-top:2px">Protocolo #{{ pendencia.id|string|upper|truncate(8,true,'') }}</div>
+          </div>
+        </div>
+        <a href="{{ url_for('minha_pendencia', pendencia_id=pendencia.id) }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:var(--pq-red);color:#fff;border-radius:10px;padding:8px 16px;font-weight:800;font-size:.84rem;text-decoration:none">
+          <i class="fa fa-comments"></i>Ver conversa
+        </a>
+      </div>
+    </div>
+  {% endif %}
+
   {# ── RECLAMAÇÃO ───────────────────────────────────────────────────── #}
   {% if reclamacao %}
     {% set rs = reclamacao.status %}

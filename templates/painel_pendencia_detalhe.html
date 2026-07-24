@@ -1,0 +1,201 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Pendência do pedido{% endblock %}
+
+{% block extra_style %}
+<style>
+.pnd-grid { display:grid; grid-template-columns:1fr 320px; gap:18px; align-items:start; }
+@media(max-width:900px){ .pnd-grid { grid-template-columns:1fr; } }
+
+/* status banner */
+.pnd-status-banner { border-radius:12px; padding:14px 18px; margin-bottom:14px; display:flex; gap:12px; align-items:flex-start; }
+.pnd-status-banner.aberta       { background:#2a1e00; border:1.5px solid #fbbf24; }
+.pnd-status-banner.em_andamento { background:#0d1e2d; border:1.5px solid #38bdf8; }
+.pnd-status-banner.encomenda    { background:#0d1e2d; border:1.5px solid #38bdf8; }
+.pnd-status-banner.cancelada    { background:#2a0810; border:1.5px solid #f87171; }
+.pnd-status-banner.resolvida    { background:#0d2d1a; border:1.5px solid #22c55e; }
+.pnd-status-icon { font-size:1.4rem; flex-shrink:0; margin-top:2px; }
+.pnd-status-title { font-weight:900; font-size:.95rem; margin-bottom:4px; }
+.pnd-status-sub { font-size:.83rem; color:var(--pk-muted); line-height:1.5; }
+
+/* chat (mesmo padrao do chat de reclamacao) */
+.chat-box { background:var(--pk-card); border:1px solid var(--pk-line); border-radius:12px; overflow:hidden; }
+.chat-head { padding:12px 18px; background:#0d1016; border-bottom:1px solid var(--pk-line); font-weight:800; font-size:.9rem; display:flex; align-items:center; gap:8px; color:var(--pk-yellow); }
+.chat-msgs { padding:16px 18px; display:flex; flex-direction:column; gap:10px; max-height:420px; overflow-y:auto; }
+.msg { max-width:82%; }
+.msg-loja    { align-self:flex-end; }
+.msg-cliente { align-self:flex-start; }
+.msg-bubble { padding:10px 14px; border-radius:14px; font-size:.88rem; line-height:1.5; }
+.msg-loja    .msg-bubble { background:var(--pk-yellow); color:#111; border-bottom-right-radius:4px; }
+.msg-cliente .msg-bubble { background:#1e2435; color:var(--pk-txt); border-bottom-left-radius:4px; }
+.msg-meta { font-size:.72rem; color:var(--pk-muted); margin-top:3px; }
+.msg-loja .msg-meta { text-align:right; }
+.chat-input { border-top:1px solid var(--pk-line); padding:14px 18px; display:flex; gap:10px; }
+.chat-input textarea { flex:1; background:#0d1016; border:1px solid var(--pk-line); border-radius:10px; padding:9px 12px; font-family:inherit; font-size:.9rem; color:var(--pk-txt); resize:none; outline:none; }
+.chat-input textarea:focus { border-color:var(--pk-yellow); }
+.btn-send { background:var(--pk-yellow); color:#111; border:none; border-radius:10px; padding:9px 18px; font-weight:800; font-size:.9rem; cursor:pointer; white-space:nowrap; }
+.btn-send:hover { opacity:.85; }
+
+/* sidebar */
+.side-card { background:var(--pk-card); border:1px solid var(--pk-line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+.side-title { font-weight:800; color:var(--pk-yellow); font-size:.88rem; margin-bottom:12px; display:flex; align-items:center; gap:7px; }
+.info-row { display:flex; justify-content:space-between; gap:8px; font-size:.83rem; margin-bottom:7px; }
+.info-row span:first-child { color:var(--pk-muted); }
+.info-row span:last-child { font-weight:700; text-align:right; }
+
+/* reembolso */
+.btn-refund { width:100%; background:#f87171; color:#111; border:none; border-radius:10px; padding:11px 18px; font-weight:900; font-size:.92rem; cursor:pointer; margin-top:4px; }
+.btn-refund:hover { background:#ef4444; }
+.refund-ok { background:#0d2d1a; border:1px solid #22c55e55; border-radius:8px; padding:10px 12px; font-size:.82rem; color:#22c55e; }
+
+/* resolver */
+.pnd-resolve-actions { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+.btn-resolve { width:100%; border:none; border-radius:10px; padding:10px 16px; font-weight:800; font-size:.86rem; cursor:pointer; color:#111; }
+.btn-resolve.encomenda { background:#38bdf8; }
+.btn-resolve.cancelada { background:#f87171; }
+.btn-resolve.resolvida { background:#22c55e; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+  <div style="font-weight:900;font-size:1.2rem">
+    <i class="fa fa-triangle-exclamation me-2" style="color:var(--pk-yellow)"></i>
+    Pendência <code style="color:var(--pk-yellow);font-size:.85rem">#{{ pend.id|string|upper|truncate(8,true,'') }}</code>
+  </div>
+  <a href="{{ url_for('painel_pedido_detalhe', pedido_id=pend.pedido_id) }}" style="color:var(--pk-muted);text-decoration:none;font-size:.88rem">
+    <i class="fa fa-arrow-left me-1"></i>Voltar ao pedido
+  </a>
+</div>
+
+{% set status = pend.status %}
+{% set ativa = status in ('aberta', 'em_andamento') %}
+
+<div class="pnd-status-banner {{ status }}" style="margin-bottom:18px">
+  <div class="pnd-status-icon">
+    {% if status == 'aberta' %}<i class="fa fa-hourglass-half" style="color:#fbbf24"></i>
+    {% elif status == 'em_andamento' %}<i class="fa fa-comments" style="color:#38bdf8"></i>
+    {% elif status == 'encomenda' %}<i class="fa fa-box" style="color:#38bdf8"></i>
+    {% elif status == 'cancelada' %}<i class="fa fa-circle-xmark" style="color:#f87171"></i>
+    {% else %}<i class="fa fa-circle-check" style="color:#22c55e"></i>
+    {% endif %}
+  </div>
+  <div>
+    <div class="pnd-status-title">{{ status_label.get(status, status) }}</div>
+    {% if status == 'aberta' %}
+      <div class="pnd-status-sub">O cliente ainda não respondeu. Aguarde ou continue a conversa pelo chat abaixo.</div>
+    {% elif status == 'em_andamento' %}
+      <div class="pnd-status-sub">Negociação em andamento. Quando decidirem o desfecho, use as ações ao lado.</div>
+    {% else %}
+      <div class="pnd-status-sub">Pendência finalizada em {{ pend.finalizada_em.strftime('%d/%m/%Y %H:%M') if pend.finalizada_em else '' }}.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="pnd-grid">
+  {# CHAT #}
+  <div>
+    <div class="chat-box">
+      <div class="chat-head"><i class="fa fa-comments"></i>Chat com o cliente</div>
+      <div class="chat-msgs" id="chat-msgs">
+        {% if not msgs %}
+          <div style="color:var(--pk-muted);font-size:.85rem;text-align:center;padding:20px 0">Nenhuma mensagem ainda.</div>
+        {% endif %}
+        {% for m in msgs %}
+        <div class="msg msg-{{ m.autor }}">
+          <div class="msg-bubble">{{ m.mensagem }}</div>
+          <div class="msg-meta">
+            {{ 'Farmácia' if m.autor == 'loja' else pend.consumidor_nome }} · {{ m.enviada_em.strftime('%d/%m %H:%M') if m.enviada_em else '' }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if ativa %}
+      <form class="chat-input" method="post" action="{{ url_for('painel_pendencia_mensagem', pendencia_id=pend.id) }}">
+        <textarea name="mensagem" rows="2" placeholder="Digite sua mensagem ao cliente…" required></textarea>
+        <button class="btn-send" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+      </form>
+      {% else %}
+      <div style="padding:12px 18px;border-top:1px solid var(--pk-line);font-size:.83rem;color:var(--pk-muted);text-align:center">
+        <i class="fa fa-lock me-1"></i>Pendência encerrada — chat fechado
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# SIDEBAR #}
+  <div>
+    <div class="side-card">
+      <div class="side-title"><i class="fa fa-user"></i>Cliente</div>
+      <div class="info-row"><span>Nome</span><span>{{ pend.consumidor_nome }}</span></div>
+      <div class="info-row"><span>Telefone</span><span>{{ pend.consumidor_tel or '—' }}</span></div>
+    </div>
+
+    <div class="side-card">
+      <div class="side-title"><i class="fa fa-circle-info"></i>Pendência</div>
+      <div class="info-row"><span>Motivo</span><span>{{ motivos.get(pend.motivo, pend.motivo) }}</span></div>
+      <div class="info-row"><span>Aberta em</span><span>{{ pend.aberta_em.strftime('%d/%m/%Y %H:%M') if pend.aberta_em else '—' }}</span></div>
+      {% if pedido %}
+      <div class="info-row">
+        <span>Pedido</span>
+        <span>
+          <a href="{{ url_for('painel_pedido_detalhe', pedido_id=pedido.id) }}"
+             style="color:var(--pk-yellow);text-decoration:none;font-size:.8rem">
+            #{{ pedido.id|string|upper|truncate(8,true,'') }}
+          </a>
+        </span>
+      </div>
+      <div class="info-row"><span>Status pedido</span><span>{{ pedido.status|capitalize }}</span></div>
+      <div class="info-row"><span>Total</span><span style="color:var(--pk-yellow)">{{ money(pedido.total) }}</span></div>
+      <div class="info-row"><span>Pagamento</span><span>{{ pedido.pagamento_status or '—' }}</span></div>
+      {% endif %}
+    </div>
+
+    {# Reembolso #}
+    <div class="side-card">
+      <div class="side-title" style="color:#f87171"><i class="fa fa-hand-holding-dollar"></i>Reembolso</div>
+      {% if pend.reembolsado_em %}
+        <div class="refund-ok">
+          <i class="fa fa-circle-check me-1"></i>{{ money(pend.valor_reembolsado) }} reembolsado em {{ pend.reembolsado_em.strftime('%d/%m/%Y %H:%M') }}
+        </div>
+      {% elif pedido and pedido.mp_payment_id and pedido.pagamento_status != 'refunded' %}
+        <p style="font-size:.82rem;color:var(--pk-muted);line-height:1.5;margin-bottom:10px">
+          Devolve o valor total pago pelo cliente via Mercado Pago. Ação irreversível.
+        </p>
+        <form method="post" action="{{ url_for('painel_pendencia_refund', pendencia_id=pend.id) }}"
+              onsubmit="return confirm('Reembolsar {{ money(pedido.total) }} para o cliente via Mercado Pago? Esta ação não pode ser desfeita.')">
+          <button class="btn-refund" type="submit"><i class="fa fa-hand-holding-dollar me-1"></i>Reembolsar {{ money(pedido.total) }}</button>
+        </form>
+      {% else %}
+        <div style="font-size:.82rem;color:var(--pk-muted)">Sem pagamento Mercado Pago identificado para reembolso automático.</div>
+      {% endif %}
+    </div>
+
+    {# Resolver #}
+    {% if ativa %}
+    <div class="side-card">
+      <div class="side-title"><i class="fa fa-flag-checkered"></i>Resolver pendência</div>
+      <div class="pnd-resolve-actions">
+        <form method="post" action="{{ url_for('painel_pendencia_resolver', pendencia_id=pend.id) }}">
+          <input type="hidden" name="resolucao" value="resolvida">
+          <button class="btn-resolve resolvida" type="submit"><i class="fa fa-check me-1"></i>Manter pedido (resolvido)</button>
+        </form>
+        <form method="post" action="{{ url_for('painel_pendencia_resolver', pendencia_id=pend.id) }}">
+          <input type="hidden" name="resolucao" value="encomenda">
+          <button class="btn-resolve encomenda" type="submit"><i class="fa fa-box me-1"></i>Converter em encomenda</button>
+        </form>
+        <form method="post" action="{{ url_for('painel_pendencia_resolver', pendencia_id=pend.id) }}"
+              onsubmit="return confirm('Cancelar este pedido?')">
+          <input type="hidden" name="resolucao" value="cancelada">
+          <button class="btn-resolve cancelada" type="submit"><i class="fa fa-ban me-1"></i>Cancelar pedido</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  const cm = document.getElementById('chat-msgs');
+  if (cm) cm.scrollTop = cm.scrollHeight;
+</script>
+{% endblock %}

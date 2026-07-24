@@ -1872,6 +1872,54 @@ def _ensure_reclamacao_schema():
         _mark_migration_done("reclamacao")
 
 
+def _ensure_pendencia_schema():
+    """Pendencia de pedido: a loja abre quando nao consegue atender um pedido
+    ja pago (ex: faltou estoque), negocia com o cliente (chat) e pode acionar
+    estorno via Mercado Pago. Diferente da reclamacao (aberta pelo cliente
+    apos a entrega), aqui quem abre e a loja."""
+    _ensure_payment_schema()
+    if "pendencia" in _schema_ready:
+        return
+    with _schema_lock:
+        if "pendencia" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_pedido_pendencias (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pedido_id UUID NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                consumidor_id UUID NOT NULL,
+                motivo TEXT NOT NULL,
+                descricao TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'aberta',
+                valor_reembolsado NUMERIC,
+                mp_refund_id TEXT,
+                reembolsado_em TIMESTAMPTZ,
+                aberta_em TIMESTAMPTZ DEFAULT NOW(),
+                finalizada_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_pendencia_msgs (
+                id SERIAL PRIMARY KEY,
+                pendencia_id UUID NOT NULL,
+                autor TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                enviada_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_pendencia_pedido ON ecommerce_pedido_pendencias(pedido_id)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("pendencia")
+        _mark_migration_done("pendencia")
+
+
+_PENDENCIA_STATUS_ATIVA = ("aberta", "em_andamento")
+
+
 _STATUS_ENCOMENDA_LABEL = {
     "aberta":       "Aguardando resposta da farmácia",
     "em_andamento": "Em andamento",
@@ -6465,6 +6513,13 @@ def painel_required(fn):
                 allowed.add("painel_pedidos_status")
                 allowed.add("painel_avaliar_receita")
                 allowed.add("api_alpha_exportar_pedido")
+                # lojista pode abrir/conversar/resolver pendência, mas NUNCA
+                # acionar reembolso (painel_pendencia_refund fica de fora
+                # de propósito — só o login principal da loja reembolsa)
+                allowed.add("painel_pendencia_abrir")
+                allowed.add("painel_pendencia_detalhe")
+                allowed.add("painel_pendencia_mensagem")
+                allowed.add("painel_pendencia_resolver")
             if request.endpoint not in allowed:
                 flash("Acesso restrito aos pedidos.", "error")
                 return redirect(url_for("painel_pedidos"))
@@ -13599,6 +13654,13 @@ def meu_pedido_detalhe(pedido_id):
         (pedido_id, session["consumidor_id"]),
     )
     reclamacao = cur.fetchone()
+    # Pendência ativa aberta pela loja (se houver)
+    _ensure_pendencia_schema()
+    cur.execute(
+        "SELECT id, status FROM ecommerce_pedido_pendencias WHERE pedido_id=%s AND consumidor_id=%s ORDER BY aberta_em DESC LIMIT 1",
+        (pedido_id, session["consumidor_id"]),
+    )
+    pendencia = cur.fetchone()
     # Verifica se já avaliou este pedido
     _ensure_avaliacoes_schema()
     cur2 = conn.cursor()
@@ -13628,6 +13690,7 @@ def meu_pedido_detalhe(pedido_id):
         pedido=pedido,
         itens=itens,
         reclamacao=dict(reclamacao) if reclamacao else None,
+        pendencia=dict(pendencia) if pendencia else None,
         motivos=_MOTIVOS_RECLAMACAO,
         avaliacao_feita=dict(avaliacao_feita) if avaliacao_feita else None,
         timeline=timeline,
@@ -14079,6 +14142,13 @@ def abrir_reclamacao(pedido_id):
         cur.close()
         return redirect(url_for("meu_pedido_detalhe", pedido_id=pedido_id))
 
+    _ensure_pendencia_schema()
+    pendencia_ativa = _pendencia_ativa_do_pedido(cur, pedido_id)
+    if pendencia_ativa:
+        flash("Este pedido já tem uma pendência aberta pela loja — responda por lá.", "error")
+        cur.close()
+        return redirect(url_for("minha_pendencia", pendencia_id=pendencia_ativa["id"]))
+
     # Verifica se já existe reclamação aberta para este pedido
     cur.execute(
         "SELECT id FROM ecommerce_reclamacoes WHERE pedido_id=%s AND status NOT IN ('finalizada') LIMIT 1",
@@ -14227,6 +14297,82 @@ def reclamacao_confirmar_resolucao(reclamacao_id):
     cur.close()
     flash("Reclamação finalizada. Obrigado pelo retorno!", "success")
     return redirect(url_for("meus_pedidos"))
+
+
+# ─── PENDÊNCIAS DE PEDIDO: CONSUMIDOR ────────────────────────────────────────
+# A pendência é sempre aberta pela loja (ver seção "PAINEL: PENDÊNCIAS DE
+# PEDIDO"); o cliente só visualiza e responde.
+
+@app.get("/minha-pendencia/<pendencia_id>")
+@_consumer_required
+def minha_pendencia(pendencia_id):
+    _ensure_pendencia_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT pp.*, u.razao
+        FROM ecommerce_pedido_pendencias pp
+        JOIN users u ON u.cnpjloja = pp.cnpjloja
+        WHERE pp.id=%s AND pp.consumidor_id=%s
+        LIMIT 1
+        """,
+        (pendencia_id, consumidor_id),
+    )
+    pend = cur.fetchone()
+    if not pend:
+        flash("Pendência não encontrada.", "error")
+        cur.close()
+        return redirect(url_for("meus_pedidos"))
+    cur.execute(
+        "SELECT * FROM ecommerce_pendencia_msgs WHERE pendencia_id=%s ORDER BY enviada_em",
+        (pendencia_id,),
+    )
+    msgs = cur.fetchall()
+    cur.close()
+    return render_template(
+        "minha_pendencia.html",
+        pend=dict(pend),
+        msgs=msgs,
+        motivos=_MOTIVOS_PENDENCIA,
+        status_label=_STATUS_PENDENCIA_LABEL,
+    )
+
+
+@app.post("/minha-pendencia/<pendencia_id>/mensagem")
+@_consumer_required
+def pendencia_cliente_mensagem(pendencia_id):
+    _ensure_pendencia_schema()
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pedido_id, status FROM ecommerce_pedido_pendencias WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (pendencia_id, consumidor_id),
+    )
+    pend = cur.fetchone()
+    if not pend or pend["status"] not in _PENDENCIA_STATUS_ATIVA:
+        cur.close()
+        return redirect(url_for("meus_pedidos"))
+
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if len(mensagem) < 2:
+        flash("Digite uma mensagem.", "error")
+        cur.close()
+        return redirect(url_for("minha_pendencia", pendencia_id=pendencia_id))
+
+    cur.execute(
+        "INSERT INTO ecommerce_pendencia_msgs (pendencia_id, autor, mensagem) VALUES (%s, 'cliente', %s)",
+        (pendencia_id, mensagem),
+    )
+    conn.commit()
+    cur.close()
+    _wa_notif_pedido_loja(
+        pend["pedido_id"],
+        f"💬 Nova mensagem do cliente na pendência do pedido #{str(pend['pedido_id'])[:8].upper()}: {mensagem[:200]}",
+    )
+    return redirect(url_for("minha_pendencia", pendencia_id=pendencia_id))
 
 
 @app.get("/perfil")
@@ -15802,6 +15948,58 @@ def _sincronizar_pagamento_mp_para_pedido(pedido_id, access_token=None, payment_
         return None
 
 
+def _mp_estornar_pagamento(pedido_id, cnpjloja):
+    """Estorno total via Mercado Pago do pagamento de um pedido. Sempre
+    acionado manualmente pela loja (nunca automatico). Retorna (ok, info) —
+    info e um dict com refund_id/valor quando ok, ou uma mensagem de erro
+    legivel pra flash quando nao."""
+    _ensure_payment_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT p.id, p.mp_payment_id, p.pagamento_status, p.total, c.mp_access_token
+        FROM ecommerce_pedidos p
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
+        WHERE p.id=%s AND p.cnpjloja=%s LIMIT 1
+        """,
+        (pedido_id, cnpjloja),
+    )
+    row = cur.fetchone()
+    if not row or not row.get("mp_payment_id") or not row.get("mp_access_token"):
+        cur.close()
+        return False, "Pedido sem pagamento Mercado Pago identificado ou loja sem token configurado."
+    if row.get("pagamento_status") == "refunded":
+        cur.close()
+        return False, "Este pagamento já foi reembolsado."
+
+    try:
+        resp = _mp_request(
+            row["mp_access_token"],
+            f"/v1/payments/{row['mp_payment_id']}/refunds",
+            {},
+            method="POST",
+            idempotency_key=f"refund-{pedido_id}",
+        )
+    except RuntimeError as exc:
+        cur.close()
+        return False, f"Falha ao solicitar reembolso no Mercado Pago: {exc}"
+
+    refund_id = str(resp.get("id") or "")
+    valor = resp.get("amount") or row.get("total")
+    cur.execute(
+        "UPDATE ecommerce_pedidos SET pagamento_status='refunded', atualizado_em=NOW() WHERE id=%s",
+        (pedido_id,),
+    )
+    conn.commit()
+    cur.close()
+    try:
+        _sincronizar_pagamento_mp_para_pedido(pedido_id, row["mp_access_token"], row["mp_payment_id"])
+    except Exception:
+        pass
+    return True, {"refund_id": refund_id, "valor": valor}
+
+
 def _aplicar_webhook_pagamento(payment_id):
     _ensure_payment_schema()
     conn = db()
@@ -16291,6 +16489,8 @@ def painel_pedido_detalhe(pedido_id):
         return redirect(url_for("painel_pedidos"))
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
+    _ensure_pendencia_schema()
+    pendencia = _pendencia_ativa_do_pedido(cur, pedido_id)
     cur.close()
     pedido_dict = dict(pedido)
     ml_shipping_info = None
@@ -16347,6 +16547,8 @@ def painel_pedido_detalhe(pedido_id):
         receita_urls=receita_urls,
         ml_shipping=ml_shipping_info,
         alpha_enabled=_alpha_enabled(),
+        pendencia=dict(pendencia) if pendencia else None,
+        motivos_pendencia=_MOTIVOS_PENDENCIA,
     )
 
 
@@ -16924,6 +17126,288 @@ def painel_reclamacao_marcar_resolvido(reclamacao_id):
     cur.close()
     flash("Reclamação marcada como resolvida. O cliente tem 72 horas para confirmar.", "success")
     return redirect(url_for("painel_reclamacao_detalhe", reclamacao_id=reclamacao_id))
+
+
+# ─── PAINEL: PENDÊNCIAS DE PEDIDO ────────────────────────────────────────────
+# Diferente da reclamação (aberta pelo cliente após a entrega), a pendência é
+# aberta pela LOJA quando ela não consegue atender um pedido já pago (ex:
+# faltou estoque) — permite negociar com o cliente (encomenda/cancelamento) e,
+# se necessário, acionar o estorno via Mercado Pago.
+
+_MOTIVOS_PENDENCIA = {
+    "falta_estoque":   "Faltou estoque do produto",
+    "produto_avariado": "Produto avariado antes de enviar",
+    "endereco_fora_area": "Endereço fora da área de entrega",
+    "outro":           "Outro motivo",
+}
+
+_STATUS_PENDENCIA_LABEL = {
+    "aberta":       "Aberta — aguardando o cliente ver",
+    "em_andamento": "Em andamento",
+    "encomenda":    "Convertido em encomenda",
+    "cancelada":    "Pedido cancelado",
+    "resolvida":    "Resolvida — pedido mantido",
+}
+
+
+def _pendencia_ativa_do_pedido(cur, pedido_id):
+    cur.execute(
+        "SELECT id FROM ecommerce_pedido_pendencias WHERE pedido_id=%s AND status IN %s LIMIT 1",
+        (pedido_id, _PENDENCIA_STATUS_ATIVA),
+    )
+    return cur.fetchone()
+
+
+@app.post("/painel/pedidos/<pedido_id>/pendencia")
+@painel_required
+def painel_pendencia_abrir(pedido_id):
+    _ensure_pendencia_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, cnpjloja, consumidor_id, status, total FROM ecommerce_pedidos WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (pedido_id, cnpjloja),
+    )
+    pedido = cur.fetchone()
+    if not pedido:
+        flash("Pedido não encontrado.", "error")
+        cur.close()
+        return redirect(url_for("painel_pedidos"))
+    if pedido["status"] != "pago":
+        flash("Só é possível abrir pendência em pedidos pagos.", "error")
+        cur.close()
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+    existente = _pendencia_ativa_do_pedido(cur, pedido_id)
+    if existente:
+        cur.close()
+        return redirect(url_for("painel_pendencia_detalhe", pendencia_id=existente["id"]))
+
+    cur.execute(
+        "SELECT id FROM ecommerce_reclamacoes WHERE pedido_id=%s AND status NOT IN ('finalizada') LIMIT 1",
+        (pedido_id,),
+    )
+    if cur.fetchone():
+        flash("Este pedido já tem uma reclamação em andamento — resolva-a antes de abrir uma pendência.", "error")
+        cur.close()
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+    motivo    = (request.form.get("motivo") or "").strip()
+    descricao = (request.form.get("descricao") or "").strip()
+    if motivo not in _MOTIVOS_PENDENCIA:
+        flash("Selecione um motivo válido.", "error")
+        cur.close()
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+    if len(descricao) < 10:
+        flash("Descreva o problema com pelo menos 10 caracteres.", "error")
+        cur.close()
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+
+    cur.execute(
+        """
+        INSERT INTO ecommerce_pedido_pendencias
+            (pedido_id, cnpjloja, consumidor_id, motivo, descricao, status)
+        VALUES (%s, %s, %s, %s, %s, 'aberta')
+        RETURNING id
+        """,
+        (pedido_id, cnpjloja, pedido["consumidor_id"], motivo, descricao),
+    )
+    pend_id = cur.fetchone()["id"]
+    cur.execute(
+        "INSERT INTO ecommerce_pendencia_msgs (pendencia_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (pend_id, descricao),
+    )
+    conn.commit()
+    cur.close()
+    _notificar_pedido_evento(
+        pedido_id, "pendencia_aberta", "Um problema com seu pedido",
+        descricao,
+    )
+    flash("Pendência aberta. O cliente foi avisado.", "success")
+    return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pend_id))
+
+
+@app.get("/painel/pendencias/<pendencia_id>")
+@painel_required
+def painel_pendencia_detalhe(pendencia_id):
+    _ensure_pendencia_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT pp.*, c.nome AS consumidor_nome, c.telefone AS consumidor_tel
+        FROM ecommerce_pedido_pendencias pp
+        JOIN ecommerce_consumidores c ON c.id = pp.consumidor_id
+        WHERE pp.id=%s AND pp.cnpjloja=%s
+        LIMIT 1
+        """,
+        (pendencia_id, cnpjloja),
+    )
+    pend = cur.fetchone()
+    if not pend:
+        flash("Pendência não encontrada.", "error")
+        cur.close()
+        return redirect(url_for("painel_pedidos"))
+    cur.execute(
+        "SELECT * FROM ecommerce_pendencia_msgs WHERE pendencia_id=%s ORDER BY enviada_em",
+        (pendencia_id,),
+    )
+    msgs = cur.fetchall()
+    cur.execute(
+        "SELECT id, status, total, mp_payment_id, pagamento_status FROM ecommerce_pedidos WHERE id=%s LIMIT 1",
+        (pend["pedido_id"],),
+    )
+    pedido = cur.fetchone()
+    cur.close()
+    return render_template(
+        "painel_pendencia_detalhe.html",
+        pend=dict(pend),
+        msgs=msgs,
+        pedido=dict(pedido) if pedido else None,
+        motivos=_MOTIVOS_PENDENCIA,
+        status_label=_STATUS_PENDENCIA_LABEL,
+    )
+
+
+@app.post("/painel/pendencias/<pendencia_id>/mensagem")
+@painel_required
+def painel_pendencia_mensagem(pendencia_id):
+    _ensure_pendencia_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pedido_id, status FROM ecommerce_pedido_pendencias WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (pendencia_id, cnpjloja),
+    )
+    pend = cur.fetchone()
+    if not pend or pend["status"] not in _PENDENCIA_STATUS_ATIVA:
+        cur.close()
+        return redirect(url_for("painel_pedidos"))
+
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if len(mensagem) < 2:
+        flash("Digite uma mensagem.", "error")
+        cur.close()
+        return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+    cur.execute(
+        "INSERT INTO ecommerce_pendencia_msgs (pendencia_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (pendencia_id, mensagem),
+    )
+    if pend["status"] == "aberta":
+        cur.execute("UPDATE ecommerce_pedido_pendencias SET status='em_andamento' WHERE id=%s", (pendencia_id,))
+    conn.commit()
+    cur.close()
+    _notificar_pedido_evento(
+        pend["pedido_id"], "pendencia_msg", "Nova mensagem sobre seu pedido", mensagem[:200],
+    )
+    return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+
+@app.post("/painel/pendencias/<pendencia_id>/reembolsar")
+@painel_required
+def painel_pendencia_refund(pendencia_id):
+    _ensure_pendencia_schema()
+    cnpjloja = session.get("cnpjloja")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pedido_id, status FROM ecommerce_pedido_pendencias WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (pendencia_id, cnpjloja),
+    )
+    pend = cur.fetchone()
+    cur.close()
+    if not pend:
+        flash("Pendência não encontrada.", "error")
+        return redirect(url_for("painel_pedidos"))
+
+    ok, info = _mp_estornar_pagamento(pend["pedido_id"], cnpjloja)
+    if not ok:
+        flash(info, "error")
+        return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+    conn2 = db()
+    cur2 = conn2.cursor()
+    cur2.execute(
+        """
+        UPDATE ecommerce_pedido_pendencias
+        SET valor_reembolsado=%s, mp_refund_id=%s, reembolsado_em=NOW()
+        WHERE id=%s
+        """,
+        (info["valor"], info["refund_id"], pendencia_id),
+    )
+    cur2.execute(
+        "INSERT INTO ecommerce_pendencia_msgs (pendencia_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (pendencia_id, f"💸 Reembolso de {fmt_brl(info['valor'])} processado via Mercado Pago (ref. {info['refund_id']})."),
+    )
+    conn2.commit()
+    cur2.close()
+    _notificar_pedido_evento(
+        pend["pedido_id"], "reembolso", "Reembolso processado",
+        f"Reembolsamos {fmt_brl(info['valor'])} referentes ao seu pedido.",
+    )
+    flash(f"Reembolso de {fmt_brl(info['valor'])} processado com sucesso.", "success")
+    return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+
+@app.post("/painel/pendencias/<pendencia_id>/resolver")
+@painel_required
+def painel_pendencia_resolver(pendencia_id):
+    _ensure_pendencia_schema()
+    cnpjloja = session.get("cnpjloja")
+    resolucao = (request.form.get("resolucao") or "").strip()
+    if resolucao not in ("encomenda", "cancelada", "resolvida"):
+        flash("Ação inválida.", "error")
+        return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, pedido_id, status FROM ecommerce_pedido_pendencias WHERE id=%s AND cnpjloja=%s LIMIT 1",
+        (pendencia_id, cnpjloja),
+    )
+    pend = cur.fetchone()
+    if not pend or pend["status"] not in _PENDENCIA_STATUS_ATIVA:
+        flash("Ação inválida para o status atual.", "error")
+        cur.close()
+        return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
+
+    _msgs_sistema = {
+        "encomenda": "📦 A loja converteu este pedido em encomenda.",
+        "cancelada": "❌ A loja cancelou este pedido.",
+        "resolvida": "✅ O problema foi resolvido — o pedido segue normalmente.",
+    }
+    cur.execute(
+        "UPDATE ecommerce_pedido_pendencias SET status=%s, finalizada_em=NOW() WHERE id=%s",
+        (resolucao, pendencia_id),
+    )
+    cur.execute(
+        "INSERT INTO ecommerce_pendencia_msgs (pendencia_id, autor, mensagem) VALUES (%s, 'loja', %s)",
+        (pendencia_id, _msgs_sistema[resolucao]),
+    )
+    conn.commit()
+    cur.close()
+
+    if resolucao == "cancelada":
+        conn2 = db()
+        cur2 = conn2.cursor()
+        cur2.execute(
+            "UPDATE ecommerce_pedidos SET status='cancelado', atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s",
+            (pend["pedido_id"], cnpjloja),
+        )
+        conn2.commit()
+        cur2.close()
+        _registrar_status_pedido(pend["pedido_id"], "cancelado")
+
+    _notificar_pedido_evento(
+        pend["pedido_id"], "pendencia_resolvida", _STATUS_PENDENCIA_LABEL.get(resolucao, resolucao),
+        _msgs_sistema[resolucao],
+    )
+    flash("Pendência atualizada.", "success")
+    return redirect(url_for("painel_pendencia_detalhe", pendencia_id=pendencia_id))
 
 
 # ─── PAINEL: ENCOMENDAS ──────────────────────────────────────────────────────
