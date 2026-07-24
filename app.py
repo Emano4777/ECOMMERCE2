@@ -25981,9 +25981,10 @@ def admin_repasses():
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     cur.execute(
         f"""
-        SELECT r.*, u.razao
+        SELECT r.*, u.razao, p.status AS pedido_status
         FROM ecommerce_repasses_admin r
         LEFT JOIN users u ON u.cnpjloja = r.cnpjloja
+        LEFT JOIN ecommerce_pedidos p ON p.id = r.pedido_id
         {where_sql}
         ORDER BY r.criado_em DESC
         LIMIT 500
@@ -25991,16 +25992,26 @@ def admin_repasses():
         params,
     )
     repasses = cur.fetchall()
+    # Pedido cancelado (recusado/estornado) nunca virou venda de verdade — o
+    # desconto que geraria o repasse nao chegou a "custar" nada pra loja, entao
+    # esses lancamentos ficam de fora do que o admin deve (evita pagar repasse
+    # de pedido que nao aconteceu).
     cur.execute("""
         SELECT r.cnpjloja, u.razao, COUNT(*) AS qtd, SUM(r.valor) AS total
         FROM ecommerce_repasses_admin r
         LEFT JOIN users u ON u.cnpjloja = r.cnpjloja
-        WHERE r.pago = FALSE
+        LEFT JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+        WHERE r.pago = FALSE AND COALESCE(p.status, '') <> 'cancelado'
         GROUP BY r.cnpjloja, u.razao
         ORDER BY total DESC
     """)
     pendentes_por_loja = cur.fetchall()
-    cur.execute("SELECT COALESCE(SUM(valor),0) AS total FROM ecommerce_repasses_admin WHERE pago=FALSE")
+    cur.execute("""
+        SELECT COALESCE(SUM(r.valor),0) AS total
+        FROM ecommerce_repasses_admin r
+        LEFT JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+        WHERE r.pago = FALSE AND COALESCE(p.status, '') <> 'cancelado'
+    """)
     total_pendente = float(cur.fetchone()["total"] or 0)
     cur.execute("SELECT cnpjloja, razao FROM users WHERE is_admin=FALSE ORDER BY razao")
     lojas = cur.fetchall()
@@ -26039,7 +26050,9 @@ def admin_repasses_marcar_pago_loja(cnpjloja):
     conn = db()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE ecommerce_repasses_admin SET pago=TRUE, pago_em=NOW() WHERE cnpjloja=%s AND pago=FALSE",
+        """UPDATE ecommerce_repasses_admin r SET pago=TRUE, pago_em=NOW()
+           WHERE r.cnpjloja=%s AND r.pago=FALSE
+             AND COALESCE((SELECT p.status FROM ecommerce_pedidos p WHERE p.id = r.pedido_id), '') <> 'cancelado'""",
         (cnpjloja,),
     )
     qtd = cur.rowcount
