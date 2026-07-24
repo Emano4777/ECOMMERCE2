@@ -8675,7 +8675,14 @@ def _api_produtos_proximos_impl():
                 hay = _norm_text(hay_raw)
                 if _product_excluded_for_symptom_query(busca_q, hay_raw):
                     continue
-                if len(_required_filter_terms) >= 2 and not all(_termo_bate_aproximado(t, hay) for t in _required_filter_terms):
+                if len(_required_filter_terms) >= 2:
+                    # Ja exige TODOS os termos (com tolerancia a abreviacao/erro
+                    # de digitacao) — checagem suficiente e mais confiavel que o
+                    # _ft_patterns abaixo, cujo regex de "palavra inteira" pra
+                    # termos curtos exclui casos legitimos como "baby" dentro de
+                    # "babysec" (nome de marca grudado numa palavra so).
+                    if all(_termo_bate_aproximado(t, hay) for t in _required_filter_terms):
+                        filtrados.append(p)
                     continue
                 if any(
                     (pat.search(hay) if hasattr(pat, 'search') else pat in hay)
