@@ -551,6 +551,30 @@ function distanciaParaLoja(cfg) {
   return haversineKm(uLat, uLng, lLat, lLng);
 }
 
+// Espelho em JS de _resolver_frete() (app.py) — fonte unica pro calculo de
+// frete no carrinho, chamada nos 3 lugares que hoje repetiam essa conta
+// (render do carrinho, atualizarTotaisComFrete e finalizarPedido). Sem
+// cfg.faixas_frete cadastradas, reproduz exatamente o calculo antigo (frete
+// unico), sem mudar nada pra loja que nao usa a feature nova.
+function calcularFreteLoja(cfg, dist) {
+  const raio = parseFloat(cfg.raio_entrega_km || 0);
+  const distanciaConhecida = dist !== undefined && Number.isFinite(dist);
+  if (!distanciaConhecida || dist > raio) {
+    return {disponivel: false, valor: 0};
+  }
+  const faixas = cfg.faixas_frete || [];
+  if (!faixas.length) {
+    return {disponivel: true, valor: cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0};
+  }
+  const ordenadas = faixas.slice().sort((a, b) => parseFloat(a.distancia_ate_km) - parseFloat(b.distancia_ate_km));
+  for (const f of ordenadas) {
+    if (dist <= parseFloat(f.distancia_ate_km)) {
+      return {disponivel: true, valor: parseFloat(f.valor_frete || 0)};
+    }
+  }
+  return {disponivel: true, valor: parseFloat(ordenadas[ordenadas.length - 1].valor_frete || 0)};
+}
+
 function getCurrentLocationAddress() {
   return {
     label: localStorage.getItem('pq_loc_nome') || '',
@@ -1119,7 +1143,8 @@ function renderCart() {
     const proximoDiaEntrega = cfg.proximo_dia_entrega;
     const podeAgendar = !entregaOk && entregaOkBase && !dentroHorarioEntrega && !!proximoDiaEntrega;
     const freteGratisAssinante = cfg.frete_gratis_assinante_disponivel === true;
-    const frete = (entregaOk || podeAgendar) && cfg.cobra_frete && !freteGratisAssinante ? parseFloat(cfg.valor_frete || 0) : 0;
+    const freteCalc = calcularFreteLoja(cfg, dist);
+    const frete = (entregaOk || podeAgendar) && freteCalc.disponivel && !freteGratisAssinante ? freteCalc.valor : 0;
     grandTotal += sub;
     let payOpts = '';
     if (showWpp) payOpts += payOptHtml(cnpj, 'whatsapp', '<i class="fa-brands fa-whatsapp"></i>WhatsApp', true);
@@ -1331,7 +1356,11 @@ function atualizarTotaisComFrete() {
     const sub = groups[cnpj].itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
     const cfg = _configLojas[cnpj] || {};
     const delivery = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
-    const frete = delivery === 'entrega' && cfg.cobra_frete && !cfg.frete_gratis_assinante_disponivel ? parseFloat(cfg.valor_frete || 0) : 0;
+    const distDinamicaAtual = distanciaParaLoja(cfg);
+    const distItemAtual = groups[cnpj].itens.find(i => i.distancia_km !== null && i.distancia_km !== undefined)?.distancia_km;
+    const distAtual = distDinamicaAtual !== undefined ? distDinamicaAtual : (distItemAtual !== undefined ? parseFloat(distItemAtual) : undefined);
+    const freteCalcAtual = calcularFreteLoja(cfg, distAtual);
+    const frete = delivery === 'entrega' && freteCalcAtual.disponivel && !cfg.frete_gratis_assinante_disponivel ? freteCalcAtual.valor : 0;
     const desconto = _cupomAplicado[cnpj]?.desconto || 0;
     subtotalTotal += sub;
     freteTotal += frete;
@@ -1815,7 +1844,11 @@ async function finalizarPedido() {
     const radio = document.querySelector(`input[name="pay-${g.cnpjloja}"]:checked`);
     const delivery = document.querySelector(`input[name="delivery-${g.cnpjloja}"]:checked`);
     const cfg = _configLojas[g.cnpjloja] || {};
-    const frete = delivery && delivery.value === 'entrega' && cfg.cobra_frete ? parseFloat(cfg.valor_frete || 0) : 0;
+    const distFinal = distanciaParaLoja(cfg);
+    const distItemFinal = g.itens.find(i => i.distancia_km !== null && i.distancia_km !== undefined)?.distancia_km;
+    const distEnvio = distFinal !== undefined ? distFinal : (distItemFinal !== undefined ? parseFloat(distItemFinal) : undefined);
+    const freteCalcFinal = calcularFreteLoja(cfg, distEnvio);
+    const frete = delivery && delivery.value === 'entrega' && freteCalcFinal.disponivel ? freteCalcFinal.valor : 0;
     const cupomInp = document.getElementById(`cupom-inp-${g.cnpjloja}`);
     const cupomCodigo = (cupomInp?.value || '').trim().toUpperCase();
     const tipoEntrega = delivery ? delivery.value : 'retirada';

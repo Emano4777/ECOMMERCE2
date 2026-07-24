@@ -1212,6 +1212,17 @@ def _ensure_delivery_schema():
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS entregue_em TIMESTAMPTZ")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS cupom_id UUID")
                 cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS desconto_cupom NUMERIC DEFAULT 0")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ecommerce_frete_faixas (
+                        id               SERIAL PRIMARY KEY,
+                        cnpjloja         TEXT NOT NULL,
+                        distancia_ate_km NUMERIC NOT NULL,
+                        valor_frete      NUMERIC NOT NULL DEFAULT 0,
+                        ordem            INTEGER DEFAULT 0,
+                        criado_em        TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_frete_faixas_cnpj ON ecommerce_frete_faixas(cnpjloja)")
                 conn.commit()
                 cur.close()
                 _schema_ready.add("delivery")
@@ -2804,6 +2815,51 @@ def haversine(lat1, lng1, lat2, lng2):
         * math.sin(dLng / 2) ** 2
     )
     return round(R * 2 * math.asin(math.sqrt(a)) * 1.3, 1)
+
+
+def _buscar_faixas_frete(cnpjloja, cur=None):
+    """Faixas de frete por distancia da loja (ecommerce_frete_faixas), ordenadas
+    por distancia_ate_km ASC. Lista vazia = loja nao usa faixas (frete unico)."""
+    _own_cur = cur is None
+    if _own_cur:
+        conn = db()
+        cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id, distancia_ate_km, valor_frete FROM ecommerce_frete_faixas "
+            "WHERE cnpjloja=%s ORDER BY distancia_ate_km ASC",
+            (cnpjloja,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        if _own_cur:
+            cur.close()
+
+
+def _resolver_frete(dist, raio_entrega_km, cobra_frete, valor_frete, faixas=None):
+    """Fonte unica de verdade pro calculo de frete — usada tanto no catalogo/
+    checkout (Python) quanto espelhada em JS no carrinho (calcularFreteLoja).
+
+    Retorna (entrega_disponivel: bool, frete_valor: float).
+    - dist None ou acima do raio da loja -> sem entrega (raio sempre e o corte
+      absoluto, com ou sem faixas configuradas).
+    - Sem faixas cadastradas -> comportamento antigo (frete unico), inalterado.
+    - Com faixas -> acha a primeira faixa cuja distancia_ate_km cobre a
+      distancia; se a distancia for maior que todas as faixas mas ainda
+      dentro do raio (buraco de configuracao), usa a ultima faixa como
+      fallback seguro em vez de deixar sem frete definido.
+    """
+    raio = float(raio_entrega_km or 0)
+    if dist is None or dist > raio:
+        return False, 0.0
+    faixas = faixas or []
+    if not faixas:
+        return True, (float(valor_frete or 0) if cobra_frete else 0.0)
+    faixas_ordenadas = sorted(faixas, key=lambda f: float(f["distancia_ate_km"]))
+    for f in faixas_ordenadas:
+        if dist <= float(f["distancia_ate_km"]):
+            return True, float(f["valor_frete"] or 0)
+    return True, float(faixas_ordenadas[-1]["valor_frete"] or 0)
 
 
 # ─── GEOCODING (Nominatim / OpenStreetMap — gratuito) ─────────────────────────
@@ -8776,6 +8832,24 @@ def _api_produtos_proximos_impl():
             return c == cat_filter
         produtos_raw = [p for p in produtos_raw if _cat_ok(p)]
 
+    # Faixas de frete por distancia (ecommerce_frete_faixas), buscadas em lote
+    # pras lojas que aparecem nesse catalogo — evita 1 query por produto.
+    _faixas_por_loja = {}
+    _cnpjs_com_info = [c for c in loja_info.keys() if c]
+    if _cnpjs_com_info:
+        try:
+            _cur_faixas = db().cursor()
+            _cur_faixas.execute(
+                "SELECT cnpjloja, id, distancia_ate_km, valor_frete FROM ecommerce_frete_faixas "
+                "WHERE cnpjloja = ANY(%s) ORDER BY distancia_ate_km ASC",
+                (_cnpjs_com_info,),
+            )
+            for _r in _cur_faixas.fetchall():
+                _faixas_por_loja.setdefault(_r["cnpjloja"], []).append(dict(_r))
+            _cur_faixas.close()
+        except Exception:
+            _faixas_por_loja = {}
+
     produtos_view = []
     for p in produtos_raw:
         if not _has_catalog_image(p):
@@ -8788,11 +8862,15 @@ def _api_produtos_proximos_impl():
         razao = _public_store_name(info)
         aceita_entrega = bool(info.get("aceita_entrega"))
         raio_entrega = float(info.get("raio_entrega_km") or 0)
+        _dentro_faixa, _frete_calc = _resolver_frete(
+            dist, raio_entrega, info.get("cobra_frete"), info.get("valor_frete"),
+            _faixas_por_loja.get(p["cnpjloja"]),
+        )
         entrega_disponivel = bool(
-            aceita_entrega and dist is not None and dist <= raio_entrega
+            aceita_entrega and _dentro_faixa
             and _entrega_disponivel_horario_cached(p["cnpjloja"])
         )
-        frete_valor = float(info.get("valor_frete") or 0) if entrega_disponivel and info.get("cobra_frete") else 0.0
+        frete_valor = _frete_calc if entrega_disponivel else 0.0
         entrega_meta = {
             "aceita_entrega": aceita_entrega,
             "raio_entrega_km": raio_entrega,
@@ -8929,6 +9007,19 @@ def _api_produtos_proximos_impl():
                 )
                 alpha_rows = [dict(r) for r in cur_alpha_direct.fetchall()]
                 cur_alpha_direct.close()
+            _faixas_direct = {}
+            try:
+                _cur_faixas_direct = db().cursor()
+                _cur_faixas_direct.execute(
+                    "SELECT cnpjloja, id, distancia_ate_km, valor_frete FROM ecommerce_frete_faixas "
+                    "WHERE cnpjloja = ANY(%s) ORDER BY distancia_ate_km ASC",
+                    (cnpjs,),
+                )
+                for _r in _cur_faixas_direct.fetchall():
+                    _faixas_direct.setdefault(_r["cnpjloja"], []).append(dict(_r))
+                _cur_faixas_direct.close()
+            except Exception:
+                _faixas_direct = {}
             for p in alpha_rows:
                 if not _has_catalog_image(p):
                     continue
@@ -8936,8 +9027,12 @@ def _api_produtos_proximos_impl():
                 dist = info.get("distancia_km")
                 aceita_entrega = bool(info.get("aceita_entrega"))
                 raio_entrega = float(info.get("raio_entrega_km") or 0)
+                _dentro_faixa, _frete_calc = _resolver_frete(
+                    dist, raio_entrega, info.get("cobra_frete"), info.get("valor_frete"),
+                    _faixas_direct.get(p["cnpjloja"]),
+                )
                 entrega_disponivel = bool(
-                    aceita_entrega and dist is not None and dist <= raio_entrega
+                    aceita_entrega and _dentro_faixa
                     and _entrega_disponivel_horario_cached(p["cnpjloja"])
                 )
                 result.append({
@@ -8950,7 +9045,7 @@ def _api_produtos_proximos_impl():
                     "raio_entrega_km": raio_entrega,
                     "entrega_disponivel": entrega_disponivel,
                     "cobra_frete": bool(info.get("cobra_frete")),
-                    "valor_frete": float(info.get("valor_frete") or 0) if entrega_disponivel and info.get("cobra_frete") else 0.0,
+                    "valor_frete": _frete_calc if entrega_disponivel else 0.0,
                 })
         except Exception as exc:
             app.logger.warning("alpha direct final fallback error: %s", exc)
@@ -10322,6 +10417,23 @@ def api_config_lojas():
                 pendentes.add(r["cnpjloja"])
     cur.close()
 
+    # Faixas de frete por distancia — o carrinho calcula a distancia no
+    # proprio navegador, entao aqui so precisa devolver a lista de faixas
+    # (sem faixas = loja usa frete unico, igual antes).
+    faixas_por_loja = {}
+    conn_faixas = db()
+    cur_faixas = conn_faixas.cursor()
+    cur_faixas.execute(
+        "SELECT cnpjloja, id, distancia_ate_km, valor_frete FROM ecommerce_frete_faixas "
+        "WHERE cnpjloja = ANY(%s) ORDER BY distancia_ate_km ASC",
+        (cnpjs,),
+    )
+    for r in cur_faixas.fetchall():
+        faixas_por_loja.setdefault(r["cnpjloja"], []).append(
+            {"distancia_ate_km": float(r["distancia_ate_km"]), "valor_frete": float(r["valor_frete"])}
+        )
+    cur_faixas.close()
+
     data = {}
     for r in rows:
         item = dict(r)
@@ -10334,6 +10446,7 @@ def api_config_lojas():
         item["frete_gratis_assinante_disponivel"] = r["cnpjloja"] in frete_gratis_disponivel
         item["ja_assina"] = r["cnpjloja"] in assinados
         item["assinatura_pendente"] = r["cnpjloja"] in pendentes
+        item["faixas_frete"] = faixas_por_loja.get(r["cnpjloja"], [])
         data[r["cnpjloja"]] = item
     return jsonify(data)
 
@@ -14878,7 +14991,14 @@ def api_checkout():
         consumidor_id_checkout = session.get("consumidor_id")
         is_assinante_checkout = _consumidor_e_assinante(consumidor_id_checkout, cnpjloja)
 
-        frete_valor_cheio = float(loja.get("valor_frete") or 0) if tipo_entrega == "entrega" and loja.get("cobra_frete") else 0.0
+        frete_valor_cheio = 0.0
+        if tipo_entrega == "entrega":
+            _faixas_loja_checkout = _buscar_faixas_frete(cnpjloja, cur)
+            _dentro_faixa_checkout, _frete_calc_checkout = _resolver_frete(
+                entrega_dist, loja.get("raio_entrega_km"), loja.get("cobra_frete"), loja.get("valor_frete"),
+                _faixas_loja_checkout,
+            )
+            frete_valor_cheio = _frete_calc_checkout if _dentro_faixa_checkout else 0.0
         frete_gratis_assinante = False
         assinatura_id_beneficio = None
         if tipo_entrega == "entrega" and frete_valor_cheio > 0 and is_assinante_checkout:
@@ -18916,13 +19036,20 @@ def painel_config():
     _ensure_mp_public_key_column()
     _ensure_gateway_alt_columns()
     _ensure_logo_url_column()
+    _ensure_delivery_schema()
     cnpjloja = session.get("cnpjloja")
     conn = db()
     cur  = conn.cursor()
     cur.execute("SELECT * FROM ecommerce_config_loja WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
     config = cur.fetchone() or {}
+    cur.execute(
+        "SELECT id, distancia_ate_km, valor_frete FROM ecommerce_frete_faixas "
+        "WHERE cnpjloja=%s ORDER BY distancia_ate_km ASC",
+        (cnpjloja,),
+    )
+    faixas_frete = cur.fetchall()
     cur.close()
-    return render_template("painel_config.html", config=config)
+    return render_template("painel_config.html", config=config, faixas_frete=faixas_frete)
 
 
 @app.get("/painel/config/mp-test")
@@ -18986,6 +19113,7 @@ def painel_config_salvar():
     _ensure_receita_schema()
     _ensure_mp_public_key_column()
     _ensure_gateway_alt_columns()
+    _ensure_delivery_schema()
     cnpjloja = session.get("cnpjloja")
     f = request.form
     conn = db()
@@ -19055,6 +19183,26 @@ def painel_config_salvar():
             "todos_prontos_retirada" in f,
         ),
     )
+    # Faixas de frete por distancia — substitui tudo a cada save (mesmo padrao
+    # de "substitui todos os filhos" usado em _sync_cupom_lojas). Linha com
+    # "ate (km)" ou "valor" vazio e ignorada; sem nenhuma faixa valida = loja
+    # volta a usar o frete unico configurado acima, sem precisar de outra tela.
+    cur.execute("DELETE FROM ecommerce_frete_faixas WHERE cnpjloja=%s", (cnpjloja,))
+    faixas_km = request.form.getlist("faixa_ate_km[]")
+    faixas_valor = request.form.getlist("faixa_valor[]")
+    _ordem = 0
+    for _km, _valor in zip(faixas_km, faixas_valor):
+        _km_f = _to_float_or_none(_km)
+        _valor_f = _to_float_or_none(_valor)
+        if _km_f is None or _km_f <= 0 or _valor_f is None or _valor_f < 0:
+            continue
+        cur.execute(
+            "INSERT INTO ecommerce_frete_faixas (cnpjloja, distancia_ate_km, valor_frete, ordem) "
+            "VALUES (%s,%s,%s,%s)",
+            (cnpjloja, _km_f, _valor_f, _ordem),
+        )
+        _ordem += 1
+
     conn.commit()
     cur.close()
     flash("Configurações salvas com sucesso.", "success")
