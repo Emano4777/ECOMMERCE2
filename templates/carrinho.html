@@ -521,6 +521,7 @@ const _receitaUrl = {};        // {cnpjloja: url} — receita médica anexada
 const _receitaDeclaracaoOk = {}; // {cnpjloja: true} — cliente confirmou receita digital original
 let _enderecosSalvos = [];
 const _deliveryModes = {};
+const _economiaClubeProdutos = {}; // {cnpjloja: economia de produto (qtd/promo) calculada no ultimo render}
 const CONSUMIDOR_ENDERECO = {{ (consumidor.endereco if consumidor else '')|tojson }};
 const CONSUMIDOR_LAT = {{ (consumidor.lat if consumidor else none)|tojson }};
 const CONSUMIDOR_LNG = {{ (consumidor.lng if consumidor else none)|tojson }};
@@ -1045,9 +1046,7 @@ function renderCart() {
         economiaClube += (promoi.preco_original - promoi.preco_promo) * qtyi;
       }
     });
-    const sideClubHtml = assinaturaCardHtml(cnpj, cfg, economiaClube, sub);
-    if (sideClubHtml) sideClubCards.push(sideClubHtml);
-
+    _economiaClubeProdutos[cnpj] = economiaClube;
     let itensHtml = g.itens.map(item => {
       const precoItem = parseFloat(item.preco)||0;
       const precoOriginal = parseFloat(item.preco_original || item.promo?.preco_original || precoItem)||precoItem;
@@ -1123,6 +1122,14 @@ function renderCart() {
     if (showMp)  payOpts += payOptHtml(cnpj, 'mercadopago','<i class="fa fa-credit-card"></i>Cartão', false);
 
     const deliverySelected = _deliveryModes[cnpj] === 'entrega' && (entregaOk || podeAgendar) ? 'entrega' : 'retirada';
+    // 1a entrega grátis do clube: so simula quando o cliente marcou "entrega"
+    // de fato (senao nao ha frete a "economizar" nesse pedido), o plano
+    // oferece o beneficio e ele ainda nao e assinante (pra quem ja e, o frete
+    // ja sai 0 de verdade, refletido em "frete" acima).
+    const economiaFrete = (deliverySelected === 'entrega' && cfg.plano_frete_gratis_primeira_entrega === true
+      && !cfg.ja_assina && !cfg.assinatura_pendente && frete > 0) ? frete : 0;
+    const sideClubHtml = assinaturaCardHtml(cnpj, cfg, economiaClube, sub, economiaFrete, frete);
+    if (sideClubHtml) sideClubCards.push(sideClubHtml);
     let entregaOpts = deliveryOptHtml(cnpj, 'retirada', '<i class="fa fa-store"></i>Retirada na loja', deliverySelected === 'retirada');
     if (entregaOk) entregaOpts += deliveryOptHtml(cnpj, 'entrega', '<i class="fa fa-motorcycle"></i>Entrega', deliverySelected === 'entrega');
     if (podeAgendar) {
@@ -1337,6 +1344,14 @@ function atualizarTotaisComFrete() {
     total += Math.max(0, sub - desconto) + frete;
     const el = document.getElementById(`subtotal-${cnpj}`);
     if (el) el.textContent = frete ? `${brl(sub)} + frete ${brl(frete)}` : brl(sub);
+    // Recalcula a simulacao do clube pra refletir a 1a entrega gratis assim
+    // que o cliente marca "entrega" — sem precisar re-renderizar tudo.
+    const simEl = document.getElementById(`club-sim-${cnpj}`);
+    if (simEl) {
+      const economiaFrete = (delivery === 'entrega' && cfg.plano_frete_gratis_primeira_entrega === true
+        && !cfg.ja_assina && !cfg.assinatura_pendente && frete > 0) ? frete : 0;
+      simEl.innerHTML = clubSimHtml(_economiaClubeProdutos[cnpj] || 0, sub, economiaFrete, frete, cfg.ja_assina, cfg.assinatura_pendente);
+    }
   });
   const summarySubtotal = document.getElementById('summary-subtotal');
   const summaryDelivery = document.getElementById('summary-delivery');
@@ -1393,7 +1408,29 @@ async function atualizarStatusHorarioCarrinho(cnpjs) {
   }));
 }
 
-function assinaturaCardHtml(cnpj, cfg, economiaClube=0, subAtual=0) {
+function clubSimHtml(economiaClube, subAtual, economiaFrete, freteAtual, jaAssina, assinaturaPendente) {
+  const totalAtual = (subAtual||0) + (freteAtual||0);
+  const totalEconomia = (economiaClube||0) + (economiaFrete||0);
+  // So simula economia pra quem ainda nao e assinante — pra quem ja assina, o
+  // desconto ja esta refletido no preco normal dos itens/frete, mostrar de
+  // novo aqui seria redundante (e daria a entender que teria mais economia).
+  if (totalEconomia <= 0 || jaAssina || assinaturaPendente) return '';
+  let comentario = '';
+  if (economiaClube > 0 && economiaFrete > 0) comentario = ' (produtos + 1ª entrega grátis)';
+  else if (economiaFrete > 0) comentario = ' com a 1ª entrega grátis do clube';
+  return `<div style="background:#fff5f6;border:1.5px solid #ffc2cc;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+       <div style="font-size:.72rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">
+         <i class="fa fa-calculator me-1"></i>Simulação com seu pedido atual
+       </div>
+       <div style="font-size:.86rem;color:#333;line-height:1.5">
+         Sendo assinante, esse pedido sairia por
+         <strong style="color:var(--pq-red)">${brl(totalAtual - totalEconomia)}</strong>
+         em vez de ${brl(totalAtual)} — <strong style="color:var(--pq-red)">economize ${brl(totalEconomia)}</strong>${comentario} agora.
+       </div>
+     </div>`;
+}
+
+function assinaturaCardHtml(cnpj, cfg, economiaClube=0, subAtual=0, economiaFrete=0, freteAtual=0) {
   if (!cfg.plano_ativo) return '';
   const rawBenefits = (cfg.plano_beneficios || '').split('\n').map(b => b.trim()).filter(Boolean);
   const benefits = rawBenefits.length ? rawBenefits : [
@@ -1413,26 +1450,12 @@ function assinaturaCardHtml(cnpj, cfg, economiaClube=0, subAtual=0) {
   } else if (cfg.assinatura_pendente) {
     ctaHtml = `<a href="/assinatura/pagamento/${encodeURIComponent(cnpj)}" class="cart-club-btn is-pending"><i class="fa fa-clock"></i>Pagamento pendente</a>`;
   } else {
-    const ctaLabel = economiaClube > 0 ? 'Assinar e economizar agora' : 'Conhecer o Clube';
+    const ctaLabel = (economiaClube > 0 || economiaFrete > 0) ? 'Assinar e economizar agora' : 'Conhecer o Clube';
     ctaHtml = `<form method="post" action="/assinar/${encodeURIComponent(cnpj)}" class="cart-club-action">
       <button type="submit" class="cart-club-btn">${ctaLabel} <i class="fa fa-chevron-right"></i></button>
     </form>`;
   }
-  // So simula economia pra quem ainda nao e assinante — pra quem ja assina, o
-  // desconto ja esta refletido no preco normal dos itens, mostrar de novo aqui
-  // seria redundante (e daria a entender que teria mais economia por vir).
-  const simulacaoHtml = (economiaClube > 0 && !cfg.ja_assina && !cfg.assinatura_pendente)
-    ? `<div style="background:#fff5f6;border:1.5px solid #ffc2cc;border-radius:10px;padding:10px 12px;margin-bottom:12px">
-         <div style="font-size:.72rem;font-weight:800;color:var(--pq-red);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">
-           <i class="fa fa-calculator me-1"></i>Simulação com sua cesta atual
-         </div>
-         <div style="font-size:.86rem;color:#333;line-height:1.5">
-           Sendo assinante, essa cesta sairia por
-           <strong style="color:var(--pq-red)">${brl(subAtual - economiaClube)}</strong>
-           em vez de ${brl(subAtual)} — <strong style="color:var(--pq-red)">economize ${brl(economiaClube)}</strong> agora.
-         </div>
-       </div>`
-    : '';
+  const simulacaoHtml = `<div id="club-sim-${esc(cnpj)}">${clubSimHtml(economiaClube, subAtual, economiaFrete, freteAtual, cfg.ja_assina, cfg.assinatura_pendente)}</div>`;
   return `<section class="cart-club-card" aria-label="Clube de assinantes">
     <div class="cart-club-top">
       <div class="cart-club-star"><i class="fa fa-star"></i></div>

@@ -10240,7 +10240,8 @@ def api_config_lojas():
                g.lat AS loja_lat, g.lng AS loja_lng,
                p.nome AS plano_nome, p.descricao AS plano_descricao,
                p.preco_mensal AS plano_preco_mensal, p.beneficios AS plano_beneficios,
-               COALESCE(p.ativo, FALSE) AS plano_ativo
+               COALESCE(p.ativo, FALSE) AS plano_ativo,
+               COALESCE(p.frete_gratis_primeira_entrega, FALSE) AS plano_frete_gratis_primeira_entrega
         FROM users u
         LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
         LEFT JOIN ecommerce_lojas_geo g   ON g.cnpjloja = u.cnpjloja
