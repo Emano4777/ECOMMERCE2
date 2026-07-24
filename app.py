@@ -6801,7 +6801,7 @@ def api_banners():
 
     cur.execute("""
         SELECT b.id, b.cnpjloja, b.imagem_url, b.link_url, b.titulo,
-               b.ordem, u.razao,
+               b.ordem, u.razao, u.endereco,
                (6371 * acos(
                    cos(radians(%s)) * cos(radians(g.lat)) *
                    cos(radians(g.lng) - radians(%s)) +
@@ -6832,7 +6832,7 @@ def api_banners():
             "imagem_url":   r["imagem_url"],
             "link_url":     r["link_url"] or "",
             "titulo":       r["titulo"]   or "",
-            "razao":        r["razao"]    or "",
+            "razao":        _public_store_name(r) or "",
             "distancia_km": round(float(r["distancia_km"] or 0), 1),
         }
         for r in rows
