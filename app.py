@@ -2972,13 +2972,22 @@ def _ensure_lojas_geo_address_hash():
         _mark_migration_done(key)
 
 
-def _public_store_name(loja):
-    endereco = (loja.get("endereco") if hasattr(loja, "get") else "") or ""
-    razao = (loja.get("razao") if hasattr(loja, "get") else "") or ""
-    base = re.sub(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b", "", endereco)
+def _endereco_base_limpo(endereco):
+    """Extrai só o pedaço legível do endereco (bairro/cidade), removendo
+    CNPJ colado no texto (artefato de cadastro antigo) e tudo depois do
+    ultimo hifen — mesma limpeza usada em _public_store_name, mas exposta
+    separada pra exibir a localizacao da loja sem repetir "Drogaria Poupaqui"."""
+    base = re.sub(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b", "", endereco or "")
     base = re.sub(r"\b\d{14}\b", "", base)
     base = re.split(r"\s+-\s+|\s+-\s*$|-\s*$", base, maxsplit=1)[0]
     base = re.sub(r"\s+", " ", base).strip(" -,.")
+    return base
+
+
+def _public_store_name(loja):
+    endereco = (loja.get("endereco") if hasattr(loja, "get") else "") or ""
+    razao = (loja.get("razao") if hasattr(loja, "get") else "") or ""
+    base = _endereco_base_limpo(endereco)
     if base:
         if re.search(r"\b(poupaqui|poup\s*aqui)\b", base, flags=re.I):
             return base
@@ -7545,7 +7554,10 @@ def lojas_vitrine():
             WHERE p.ativo = TRUE AND u.is_admin = FALSE
             ORDER BY u.razao
         """)
-        lojas_com_plano = cur2.fetchall()
+        lojas_com_plano = [dict(r) for r in cur2.fetchall()]
+        for _lp in lojas_com_plano:
+            _lp["cidade_limpa"] = _endereco_base_limpo(_lp.get("endereco") or "") or None
+            _lp["razao"] = _public_store_name(_lp)
         cur2.close()
     except Exception:
         pass

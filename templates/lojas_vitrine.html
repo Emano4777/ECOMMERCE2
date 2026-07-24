@@ -141,6 +141,14 @@
   text-align: center; padding: 10px; font-size: .78rem;
   color: var(--pq-muted); margin-top: 8px;
 }
+.lv-mapa-msg {
+  display: none; align-items: flex-start; gap: 10px;
+  background: #fff7ed; border: 1.5px solid #fed7aa; border-radius: 12px;
+  padding: 12px 16px; margin-bottom: 12px; font-size: .85rem;
+  color: #9a3412; line-height: 1.45;
+}
+.lv-mapa-msg.show { display: flex; }
+.lv-mapa-msg i { color: #ea580c; font-size: 1.05rem; margin-top: 1px; flex-shrink: 0; }
 @media (max-width: 600px) {
   #lv-mapa { height: 420px; }
   .lv-mapa-loading { height: 420px; }
@@ -202,9 +210,9 @@
       </div>
       <div style="padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:6px">
         <div style="font-size:.85rem;font-weight:800;color:#1a1a1a">{{ lp.razao }}</div>
-        {% if lp.endereco %}
+        {% if lp.cidade_limpa or lp.uf %}
         <div style="font-size:.74rem;color:var(--pq-muted);display:flex;align-items:flex-start;gap:5px">
-          <i class="fa fa-map-pin" style="color:var(--pq-red);margin-top:2px;flex-shrink:0"></i>{{ lp.endereco }}{% if lp.uf %} — {{ lp.uf }}{% endif %}
+          <i class="fa fa-map-pin" style="color:var(--pq-red);margin-top:2px;flex-shrink:0"></i>{{ lp.cidade_limpa }}{% if lp.uf %}{% if lp.cidade_limpa %} — {% endif %}{{ lp.uf }}{% endif %}
         </div>
         {% endif %}
         {% if lp.beneficios %}
@@ -296,6 +304,7 @@
 
 <!-- ── MAPA VIEW ─────────────────────────────────────────── -->
 <div id="lv-mapa-view">
+  <div id="lv-mapa-msg" class="lv-mapa-msg"><i class="fa fa-circle-info"></i><span id="lv-mapa-msg-txt"></span></div>
   <div id="lv-mapa-container">
     <div class="lv-mapa-loading" id="lv-mapa-loading">
       <div class="lv-mapa-spinner"></div>
@@ -318,12 +327,74 @@ var _mapaMarkerData = [];  // {marker, busca} — preenchido em _iniciarMapa
 var _mapaClusters = null;
 var _mapaObj = null;
 
+function _lvHaversine(lat1, lng1, lat2, lng2) {
+  var R = 6371;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLng = (lng2 - lng1) * Math.PI / 180;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function _lvMostrarMsgMapa(texto) {
+  var msg = document.getElementById('lv-mapa-msg');
+  var txt = document.getElementById('lv-mapa-msg-txt');
+  if (msg && txt) { txt.textContent = texto; msg.classList.add('show'); }
+}
+
+function _lvEsconderMsgMapa() {
+  var msg = document.getElementById('lv-mapa-msg');
+  if (msg) msg.classList.remove('show');
+}
+
+// Quando a busca nao acha nenhuma loja pelo texto (nome de cidade/bairro sem
+// loja cadastrada), geocodifica o termo (mesma API usada no seletor de
+// endereco do carrinho) e mostra as lojas mais proximas daquele ponto no
+// mapa, com um aviso amigavel — em vez de só deixar o mapa vazio.
+var _lvGeoReqId = 0;
+function _lvBuscarProximasPorGeocoding(q) {
+  if (!_mapaMarkerData.length || !_mapaClusters || !_mapaObj) return;
+  var meuReqId = ++_lvGeoReqId;
+  fetch('/api/localizacao?q=' + encodeURIComponent(q))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (meuReqId !== _lvGeoReqId) return; // resposta antiga, usuario ja digitou outra coisa
+      var results = data.results || [];
+      if (!results.length) {
+        _lvMostrarMsgMapa('Não encontramos "' + q + '". Tente o nome de outra cidade, bairro ou estado.');
+        return;
+      }
+      var lat = parseFloat(results[0].lat);
+      var lng = parseFloat(results[0].lon);
+      if (!lat || !lng) return;
+      var comDist = _mapaMarkerData
+        .filter(function (d) { return d.lat && d.lng; })
+        .map(function (d) { return {d: d, dist: _lvHaversine(lat, lng, d.lat, d.lng)}; })
+        .sort(function (a, b) { return a.dist - b.dist; });
+      var proximas = comDist.slice(0, 8);
+      if (!proximas.length) return;
+      _mapaClusters.clearLayers();
+      var markers = [];
+      proximas.forEach(function (p) { _mapaClusters.addLayer(p.d.marker); markers.push(p.d.marker); });
+      try {
+        var group = L.featureGroup(markers);
+        _mapaObj.fitBounds(group.getBounds(), {padding: [60, 60], maxZoom: 11});
+      } catch (e) {}
+      _lvMostrarMsgMapa('Poxa, não encontramos lojas em "' + q + '", mas estamos exibindo nossas farmácias mais próximas.');
+    })
+    .catch(function () {});
+}
+
 (function () {
   var input = document.getElementById('lv-search-input');
   var nenhum = document.getElementById('lv-nenhum');
   if (!input) return;
+  var geoTimer = null;
   input.addEventListener('input', function () {
     var q = this.value.toLowerCase().trim();
+    clearTimeout(geoTimer);
+    _lvGeoReqId++; // invalida qualquer geocodificacao pendente da digitacao anterior
 
     // ── Filtro no cards view
     var vis = 0;
@@ -344,16 +415,21 @@ var _mapaObj = null;
           matched.push(d.marker);
         }
       });
-      // Se filtragem ativa e há resultados: zoom nos marcadores filtrados
-      if (q && matched.length > 0) {
+      if (!q) {
+        _lvEsconderMsgMapa();
+        if (_mapaMarkerData.length > 0) {
+          try { _mapaObj.fitBounds(_mapaClusters.getBounds(), {padding: [40, 40], maxZoom: 12}); } catch(e) {}
+        }
+      } else if (matched.length > 0) {
+        _lvEsconderMsgMapa();
         try {
           var group = L.featureGroup(matched);
           _mapaObj.fitBounds(group.getBounds(), {padding: [60, 60], maxZoom: 13});
         } catch(e) {}
-      } else if (!q && _mapaMarkerData.length > 0) {
-        try {
-          _mapaObj.fitBounds(_mapaClusters.getBounds(), {padding: [40, 40], maxZoom: 12});
-        } catch(e) {}
+      } else {
+        // Nada bateu por texto — espera o usuario parar de digitar e tenta
+        // achar a cidade/bairro por geocodificacao pra sugerir o mais perto.
+        geoTimer = setTimeout(function () { _lvBuscarProximasPorGeocoding(q); }, 600);
       }
     }
   });
@@ -490,7 +566,10 @@ async function _iniciarMapa() {
     clusters.addLayer(marker);
     _mapaMarkerData.push({
       marker: marker,
-      busca: ((loja.cidade || '') + ' ' + (loja.apelido || '') + ' ' + (loja.endereco || '')).toLowerCase()
+      busca: ((loja.cidade || '') + ' ' + (loja.apelido || '') + ' ' + (loja.endereco || '')).toLowerCase(),
+      cidade: loja.cidade || '',
+      lat: parseFloat(loja.lat),
+      lng: parseFloat(loja.lng)
     });
   });
 
