@@ -18013,6 +18013,23 @@ def _suporte_resposta_topico(pergunta):
     return None
 
 
+# Sinaliza que a mensagem e uma reclamacao/problema, nao uma duvida generica de
+# FAQ — mesmo contendo uma palavra-chave de topico (ex.: "problema no
+# pagamento" bate no regex de pagamento, mas o cliente nao quer saber as
+# formas de pagamento, quer ajuda com o problema). Quando bate aqui, pula
+# tanto a resposta fixa por topico quanto o cache por similaridade e vai
+# direto pra IA (com historico da conversa).
+_SUPORTE_PROBLEMA_RE = re.compile(
+    r"\bproblema|\berro\b|falh(ou|a|ando)|recusad|negad|reprovad|cancel|estorn|reembols|"
+    r"n[ãa]o (consegui|funcion|foi aprovad|passou|caiu)|deu ruim|n[ãa]o (ta|est[aá]) (funcionando|indo)",
+    re.IGNORECASE,
+)
+
+
+def _suporte_indica_problema(pergunta):
+    return bool(_SUPORTE_PROBLEMA_RE.search(pergunta or ""))
+
+
 def _suporte_cache_buscar(pergunta):
     """Cache de perguntas genericas (sem pedido vinculado) por match exato
     ou similaridade (pg_trgm). Retorna a resposta cacheada ou None."""
@@ -18071,9 +18088,14 @@ def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
     threading.Thread(target=_persist, daemon=True).start()
 
 
-def _claude_suporte_responder(pergunta, pedido_ctx=None):
+def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None):
     """Chama Claude Haiku pra responder uma pergunta de suporte. Retorna o
-    texto da resposta ou None em qualquer falha (sem API key, timeout, erro)."""
+    texto da resposta ou None em qualquer falha (sem API key, timeout, erro).
+
+    historico: mensagens anteriores do MESMO chat (ecommerce_suporte_msgs,
+    autor 'consumidor'/'ia', em ordem cronologica, SEM a mensagem atual) —
+    sem isso a IA respondia cada mensagem isolada, sem lembrar nada do que
+    o cliente ja tinha dito antes na mesma conversa."""
     api_key = _anthropic_api_key()
     if not api_key:
         return None
@@ -18088,11 +18110,29 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None):
             f"Entrega: {pedido_ctx.get('tipo_entrega','')}\n\n"
             f"Pergunta do cliente: {user_msg}"
         )
+    # Monta o historico como turnos alternados user/assistant — a API da
+    # Anthropic exige alternancia estrita, entao mensagens seguidas do mesmo
+    # autor (ex.: duas do cliente sem resposta da IA no meio) sao mescladas
+    # em vez de criar dois turnos do mesmo role.
+    messages = []
+    for h in (historico or [])[-20:]:
+        role = "user" if h.get("autor") == "consumidor" else "assistant"
+        texto = (h.get("mensagem") or "").strip()
+        if not texto:
+            continue
+        if messages and messages[-1]["role"] == role:
+            messages[-1]["content"] += "\n" + texto[:2000]
+        else:
+            messages.append({"role": role, "content": texto[:2000]})
+    if messages and messages[-1]["role"] == "user":
+        messages[-1]["content"] += "\n" + user_msg
+    else:
+        messages.append({"role": "user", "content": user_msg})
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 500,
         "system": _SUPORTE_SISTEMA_PROMPT,
-        "messages": [{"role": "user", "content": user_msg}],
+        "messages": messages,
     }).encode("utf-8")
     req = urllib.request.Request(
         "https://api.anthropic.com/v1/messages",
@@ -18237,6 +18277,15 @@ def api_suporte_mensagem():
         cur.close()
         return jsonify({"ok": False, "erro": "Chat não encontrado."}), 404
 
+    # Historico ANTES de inserir a mensagem atual — vira o contexto de turnos
+    # anteriores que a IA recebe (sem isso, cada mensagem era respondida como
+    # se fosse a primeira da conversa, sem lembrar nada do que foi dito antes).
+    cur.execute(
+        "SELECT autor, mensagem FROM ecommerce_suporte_msgs WHERE chat_id=%s AND autor IN ('consumidor','ia') ORDER BY enviada_em",
+        (chat_id,),
+    )
+    historico = [dict(r) for r in cur.fetchall()]
+
     cur.execute(
         "INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem) VALUES (%s, 'consumidor', %s)",
         (chat_id, mensagem[:2000]),
@@ -18248,23 +18297,29 @@ def api_suporte_mensagem():
         cur.close()
         return jsonify({"ok": True, "resposta": None, "aguardando_humano": True})
 
+    # Mensagem com cara de reclamacao/problema (ex.: "problema no pagamento")
+    # pula a resposta fixa por topico e o cache por similaridade — mesmo que
+    # bata numa palavra-chave generica, o cliente quer ajuda com algo
+    # especifico, nao a explicacao padrao do assunto.
+    tem_problema = _suporte_indica_problema(mensagem)
+
     pedido_ctx = None
     resposta = None
     from_cache = False
     if chat["pedido_id"]:
         pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
-        resposta = _claude_suporte_responder(mensagem, pedido_ctx=pedido_ctx)
+        resposta = _claude_suporte_responder(mensagem, pedido_ctx=pedido_ctx, historico=historico)
     else:
-        resposta = _suporte_resposta_topico(mensagem)
+        resposta = None if tem_problema else _suporte_resposta_topico(mensagem)
         if resposta:
             from_cache = True
         else:
-            resposta = _suporte_cache_buscar(mensagem)
+            resposta = None if tem_problema else _suporte_cache_buscar(mensagem)
             if resposta:
                 from_cache = True
             else:
-                resposta = _claude_suporte_responder(mensagem)
-                if resposta:
+                resposta = _claude_suporte_responder(mensagem, historico=historico)
+                if resposta and not tem_problema:
                     _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
 
     if not resposta:
