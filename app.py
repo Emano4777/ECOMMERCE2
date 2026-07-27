@@ -1057,14 +1057,21 @@ def _enfileirar_aviso_loja_regiao(consumidor_id, nome_cliente, lat, lng):
             return
         conn = db(); cur = conn.cursor()
         cur.execute(
-            "SELECT cnpjloja FROM users WHERE cnpjloja = ANY(%s) AND is_admin = FALSE",
+            "SELECT cnpjloja, telefone FROM users WHERE cnpjloja = ANY(%s) AND is_admin = FALSE AND COALESCE(telefone,'') <> ''",
             (list(cnpjs_perto),),
         )
-        cnpjs_com_conta = {r["cnpjloja"] for r in cur.fetchall()}
-        for cnpj in cnpjs_com_conta:
+        # Duas lojas (cnpjs diferentes) podem ser o mesmo dono/grupo com o
+        # mesmo numero de WhatsApp — dedup por telefone alem de cnpj, senao a
+        # mesma pessoa recebe a mensagem duplicada.
+        telefones_vistos = set()
+        for r in cur.fetchall():
+            tel_norm = re.sub(r"\D", "", r["telefone"] or "")
+            if not tel_norm or tel_norm in telefones_vistos:
+                continue
+            telefones_vistos.add(tel_norm)
             cur.execute(
                 "INSERT INTO ecommerce_avisos_loja_regiao (cnpjloja, consumidor_id, consumidor_nome) VALUES (%s, %s, %s)",
-                (cnpj, consumidor_id, nome_cliente),
+                (r["cnpjloja"], consumidor_id, nome_cliente),
             )
         conn.commit()
         cur.close()
