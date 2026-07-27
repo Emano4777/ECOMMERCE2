@@ -414,7 +414,6 @@
 </div>
 {% endif %}{# receita_urls #}
 
-{% if session.painel_role != 'motoboy' %}
 <!-- ALTERAR STATUS -->
 <div class="pk-card">
   <div class="pk-card-title"><i class="fa fa-pen-to-square"></i>Alterar status</div>
@@ -697,23 +696,6 @@
       f.style.display = (f.style.display === 'block') ? 'none' : 'block';
     }
   </script>
-</div>
-{% endif %}
-
-{% else %}
-<div class="pk-card">
-  <div class="pk-card-title"><i class="fa fa-key"></i>Confirmar entrega</div>
-  {% if pedido.tipo_entrega == 'entrega' and pedido.status == 'enviado' %}
-  <form method="post" action="{{ url_for('painel_confirmar_entrega', pedido_id=pedido.id) }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <input name="codigo_entrega" maxlength="4" placeholder="Código informado pelo cliente" style="background:#0d1016;border:1px solid var(--pk-line);color:var(--pk-txt);border-radius:8px;padding:10px 12px;width:190px;font-size:1rem;letter-spacing:4px;font-weight:900;text-align:center">
-    <button class="status-btn s-entregue" type="submit"><i class="fa fa-check me-1"></i>Confirmar entrega</button>
-  </form>
-  <div style="font-size:.74rem;color:var(--pk-muted);margin-top:10px">Peça o código ao cliente somente no momento da entrega.</div>
-  {% elif pedido.status == 'entregue' %}
-  <div style="color:#22c55e;font-weight:800"><i class="fa fa-circle-check me-1"></i>Entrega já confirmada.</div>
-  {% else %}
-  <div style="color:var(--pk-muted);font-size:.86rem">A confirmação com código fica disponível quando a loja marcar o pedido como enviado.</div>
-  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

@@ -6864,12 +6864,16 @@ def painel_required(fn):
                 "painel_pedido_detalhe",
                 "painel_confirmar_entrega",
                 "painel_confirmar_retirada",
+                # motoboy e lojista podem avançar o status sozinhos (marcar
+                # enviado/pronto p/ retirada) — antes só existia como
+                # "painel_pedidos_status" (nome errado, com "s" a mais; o
+                # endpoint real é painel_pedido_status), então a whitelist
+                # nunca batia e a ação sempre era bloqueada silenciosamente.
+                "painel_pedido_status",
                 "painel_logout",
                 "api_painel_novos_alertas",
             }
             if role == "lojista":
-                # lojista também pode atualizar status do pedido
-                allowed.add("painel_pedidos_status")
                 allowed.add("painel_avaliar_receita")
                 allowed.add("api_alpha_exportar_pedido")
                 # lojista pode abrir/conversar/resolver pendência, mas NUNCA
