@@ -556,7 +556,7 @@
   .home-prod { flex-basis:46vw; min-height:320px; }
   .lembrete-prod { flex-basis:46vw; }
 }
-@media(max-width:640px){ .home-row-cnav { display:none; } }
+@media(max-width:640px) and (hover:none) and (pointer:coarse){ .home-row-cnav { display:none; } }
 @media(max-width:460px){
   .home-row { gap:10px; }
   .home-prod { flex-basis:72vw; min-height:330px; }
@@ -1121,6 +1121,16 @@ function _homeCarouselNav(rowId, dir) {
   const step = c ? (c.offsetWidth + 12) * 2 : row.clientWidth * 0.8;
   row.scrollBy({ left: step * (dir || 1), behavior:'smooth' });
 }
+
+// Rolagem lateral com a rodinha do mouse (mouse nao tem "arrastar" como touch,
+// e as setas de navegacao somem em telas estreitas de computador)
+document.addEventListener('wheel', function(e) {
+  const row = e.target.closest && e.target.closest('.home-row, .insights-row, .dept-strip');
+  if (!row || row.scrollWidth <= row.clientWidth + 4) return;
+  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+  row.scrollLeft += e.deltaY;
+  e.preventDefault();
+}, { passive: false });
 
 // â”€â”€ Cache localStorage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _PQC = { prod:600e3, bnr:900e3, mais:1200e3, cupom:300e3, clube:600e3 };
