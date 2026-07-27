@@ -971,6 +971,107 @@ def _ensure_aviso_chegada_schema():
         _mark_migration_done(key)
 
 
+def _ensure_aviso_loja_regiao_schema():
+    key = "aviso_loja_regiao_v1"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_avisos_loja_regiao (
+                id               SERIAL PRIMARY KEY,
+                cnpjloja         TEXT NOT NULL,
+                consumidor_id    UUID,
+                consumidor_nome  TEXT NOT NULL,
+                criado_em        TIMESTAMPTZ DEFAULT NOW(),
+                enviado_em       TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_aviso_loja_regiao_pendente ON ecommerce_avisos_loja_regiao(cnpjloja) WHERE enviado_em IS NULL")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _lojas_vitrine_todas_coords():
+    """Coordenadas de todas as lojas da rede fisica Poupaqui (vitrine —
+    ImageKit + Supabase) que tem cnpj mapeado, pra achar a loja mais perto de
+    um ponto (novo cadastro de consumidor). Mesma fonte de dados de
+    /api/lojas/mapa, so que reduzida a {cnpjloja, lat, lng}."""
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT cidade, lat, lng FROM ecommerce_vitrine_coords")
+    coords_cidade = {r["cidade"]: (r["lat"], r["lng"]) for r in cur.fetchall()}
+    cur.execute("SELECT cnpjloja, lat, lng FROM ecommerce_lojas_geo WHERE lat IS NOT NULL AND lng IS NOT NULL")
+    geo_por_cnpj = {r["cnpjloja"]: (r["lat"], r["lng"]) for r in cur.fetchall()}
+    cur.execute("SELECT cidade, cnpjloja FROM ecommerce_vitrine_cnpj_map")
+    cidade_cnpj_map = {r["cidade"]: r["cnpjloja"] for r in cur.fetchall()}
+    cur.execute("SELECT cidade, cnpjloja FROM ecommerce_lojas_vitrine")
+    vitrine_sb = [dict(r) for r in cur.fetchall()]
+    cur.close()
+
+    cidade_por_cnpj = {}
+    for r in vitrine_sb:
+        cnpj = r.get("cnpjloja") or cidade_cnpj_map.get(r["cidade"])
+        if cnpj:
+            cidade_por_cnpj.setdefault(cnpj, r["cidade"])
+    try:
+        for l in _load_imagekit_lojas():
+            cidade = l.get("cidade", "")
+            cnpj = cidade_cnpj_map.get(cidade)
+            if cnpj:
+                cidade_por_cnpj.setdefault(cnpj, cidade)
+    except Exception:
+        pass
+
+    resultado = []
+    for cnpj, cidade in cidade_por_cnpj.items():
+        if cnpj in geo_por_cnpj:
+            lat, lng = geo_por_cnpj[cnpj]
+        else:
+            lat, lng = coords_cidade.get(cidade, (None, None))
+        if lat is None or lng is None:
+            continue
+        resultado.append({"cnpjloja": cnpj, "lat": float(lat), "lng": float(lng)})
+    return resultado
+
+
+def _enfileirar_aviso_loja_regiao(consumidor_id, nome_cliente, lat, lng):
+    """Quando um cliente novo se cadastra perto de alguma farmacia da rede
+    (vitrine, integrada ou nao), enfileira um aviso pra essa loja — o envio
+    de verdade acontece via cron do Hostgator (mesmo padrao de wa-next/
+    wa-mark-sent, pra fugir de bloqueio de IP da Vercel pelo Cloudflare).
+    So enfileira pra lojas que JA tem conta na plataforma (users, is_admin
+    FALSE) — vitrine sem cnpj/usuario nao tem pra quem mandar."""
+    if lat is None or lng is None:
+        return
+    try:
+        _ensure_aviso_loja_regiao_schema()
+        RAIO_KM = 30
+        lojas = _lojas_vitrine_todas_coords()
+        cnpjs_perto = {l["cnpjloja"] for l in lojas if haversine(lat, lng, l["lat"], l["lng"]) <= RAIO_KM}
+        if not cnpjs_perto:
+            return
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT cnpjloja FROM users WHERE cnpjloja = ANY(%s) AND is_admin = FALSE",
+            (list(cnpjs_perto),),
+        )
+        cnpjs_com_conta = {r["cnpjloja"] for r in cur.fetchall()}
+        for cnpj in cnpjs_com_conta:
+            cur.execute(
+                "INSERT INTO ecommerce_avisos_loja_regiao (cnpjloja, consumidor_id, consumidor_nome) VALUES (%s, %s, %s)",
+                (cnpj, consumidor_id, nome_cliente),
+            )
+        conn.commit()
+        cur.close()
+    except Exception as exc:
+        app.logger.warning("_enfileirar_aviso_loja_regiao error: %s", exc)
+
+
 def _notificar_consumidor(consumidor_id, tipo, titulo, mensagem="", url=None, pedido_id=None, conn=None, imagem_url=None):
     if not consumidor_id or not titulo:
         return
@@ -13500,6 +13601,11 @@ def consumidor_criar_conta_post():
     else:
         _enviar_email_verificacao(str(user["id"]), user["email"])
     _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"])
+    threading.Thread(
+        target=_enfileirar_aviso_loja_regiao,
+        args=(str(user["id"]), user["nome"], user.get("endereco_lat"), user.get("endereco_lng")),
+        daemon=True,
+    ).start()
     return redirect(next_url)
 
 
@@ -20570,6 +20676,62 @@ def api_cron_wa_mark_sent():
     conn.commit()
     cur.close()
     return jsonify({"ok": True, "id": pid[:8]})
+
+
+@app.get("/api/cron/wa-aviso-loja-regiao-next")
+def api_cron_wa_aviso_loja_regiao_next():
+    """Proximo aviso pendente de 'cliente novo na regiao' pra loja da rede —
+    mesmo padrao de wa-next (envio feito pelo cron do Hostgator, IP nao
+    bloqueado pelo Cloudflare)."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    _ensure_aviso_loja_regiao_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT a.id, a.consumidor_nome, u.telefone
+        FROM ecommerce_avisos_loja_regiao a
+        JOIN users u ON u.cnpjloja = a.cnpjloja AND u.is_admin = FALSE
+        WHERE a.enviado_em IS NULL AND COALESCE(u.telefone, '') <> ''
+        ORDER BY a.criado_em
+        LIMIT 1
+        """,
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"ok": True, "pendente": False})
+    aviso_id = row["id"]
+    d = re.sub(r"\D", "", row["telefone"] or "")
+    to = ("+55" + d) if not d.startswith("55") else ("+" + d)
+    msg = (
+        f"Olá! 😊 Só um aviso rápido: o cliente *{row['consumidor_nome']}* acabou de se cadastrar "
+        f"no e-commerce da Poupaqui e já demonstrou interesse em farmácias da sua região.\n\n"
+        f"Se quiser saber mais sobre como colocar sua loja no nosso e-commerce, é só chamar "
+        f"o Daniel Melo (19 98227-7599) — ele te passa todos os detalhes. 🚀"
+    )
+    return jsonify({"ok": True, "pendente": True, "id": aviso_id, "to": to, "msg": msg})
+
+
+@app.post("/api/cron/wa-aviso-loja-regiao-mark-sent")
+def api_cron_wa_aviso_loja_regiao_mark_sent():
+    """Marca aviso de cliente-novo-na-regiao como enviado. Chamado pelo cron
+    do Hostgator apos envio."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    aviso_id = data.get("id")
+    if not aviso_id:
+        return jsonify({"ok": False, "erro": "id_obrigatorio"})
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE ecommerce_avisos_loja_regiao SET enviado_em=NOW() WHERE id=%s", (aviso_id,))
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True, "id": aviso_id})
 
 
 @app.post("/api/alpha/pedido/<pedido_id>/exportar")
