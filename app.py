@@ -18029,7 +18029,14 @@ _SUPORTE_SISTEMA_PROMPT = (
     "e Pix (sem taxas).\n\n"
     "Se não souber responder com confiança, diga que o cliente pode pedir para falar com um "
     "atendente humano clicando no botão da tela. Você nunca decide sozinha encaminhar para "
-    "atendente — isso só acontece se o cliente pedir explicitamente."
+    "atendente — isso só acontece se o cliente pedir explicitamente.\n\n"
+    "Quando a mensagem vier acompanhada de uma lista de pedidos recentes do cliente (ou do "
+    "contexto de um pedido específico), use esses dados reais pra responder direto — nunca "
+    "diga só para o cliente ir conferir sozinho em Meus Pedidos se você já tem o status ali no "
+    "contexto. Se houver mais de um pedido recente e não ficar claro qual o cliente quer dizer, "
+    "pergunte qual (pelo número curto ou pela data) antes de responder. Se o cliente já disse "
+    "que tentou conferir e não encontrou ou não conseguiu, não repita a mesma orientação de novo "
+    "— aí é hora de reforçar a opção de falar com atendente humano."
 )
 
 
@@ -18201,14 +18208,20 @@ def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
     threading.Thread(target=_persist, daemon=True).start()
 
 
-def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None):
+def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None):
     """Chama Claude Haiku pra responder uma pergunta de suporte. Retorna o
     texto da resposta ou None em qualquer falha (sem API key, timeout, erro).
 
     historico: mensagens anteriores do MESMO chat (ecommerce_suporte_msgs,
     autor 'consumidor'/'ia', em ordem cronologica, SEM a mensagem atual) —
     sem isso a IA respondia cada mensagem isolada, sem lembrar nada do que
-    o cliente ja tinha dito antes na mesma conversa."""
+    o cliente ja tinha dito antes na mesma conversa.
+
+    pedidos_recentes_ctx: resumo dos ultimos pedidos do cliente, usado so
+    quando o chat NAO tem pedido_id vinculado (chat geral) — sem isso, uma
+    pergunta tipo "cade meu pedido" fora do contexto de um pedido especifico
+    fazia a IA so repetir "va em Meus Pedidos" sem nenhum dado real pra
+    consultar."""
     api_key = _anthropic_api_key()
     if not api_key:
         return None
@@ -18221,6 +18234,11 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None):
             f"Itens: {pedido_ctx.get('itens_resumo','')}\n"
             f"Total: {pedido_ctx.get('total_fmt','')}\n"
             f"Entrega: {pedido_ctx.get('tipo_entrega','')}\n\n"
+            f"Pergunta do cliente: {user_msg}"
+        )
+    elif pedidos_recentes_ctx:
+        user_msg = (
+            f"Pedidos recentes deste cliente (mais recente primeiro):\n{pedidos_recentes_ctx}\n\n"
             f"Pergunta do cliente: {user_msg}"
         )
     # Monta o historico como turnos alternados user/assistant — a API da
@@ -18290,6 +18308,34 @@ def _pedido_ctx_para_ia(pedido_id, consumidor_id):
         "total_fmt": fmt_brl(pedido["total"]),
         "tipo_entrega": "Entrega" if (pedido.get("tipo_entrega") or "retirada") == "entrega" else "Retirada na loja",
     }
+
+
+def _pedidos_recentes_ctx_para_ia(consumidor_id, limit=3):
+    """Resumo compacto dos ultimos pedidos do cliente, pra injetar no prompt
+    de chats SEM pedido_id vinculado (chat geral). Sem isso, quando o
+    cliente perguntava algo tipo "meu pedido, cade" fora do contexto de um
+    pedido especifico, a IA nao tinha nenhum dado real pra consultar e so
+    repetia "va em Meus Pedidos" — mesmo se ele ja tivesse dito que la nao
+    aparecia nada."""
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status, total, criado_em, tipo_entrega FROM ecommerce_pedidos "
+        "WHERE consumidor_id=%s ORDER BY criado_em DESC LIMIT %s",
+        (consumidor_id, limit),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    if not rows:
+        return None
+    linhas = []
+    for r in rows:
+        tipo = "entrega" if (r.get("tipo_entrega") or "retirada") == "entrega" else "retirada na loja"
+        data_fmt = r["criado_em"].strftime("%d/%m/%Y") if r["criado_em"] else ""
+        linhas.append(
+            f"- Pedido #{str(r['id'])[:8].upper()}: status \"{_STATUS_LABEL.get(r['status'], r['status'])}\", "
+            f"feito em {data_fmt}, {fmt_brl(r['total'])}, {tipo}."
+        )
+    return "\n".join(linhas)
 
 
 def _pedidos_recentes_consumidor(consumidor_id, limit=5):
@@ -18415,6 +18461,12 @@ def api_suporte_mensagem():
     # bata numa palavra-chave generica, o cliente quer ajuda com algo
     # especifico, nao a explicacao padrao do assunto.
     tem_problema = _suporte_indica_problema(mensagem)
+    # Mensagem muito longa (ex.: cliente colou o e-mail de confirmacao do
+    # pedido) tambem pula o atalho — um recibo colado pode conter a palavra
+    # "frete" ou "pagamento" so de raspao e disparar a resposta fixa errada,
+    # mesmo o cliente perguntando outra coisa (ex.: rastreio).
+    tem_texto_longo = len(mensagem) > 300
+    pula_atalho = tem_problema or tem_texto_longo
 
     pedido_ctx = None
     resposta = None
@@ -18423,16 +18475,17 @@ def api_suporte_mensagem():
         pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
         resposta = _claude_suporte_responder(mensagem, pedido_ctx=pedido_ctx, historico=historico)
     else:
-        resposta = None if tem_problema else _suporte_resposta_topico(mensagem)
+        resposta = None if pula_atalho else _suporte_resposta_topico(mensagem)
         if resposta:
             from_cache = True
         else:
-            resposta = None if tem_problema else _suporte_cache_buscar(mensagem)
+            resposta = None if pula_atalho else _suporte_cache_buscar(mensagem)
             if resposta:
                 from_cache = True
             else:
-                resposta = _claude_suporte_responder(mensagem, historico=historico)
-                if resposta and not tem_problema:
+                pedidos_recentes_ctx = _pedidos_recentes_ctx_para_ia(consumidor_id)
+                resposta = _claude_suporte_responder(mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx)
+                if resposta and not pula_atalho:
                     _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
 
     if not resposta:
