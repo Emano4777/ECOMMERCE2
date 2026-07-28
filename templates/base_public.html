@@ -717,6 +717,43 @@
     .pq-alert-success { background: #f0fff4; border-left: 4px solid #22c55e; color: #15652e; }
     .pq-alert-info    { background: var(--pq-yellow-lt); border-left: 4px solid var(--pq-yellow); color: #5a4a00; }
 
+    /* ── AVISO DE GOLPE (banner fixo) ─────────────────────── */
+    .pq-scam-alert {
+      background: #1a1a1a;
+      color: #fff;
+      border-bottom: 3px solid var(--pq-yellow);
+      position: relative;
+      z-index: 1210;
+    }
+    .pq-scam-alert-inner {
+      max-width: var(--pq-shell-max);
+      margin: 0 auto;
+      padding: 10px var(--pq-shell-pad);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: .82rem;
+      line-height: 1.45;
+    }
+    .pq-scam-alert-inner i.fa-triangle-exclamation { color: var(--pq-yellow); font-size: 1rem; flex: 0 0 auto; }
+    .pq-scam-alert-inner span { flex: 1; }
+    .pq-scam-alert-inner a { color: var(--pq-yellow); font-weight: 800; text-decoration: underline; }
+    .pq-scam-alert-close {
+      flex: 0 0 auto;
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      padding: 2px 6px;
+      opacity: .75;
+    }
+    .pq-scam-alert-close:hover { opacity: 1; }
+    @media(max-width:680px) {
+      .pq-scam-alert-inner { align-items: flex-start; font-size: .76rem; }
+    }
+
     /* ── FOOTER ─────────────────────────────────────────── */
     .pq-footer {
       background:var(--pq-red);
@@ -1074,6 +1111,34 @@
   {% block extra_style %}{% endblock %}
 </head>
 <body>
+
+<!-- AVISO DE GOLPE -->
+<div class="pq-scam-alert" id="pq-scam-alert" style="display:none">
+  <div class="pq-scam-alert-inner">
+    <i class="fa-solid fa-triangle-exclamation"></i>
+    <span>
+      <strong>Atenção, golpe!</strong> Identificamos pessoas usando o nome "Poupáqui" em outros sites e redes sociais para aplicar golpes.
+      Nosso site oficial realiza entregas apenas na cidade de São Pedro. Não fazemos vendas por outros domínios, links de WhatsApp desconhecidos
+      ou perfis não verificados. <strong>Comprando aqui, direto neste site, sua compra é 100% segura</strong> — pode continuar comprando normalmente,
+      sem medo. Em caso de dúvida sobre uma compra, fale com a gente:
+      <a href="mailto:tecnologia@licencefarma.com.br">tecnologia@licencefarma.com.br</a>
+      ou pelo <a href="https://www.instagram.com/drogariaspoupaqui/" target="_blank" rel="noopener noreferrer">Instagram oficial @drogariaspoupaqui</a>.
+    </span>
+    <button type="button" class="pq-scam-alert-close" onclick="pqDismissScamAlert()" aria-label="Fechar aviso">&times;</button>
+  </div>
+</div>
+<script>
+  (function(){
+    try {
+      if (sessionStorage.getItem('pq_scam_alert_dismissed') === '1') return;
+    } catch(e) {}
+    document.getElementById('pq-scam-alert').style.display = 'block';
+  })();
+  function pqDismissScamAlert(){
+    document.getElementById('pq-scam-alert').style.display = 'none';
+    try { sessionStorage.setItem('pq_scam_alert_dismissed', '1'); } catch(e) {}
+  }
+</script>
 
 <!-- TOPBAR -->
 <header class="pq-topbar">
