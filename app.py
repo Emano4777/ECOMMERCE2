@@ -997,74 +997,38 @@ def _ensure_aviso_loja_regiao_schema():
         _mark_migration_done(key)
 
 
-def _lojas_vitrine_todas_coords():
-    """Coordenadas de todas as lojas da rede fisica Poupaqui (vitrine —
-    ImageKit + Supabase) que tem cnpj mapeado, pra achar a loja mais perto de
-    um ponto (novo cadastro de consumidor). Mesma fonte de dados de
-    /api/lojas/mapa, so que reduzida a {cnpjloja, lat, lng}."""
-    conn = db(); cur = conn.cursor()
-    cur.execute("SELECT cidade, lat, lng FROM ecommerce_vitrine_coords")
-    coords_cidade = {r["cidade"]: (r["lat"], r["lng"]) for r in cur.fetchall()}
-    cur.execute("SELECT cnpjloja, lat, lng FROM ecommerce_lojas_geo WHERE lat IS NOT NULL AND lng IS NOT NULL")
-    geo_por_cnpj = {r["cnpjloja"]: (r["lat"], r["lng"]) for r in cur.fetchall()}
-    cur.execute("SELECT cidade, cnpjloja FROM ecommerce_vitrine_cnpj_map")
-    cidade_cnpj_map = {r["cidade"]: r["cnpjloja"] for r in cur.fetchall()}
-    cur.execute("SELECT cidade, cnpjloja FROM ecommerce_lojas_vitrine")
-    vitrine_sb = [dict(r) for r in cur.fetchall()]
-    cur.close()
-
-    cidade_por_cnpj = {}
-    for r in vitrine_sb:
-        cnpj = r.get("cnpjloja") or cidade_cnpj_map.get(r["cidade"])
-        if cnpj:
-            cidade_por_cnpj.setdefault(cnpj, r["cidade"])
-    try:
-        for l in _load_imagekit_lojas():
-            cidade = l.get("cidade", "")
-            cnpj = cidade_cnpj_map.get(cidade)
-            if cnpj:
-                cidade_por_cnpj.setdefault(cnpj, cidade)
-    except Exception:
-        pass
-
-    resultado = []
-    for cnpj, cidade in cidade_por_cnpj.items():
-        if cnpj in geo_por_cnpj:
-            lat, lng = geo_por_cnpj[cnpj]
-        else:
-            lat, lng = coords_cidade.get(cidade, (None, None))
-        if lat is None or lng is None:
-            continue
-        resultado.append({"cnpjloja": cnpj, "lat": float(lat), "lng": float(lng)})
-    return resultado
-
-
 def _enfileirar_aviso_loja_regiao(consumidor_id, nome_cliente, lat, lng):
-    """Quando um cliente novo se cadastra perto de alguma farmacia da rede
-    (vitrine, integrada ou nao), enfileira um aviso pra essa loja — o envio
-    de verdade acontece via cron do Hostgator (mesmo padrao de wa-next/
-    wa-mark-sent, pra fugir de bloqueio de IP da Vercel pelo Cloudflare).
+    """Quando um cliente novo se cadastra perto de alguma farmacia da rede,
+    enfileira um aviso pra essa loja — o envio de verdade acontece via cron
+    do Hostgator (mesmo padrao de wa-next/wa-mark-sent, pra fugir de bloqueio
+    de IP da Vercel pelo Cloudflare).
     So enfileira pra lojas que JA tem conta na plataforma (users, is_admin
-    FALSE) — vitrine sem cnpj/usuario nao tem pra quem mandar."""
+    FALSE). Busca coordenadas direto de ecommerce_lojas_geo (sem depender da
+    API do ImageKit, que e lenta o bastante pra a funcao serverless ser
+    encerrada antes da thread em segundo plano terminar)."""
     if lat is None or lng is None:
         return
     try:
         _ensure_aviso_loja_regiao_schema()
         RAIO_KM = 30
-        lojas = _lojas_vitrine_todas_coords()
-        cnpjs_perto = {l["cnpjloja"] for l in lojas if haversine(lat, lng, l["lat"], l["lng"]) <= RAIO_KM}
-        if not cnpjs_perto:
-            return
         conn = db(); cur = conn.cursor()
         cur.execute(
-            "SELECT cnpjloja, telefone FROM users WHERE cnpjloja = ANY(%s) AND is_admin = FALSE AND COALESCE(telefone,'') <> ''",
-            (list(cnpjs_perto),),
+            """
+            SELECT g.cnpjloja, g.lat, g.lng, u.telefone
+            FROM ecommerce_lojas_geo g
+            JOIN users u ON u.cnpjloja = g.cnpjloja
+            WHERE g.lat IS NOT NULL AND g.lng IS NOT NULL
+              AND u.is_admin = FALSE
+              AND COALESCE(u.telefone, '') <> ''
+            """
         )
         # Duas lojas (cnpjs diferentes) podem ser o mesmo dono/grupo com o
         # mesmo numero de WhatsApp — dedup por telefone alem de cnpj, senao a
         # mesma pessoa recebe a mensagem duplicada.
         telefones_vistos = set()
         for r in cur.fetchall():
+            if haversine(lat, lng, r["lat"], r["lng"]) > RAIO_KM:
+                continue
             tel_norm = re.sub(r"\D", "", r["telefone"] or "")
             if not tel_norm or tel_norm in telefones_vistos:
                 continue
@@ -13612,11 +13576,7 @@ def consumidor_criar_conta_post():
     else:
         _enviar_email_verificacao(str(user["id"]), user["email"])
     _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"])
-    threading.Thread(
-        target=_enfileirar_aviso_loja_regiao,
-        args=(str(user["id"]), user["nome"], user.get("endereco_lat"), user.get("endereco_lng")),
-        daemon=True,
-    ).start()
+    _enfileirar_aviso_loja_regiao(str(user["id"]), user["nome"], user.get("endereco_lat"), user.get("endereco_lng"))
     return redirect(next_url)
 
 
