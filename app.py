@@ -15184,11 +15184,22 @@ def api_checkout():
             cats_q = set(x.strip() for x in (qr.get("escopo_categorias") or "").split(",") if x.strip())
             if escopo_q == "categoria" and cats_q:
                 app_q = sum(float(i.get("preco", 0)) * int(i.get("qty", 1)) for i in itens if _classificar_produto(i.get("nome", "")) in cats_q)
+                qtd_aplicavel = sum(int(i.get("qty", 1)) for i in itens if _classificar_produto(i.get("nome", "")) in cats_q)
             elif escopo_q == "produto" and eans_q:
                 app_q = sum(float(i.get("preco", 0)) * int(i.get("qty", 1)) for i in itens if (i.get("ean") or "").strip() in eans_q)
+                qtd_aplicavel = sum(int(i.get("qty", 1)) for i in itens if (i.get("ean") or "").strip() in eans_q)
             else:
                 app_q = produtos_total
-            calc_q = round(app_q * float(qr["desconto_valor"]) / 100, 2) if qr["desconto_tipo"] == "pct" else min(float(qr["desconto_valor"]), app_q)
+                qtd_aplicavel = total_itens_qty
+            if qr["desconto_tipo"] == "pct":
+                calc_q = round(app_q * float(qr["desconto_valor"]) / 100, 2)
+            else:
+                # desconto 'fixo' e por grupo de qtd_minima (ex: R$20 a cada 2
+                # unidades) — escala pela quantidade elegivel, senao uma compra
+                # de 4+ unidades so ganharia o desconto de 2 (mesmo valor de
+                # quem levou so a quantidade minima).
+                qtd_min_q = int(qr["qtd_minima"]) or 1
+                calc_q = min(app_q, round((float(qr["desconto_valor"]) / qtd_min_q) * qtd_aplicavel, 2))
             if calc_q > desconto_qtd:
                 desconto_qtd = calc_q
                 cupom_qtd_id = str(qr["id"])

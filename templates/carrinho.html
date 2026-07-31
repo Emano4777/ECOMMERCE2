@@ -717,12 +717,48 @@ async function carregarRecomendacoesCarrinho() {
   } catch { box.style.display = 'none'; }
 }
 
+// Itens de "itens" que se enquadram no escopo da regra (produto/categoria/todos)
+// — mesma logica de escopo usada pelo /api/checkout, pra o desconto exibido
+// bater exatamente com o que sera cobrado de verdade.
+function _itensElegiveisRegraQtd(regra, itens) {
+  const escopo = regra.escopo || 'todos';
+  if (escopo === 'produto') {
+    const eans = new Set((regra.escopo_eans || '').split(/[,\s]+/).map(e => e.trim()).filter(Boolean));
+    return itens.filter(i => eans.has((i.ean || '').trim()));
+  }
+  if (escopo === 'categoria') {
+    return []; // classificacao de categoria e feita so no servidor
+  }
+  return itens;
+}
+
+// Calcula o desconto automatico por quantidade pra uma loja, escolhendo a
+// melhor regra vigente — mesma formula do backend (/api/checkout), inclusive
+// o desconto "fixo" escalando por unidade elegivel (nao um valor fixo unico
+// independente da quantidade comprada).
+function calcDescontoQtdAuto(cnpjloja, itens) {
+  const regras = ((_descontosAuto[cnpjloja] || {}).quantidade || []);
+  let melhor = 0;
+  regras.forEach(r => {
+    const elegiveis = _itensElegiveisRegraQtd(r, itens);
+    const qtdElegivel = elegiveis.reduce((s, i) => s + (i.qty || 1), 0);
+    if (!qtdElegivel || qtdElegivel < r.qtd_minima) return;
+    const appQ = elegiveis.reduce((s, i) => s + (i.preco || 0) * (i.qty || 1), 0);
+    const calc = r.desconto_tipo === 'pct'
+      ? appQ * r.desconto_valor / 100
+      : Math.min(appQ, (r.desconto_valor / (r.qtd_minima || 1)) * qtdElegivel);
+    if (calc > melhor) melhor = calc;
+  });
+  return Math.round(melhor * 100) / 100;
+}
+
 function renderDescontoQuantidade(cnpjloja, itens) {
   const regras = ((_descontosAuto[cnpjloja] || {}).quantidade || []);
   if (!regras.length) return '';
-  const totalQty = itens.reduce((s, i) => s + (i.qty || 1), 0);
   let html = '';
   regras.forEach(r => {
+    const elegiveis = _itensElegiveisRegraQtd(r, itens);
+    const totalQty = elegiveis.reduce((s, i) => s + (i.qty || 1), 0);
     const falta = r.qtd_minima - totalQty;
     const label = r.desconto_tipo === 'pct' ? `${parseInt(r.desconto_valor)}% OFF` : `R$${parseFloat(r.desconto_valor).toFixed(2).replace('.',',')} OFF`;
     if (falta <= 0) {
@@ -1119,7 +1155,9 @@ function renderCart() {
             <span class="qty-num">${item.qty||1}</span>
             <button class="qty-btn" onclick="alterarQty('${esc(item.ean)}','${esc(cnpj)}',1)">+</button>
           </div>
-          <div class="cart-item-sub">Subtotal ${brl(precoItem*(item.qty||1))}</div>
+          <div class="cart-item-sub">${pqAtingiu
+            ? `Subtotal <s style="opacity:.6;font-weight:600">${brl(precoItem*pqQty)}</s> ${brl(pq.preco_unit_promo*pqQty)}`
+            : `Subtotal ${brl(precoItem*pqQty)}`}</div>
           <button class="btn-remove" onclick="removerItem('${esc(item.ean)}','${esc(cnpj)}')">
             <i class="fa fa-trash me-1"></i>Remover
           </button>
@@ -1367,7 +1405,12 @@ function atualizarTotaisComFrete() {
     const distAtual = distDinamicaAtual !== undefined ? distDinamicaAtual : (distItemAtual !== undefined ? parseFloat(distItemAtual) : undefined);
     const freteCalcAtual = calcularFreteLoja(cfg, distAtual);
     const frete = delivery === 'entrega' && freteCalcAtual.disponivel && !cfg.frete_gratis_assinante_disponivel ? freteCalcAtual.valor : 0;
-    const desconto = _cupomAplicado[cnpj]?.desconto || 0;
+    // Melhor desconto base: cupom de codigo digitado ou desconto automatico
+    // por quantidade — mesma regra do /api/checkout (nao soma os dois, pega
+    // o maior), pra o total exibido bater com o valor cobrado de verdade.
+    const descontoCodigo = _cupomAplicado[cnpj]?.desconto || 0;
+    const descontoQtdAuto = calcDescontoQtdAuto(cnpj, groups[cnpj].itens);
+    const desconto = Math.max(descontoCodigo, descontoQtdAuto);
     subtotalTotal += sub;
     freteTotal += frete;
     if (delivery === 'entrega') {
@@ -1383,7 +1426,13 @@ function atualizarTotaisComFrete() {
     }
     total += Math.max(0, sub - desconto) + frete;
     const el = document.getElementById(`subtotal-${cnpj}`);
-    if (el) el.textContent = frete ? `${brl(sub)} + frete ${brl(frete)}` : brl(sub);
+    const subComDesconto = Math.max(0, sub - desconto);
+    if (el) {
+      el.textContent = frete
+        ? `${brl(subComDesconto)} + frete ${brl(frete)}`
+        : brl(subComDesconto);
+      el.title = desconto > 0 ? `de ${brl(sub)} por ${brl(subComDesconto)}` : '';
+    }
     // Recalcula a simulacao do clube pra refletir a 1a entrega gratis assim
     // que o cliente marca "entrega" — sem precisar re-renderizar tudo.
     const simEl = document.getElementById(`club-sim-${cnpj}`);
