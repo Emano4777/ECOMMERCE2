@@ -717,84 +717,6 @@
     .pq-alert-success { background: #f0fff4; border-left: 4px solid #22c55e; color: #15652e; }
     .pq-alert-info    { background: var(--pq-yellow-lt); border-left: 4px solid var(--pq-yellow); color: #5a4a00; }
 
-    /* ── PROMO POR QUANTIDADE (escalonada) ───────────────── */
-    .pq-qtybar {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      border-radius: 10px;
-      padding: 7px 11px;
-      box-sizing: border-box;
-    }
-    .pq-qtybar-icon {
-      flex: 0 0 auto;
-      width: 24px;
-      height: 24px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: .68rem;
-    }
-    .pq-qtybar-body {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-      line-height: 1.25;
-    }
-    .pq-qtybar-label {
-      font-size: .6rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .pq-qtybar-msg {
-      font-size: .78rem;
-      font-weight: 700;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .pq-qtybar-msg strong { font-weight: 900; }
-    .pq-qtybar-pct {
-      flex: 0 0 auto;
-      background: var(--pq-yellow);
-      color: #5a4a00;
-      font-size: .64rem;
-      font-weight: 900;
-      padding: 3px 8px;
-      border-radius: 999px;
-      white-space: nowrap;
-    }
-    /* variante "atingiu a quantidade" — destaque cheio */
-    .pq-qtybar--on {
-      background: linear-gradient(90deg, var(--pq-red), var(--pq-red-dk));
-      color: #fff;
-    }
-    .pq-qtybar--on .pq-qtybar-icon { background: rgba(255,255,255,.22); color: #fff; }
-    .pq-qtybar--on .pq-qtybar-label { color: rgba(255,255,255,.82); }
-    .pq-qtybar--on .pq-qtybar-msg { color: #fff; }
-    /* variante "teaser/incentivo" — leve, usada em card e detalhe */
-    .pq-qtybar--teaser {
-      background: #fff5f6;
-      border: 1px solid #ffd0d8;
-    }
-    .pq-qtybar--teaser .pq-qtybar-icon { background: #ffe1e6; color: var(--pq-red); }
-    .pq-qtybar--teaser .pq-qtybar-label { color: var(--pq-red); opacity: .8; }
-    .pq-qtybar--teaser .pq-qtybar-msg { color: var(--pq-red); }
-    /* variante "faltam X unidades" — pendente, tom neutro tracejado */
-    .pq-qtybar--pending {
-      background: #fdfaf6;
-      border: 1px dashed #e8c9a0;
-    }
-    .pq-qtybar--pending .pq-qtybar-icon { background: #fbe9d2; color: #a86a1c; }
-    .pq-qtybar--pending .pq-qtybar-label { color: #a86a1c; opacity: .85; }
-    .pq-qtybar--pending .pq-qtybar-msg { color: #7a5011; }
-
     /* ── FOOTER ─────────────────────────────────────────── */
     .pq-footer {
       background:var(--pq-red);
@@ -2337,40 +2259,23 @@ function renderCestaLateral() {
       ? `<img class="pq-cart-side-img" src="${esc(item.imagem)}" alt="" onerror="this.outerHTML='<div class=&quot;pq-cart-side-ph&quot;><i class=&quot;fa fa-box&quot;></i></div>'">`
       : `<div class="pq-cart-side-ph"><i class="fa fa-box"></i></div>`;
     const pq = item.promo_qtd;
-    let qtyBar = '';
-    if (pq) {
-      const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
-      const icon = '<span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>';
-      if (qty >= pq.qtd_minima) {
-        const totalNormal = preco * qty;
-        const totalPromo = pq.preco_unit_promo * qty;
-        const pct = totalNormal > 0 ? Math.round(((totalNormal - totalPromo) / totalNormal) * 100) : 0;
-        qtyBar = `<div class="pq-qtybar pq-qtybar--on" style="margin-top:6px;padding:5px 8px">
-          ${icon}
-          <span class="pq-qtybar-body">
-            <span class="pq-qtybar-label">${rotulo} aplicada</span>
-            <span class="pq-qtybar-msg">de <s style="opacity:.75;font-weight:600">${brlGlobal(totalNormal)}</s> por <strong>${brlGlobal(totalPromo)}</strong></span>
-          </span>
-          ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
-        </div>`;
-      } else {
-        const falta = pq.qtd_minima - qty;
-        qtyBar = `<div class="pq-qtybar pq-qtybar--pending" style="margin-top:6px;padding:5px 8px">
-          ${icon}
-          <span class="pq-qtybar-body">
-            <span class="pq-qtybar-label">Falta pouco</span>
-            <span class="pq-qtybar-msg">+${falta} un. e pague <strong>${brlGlobal(pq.preco_unit_promo)}</strong> cada</span>
-          </span>
-        </div>`;
-      }
+    const pqAtingiu = pq && qty >= pq.qtd_minima;
+    // Mesmo padrao das outras promocoes (preco riscado + novo valor), em vez
+    // de um aviso separado abaixo do preco.
+    let precoLinha;
+    if (pqAtingiu) {
+      precoLinha = `${brlGlobal(pq.preco_unit_promo * qty)} <s style="font-size:.76rem;opacity:.55;font-weight:600">${brlGlobal(preco * qty)}</s>`;
+    } else if (pq) {
+      precoLinha = `${brlGlobal(preco * qty)}<div style="font-size:.7rem;color:var(--pq-red);font-weight:800;margin-top:2px"><i class="fa fa-layer-group"></i> Leve ${pq.qtd_minima}+ por ${brlGlobal(pq.preco_unit_promo)} cada</div>`;
+    } else {
+      precoLinha = brlGlobal(preco * qty);
     }
     return `<div class="pq-cart-side-item">
       ${img}
       <div>
         <div class="pq-cart-side-name">${esc(item.nome || 'Produto')}</div>
         <div class="pq-cart-side-store">${esc(formatStoreName(item.razao || 'Drogarias Poupaqui'))}</div>
-        <div class="pq-cart-side-price">${brlGlobal(preco * qty)}</div>
-        ${qtyBar}
+        <div class="pq-cart-side-price">${precoLinha}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end">
         <button type="button" class="pq-cart-side-remove" onclick="removerItemCesta('${esc(item.ean || '')}','${esc(item.cnpjloja || '')}')" aria-label="Remover item">

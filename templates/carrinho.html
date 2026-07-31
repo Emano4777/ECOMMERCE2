@@ -1116,38 +1116,31 @@ function renderCart() {
       const precoItem = parseFloat(item.preco)||0;
       const precoOriginal = parseFloat(item.preco_original || item.promo?.preco_original || precoItem)||precoItem;
       const promoAplicada = item.promo && item.promo.aplicada && precoItem > 0 && precoItem < precoOriginal;
-      const precoHtml = promoAplicada
-        ? `${brl(precoItem)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoOriginal)}</s><div style="font-size:.72rem;color:#16a34a;font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-circle-check"></i>Preço de assinante aplicado</div>`
-        : brl(precoItem);
-      const imgTag = item.imagem
-        ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
-        : `<div class="cart-item-img-ph"><i class="fa fa-pills"></i></div>`;
       const pq = item.promo_qtd;
       const pqQty = item.qty || 1;
       const pqAtingiu = pq && pqQty >= pq.qtd_minima;
-      const pqEconomia = pq ? (precoItem - pq.preco_unit_promo) * pqQty : 0;
+      const pqEconomia = pqAtingiu ? (precoItem - pq.preco_unit_promo) * pqQty : 0;
       const pqRotulo = pq && pq.so_assinantes ? 'Só assinantes' : 'Oferta por quantidade';
-      const pqHtml = !pq ? '' : pqAtingiu
-        ? `<div class="pq-qtybar pq-qtybar--on" style="margin-top:6px">
-             <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
-             <span class="pq-qtybar-body">
-               <span class="pq-qtybar-label">${esc(pqRotulo)}</span>
-               <span class="pq-qtybar-msg">Essas ${pqQty} un. saem por <strong>${brl(pq.preco_unit_promo * pqQty)}</strong> — economize <strong>${brl(pqEconomia)}</strong>${pq.so_assinantes ? ' assinando o clube' : ''}</span>
-             </span>
-           </div>`
-        : `<div class="pq-qtybar pq-qtybar--pending" style="margin-top:6px">
-             <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
-             <span class="pq-qtybar-body">
-               <span class="pq-qtybar-label">Falta pouco</span>
-               <span class="pq-qtybar-msg">Adicione mais ${pq.qtd_minima - pqQty} un. e ${pq.so_assinantes ? 'sendo assinante ' : ''}pague <strong>${brl(pq.preco_unit_promo)}</strong> cada a partir de ${pq.qtd_minima} un.</span>
-             </span>
-           </div>`;
+      // Mesmo padrao visual das outras promocoes (preco riscado + novo valor
+      // em destaque), em vez de um aviso separado abaixo do preco.
+      let precoHtml;
+      if (promoAplicada) {
+        precoHtml = `${brl(precoItem)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoOriginal)}</s><div style="font-size:.72rem;color:#16a34a;font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-circle-check"></i>Preço de assinante aplicado</div>`;
+      } else if (pqAtingiu) {
+        precoHtml = `${brl(pq.preco_unit_promo)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoItem)}</s><div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-layer-group"></i>${esc(pqRotulo)} — economize ${brl(pqEconomia)}</div>`;
+      } else if (pq) {
+        precoHtml = `${brl(precoItem)}<div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-layer-group"></i>Leve ${pq.qtd_minima}+ por ${brl(pq.preco_unit_promo)} cada</div>`;
+      } else {
+        precoHtml = brl(precoItem);
+      }
+      const imgTag = item.imagem
+        ? `<img class="cart-item-img" src="${esc(item.imagem)}" onerror="this.outerHTML='<div class=cart-item-img-ph><i class=fa fa-pills></i></div>'">`
+        : `<div class="cart-item-img-ph"><i class="fa fa-pills"></i></div>`;
       return `<div class="cart-item">
         ${imgTag}
         <div class="cart-item-info">
           <div class="cart-item-nome">${esc(item.nome)}</div>
           <div class="cart-item-preco">${precoHtml}</div>
-          ${pqHtml}
         </div>
         <div class="cart-item-right">
           <div class="qty-ctrl">

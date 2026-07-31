@@ -577,20 +577,17 @@
           <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
             <i class="fa fa-star"></i>Assine e pague R$ {{ "%.2f"|format(produto.promo.preco_promo|float) | replace(".", ",") }}
           </div>
+          {% elif promo_qtd %}
+          <div id="pd-price-qtd-wrap">
+            <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
+            <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+            <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
+              <i class="fa fa-layer-group"></i>Leve {{ promo_qtd.qtd_minima }}+ por R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }} cada
+            </div>
+          </div>
           {% else %}
           <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
           <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
-          {% endif %}
-          {% if promo_qtd %}
-          <div id="pd-qtybar-wrap" style="margin-top:9px">
-            <div class="pq-qtybar pq-qtybar--teaser">
-              <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
-              <span class="pq-qtybar-body">
-                <span class="pq-qtybar-label">{{ 'Exclusivo assinante' if promo_qtd.so_assinantes else 'Oferta por quantidade' }}</span>
-                <span class="pq-qtybar-msg">Leve {{ promo_qtd.qtd_minima }}+ por <strong>R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }}</strong> cada</span>
-              </span>
-            </div>
-          </div>
           {% endif %}
           <div id="pd-cupom-block" style="display:none;margin-top:8px">
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
@@ -967,32 +964,24 @@ function pdBrl(v) {
 }
 
 function renderPdQtyBar(qty) {
-  const wrap = document.getElementById('pd-qtybar-wrap');
+  const wrap = document.getElementById('pd-price-qtd-wrap');
   if (!wrap || !_pdPromoQtd) return;
   const pq = _pdPromoQtd;
   const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
-  const icon = '<span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>';
   if (qty >= pq.qtd_minima) {
-    const totalNormal = _pdPreco * qty;
-    const totalPromo = pq.preco_unit_promo * qty;
-    const economia = Math.max(0, totalNormal - totalPromo);
-    const pct = totalNormal > 0 ? Math.round((economia / totalNormal) * 100) : 0;
-    wrap.innerHTML = `<div class="pq-qtybar pq-qtybar--on">
-      ${icon}
-      <span class="pq-qtybar-body">
-        <span class="pq-qtybar-label">${rotulo} aplicada</span>
-        <span class="pq-qtybar-msg">${qty} un.: de <s style="opacity:.75;font-weight:600">${pdBrl(totalNormal)}</s> por <strong>${pdBrl(totalPromo)}</strong></span>
-      </span>
-      ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+    const economia = Math.max(0, (_pdPreco - pq.preco_unit_promo) * qty);
+    wrap.innerHTML = `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <span style="font-size:1.05rem;color:var(--pq-muted);font-weight:700;text-decoration:line-through">${pdBrl(_pdPreco)}</span>
+    </div>
+    <div id="pd-preco-original" class="pd-price">${pdBrl(pq.preco_unit_promo)}</div>
+    <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
+      <i class="fa fa-layer-group"></i>${rotulo} — economize ${pdBrl(economia)}
     </div>`;
   } else {
-    const falta = pq.qtd_minima - qty;
-    wrap.innerHTML = `<div class="pq-qtybar pq-qtybar--pending">
-      ${icon}
-      <span class="pq-qtybar-body">
-        <span class="pq-qtybar-label">Falta pouco</span>
-        <span class="pq-qtybar-msg">Adicione mais ${falta} un. e pague <strong>${pdBrl(pq.preco_unit_promo)}</strong> cada a partir de ${pq.qtd_minima} un.</span>
-      </span>
+    wrap.innerHTML = `<div id="pd-preco-original" class="pd-price">${pdBrl(_pdPreco)}</div>
+    <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+    <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
+      <i class="fa fa-layer-group"></i>Leve ${pq.qtd_minima}+ por ${pdBrl(pq.preco_unit_promo)} cada
     </div>`;
   }
 }

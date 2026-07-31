@@ -1180,47 +1180,7 @@ function cardHtml(p, idx) {
       <div class="prod-body">
         <div class="prod-nome">${esc(p.nome)}</div>
         <div class="prod-lab"${lab ? ` title="${esc(lab)}"` : ' aria-hidden="true"'}>${lab ? `<i class="fa fa-flask"></i><span>${esc(lab)}</span>` : ''}</div>
-        ${(() => {
-          const cp = melhorCupomParaProduto(p);
-          if (cp) {
-            const precoFinal = Math.max(0, priceOf(p) - cp.desconto);
-            const label = cp.cupom.desconto_tipo === 'pct' ? `${parseInt(cp.cupom.desconto_valor)}% OFF` : `R$${cp.cupom.desconto_valor.toFixed(2).replace('.',',')} OFF`;
-            return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
-              <span class="prod-preco">${brl(precoFinal)}</span>
-              <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(p.preco)}</span>
-            </div>
-            <div class="prod-cupom-badge">
-              <i class="fa fa-tag" style="flex-shrink:0"></i>
-              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(cp.cupom.codigo)} ${label}</span>
-            </div>`;
-          }
-          const promo = p.promo || null;
-          const precoAtual = parseFloat(p.preco)||0;
-          const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual)||precoAtual;
-          if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
-            const economia = (precoOriginal - parseFloat(promo.preco_promo)).toFixed(2).replace('.', ',');
-            const badgeLabel = promo.so_assinantes
-              ? `<i class="fa fa-circle-check" style="flex-shrink:0"></i><span>Preço de assinante aplicado</span>`
-              : `<i class="fa fa-tag" style="flex-shrink:0"></i><span>Economize R$ ${economia}</span>`;
-            return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
-              <span class="prod-preco">${brl(promo.preco_promo)}</span>
-              <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoOriginal)}</span>
-            </div>
-            <div class="prod-cupom-badge" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">
-              ${badgeLabel}
-            </div>`;
-          }
-          if (promo && promo.so_assinantes && promo.preco_promo && promo.preco_promo < precoAtual) {
-            return `<div class="prod-preco">${brl(precoAtual)}</div>
-            <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
-              <i class="fa fa-star" style="flex-shrink:0"></i><span>Assine e pague ${brl(promo.preco_promo)}</span>
-            </div>`;
-          }
-          return `<div class="prod-preco">${brl(precoAtual)}</div>
-          <div class="prod-cupom-badge" style="visibility:hidden" aria-hidden="true">
-            <i class="fa fa-tag"></i><span>-</span>
-          </div>`;
-        })()}
+        <div id="priceblock-${idx}">${priceBlockHtml(p, 1)}</div>
         ${p.tarja === 'preta' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #333;margin-bottom:4px"><i class="fa fa-prescription"></i>Tarja Preta - Controle especial</span>` : p.tarja === 'vermelha' ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:12px;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;margin-bottom:4px"><i class="fa fa-prescription"></i>${p.receita_retida ? 'Tarja Vermelha - Receita retida' : 'Tarja Vermelha - Venda sob prescrição'}</span>` : ''}
         <div class="prod-loja-row">
           <span class="prod-loja-nome">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="" style="width:13px;height:13px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>` : `<i class="fa fa-store me-1"></i>`}${esc(p.razao)}</span>
@@ -1253,13 +1213,6 @@ function cardHtml(p, idx) {
         return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span style="white-space:nowrap">${brl(precoPor)}</span></div>`;
       })()}
       ${(() => {
-        const pq = p.promo_qtd;
-        const slotWrap = "box-sizing:border-box;padding:6px 10px 8px";
-        if (!pq) return `<div aria-hidden="true" style="${slotWrap};visibility:hidden;min-height:38px">-</div>`;
-        const precoBase = parseFloat(p.preco) || 0;
-        return `<div id="qtybar-${idx}" style="${slotWrap}" onclick="event.stopPropagation()">${qtyBarInnerHtml(pq, 1, precoBase)}</div>`;
-      })()}
-      ${(() => {
         const plano = _planosIndex[p.cnpjloja];
         const slot = "min-height:38px;box-sizing:border-box;padding:6px 12px";
         if (!plano) return `<div aria-hidden="true" style="${slot};font-size:.64rem;visibility:hidden">-</div>`;
@@ -1272,43 +1225,76 @@ function cardHtml(p, idx) {
     </div>`;
 }
 
-function qtyBarInnerHtml(pq, qty, precoBase) {
-  if (!pq) return '';
-  const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
-  const icon = '<span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>';
-  if (qty >= pq.qtd_minima) {
-    const totalNormal = precoBase * qty;
-    const totalPromo = pq.preco_unit_promo * qty;
-    const economia = Math.max(0, totalNormal - totalPromo);
-    const pct = totalNormal > 0 ? Math.round((economia / totalNormal) * 100) : 0;
-    return `<div class="pq-qtybar pq-qtybar--on">
-      ${icon}
-      <span class="pq-qtybar-body">
-        <span class="pq-qtybar-label">${rotulo} aplicada</span>
-        <span class="pq-qtybar-msg">${qty} un.: de <s style="opacity:.75;font-weight:600">${brl(totalNormal)}</s> por <strong>${brl(totalPromo)}</strong></span>
-      </span>
-      ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+// Monta o bloco de preço do card — cupom de código, promoção normal (ou
+// so-assinante) e oferta por quantidade usam sempre o mesmo padrão visual
+// (preço riscado + novo valor em destaque), em vez de avisos separados.
+function priceBlockHtml(p, qty) {
+  const cp = melhorCupomParaProduto(p);
+  if (cp) {
+    const precoFinal = Math.max(0, priceOf(p) - cp.desconto);
+    const label = cp.cupom.desconto_tipo === 'pct' ? `${parseInt(cp.cupom.desconto_valor)}% OFF` : `R$${cp.cupom.desconto_valor.toFixed(2).replace('.',',')} OFF`;
+    return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
+      <span class="prod-preco">${brl(precoFinal)}</span>
+      <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(p.preco)}</span>
+    </div>
+    <div class="prod-cupom-badge">
+      <i class="fa fa-tag" style="flex-shrink:0"></i>
+      <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(cp.cupom.codigo)} ${label}</span>
     </div>`;
   }
-  const pct = precoBase > 0 ? Math.round(((precoBase - pq.preco_unit_promo) / precoBase) * 100) : 0;
-  return `<div class="pq-qtybar pq-qtybar--teaser">
-    ${icon}
-    <span class="pq-qtybar-body">
-      <span class="pq-qtybar-label">${rotulo}</span>
-      <span class="pq-qtybar-msg">Leve ${pq.qtd_minima}+ por <strong>${brl(pq.preco_unit_promo)}</strong> cada</span>
-    </span>
-    ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+  const promo = p.promo || null;
+  const precoAtual = parseFloat(p.preco)||0;
+  const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual)||precoAtual;
+  if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
+    const economia = (precoOriginal - parseFloat(promo.preco_promo)).toFixed(2).replace('.', ',');
+    const badgeLabel = promo.so_assinantes
+      ? `<i class="fa fa-circle-check" style="flex-shrink:0"></i><span>Preço de assinante aplicado</span>`
+      : `<i class="fa fa-tag" style="flex-shrink:0"></i><span>Economize R$ ${economia}</span>`;
+    return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
+      <span class="prod-preco">${brl(promo.preco_promo)}</span>
+      <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoOriginal)}</span>
+    </div>
+    <div class="prod-cupom-badge" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">
+      ${badgeLabel}
+    </div>`;
+  }
+  if (promo && promo.so_assinantes && promo.preco_promo && promo.preco_promo < precoAtual) {
+    return `<div class="prod-preco">${brl(precoAtual)}</div>
+    <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
+      <i class="fa fa-star" style="flex-shrink:0"></i><span>Assine e pague ${brl(promo.preco_promo)}</span>
+    </div>`;
+  }
+  const pq = p.promo_qtd;
+  if (pq && qty >= pq.qtd_minima) {
+    const economia = ((precoAtual - pq.preco_unit_promo) * qty).toFixed(2).replace('.', ',');
+    return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
+      <span class="prod-preco">${brl(pq.preco_unit_promo)}</span>
+      <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoAtual)}</span>
+    </div>
+    <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
+      <i class="fa fa-layer-group" style="flex-shrink:0"></i><span>Oferta por quantidade — economize R$ ${economia}</span>
+    </div>`;
+  }
+  if (pq) {
+    return `<div class="prod-preco">${brl(precoAtual)}</div>
+    <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
+      <i class="fa fa-layer-group" style="flex-shrink:0"></i><span>Leve ${pq.qtd_minima}+ por ${brl(pq.preco_unit_promo)} cada</span>
+    </div>`;
+  }
+  return `<div class="prod-preco">${brl(precoAtual)}</div>
+  <div class="prod-cupom-badge" style="visibility:hidden" aria-hidden="true">
+    <i class="fa fa-tag"></i><span>-</span>
   </div>`;
 }
 
 function renderCardQtyBar(idx, qtyRaw) {
   const p = _cards[idx];
-  const wrap = document.getElementById('qtybar-' + idx);
+  const wrap = document.getElementById('priceblock-' + idx);
   if (!p || !wrap || !p.promo_qtd) return;
   const inp = document.getElementById('qty-' + idx);
   const max = parseInt(inp?.max) || 99;
   const qty = Math.max(1, Math.min(max, parseInt(qtyRaw) || 1));
-  wrap.innerHTML = qtyBarInnerHtml(p.promo_qtd, qty, parseFloat(p.preco) || 0);
+  wrap.innerHTML = priceBlockHtml(p, qty);
 }
 
 function changeCardQty(idx, delta) {
