@@ -2336,12 +2336,41 @@ function renderCestaLateral() {
     const img = item.imagem
       ? `<img class="pq-cart-side-img" src="${esc(item.imagem)}" alt="" onerror="this.outerHTML='<div class=&quot;pq-cart-side-ph&quot;><i class=&quot;fa fa-box&quot;></i></div>'">`
       : `<div class="pq-cart-side-ph"><i class="fa fa-box"></i></div>`;
+    const pq = item.promo_qtd;
+    let qtyBar = '';
+    if (pq) {
+      const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
+      const icon = '<span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>';
+      if (qty >= pq.qtd_minima) {
+        const totalNormal = preco * qty;
+        const totalPromo = pq.preco_unit_promo * qty;
+        const pct = totalNormal > 0 ? Math.round(((totalNormal - totalPromo) / totalNormal) * 100) : 0;
+        qtyBar = `<div class="pq-qtybar pq-qtybar--on" style="margin-top:6px;padding:5px 8px">
+          ${icon}
+          <span class="pq-qtybar-body">
+            <span class="pq-qtybar-label">${rotulo} aplicada</span>
+            <span class="pq-qtybar-msg">de <s style="opacity:.75;font-weight:600">${brlGlobal(totalNormal)}</s> por <strong>${brlGlobal(totalPromo)}</strong></span>
+          </span>
+          ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+        </div>`;
+      } else {
+        const falta = pq.qtd_minima - qty;
+        qtyBar = `<div class="pq-qtybar pq-qtybar--pending" style="margin-top:6px;padding:5px 8px">
+          ${icon}
+          <span class="pq-qtybar-body">
+            <span class="pq-qtybar-label">Falta pouco</span>
+            <span class="pq-qtybar-msg">+${falta} un. e pague <strong>${brlGlobal(pq.preco_unit_promo)}</strong> cada</span>
+          </span>
+        </div>`;
+      }
+    }
     return `<div class="pq-cart-side-item">
       ${img}
       <div>
         <div class="pq-cart-side-name">${esc(item.nome || 'Produto')}</div>
         <div class="pq-cart-side-store">${esc(formatStoreName(item.razao || 'Drogarias Poupaqui'))}</div>
         <div class="pq-cart-side-price">${brlGlobal(preco * qty)}</div>
+        ${qtyBar}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end">
         <button type="button" class="pq-cart-side-remove" onclick="removerItemCesta('${esc(item.ean || '')}','${esc(item.cnpjloja || '')}')" aria-label="Remover item">

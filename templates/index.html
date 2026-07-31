@@ -1230,7 +1230,7 @@ function cardHtml(p, idx) {
         <div class="prod-buy-row" onclick="event.stopPropagation()">
           <div class="prod-qty-ctrl">
             <button type="button" onclick="changeCardQty(${idx},-1)">−</button>
-            <input type="number" id="qty-${idx}" value="1" min="1" max="${parseInt(p.qty)||99}" onclick="event.stopPropagation()">
+            <input type="number" id="qty-${idx}" value="1" min="1" max="${parseInt(p.qty)||99}" onclick="event.stopPropagation()" oninput="renderCardQtyBar(${idx}, this.value)">
             <button type="button" onclick="changeCardQty(${idx},1)">+</button>
           </div>
           <button class="prod-add-btn" onclick="addFromCard(${idx})" title="${p.requer_receita ? 'Reservar' : 'Adicionar ao carrinho'}" aria-label="${p.requer_receita ? 'Reservar' : 'Adicionar ao carrinho'}">
@@ -1256,19 +1256,8 @@ function cardHtml(p, idx) {
         const pq = p.promo_qtd;
         const slotWrap = "box-sizing:border-box;padding:6px 10px 8px";
         if (!pq) return `<div aria-hidden="true" style="${slotWrap};visibility:hidden;min-height:38px">-</div>`;
-        const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
         const precoBase = parseFloat(p.preco) || 0;
-        const pct = precoBase > 0 ? Math.round(((precoBase - pq.preco_unit_promo) / precoBase) * 100) : 0;
-        return `<div style="${slotWrap}" onclick="event.stopPropagation()">
-          <div class="pq-qtybar pq-qtybar--teaser">
-            <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
-            <span class="pq-qtybar-body">
-              <span class="pq-qtybar-label">${rotulo}</span>
-              <span class="pq-qtybar-msg">Leve ${pq.qtd_minima}+ por <strong>${brl(pq.preco_unit_promo)}</strong> cada</span>
-            </span>
-            ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
-          </div>
-        </div>`;
+        return `<div id="qtybar-${idx}" style="${slotWrap}" onclick="event.stopPropagation()">${qtyBarInnerHtml(pq, 1, precoBase)}</div>`;
       })()}
       ${(() => {
         const plano = _planosIndex[p.cnpjloja];
@@ -1283,11 +1272,51 @@ function cardHtml(p, idx) {
     </div>`;
 }
 
+function qtyBarInnerHtml(pq, qty, precoBase) {
+  if (!pq) return '';
+  const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
+  const icon = '<span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>';
+  if (qty >= pq.qtd_minima) {
+    const totalNormal = precoBase * qty;
+    const totalPromo = pq.preco_unit_promo * qty;
+    const economia = Math.max(0, totalNormal - totalPromo);
+    const pct = totalNormal > 0 ? Math.round((economia / totalNormal) * 100) : 0;
+    return `<div class="pq-qtybar pq-qtybar--on">
+      ${icon}
+      <span class="pq-qtybar-body">
+        <span class="pq-qtybar-label">${rotulo} aplicada</span>
+        <span class="pq-qtybar-msg">${qty} un.: de <s style="opacity:.75;font-weight:600">${brl(totalNormal)}</s> por <strong>${brl(totalPromo)}</strong></span>
+      </span>
+      ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+    </div>`;
+  }
+  const pct = precoBase > 0 ? Math.round(((precoBase - pq.preco_unit_promo) / precoBase) * 100) : 0;
+  return `<div class="pq-qtybar pq-qtybar--teaser">
+    ${icon}
+    <span class="pq-qtybar-body">
+      <span class="pq-qtybar-label">${rotulo}</span>
+      <span class="pq-qtybar-msg">Leve ${pq.qtd_minima}+ por <strong>${brl(pq.preco_unit_promo)}</strong> cada</span>
+    </span>
+    ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+  </div>`;
+}
+
+function renderCardQtyBar(idx, qtyRaw) {
+  const p = _cards[idx];
+  const wrap = document.getElementById('qtybar-' + idx);
+  if (!p || !wrap || !p.promo_qtd) return;
+  const inp = document.getElementById('qty-' + idx);
+  const max = parseInt(inp?.max) || 99;
+  const qty = Math.max(1, Math.min(max, parseInt(qtyRaw) || 1));
+  wrap.innerHTML = qtyBarInnerHtml(p.promo_qtd, qty, parseFloat(p.preco) || 0);
+}
+
 function changeCardQty(idx, delta) {
   const inp = document.getElementById('qty-' + idx);
   if (!inp) return;
   const max = parseInt(inp.max) || 99;
   inp.value = Math.max(1, Math.min(max, (parseInt(inp.value)||1) + delta));
+  renderCardQtyBar(idx, inp.value);
 }
 
 function addFromCard(idx) {

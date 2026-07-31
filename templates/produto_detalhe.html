@@ -582,15 +582,14 @@
           <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
           {% endif %}
           {% if promo_qtd %}
-          {% set _pq_base = produto.preco|float %}
-          {% set _pq_pct = (((_pq_base - (promo_qtd.preco_unit_promo|float)) / _pq_base) * 100)|round(0, 'floor')|int if _pq_base > 0 else 0 %}
-          <div class="pq-qtybar pq-qtybar--teaser" style="margin-top:9px">
-            <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
-            <span class="pq-qtybar-body">
-              <span class="pq-qtybar-label">{{ 'Exclusivo assinante' if promo_qtd.so_assinantes else 'Oferta por quantidade' }}</span>
-              <span class="pq-qtybar-msg">Leve {{ promo_qtd.qtd_minima }}+ por <strong>R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }}</strong> cada</span>
-            </span>
-            {% if _pq_pct > 0 %}<span class="pq-qtybar-pct">-{{ _pq_pct }}%</span>{% endif %}
+          <div id="pd-qtybar-wrap" style="margin-top:9px">
+            <div class="pq-qtybar pq-qtybar--teaser">
+              <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
+              <span class="pq-qtybar-body">
+                <span class="pq-qtybar-label">{{ 'Exclusivo assinante' if promo_qtd.so_assinantes else 'Oferta por quantidade' }}</span>
+                <span class="pq-qtybar-msg">Leve {{ promo_qtd.qtd_minima }}+ por <strong>R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }}</strong> cada</span>
+              </span>
+            </div>
           </div>
           {% endif %}
           <div id="pd-cupom-block" style="display:none;margin-top:8px">
@@ -961,6 +960,42 @@ const _pdPromo = {{ (produto.promo if produto and produto.promo else none) | toj
 const _pdImg   = {{ (imagem or '') | tojson }};
 const _pdCnpj  = {{ (loja.cnpjloja or '') | tojson }};
 const _pdRazao = {{ (loja.razao or '') | tojson }};
+const _pdPromoQtd = {{ (promo_qtd if promo_qtd else none) | tojson }};
+
+function pdBrl(v) {
+  return 'R$ ' + Number(v || 0).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function renderPdQtyBar(qty) {
+  const wrap = document.getElementById('pd-qtybar-wrap');
+  if (!wrap || !_pdPromoQtd) return;
+  const pq = _pdPromoQtd;
+  const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
+  const icon = '<span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>';
+  if (qty >= pq.qtd_minima) {
+    const totalNormal = _pdPreco * qty;
+    const totalPromo = pq.preco_unit_promo * qty;
+    const economia = Math.max(0, totalNormal - totalPromo);
+    const pct = totalNormal > 0 ? Math.round((economia / totalNormal) * 100) : 0;
+    wrap.innerHTML = `<div class="pq-qtybar pq-qtybar--on">
+      ${icon}
+      <span class="pq-qtybar-body">
+        <span class="pq-qtybar-label">${rotulo} aplicada</span>
+        <span class="pq-qtybar-msg">${qty} un.: de <s style="opacity:.75;font-weight:600">${pdBrl(totalNormal)}</s> por <strong>${pdBrl(totalPromo)}</strong></span>
+      </span>
+      ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+    </div>`;
+  } else {
+    const falta = pq.qtd_minima - qty;
+    wrap.innerHTML = `<div class="pq-qtybar pq-qtybar--pending">
+      ${icon}
+      <span class="pq-qtybar-body">
+        <span class="pq-qtybar-label">Falta pouco</span>
+        <span class="pq-qtybar-msg">Adicione mais ${falta} un. e pague <strong>${pdBrl(pq.preco_unit_promo)}</strong> cada a partir de ${pq.qtd_minima} un.</span>
+      </span>
+    </div>`;
+  }
+}
 
 function pdToast(msg, ok=true) {
   const t = document.createElement('div');
@@ -1027,7 +1062,16 @@ function changeQty(delta) {
   const inp = document.getElementById('pd-qty');
   const max = parseInt(inp.max) || 99;
   inp.value = Math.max(1, Math.min(max, (parseInt(inp.value)||1) + delta));
+  renderPdQtyBar(parseInt(inp.value) || 1);
 }
+
+document.getElementById('pd-qty')?.addEventListener('input', function() {
+  const max = parseInt(this.max) || 99;
+  const qty = Math.max(1, Math.min(max, parseInt(this.value) || 1));
+  renderPdQtyBar(qty);
+});
+
+if (_pdPromoQtd) renderPdQtyBar(parseInt(document.getElementById('pd-qty')?.value) || 1);
 
 function handleAddToCart() {
   const qty = parseInt(document.getElementById('pd-qty')?.value) || 1;
