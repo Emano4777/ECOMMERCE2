@@ -717,6 +717,84 @@
     .pq-alert-success { background: #f0fff4; border-left: 4px solid #22c55e; color: #15652e; }
     .pq-alert-info    { background: var(--pq-yellow-lt); border-left: 4px solid var(--pq-yellow); color: #5a4a00; }
 
+    /* ── PROMO POR QUANTIDADE (escalonada) ───────────────── */
+    .pq-qtybar {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border-radius: 10px;
+      padding: 7px 11px;
+      box-sizing: border-box;
+    }
+    .pq-qtybar-icon {
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .68rem;
+    }
+    .pq-qtybar-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      line-height: 1.25;
+    }
+    .pq-qtybar-label {
+      font-size: .6rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pq-qtybar-msg {
+      font-size: .78rem;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .pq-qtybar-msg strong { font-weight: 900; }
+    .pq-qtybar-pct {
+      flex: 0 0 auto;
+      background: var(--pq-yellow);
+      color: #5a4a00;
+      font-size: .64rem;
+      font-weight: 900;
+      padding: 3px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    /* variante "atingiu a quantidade" — destaque cheio */
+    .pq-qtybar--on {
+      background: linear-gradient(90deg, var(--pq-red), var(--pq-red-dk));
+      color: #fff;
+    }
+    .pq-qtybar--on .pq-qtybar-icon { background: rgba(255,255,255,.22); color: #fff; }
+    .pq-qtybar--on .pq-qtybar-label { color: rgba(255,255,255,.82); }
+    .pq-qtybar--on .pq-qtybar-msg { color: #fff; }
+    /* variante "teaser/incentivo" — leve, usada em card e detalhe */
+    .pq-qtybar--teaser {
+      background: #fff5f6;
+      border: 1px solid #ffd0d8;
+    }
+    .pq-qtybar--teaser .pq-qtybar-icon { background: #ffe1e6; color: var(--pq-red); }
+    .pq-qtybar--teaser .pq-qtybar-label { color: var(--pq-red); opacity: .8; }
+    .pq-qtybar--teaser .pq-qtybar-msg { color: var(--pq-red); }
+    /* variante "faltam X unidades" — pendente, tom neutro tracejado */
+    .pq-qtybar--pending {
+      background: #fdfaf6;
+      border: 1px dashed #e8c9a0;
+    }
+    .pq-qtybar--pending .pq-qtybar-icon { background: #fbe9d2; color: #a86a1c; }
+    .pq-qtybar--pending .pq-qtybar-label { color: #a86a1c; opacity: .85; }
+    .pq-qtybar--pending .pq-qtybar-msg { color: #7a5011; }
+
     /* ── FOOTER ─────────────────────────────────────────── */
     .pq-footer {
       background:var(--pq-red);

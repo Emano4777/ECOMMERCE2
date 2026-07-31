@@ -1092,13 +1092,19 @@ function renderCart() {
       const pqEconomia = pq ? (precoItem - pq.preco_unit_promo) * pqQty : 0;
       const pqRotulo = pq && pq.so_assinantes ? 'Só assinantes' : 'Oferta por quantidade';
       const pqHtml = !pq ? '' : pqAtingiu
-        ? `<div style="font-size:.74rem;color:#fff;font-weight:800;margin-top:5px;background:linear-gradient(90deg,var(--pq-red),#c81e3a);border-radius:8px;padding:6px 10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-             <i class="fa fa-layer-group"></i>
-             <span>${esc(pqRotulo)}: essas ${pqQty} un. sairiam por <strong>${brl(pq.preco_unit_promo * pqQty)}</strong> — economize <strong>${brl(pqEconomia)}</strong>${pq.so_assinantes ? ' assinando o clube' : ''}</span>
+        ? `<div class="pq-qtybar pq-qtybar--on" style="margin-top:6px">
+             <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
+             <span class="pq-qtybar-body">
+               <span class="pq-qtybar-label">${esc(pqRotulo)}</span>
+               <span class="pq-qtybar-msg">Essas ${pqQty} un. saem por <strong>${brl(pq.preco_unit_promo * pqQty)}</strong> — economize <strong>${brl(pqEconomia)}</strong>${pq.so_assinantes ? ' assinando o clube' : ''}</span>
+             </span>
            </div>`
-        : `<div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:4px;background:#fff5f6;border:1px dashed #ffb3bf;border-radius:8px;padding:5px 10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-             <i class="fa fa-layer-group"></i>
-             <span>Adicione mais ${pq.qtd_minima - pqQty} un. e ${pq.so_assinantes ? 'sendo assinante ' : ''}pague ${brl(pq.preco_unit_promo)} cada a partir de ${pq.qtd_minima} un.</span>
+        : `<div class="pq-qtybar pq-qtybar--pending" style="margin-top:6px">
+             <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
+             <span class="pq-qtybar-body">
+               <span class="pq-qtybar-label">Falta pouco</span>
+               <span class="pq-qtybar-msg">Adicione mais ${pq.qtd_minima - pqQty} un. e ${pq.so_assinantes ? 'sendo assinante ' : ''}pague <strong>${brl(pq.preco_unit_promo)}</strong> cada a partir de ${pq.qtd_minima} un.</span>
+             </span>
            </div>`;
       return `<div class="cart-item">
         ${imgTag}

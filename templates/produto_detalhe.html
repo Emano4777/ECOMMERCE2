@@ -582,9 +582,15 @@
           <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
           {% endif %}
           {% if promo_qtd %}
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;box-sizing:border-box;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
-            <i class="fa fa-layer-group"></i>{{ 'Assine e pague' if promo_qtd.so_assinantes else 'Compre e pague' }}
-            R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }} cada, a partir de {{ promo_qtd.qtd_minima }} unidades
+          {% set _pq_base = produto.preco|float %}
+          {% set _pq_pct = (((_pq_base - (promo_qtd.preco_unit_promo|float)) / _pq_base) * 100)|round(0, 'floor')|int if _pq_base > 0 else 0 %}
+          <div class="pq-qtybar pq-qtybar--teaser" style="margin-top:9px">
+            <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
+            <span class="pq-qtybar-body">
+              <span class="pq-qtybar-label">{{ 'Exclusivo assinante' if promo_qtd.so_assinantes else 'Oferta por quantidade' }}</span>
+              <span class="pq-qtybar-msg">Leve {{ promo_qtd.qtd_minima }}+ por <strong>R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }}</strong> cada</span>
+            </span>
+            {% if _pq_pct > 0 %}<span class="pq-qtybar-pct">-{{ _pq_pct }}%</span>{% endif %}
           </div>
           {% endif %}
           <div id="pd-cupom-block" style="display:none;margin-top:8px">

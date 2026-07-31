@@ -1254,12 +1254,20 @@ function cardHtml(p, idx) {
       })()}
       ${(() => {
         const pq = p.promo_qtd;
-        const slot = "min-height:26px;box-sizing:border-box;padding:5px 12px";
-        if (!pq) return `<div aria-hidden="true" style="${slot};font-size:.64rem;visibility:hidden">-</div>`;
-        const rotulo = pq.so_assinantes ? 'Assine e pague' : 'Compre e pague';
-        return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #ffd0d8;background:#fff5f6;font-size:.66rem;color:var(--pq-red);font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap">
-          <span style="display:flex;align-items:center;gap:4px"><i class="fa fa-layer-group" style="font-size:.56rem"></i>${rotulo} ${brl(pq.preco_unit_promo)} cada</span>
-          <span style="white-space:nowrap;opacity:.85">a partir de ${pq.qtd_minima} un.</span>
+        const slotWrap = "box-sizing:border-box;padding:6px 10px 8px";
+        if (!pq) return `<div aria-hidden="true" style="${slotWrap};visibility:hidden;min-height:38px">-</div>`;
+        const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
+        const precoBase = parseFloat(p.preco) || 0;
+        const pct = precoBase > 0 ? Math.round(((precoBase - pq.preco_unit_promo) / precoBase) * 100) : 0;
+        return `<div style="${slotWrap}" onclick="event.stopPropagation()">
+          <div class="pq-qtybar pq-qtybar--teaser">
+            <span class="pq-qtybar-icon"><i class="fa fa-layer-group"></i></span>
+            <span class="pq-qtybar-body">
+              <span class="pq-qtybar-label">${rotulo}</span>
+              <span class="pq-qtybar-msg">Leve ${pq.qtd_minima}+ por <strong>${brl(pq.preco_unit_promo)}</strong> cada</span>
+            </span>
+            ${pct > 0 ? `<span class="pq-qtybar-pct">-${pct}%</span>` : ''}
+          </div>
         </div>`;
       })()}
       ${(() => {
