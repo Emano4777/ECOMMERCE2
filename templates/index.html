@@ -1078,7 +1078,10 @@ function productCategory(p) {
   // tem prioridade sobre "infantil" — universo infantil é pra higiene/cuidado
   // do bebê, não remédio.
   if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
-  if (/\b(infantil|mamadeira|chupeta|babador|aspirador.?nasal|trocador.?de.?fraldas|fralda.?infantil|huggies|pampers|colonia.?baby|shampoo.?kids|condicionador.?kids)\b/.test(nome)) return 'infantil';
+  // "fralda" sozinha é ambígua (fralda geriátrica/adulto é outro produto) —
+  // só conta como infantil quando não tem sinal de geriátrico/adulto.
+  const ehFraldaInfantil = /\bfraldas?\b/.test(nome) && !/geri[aá]tric|adulto|incontinen/.test(nome);
+  if (/\b(infantil|mamadeira|chupeta|babador|aspirador.?nasal|trocador.?de.?fraldas|fralda.?infantil|huggies|pampers|colonia.?baby|shampoo.?kids|condicionador.?kids)\b/.test(nome) || ehFraldaInfantil) return 'infantil';
   if (/\b(formula.?infantil|dieta.?enteral|papinha|adocante|sucralose|fresubin|nutren)\b/.test(nome)) return 'nutricao';
   if (/\b(bala|chiclete|pacoca|barrinha.cereal|biscoito|pilha|bateria.?alcalina|agulha|seringa|gaze|curativo|band.?aid|lanceta|termometro|nebulizador|agua.?oxigenada|clorexidina|carregador|brinquedo)\b/.test(nome)) return 'varejo';
   if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|probiotico|melatonina|vitnatu)\b/.test(nome)) return 'suplemento';

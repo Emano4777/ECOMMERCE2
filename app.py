@@ -21729,6 +21729,18 @@ _TIPO_INFANTIL = re.compile(
     r"johnson.*baby|colonia.baby|shampoo.kids|condicionador.kids)\b",
     re.IGNORECASE,
 )
+# "Fralda" sozinha e ambigua (fralda geriatrica/adulto e um produto bem
+# diferente) — trata como infantil só quando NÃO tem sinal de geriátrico/
+# adulto/incontinência no nome. Checado à parte porque a classificação do
+# Alpha pra fralda é muito inconsistente: a mesma linha de produto aparece
+# espalhada em HPC>PERFUMARIA, HPC>INFANTIL, HPC>OUTROS e até VAREJO,
+# então aqui o nome tem prioridade sobre o ramo que o Alpha mandar.
+_TIPO_FRALDA = re.compile(r"\bfraldas?\b", re.IGNORECASE)
+_TIPO_FRALDA_ADULTO = re.compile(r"geri[aá]tric|adulto|incontinen", re.IGNORECASE)
+
+
+def _eh_fralda_infantil(nome: str) -> bool:
+    return bool(nome) and bool(_TIPO_FRALDA.search(nome)) and not _TIPO_FRALDA_ADULTO.search(nome)
 
 _TIPOS_NAO_MEDICAMENTO = frozenset({
     "suplemento", "perfumaria", "dermocosmetico", "nutricao", "varejo", "infantil",
@@ -21755,7 +21767,7 @@ def _classificar_produto(nome: str) -> str:
     # pediatrico.
     if _TIPO_MEDICAMENTO.search(nome):
         return "medicamento"
-    if _TIPO_INFANTIL.search(nome):
+    if _TIPO_INFANTIL.search(nome) or _eh_fralda_infantil(nome):
         return "infantil"
     if _TIPO_VAREJO.search(nome):
         return "varejo"
@@ -21815,10 +21827,20 @@ def _categoria_from_alpha_classificacao(classificacao):
 def _categoria_produto(p):
     """Resolve a categoria de um produto: categoria ja calculada > classificacao
     do Alpha (quando o produto veio da sincronizacao Alpha A7) > fallback por
-    nome. Ordem de preferencia unica pra manter tudo consistente."""
+    nome. Ordem de preferencia unica pra manter tudo consistente.
+
+    Excecao: fralda infantil. A classificacao que o Alpha manda pra fralda e
+    muito inconsistente — a mesma linha de produto (ex: mesma marca/tamanho)
+    aparece espalhada em HPC>PERFUMARIA, HPC>INFANTIL, HPC>OUTROS e ate
+    VAREJO dependendo do lote. Pra esse caso especifico o nome (com a
+    exclusao de fralda geriatrica/adulto) e mais confiavel que o ramo do
+    Alpha, entao e checado antes."""
+    if p.get("categoria"):
+        return p["categoria"]
+    if _eh_fralda_infantil(p.get("nome") or ""):
+        return "infantil"
     return (
-        p.get("categoria")
-        or _categoria_from_alpha_classificacao(p.get("classificacao"))
+        _categoria_from_alpha_classificacao(p.get("classificacao"))
         or _classificar_produto(p.get("nome") or "")
     )
 
