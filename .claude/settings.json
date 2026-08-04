@@ -112,7 +112,12 @@
       "Bash(vercel project *)",
       "Bash(vercel link *)",
       "Bash(vercel env *)",
-      "Bash(curl -s -X POST https://www.drogariaspoupaqui.com.br/api/cron/enviar-email-cupom -H 'Authorization: Bearer poupaqui-alpha-cron-7x9k2m' -H 'Content-Type: application/json' -d '{\"consumidor_id\":\"fdc3e02a-544d-4d72-aed4-228b3023db27\",\"cupom_id\":\"c87e97f2-c9c2-4504-b576-9802eae91c99\"}')"
+      "Bash(curl -s -X POST https://www.drogariaspoupaqui.com.br/api/cron/enviar-email-cupom -H 'Authorization: Bearer poupaqui-alpha-cron-7x9k2m' -H 'Content-Type: application/json' -d '{\"consumidor_id\":\"fdc3e02a-544d-4d72-aed4-228b3023db27\",\"cupom_id\":\"c87e97f2-c9c2-4504-b576-9802eae91c99\"}')",
+      "Bash(curl -s -X POST https://www.drogariaspoupaqui.com.br/api/cron/notificar-reposicao -H 'Authorization: Bearer poupaqui-alpha-cron-7x9k2m')",
+      "Bash(timeout 15 vercel logs \"https://ecommerce-2-b5lurr4us-emano4777s-projects.vercel.app\")",
+      "Bash(timeout 15 vercel logs \"https://ecommerce-2-b5lurr4us-emano4777s-projects.vercel.app\" --json)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"https://www.drogariaspoupaqui.com.br/\")",
+      "PowerShell(py -3.13 \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Public-dns-ecommerce\\\\1c50bc6a-11d7-419d-9f97-4bcc968ce980\\\\scratchpad\\\\test_geocode.py\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"

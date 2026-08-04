@@ -1732,7 +1732,8 @@ function anonInteresseId() {
 
 function parseInteresseLabel(label) {
   const clean = (label || '').replace(/,?\s*\d{5}-?\d{3}\b/g, '').trim();
-  const parts = clean.split(/\s+-\s+|,\s*/).map(p => p.trim()).filter(Boolean);
+  const parts = clean.split(/\s+-\s+|,\s*/).map(p => p.trim())
+    .filter(p => p && !/^(br|brasil)$/i.test(p));
   let uf = '';
   let cidade = '';
   for (let i = 0; i < parts.length; i++) {
@@ -1744,7 +1745,9 @@ function parseInteresseLabel(label) {
       break;
     }
   }
-  if (!cidade) cidade = parts.length >= 2 ? parts[parts.length - 2] : (parts[0] || '');
+  // Endereços do navegador normalmente chegam como "Rua, Bairro, Cidade".
+  // Sem UF explícita, o último trecho é a cidade (não o penúltimo/bairro).
+  if (!cidade) cidade = parts[parts.length - 1] || '';
   cidade = cidade.replace(/\bBR\b|\bBrasil\b/gi, '').trim();
   return { cidade, uf };
 }

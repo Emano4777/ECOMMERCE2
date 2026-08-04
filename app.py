@@ -2984,6 +2984,20 @@ def _parse_cidade_uf(raw):
     return m.group(1).strip(), m.group(2).upper()
 
 
+def _extrair_cidade_precisa(termo):
+    """Isola só a cidade de um endereço completo no formato usado pelo
+    cadastro ('Rua X, 123 - Bairro, Cidade - UF, CEP'). _parse_cidade_uf
+    devolve o endereço inteiro (menos a UF) quando rua/bairro vêm juntos no
+    mesmo texto — só serve pra strings já isoladas tipo 'Cidade - UF'. Essa
+    aqui pega especificamente o trecho ', Cidade - UF' no fim da string."""
+    sem_cep = re.sub(r",?\s*\d{5}-?\d{3}\b", "", termo or "").strip(" ,-")
+    m = re.search(r",\s*([^,]+?)\s*-\s*[A-Za-z]{2}\s*$", sem_cep)
+    if m:
+        return m.group(1).strip()
+    cidade, _ = _parse_cidade_uf(sem_cep)
+    return cidade
+
+
 def _extract_cep(raw):
     m = re.search(r"\b(\d{5})-?(\d{3})\b", raw or "")
     return f"{m.group(1)}{m.group(2)}" if m else ""
@@ -3053,7 +3067,12 @@ def _standardize_user_address(raw):
     return text.strip(" ,")
 
 
-def _result_matches_term(item, termo):
+def _sem_acento(value):
+    value = unicodedata.normalize("NFD", (value or "").lower())
+    return "".join(c for c in value if unicodedata.category(c) != "Mn")
+
+
+def _result_matches_term(item, termo, cidade=None):
     a = item.get("address") or {}
     hay = " ".join(str(x or "") for x in [
         item.get("display_name"), a.get("road"), a.get("suburb"), a.get("neighbourhood"),
@@ -3063,13 +3082,28 @@ def _result_matches_term(item, termo):
     hay_norm = re.sub(r"[^a-z0-9]+", " ", hay.lower())
     wanted = re.sub(r"[^a-z0-9]+", " ", (termo or "").lower())
     tokens = [t for t in wanted.split() if len(t) > 2 and not t.isdigit()]
-    return sum(1 for t in tokens if t in hay_norm) >= max(1, min(3, len(tokens)))
+    if sum(1 for t in tokens if t in hay_norm) < max(1, min(3, len(tokens))):
+        return False
+    if not cidade:
+        return True
+    # A cidade que o Nominatim devolveu precisa bater de verdade com a
+    # cidade pedida — sem essa checagem, um bairro homônimo em outra cidade
+    # (ex: "Residencial São Pedro" existe em Araras, não em São Pedro) passa
+    # só por ter as mesmas palavras no nome, e o endereço geocodifica pra
+    # cidade errada mesmo com CEP/UF corretos no texto.
+    cidade_norm = _sem_acento(cidade).strip()
+    cidade_result_norm = _sem_acento(" ".join(str(a.get(k) or "") for k in ("city", "town", "village")))
+    return bool(cidade_norm) and cidade_norm in cidade_result_norm
 
 
 def _geo_override(endereco, endereco2=None, uf=None):
-    text = _norm_text(f"{endereco or ''} {endereco2 or ''}")
+    # _norm_text remove acento em vez de transliterar (ex: "São" -> "s o",
+    # nao "sao"), entao a comparacao abaixo precisa de _sem_acento (NFD +
+    # remove marca combinante) — senao "são pedro" nunca bate contra o texto
+    # normalizado e esse override nunca dispara.
+    text = _sem_acento(f"{endereco or ''} {endereco2 or ''}")
     uf = (uf or "").upper()
-    if uf == "SP" and "são pedro" in text:
+    if uf == "SP" and "sao pedro" in text:
         return -22.5483, -47.9139
     if "djair jose marques" in text and ("mirassol" in text or "15133" in text or "regissol" in text):
         return -20.8029, -49.5202
@@ -3124,8 +3158,6 @@ def _public_store_name(loja):
 
 
 def _known_city_location_result(termo, cidade, uf):
-    if _extract_cep(termo):
-        return None
     cidade = (cidade or "").strip()
     uf = (uf or "").upper().strip()
     if not cidade or not uf:
@@ -3269,7 +3301,20 @@ def api_localizacao():
     cep_raw = _extract_cep(termo)
 
     if results and cep_raw:
-        best = next((r for r in results if _result_matches_term(r, termo)), results[0])
+        # Prefere um resultado do Nominatim que realmente bate com o endereço
+        # digitado; o "known_result" (geo_override por cidade) e o 1o
+        # resultado bruto só entram como último recurso. Sem essa ordem, uma
+        # rua/bairro homônimo em outra cidade podia virar o "best" (Nominatim
+        # sem match nenhum bom cai pro results[0], que pode ser de outro
+        # lugar), e o override — que existe justamente pra cobrir isso —
+        # nunca era usado porque endereço de cadastro sempre tem CEP.
+        nominatim_only = [r for r in results if r is not known_result]
+        cidade_precisa = _extrair_cidade_precisa(termo)
+        best = (
+            next((r for r in nominatim_only if _result_matches_term(r, termo, cidade_precisa)), None)
+            or known_result
+            or results[0]
+        )
         synthetic = dict(best)
         synthetic["place_id"] = f"user-{cep_raw}"
         synthetic["display_name"] = _standardize_user_address(termo)
@@ -8150,9 +8195,18 @@ def api_interesse_regiao():
     label = (data.get("localizacao_label") or "").strip()[:240]
     cidade = (data.get("cidade") or "").strip()[:120]
     uf = (data.get("uf") or "").strip().upper()[:2]
-    if not cidade and label:
-        cidade_parse, uf_parse = _parse_cidade_uf(label)
-        cidade = (cidade_parse or "").strip()[:120]
+    if label:
+        # O frontend antigo enviava o bairro (ex.: "Centro") como cidade em
+        # endereços "Rua, Bairro, Município". O servidor normaliza novamente
+        # para não depender da versão do JavaScript em cache no dispositivo.
+        partes_label = [
+            p.strip() for p in label.split(",")
+            if p.strip() and p.strip().lower() not in ("br", "brasil")
+        ]
+        candidato = partes_label[-1] if len(partes_label) >= 2 else label
+        cidade_parse, uf_parse = _parse_cidade_uf(candidato)
+        if cidade_parse:
+            cidade = cidade_parse.strip()[:120]
         uf = uf or (uf_parse or "").strip().upper()[:2]
 
     motivo = (data.get("motivo") or "sem_produtos").strip()[:40]
@@ -19469,18 +19523,45 @@ def painel_relatorios():
             cur3 = conn.cursor()
             cur3.execute(
                 """
+                WITH regioes_normalizadas AS (
+                  SELECT
+                    CASE
+                      WHEN localizacao_label LIKE '%%,%%' THEN
+                        NULLIF(BTRIM(REGEXP_REPLACE(
+                          SPLIT_PART(localizacao_label, ',',
+                            ARRAY_LENGTH(STRING_TO_ARRAY(localizacao_label, ','), 1)),
+                          '\\s*[-/]\\s*[A-Z]{2}\\s*$', '', 'i'
+                        )), '')
+                      ELSE NULLIF(BTRIM(REGEXP_REPLACE(
+                        COALESCE(cidade_interesse, ''),
+                        '\\s*[-/]\\s*[A-Z]{2}\\s*$', '', 'i'
+                      )), '')
+                    END AS cidade_real,
+                    COALESCE(
+                      NULLIF(uf_interesse, ''),
+                      NULLIF(SUBSTRING(
+                        COALESCE(localizacao_label, '')
+                        FROM '[-/]\\s*([A-Z]{2})\\s*$'
+                      ), ''),
+                      NULLIF(SUBSTRING(
+                        COALESCE(cidade_interesse, '')
+                        FROM '[-/]\\s*([A-Z]{2})\\s*$'
+                      ), '')
+                    ) AS uf_real,
+                    motivo, contador, anon_id, ultimo_registro_em
+                  FROM ecommerce_interesses_regiao
+                  WHERE ultimo_registro_em >= %s AND ultimo_registro_em < %s
+                )
                 SELECT
-                  COALESCE(NULLIF(cidade_interesse, ''), 'Não identificada') AS cidade,
-                  COALESCE(NULLIF(uf_interesse, ''), '') AS uf,
+                  COALESCE(cidade_real, 'Não identificada') AS cidade,
+                  COALESCE(UPPER(uf_real), '') AS uf,
                   motivo,
                   COALESCE(SUM(contador), 0) AS buscas,
-                  COUNT(*) AS visitantes,
+                  COUNT(DISTINCT anon_id) AS visitantes,
                   MAX(ultimo_registro_em) AS ultima_busca
-                FROM ecommerce_interesses_regiao
-                WHERE ultimo_registro_em >= %s AND ultimo_registro_em < %s
-                GROUP BY COALESCE(NULLIF(cidade_interesse, ''), 'Não identificada'),
-                         COALESCE(NULLIF(uf_interesse, ''), ''),
-                         motivo
+                FROM regioes_normalizadas
+                GROUP BY COALESCE(cidade_real, 'Não identificada'),
+                         COALESCE(UPPER(uf_real), ''), motivo
                 ORDER BY buscas DESC, visitantes DESC, ultima_busca DESC
                 LIMIT 12
                 """,
