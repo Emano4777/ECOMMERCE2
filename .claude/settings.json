@@ -108,7 +108,10 @@
       "Bash(echo \"index.html JS OK\")",
       "Bash(awk 'NR<=5860 && /^def /{last=NR\": \"$0} END{print last}' app.py)",
       "Bash(node --check __TRACKED_VAR__/home_extracted.js)",
-      "Bash(echo \"home.html JS OK\")"
+      "Bash(echo \"home.html JS OK\")",
+      "Bash(vercel project *)",
+      "Bash(vercel link *)",
+      "Bash(vercel env *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"

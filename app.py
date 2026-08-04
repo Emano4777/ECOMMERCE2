@@ -20987,6 +20987,84 @@ def api_cron_wa_aviso_loja_regiao_next():
     return jsonify({"ok": True, "pendente": True, "id": aviso_id, "to": to, "msg": msg})
 
 
+@app.post("/api/cron/enviar-email-cupom")
+def api_cron_enviar_email_cupom():
+    """Envia por e-mail um cupom especifico pra um consumidor, com copia pro
+    suporte. So existe pra ser disparado manualmente (curl + CRON_SECRET)
+    quando precisa mandar um cupom pontual — roda no ambiente do Vercel,
+    que e o unico lugar com a RESEND_API_KEY de verdade configurada."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    consumidor_id = (data.get("consumidor_id") or "").strip()
+    cupom_id = (data.get("cupom_id") or "").strip()
+    if not consumidor_id or not cupom_id:
+        return jsonify({"ok": False, "erro": "consumidor_id_e_cupom_id_obrigatorios"}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT nome, email FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    consumidor = cur.fetchone()
+    cur.execute(
+        """
+        SELECT c.codigo, c.desconto_tipo, c.desconto_valor, c.valido_ate,
+               (SELECT u.razao FROM ecommerce_cupons_lojas cl
+                JOIN users u ON u.cnpjloja = cl.cnpjloja
+                WHERE cl.cupom_id = c.id LIMIT 1) AS loja
+        FROM ecommerce_cupons c WHERE c.id = %s
+        """,
+        (cupom_id,),
+    )
+    cupom = cur.fetchone()
+    cur.close()
+    if not consumidor or not (consumidor.get("email") or "").strip():
+        return jsonify({"ok": False, "erro": "consumidor_sem_email"}), 404
+    if not cupom:
+        return jsonify({"ok": False, "erro": "cupom_nao_encontrado"}), 404
+
+    valor_label = (
+        f"{int(cupom['desconto_valor'])}%" if cupom["desconto_tipo"] == "pct"
+        else f"R$ {float(cupom['desconto_valor']):.2f}".replace(".", ",")
+    )
+    validade = cupom["valido_ate"].strftime("%d/%m/%Y") if cupom["valido_ate"] else ""
+    nome_completo = consumidor["nome"] or ""
+    nome_curto = nome_completo.split()[0] if nome_completo else ""
+    loja_txt = f" na <strong>{html.escape(cupom['loja'])}</strong>" if cupom.get("loja") else ""
+
+    corpo = (
+        f"<p>Oi, {html.escape(nome_curto)}! Tudo bem?</p>"
+        f"<p>Passando só pra agradecer a sua compra{loja_txt}! "
+        f"Preparamos um cupom especial pra você usar na próxima compra.</p>"
+        f"<div class='info-box'>"
+        f"<strong>Cupom:</strong> {html.escape(cupom['codigo'])}<br>"
+        f"<strong>Desconto:</strong> {valor_label}<br>"
+        + (f"<strong>Válido até:</strong> {validade}<br>" if validade else "")
+        + "<strong>Onde vale:</strong> compras direto pelo site"
+        + "</div>"
+        f"<p>É só aplicar o código <strong>{html.escape(cupom['codigo'])}</strong> na hora de fechar o pedido, "
+        f"direto pelo <strong>site da Poupaqui</strong> — o desconto cai automaticamente no valor final.</p>"
+        f"<p style='text-align:center'><a class='btn' href='https://drogariaspoupaqui.com.br'>Comprar com o cupom</a></p>"
+        f"<p>Qualquer dúvida, é só responder este e-mail. Um abraço! 💛</p>"
+    )
+    ok_cliente = _send_email(
+        consumidor["email"],
+        f"🎟️ Um presente pra você — cupom {cupom['codigo']}",
+        _email_html_wrapper("Um agradecimento (com desconto) pra você", corpo),
+    )
+    ok_admin = False
+    if ADMIN_SUPPORT_EMAIL:
+        corpo_admin = (
+            f"<p>Cópia do e-mail enviado pro cliente <strong>{html.escape(nome_completo)}</strong> "
+            f"({html.escape(consumidor['email'])}).</p>" + corpo
+        )
+        ok_admin = _send_email(
+            ADMIN_SUPPORT_EMAIL,
+            f"[Cópia] Cupom {cupom['codigo']} enviado pra {nome_completo}",
+            _email_html_wrapper("Cópia — cupom enviado ao cliente", corpo_admin),
+        )
+    return jsonify({"ok": ok_cliente, "email_cliente": ok_cliente, "email_admin": ok_admin})
+
+
 @app.post("/api/cron/wa-aviso-loja-regiao-mark-sent")
 def api_cron_wa_aviso_loja_regiao_mark_sent():
     """Marca aviso de cliente-novo-na-regiao como enviado. Chamado pelo cron
