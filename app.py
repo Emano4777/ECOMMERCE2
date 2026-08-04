@@ -9382,7 +9382,7 @@ _LENCO_UMEDECIDO_RE = re.compile(r"lenco.umedecid|toalha.umedecid|toalha.umid", 
 
 # (tipo, detector(nome)->bool, uso_diario_medio, titulo, msg_template)
 _CONSUMIVEL_QTD_REMINDERS = [
-    ("fralda_infantil", _eh_fralda_infantil, 6, "Hora de repor?",
+    ("fralda_infantil", lambda n: _eh_fralda_infantil(n), 6, "Hora de repor?",
      "Você comprou {produto} há {dias} dias — um pacote desse tamanho costuma acabar por aí. Bora repor antes que falte?"),
     ("fralda_geriatrica", _eh_fralda_geriatrica, 5, "Hora de repor?",
      "Você comprou {produto} há {dias} dias — um pacote desse tamanho costuma acabar por aí. Bora repor antes que falte?"),
