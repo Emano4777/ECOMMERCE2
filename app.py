@@ -2958,6 +2958,8 @@ def google_maps_geocode(endereco):
         with urllib.request.urlopen(url, timeout=6, context=ssl.create_default_context()) as r:
             data = json.loads(r.read().decode("utf-8"))
         if data.get("status") != "OK":
+            app.logger.warning("google_maps_geocode status=%s error_message=%s endereco=%r",
+                                data.get("status"), data.get("error_message"), endereco)
             return []
         results = []
         for res in data.get("results", []):
@@ -2991,7 +2993,16 @@ def google_maps_geocode(endereco):
                 },
             })
         return results
-    except Exception:
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read(300).decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        app.logger.warning("google_maps_geocode HTTPError %s endereco=%r body=%s", exc.code, endereco, body)
+        return []
+    except Exception as exc:
+        app.logger.warning("google_maps_geocode error endereco=%r: %s", endereco, exc)
         return []
 
 
