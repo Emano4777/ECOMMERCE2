@@ -24152,17 +24152,26 @@ def api_cupons_disponiveis():
 @_consumer_required
 def consumidor_cupons():
     _ensure_cupons_schema()
+    _ensure_assinatura_schema()
     _ensure_logo_url_column()
     consumidor_id = session.get("consumidor_id")
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        SELECT DISTINCT u.razao, u.cnpjloja, c2.logo_url,
-               COUNT(DISTINCT p.id) AS n_pedidos
-        FROM ecommerce_pedidos p
-        JOIN users u ON u.cnpjloja = p.cnpjloja
-        LEFT JOIN ecommerce_config_loja c2 ON c2.cnpjloja = u.cnpjloja
-        WHERE p.consumidor_id = %s AND p.status NOT IN ('cancelado')
-        GROUP BY u.razao, u.cnpjloja, c2.logo_url
+        SELECT DISTINCT u.razao, cl.cnpjloja, c2.logo_url,
+               (SELECT COUNT(*)
+                  FROM ecommerce_pedidos p
+                 WHERE p.cnpjloja = cl.cnpjloja
+                   AND p.consumidor_id = %s
+                   AND p.status NOT IN ('cancelado')) AS n_pedidos
+        FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id
+        JOIN users u ON u.cnpjloja = cl.cnpjloja
+        LEFT JOIN ecommerce_config_loja c2 ON c2.cnpjloja = cl.cnpjloja
+        WHERE c.ativo = TRUE
+          AND COALESCE(c.tipo_regra,'codigo') = 'codigo'
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+          AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+        ORDER BY u.razao
     """, (consumidor_id,))
     lojas = cur.fetchall()
     cupons_por_loja = []
@@ -24180,6 +24189,17 @@ def consumidor_cupons():
               AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
               AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
               AND (
+                COALESCE(c.so_assinantes, FALSE) = FALSE
+                OR EXISTS (
+                    SELECT 1 FROM ecommerce_assinantes a
+                    WHERE a.consumidor_id = %s
+                      AND a.cnpjloja = %s
+                      AND a.status = 'ativo'
+                      AND a.pagamento_status = 'aprovado'
+                      AND (a.data_fim IS NULL OR a.data_fim > NOW())
+                )
+              )
+              AND (
                 c.publico = 'todos'
                 OR (c.publico = 'especifico' AND EXISTS (
                     SELECT 1 FROM ecommerce_cupons_clientes cc
@@ -24188,7 +24208,10 @@ def consumidor_cupons():
                 OR (c.publico = 'primeira_compra' AND %s = 0)
                 OR (c.publico = 'frequente' AND %s >= c.min_compras AND c.min_compras > 0)
               )
-        """, (loja["cnpjloja"], consumidor_id, n_pedidos, n_pedidos))
+        """, (
+            loja["cnpjloja"], consumidor_id, loja["cnpjloja"],
+            consumidor_id, n_pedidos, n_pedidos
+        ))
         cupons = cur.fetchall()
         if cupons:
             cupons_por_loja.append({"loja": dict(loja), "cupons": [dict(c) for c in cupons]})
