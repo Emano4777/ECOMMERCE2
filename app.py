@@ -21358,6 +21358,44 @@ def api_cron_notificar_reposicao():
     return jsonify({"ok": True, **resultado})
 
 
+@app.post("/api/cron/enviar-email-regiao-habilitada")
+def api_cron_enviar_email_regiao_habilitada():
+    """Avisa por e-mail que a região do cliente já está habilitada no site
+    (mesmo teor do aviso mandado por WhatsApp) — disparo manual pontual,
+    mesmo padrão de /api/cron/enviar-email-cupom."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    consumidor_id = (data.get("consumidor_id") or "").strip()
+    if not consumidor_id:
+        return jsonify({"ok": False, "erro": "consumidor_id_obrigatorio"}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT nome, email FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    consumidor = cur.fetchone()
+    cur.close()
+    if not consumidor or not (consumidor.get("email") or "").strip():
+        return jsonify({"ok": False, "erro": "consumidor_sem_email"}), 404
+
+    nome_curto = (consumidor["nome"] or "").split()[0] if consumidor["nome"] else ""
+    corpo = (
+        f"<p>Oi, {html.escape(nome_curto)}! Tudo bem?</p>"
+        f"<p>Vimos que você criou uma conta no nosso site recentemente — que bom te ter por aqui! 😊</p>"
+        f"<p>A gente identificou que sua região não estava aparecendo certinho no site por um probleminha "
+        f"técnico nosso, e você pode ter caído numa página sem produto nenhum. Já corrigimos! Sua região "
+        f"já está habilitada e tem farmácia disponível pra você. 🎉</p>"
+        f"<p style='text-align:center'><a class='btn' href='https://drogariaspoupaqui.com.br'>Dá uma conferida agora</a></p>"
+        f"<p>Qualquer dúvida, é só responder este e-mail ou chamar no WhatsApp!</p>"
+    )
+    ok = _send_email(
+        consumidor["email"],
+        "🎉 Sua região já está disponível na Poupaqui!",
+        _email_html_wrapper("Boas notícias pra você!", corpo),
+    )
+    return jsonify({"ok": ok})
+
+
 @app.post("/api/cron/enviar-email-cupom")
 def api_cron_enviar_email_cupom():
     """Envia por e-mail um cupom especifico pra um consumidor, com copia pro
