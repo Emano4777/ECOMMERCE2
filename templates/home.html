@@ -1599,13 +1599,17 @@ const _LEMBRETE_ICOS = {
   tireoide: {ico:'fa-shield-halved',cls:'lembrete-ico--green'},
   vermifugo: {ico:'fa-leaf',cls:'lembrete-ico--green'},
   fralda_infantil: {ico:'fa-baby',cls:'lembrete-ico--rose'},
+  fralda_geriatrica: {ico:'fa-user',cls:''},
+  lenco_umedecido: {ico:'fa-baby',cls:'lembrete-ico--rose'},
+  absorvente: {ico:'fa-droplet',cls:'lembrete-ico--rose'},
 };
 
 const _LEMBRETE_TIPO_LABEL = {
   anticoncepcional:'Anticoncepcional', antibiotico:'Antibiótico',
   anti_hipertensivo:'Hipertensão', hipoglicemiante:'Diabetes',
   ibp:'Gástrico', estatina:'Colesterol', tireoide:'Tireoide', vermifugo:'Vermífugo',
-  fralda_infantil:'Universo Infantil',
+  fralda_infantil:'Universo Infantil', fralda_geriatrica:'Cuidados Adulto',
+  lenco_umedecido:'Higiene', absorvente:'Higiene',
 };
 function renderLembrete(l) {
   const cfg = _LEMBRETE_ICOS[l.tipo] || {ico:'fa-bell',cls:''};

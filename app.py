@@ -9355,14 +9355,15 @@ def _detectar_tipo_med(nome, principio_ativo):
     return None
 
 
-# Reposição de itens consumíveis vendidos em pacote (ex: fralda) que não são
-# medicamento contínuo — não tem princípio ativo/tarja pra usar a lógica
-# acima, então estima pela quantidade de unidades no pacote (extraída do
-# nome, ex: "C/28") vezes um consumo médio diário aproximado. É uma
-# estimativa grosseira (varia MUITO com a idade/fase do bebê), só serve como
-# lembrete de "já deve estar acabando", não como cálculo exato.
+# Reposição de itens consumíveis vendidos em pacote (fralda, lenço umedecido
+# etc) que não são medicamento contínuo — não tem princípio ativo/tarja pra
+# usar a lógica de _DRUG_REMINDERS, então estima pela quantidade de unidades
+# no pacote (extraída do nome, ex: "C/28") vezes um consumo médio diário
+# aproximado. É uma estimativa grosseira por natureza (varia MUITO com o uso
+# real), só serve como lembrete de "já deve estar acabando", não como
+# cálculo exato — mas dá pra ir adicionando mais categorias nessa lista indo
+# pra frente, é só isso que precisa mudar.
 _QTD_EMBALAGEM_RE = re.compile(r"\bC\s*[/x]?\s*(\d{1,3})\s*(?:UN)?\b", re.IGNORECASE)
-_FRALDA_USO_DIARIO_MEDIO = 6  # média entre recém-nascido (~8-10/dia) e criança maior (~4-5/dia)
 
 
 def _extrair_qtd_embalagem(nome):
@@ -9371,6 +9372,31 @@ def _extrair_qtd_embalagem(nome):
         return None
     qtd = int(m.group(1))
     return qtd if 4 <= qtd <= 200 else None
+
+
+def _eh_fralda_geriatrica(nome):
+    return bool(nome) and bool(_TIPO_FRALDA.search(nome)) and bool(_TIPO_FRALDA_ADULTO.search(nome))
+
+
+_LENCO_UMEDECIDO_RE = re.compile(r"lenco.umedecid|toalha.umedecid|toalha.umid", re.IGNORECASE)
+
+# (tipo, detector(nome)->bool, uso_diario_medio, titulo, msg_template)
+_CONSUMIVEL_QTD_REMINDERS = [
+    ("fralda_infantil", _eh_fralda_infantil, 6, "Hora de repor?",
+     "Você comprou {produto} há {dias} dias — um pacote desse tamanho costuma acabar por aí. Bora repor antes que falte?"),
+    ("fralda_geriatrica", _eh_fralda_geriatrica, 5, "Hora de repor?",
+     "Você comprou {produto} há {dias} dias — um pacote desse tamanho costuma acabar por aí. Bora repor antes que falte?"),
+    ("lenco_umedecido", lambda n: bool(_LENCO_UMEDECIDO_RE.search(n or "")), 5, "Hora de repor?",
+     "Você comprou {produto} há {dias} dias — um pacote desse tamanho costuma acabar por aí. Bora repor antes que falte?"),
+]
+
+# Consumíveis de ciclo aproximadamente fixo (não é "quantidade no pacote /
+# uso diário linear" — o consumo depende de um ciclo, tipo medicamento
+# contínuo, só que sem princípio ativo pra detectar via _DRUG_REMINDERS).
+_CICLO_FIXO_REMINDERS = [
+    ("absorvente", re.compile(r"\babsorvente\b", re.IGNORECASE), 26, "Hora de repor?",
+     "Você comprou {produto} há {dias} dias. Confira se está na hora de repor!"),
+]
 
 
 def _calcular_lembretes(consumidor_id, conn):
@@ -9405,18 +9431,20 @@ def _calcular_lembretes(consumidor_id, conn):
             if not cfg:
                 continue
             _, _, dias_lembrete, titulo, msg_tmpl = cfg
-        elif _eh_fralda_infantil(nome):
-            qtd_pacote = _extrair_qtd_embalagem(nome)
-            if not qtd_pacote:
-                continue
-            qtd_total = qtd_pacote * int(compra.get("qty") or 1)
-            dias_lembrete = max(3, round(qtd_total / _FRALDA_USO_DIARIO_MEDIO))
-            tipo = "fralda_infantil"
-            titulo = "Hora de repor?"
-            msg_tmpl = ("Você comprou {produto} há {dias} dias — um pacote desse tamanho "
-                        "costuma acabar por aí. Bora repor antes que falte?")
         else:
-            continue
+            cfg_ciclo = next((c for c in _CICLO_FIXO_REMINDERS if c[1].search(nome)), None)
+            cfg_qtd = None if cfg_ciclo else next((c for c in _CONSUMIVEL_QTD_REMINDERS if c[1](nome)), None)
+            if cfg_ciclo:
+                tipo, _, dias_lembrete, titulo, msg_tmpl = cfg_ciclo
+            elif cfg_qtd:
+                tipo, _, uso_diario, titulo, msg_tmpl = cfg_qtd
+                qtd_pacote = _extrair_qtd_embalagem(nome)
+                if not qtd_pacote:
+                    continue
+                qtd_total = qtd_pacote * int(compra.get("qty") or 1)
+                dias_lembrete = max(3, round(qtd_total / uso_diario))
+            else:
+                continue
         data_compra = compra["criado_em"]
         if data_compra.tzinfo is None:
             data_compra = data_compra.replace(tzinfo=timezone.utc)
@@ -9436,6 +9464,7 @@ def _calcular_lembretes(consumidor_id, conn):
                 "cnpjloja": compra.get("cnpjloja") or "",
                 "dias": dias,
                 "dias_lembrete": dias_lembrete,
+                "compra_em": data_compra,
             })
     # Um lembrete por tipo (evita duplicatas de genéricos diferentes do mesmo princípio ativo)
     seen_tipo: set = set()
@@ -20985,6 +21014,168 @@ def api_cron_wa_aviso_loja_regiao_next():
         f"o Daniel Melo (19 98227-7599) — ele te passa todos os detalhes. 🚀"
     )
     return jsonify({"ok": True, "pendente": True, "id": aviso_id, "to": to, "msg": msg})
+
+
+def _ensure_lembretes_notificados_schema():
+    key = "lembretes_notificados_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_lembretes_notificados (
+                id            SERIAL PRIMARY KEY,
+                consumidor_id UUID NOT NULL,
+                ean           TEXT NOT NULL,
+                compra_em     TIMESTAMPTZ NOT NULL,
+                canal         TEXT NOT NULL,
+                enviado_em    TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, ean, compra_em, canal)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_lembretes_notif_consumidor ON ecommerce_lembretes_notificados(consumidor_id)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _mensagem_lembrete_whatsapp(nome_cliente, lembrete):
+    nome_curto = " ".join((lembrete.get("nome") or "").split()[:6])
+    ean = (lembrete.get("ean") or "").strip()
+    url_produto = f"https://drogariaspoupaqui.com.br/produto/{ean}" if ean else "https://drogariaspoupaqui.com.br"
+    return (
+        f"Oi, {nome_cliente}! 👋 Aqui é da *Poupaqui*.\n\n"
+        f"{lembrete.get('mensagem', '')}\n\n"
+        f"🛒 *{nome_curto}*\n\n"
+        f"É só comprar de novo *direto pelo nosso site* — sem precisar ir até a farmácia:\n"
+        f"{url_produto}\n\n"
+        f"Qualquer dúvida, é só chamar por aqui!"
+    )
+
+
+def _email_lembrete_html(nome_cliente, lembrete):
+    nome_curto = " ".join((lembrete.get("nome") or "").split()[:6])
+    ean = (lembrete.get("ean") or "").strip()
+    url_produto = f"https://drogariaspoupaqui.com.br/produto/{ean}" if ean else "https://drogariaspoupaqui.com.br"
+    corpo = (
+        f"<p>Oi, {html.escape(nome_cliente)}! Tudo bem?</p>"
+        f"<p>{html.escape(lembrete.get('mensagem') or '')}</p>"
+        f"<div class='info-box'><strong>{html.escape(nome_curto)}</strong></div>"
+        f"<p>É só comprar de novo <strong>direto pelo nosso site</strong> — assim garante o mesmo preço "
+        f"e a entrega/retirada organizada, sem precisar ir até a farmácia.</p>"
+        f"<p style='text-align:center'><a class='btn' href='{url_produto}'>Comprar de novo no site</a></p>"
+        f"<p>Qualquer dúvida, é só responder este e-mail ou chamar no WhatsApp. Um abraço! 💛</p>"
+    )
+    return _email_html_wrapper(lembrete.get("titulo") or "Hora de repor?", corpo)
+
+
+def _processar_notificacoes_reposicao(limit_consumidores=200):
+    """Varre clientes com compra recente, recalcula os lembretes de reposição
+    (_calcular_lembretes — mesma lógica usada na home) e notifica por e-mail
+    e WhatsApp quem ainda não foi avisado NESSA compra específica, sempre
+    direcionando pro site (nao pra loja fisica). Idempotente: cada compra só
+    gera 1 notificação por canal, controlado por
+    ecommerce_lembretes_notificados."""
+    _ensure_lembretes_notificados_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT p.consumidor_id
+        FROM ecommerce_pedidos p
+        WHERE p.status NOT IN ('cancelado')
+          AND p.criado_em >= NOW() - INTERVAL '7 months'
+          AND p.consumidor_id IS NOT NULL
+        LIMIT %s
+    """, (limit_consumidores,))
+    consumidor_ids = [r["consumidor_id"] for r in cur.fetchall()]
+    cur.close()
+
+    resultado = {"consumidores_verificados": len(consumidor_ids), "notificacoes_enviadas": 0, "detalhes": []}
+    for consumidor_id in consumidor_ids:
+        try:
+            lembretes = _calcular_lembretes(consumidor_id, conn)
+        except Exception as exc:
+            app.logger.warning("notificar_reposicao lembretes error consumidor=%s: %s", consumidor_id, exc)
+            continue
+        if not lembretes:
+            continue
+        cur2 = conn.cursor()
+        cur2.execute("SELECT nome, email, telefone FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+        cliente = cur2.fetchone()
+        cur2.close()
+        if not cliente:
+            continue
+        nome_cliente = (cliente.get("nome") or "").split()[0] if cliente.get("nome") else "tudo bem"
+        for lembrete in lembretes:
+            ean = (lembrete.get("ean") or "").strip()
+            compra_em = lembrete.get("compra_em")
+            if not ean or not compra_em:
+                continue
+            canais_disponiveis = []
+            if (cliente.get("email") or "").strip():
+                canais_disponiveis.append("email")
+            if (cliente.get("telefone") or "").strip():
+                canais_disponiveis.append("whatsapp")
+            for canal in canais_disponiveis:
+                cur3 = conn.cursor()
+                inserted = None
+                try:
+                    cur3.execute(
+                        "INSERT INTO ecommerce_lembretes_notificados (consumidor_id, ean, compra_em, canal) "
+                        "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING id",
+                        (consumidor_id, ean, compra_em, canal),
+                    )
+                    inserted = cur3.fetchone()
+                    conn.commit()
+                except Exception as exc:
+                    conn.rollback()
+                    app.logger.warning("notificar_reposicao insert error: %s", exc)
+                cur3.close()
+                if not inserted:
+                    continue  # ja notificado nesse canal pra essa compra especifica
+                try:
+                    if canal == "email":
+                        ok = _send_email(
+                            cliente["email"],
+                            f"🔔 {lembrete.get('titulo') or 'Hora de repor?'}",
+                            _email_lembrete_html(nome_cliente, lembrete),
+                        )
+                    else:
+                        ok = _wa_send(cliente["telefone"], _mensagem_lembrete_whatsapp(nome_cliente, lembrete))
+                    if ok:
+                        resultado["notificacoes_enviadas"] += 1
+                        resultado["detalhes"].append({
+                            "consumidor_id": str(consumidor_id),
+                            "tipo": lembrete.get("tipo"),
+                            "canal": canal,
+                        })
+                except Exception as exc:
+                    app.logger.warning("notificar_reposicao send error canal=%s: %s", canal, exc)
+    return resultado
+
+
+@app.post("/api/cron/notificar-reposicao")
+def api_cron_notificar_reposicao():
+    """Notifica clientes por e-mail/WhatsApp quando um item que compraram
+    provavelmente esta acabando (fralda, absorvente, medicamento continuo
+    etc), sempre apontando pro site — nunca sugere ir na loja fisica.
+    Disparado por cron externo (Hostgator) com o CRON_SECRET, nao roda
+    sozinho no Vercel (sem cron nativo configurado)."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    try:
+        limit = int(request.args.get("limit") or request.form.get("limit") or 200)
+    except Exception:
+        limit = 200
+    resultado = _processar_notificacoes_reposicao(limit_consumidores=max(1, min(limit, 1000)))
+    return jsonify({"ok": True, **resultado})
 
 
 @app.post("/api/cron/enviar-email-cupom")

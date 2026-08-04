@@ -111,7 +111,8 @@
       "Bash(echo \"home.html JS OK\")",
       "Bash(vercel project *)",
       "Bash(vercel link *)",
-      "Bash(vercel env *)"
+      "Bash(vercel env *)",
+      "Bash(curl -s -X POST https://www.drogariaspoupaqui.com.br/api/cron/enviar-email-cupom -H 'Authorization: Bearer poupaqui-alpha-cron-7x9k2m' -H 'Content-Type: application/json' -d '{\"consumidor_id\":\"fdc3e02a-544d-4d72-aed4-228b3023db27\",\"cupom_id\":\"c87e97f2-c9c2-4504-b576-9802eae91c99\"}')"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"
