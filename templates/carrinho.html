@@ -814,16 +814,29 @@ function renderDescontoQuantidade(cnpjloja, itens) {
   const regras = ((_descontosAuto[cnpjloja] || {}).quantidade || []);
   if (!regras.length) return '';
   let html = '';
+  const cupom = _cupomAplicado[cnpjloja];
+  const descontoCupom = cupom?.desconto || 0;
   regras.forEach(r => {
     const elegiveis = _itensElegiveisRegraQtd(r, itens);
     const totalQty = elegiveis.reduce((s, i) => s + (i.qty || 1), 0);
     const falta = r.qtd_minima - totalQty;
     const label = r.desconto_tipo === 'pct' ? `${parseInt(r.desconto_valor)}% OFF` : `R$${parseFloat(r.desconto_valor).toFixed(2).replace('.',',')} OFF`;
     if (falta <= 0) {
-      html += `<div style="display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#166534;margin-bottom:2px">
-        <i class="fa fa-circle-check" style="color:#16a34a;flex-shrink:0"></i>
-        <span><strong>${label}</strong> de desconto aplicado automaticamente por quantidade!</span>
-      </div>`;
+      const totalElegivel = elegiveis.reduce((s, i) => s + (i.preco || 0) * (i.qty || 1), 0);
+      const descontoRegra = r.desconto_tipo === 'pct'
+        ? totalElegivel * r.desconto_valor / 100
+        : Math.min(totalElegivel, (r.desconto_valor / (r.qtd_minima || 1)) * totalQty);
+      if (cupom && descontoCupom >= descontoRegra) {
+        html += `<div style="display:flex;align-items:center;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#92400e;margin-bottom:2px">
+          <i class="fa fa-circle-info" style="color:#d97706;flex-shrink:0"></i>
+          <span>Promoção por quantidade (${label}) não acumulativa; o cupom <strong>${esc(cupom.codigo)}</strong> oferece maior desconto.</span>
+        </div>`;
+      } else {
+        html += `<div style="display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#166534;margin-bottom:2px">
+          <i class="fa fa-circle-check" style="color:#16a34a;flex-shrink:0"></i>
+          <span><strong>${label}</strong> de desconto aplicado automaticamente por quantidade!</span>
+        </div>`;
+      }
     } else {
       html += `<div style="display:flex;align-items:center;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#92400e;margin-bottom:2px">
         <i class="fa fa-layer-group" style="color:#d97706;flex-shrink:0"></i>
@@ -1153,6 +1166,13 @@ function renderCart() {
     const g = groups[cnpj];
     const cfg = _configLojas[cnpj] || {};
     const sub = g.itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
+    const descontoCodigo = _cupomAplicado[cnpj]?.desconto || 0;
+    const descontoQtdAuto = calcDescontoQtdAuto(cnpj, g.itens);
+    const descontoAplicado = Math.max(descontoCodigo, descontoQtdAuto);
+    const cupomEhMelhor = descontoCodigo > 0 && descontoCodigo >= descontoQtdAuto;
+    const descontoRotulo = cupomEhMelhor
+      ? `Melhor desconto aplicado — cupom ${esc(_cupomAplicado[cnpj].codigo)}`
+      : 'Melhor desconto aplicado — promoção por quantidade';
     // Simula quanto essa mesma cesta custaria se o cliente ja fosse assinante
     // desta loja: soma o desconto por quantidade (qtd atingida) + a promocao
     // so-assinante ainda nao aplicada. So conta o que realmente bate o minimo
@@ -1177,6 +1197,7 @@ function renderCart() {
       const pq = item.promo_qtd;
       const pqQty = item.qty || 1;
       const pqAtingiu = pq && pqQty >= pq.qtd_minima;
+      const pqAplicada = pqAtingiu && !cupomEhMelhor;
       const pqEconomia = pqAtingiu ? (precoItem - pq.preco_unit_promo) * pqQty : 0;
       const pqRotulo = pq && pq.so_assinantes ? 'Só assinantes' : 'Oferta por quantidade';
       // Mesmo padrao visual das outras promocoes (preco riscado + novo valor
@@ -1184,8 +1205,10 @@ function renderCart() {
       let precoHtml;
       if (promoAplicada) {
         precoHtml = `${brl(precoItem)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoOriginal)}</s><div style="font-size:.72rem;color:#16a34a;font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-circle-check"></i>Preço de assinante aplicado</div>`;
-      } else if (pqAtingiu) {
+      } else if (pqAplicada) {
         precoHtml = `${brl(pq.preco_unit_promo)} <s style="font-size:.76rem;color:#9ca3af;font-weight:600;margin-left:5px">${brl(precoItem)}</s><div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-layer-group"></i>${esc(pqRotulo)} — economize ${brl(pqEconomia)}</div>`;
+      } else if (pqAtingiu && cupomEhMelhor) {
+        precoHtml = `${brl(precoItem)}<div style="font-size:.72rem;color:#92400e;font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-circle-info"></i>Oferta por quantidade não acumulativa; cupom mais vantajoso</div>`;
       } else if (pq) {
         precoHtml = `${brl(precoItem)}<div style="font-size:.72rem;color:var(--pq-red);font-weight:800;margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><i class="fa fa-layer-group"></i>Leve ${pq.qtd_minima}+ por ${brl(pq.preco_unit_promo)} cada</div>`;
       } else {
@@ -1206,7 +1229,7 @@ function renderCart() {
             <span class="qty-num">${item.qty||1}</span>
             <button class="qty-btn" onclick="alterarQty('${esc(item.ean)}','${esc(cnpj)}',1)">+</button>
           </div>
-          <div class="cart-item-sub">Subtotal ${brl(pqAtingiu ? pq.preco_unit_promo*pqQty : precoItem*pqQty)}</div>
+          <div class="cart-item-sub">Subtotal ${brl(pqAplicada ? pq.preco_unit_promo*pqQty : precoItem*pqQty)}</div>
           <button class="btn-remove" onclick="removerItem('${esc(item.ean)}','${esc(cnpj)}')">
             <i class="fa fa-trash me-1"></i>Remover
           </button>
@@ -1391,13 +1414,13 @@ function renderCart() {
         <span>Subtotal desta farmácia</span>
         <strong id="subtotal-${esc(cnpj)}" style="color:var(--pq-red)">${brl(sub)}</strong>
       </div>
-      ${_cupomAplicado[cnpj] ? `<div style="padding:0 16px 10px;display:flex;justify-content:space-between;font-size:.84rem;color:#16a34a;font-weight:700">
-        <span><i class="fa fa-tag me-1"></i>Desconto cupom ${esc(_cupomAplicado[cnpj].codigo)}</span>
-        <span>- ${brl(_cupomAplicado[cnpj].desconto)}</span>
+      ${descontoAplicado > 0 ? `<div style="padding:0 16px 10px;display:flex;justify-content:space-between;font-size:.84rem;color:#16a34a;font-weight:700">
+        <span><i class="fa fa-tag me-1"></i>${descontoRotulo}</span>
+        <span>- ${brl(descontoAplicado)}</span>
       </div>
       <div style="padding:6px 16px 12px;display:flex;justify-content:space-between;font-weight:900;border-top:1px solid var(--pq-border)">
         <span>Total desta farmácia</span>
-        <strong style="color:var(--pq-red)">${brl(Math.max(0, sub - _cupomAplicado[cnpj].desconto))}</strong>
+        <strong id="total-loja-${esc(cnpj)}" style="color:var(--pq-red)">${brl(Math.max(0, sub - descontoAplicado))}</strong>
       </div>` : ''}
     </div>`;
   });
@@ -1477,10 +1500,14 @@ function atualizarTotaisComFrete() {
     const el = document.getElementById(`subtotal-${cnpj}`);
     const subComDesconto = Math.max(0, sub - desconto);
     if (el) {
-      el.textContent = frete
+      el.textContent = brl(sub);
+      el.title = '';
+    }
+    const totalLojaEl = document.getElementById(`total-loja-${cnpj}`);
+    if (totalLojaEl) {
+      totalLojaEl.textContent = frete
         ? `${brl(subComDesconto)} + frete ${brl(frete)}`
         : brl(subComDesconto);
-      el.title = desconto > 0 ? `de ${brl(sub)} por ${brl(subComDesconto)}` : '';
     }
     // Recalcula a simulacao do clube pra refletir a 1a entrega gratis assim
     // que o cliente marca "entrega" — sem precisar re-renderizar tudo.
