@@ -665,7 +665,7 @@
 .dept-strip-wrap::after { display:none !important; }
 .dept-strip {
   display:grid !important;
-  grid-template-columns:repeat(6,1fr) !important;
+  grid-template-columns:repeat(7,1fr) !important;
   gap:14px !important;
   overflow-x:unset !important;
   flex-wrap:unset !important;
@@ -946,6 +946,12 @@
   {# â”€â”€ Departamentos: strip rÃ¡pida acima do hero â”€â”€ #}
   <div class="dept-strip-wrap">
   <nav class="dept-strip" aria-label="Departamentos">
+    <a class="dept-chip dept-chip--infantil" href="{{ url_for('catalogo_publico', cat='infantil') }}">
+      <div class="dept-chip-img-wrap">
+        <img src="{{ url_for('static', filename='categorias/infantil.jpg') }}" alt="Universo Infantil">
+      </div>
+      <div class="dept-chip-name">Universo Infantil</div>
+    </a>
     <a class="dept-chip dept-chip--med" href="{{ url_for('catalogo_publico', cat='medicamento') }}">
       <div class="dept-chip-img-wrap">
         <img src="{{ url_for('static', filename='categorias/medicamentos.jpg') }}" alt="Medicamentos">

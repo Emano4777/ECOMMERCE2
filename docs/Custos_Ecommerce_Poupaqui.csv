@@ -1,0 +1,19 @@
+﻿Categoria;Fornecedor;Item;Cobrança;Referência (US$);Referência (R$);Obrigatório;Responsável sugerido;Observação
+Infraestrutura;Vercel;Plano Pro;Mensal;20,0;101,28;Sim;Licence Farma;"Inclui crédito de uso; excedentes variáveis"
+Dados;Supabase;Plano Pro recomendado;Mensal;25,0;126,6;Sim para produção;Licence Farma;Confirmar o plano atualmente contratado
+Mensageria;WasenderAPI;Basic — 1 sessão;Mensal;6,0;30,38;Condicional;Licence Farma;Confirmar o número de sessões necessárias
+Inteligência artificial;Anthropic;Reserva inicial;Mensal variável;10,0;50,64;Condicional;Licence Farma;Medir tokens por recurso
+Pesquisa;Serper;50 mil créditos / 6 meses;Compra avulsa;50,0;253,19;Condicional;Licence Farma;Equivale a cerca de US$ 8,33/mês se distribuído em seis meses
+Imagens;Cloudinary;Free;Franquia;0,0;0,0;Condicional;Licence Farma;25 créditos mensais
+Imagens;Cloudinary;Plus;Mensal;99,0;501,32;Opcional;Licence Farma;Upgrade conforme armazenamento, tráfego e transformações
+E-mail;Resend;Free;Franquia;0,0;0,0;Condicional;Licence Farma;3.000 e-mails/mês e limite de 100/dia
+E-mail;Resend;Pro;Mensal;20,0;101,28;Opcional;Licence Farma;50 mil e-mails mensais
+OCR;OCR.space;Free;Franquia;0,0;0,0;Condicional;Licence Farma;"25 mil solicitações/mês; 500/dia por IP"
+OCR;OCR.space;Pro;Mensal;30,0;151,91;Opcional;Licence Farma;300 mil solicitações mensais
+Mapas;Google Maps;APIs;Por uso;;;Condicional;Licence Farma;Configurar orçamento, alertas e limites
+Pagamento;Mercado Pago;Taxa por transação;Por venda;;;Sim, se habilitado;Loja;Varia conforme meio de pagamento e prazo de recebimento
+Marketplace;Mercado Livre;Comissão e frete;Por venda;;;Não;Loja;Varia conforme categoria e tipo de anúncio
+Domínio;Registro .com.br;Renovação;Anual;;;Sim;Licence Farma;Preencher o valor real da fatura
+Operação;Entrega;Motoboy ou parceiro;Por entrega ou mensal;;;Condicional;Loja;Definir custo, raio e repasse
+Operação;Suporte;Equipe humana;Mensal;;;Sim;Licence Farma e loja;Separar atendimento de níveis 1, 2 e 3
+Marketing;Mídia e criação;Campanhas;Mensal variável;;;Não;Licence Farma e loja;Definir orçamento por região

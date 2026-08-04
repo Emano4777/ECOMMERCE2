@@ -11529,6 +11529,175 @@ def api_recomendacoes():
     return jsonify(recs)
 
 
+def _build_related_products(itens, cnpjlojas, limit=8, extra_exclude_eans=None):
+    """Produtos semelhantes aos itens-base, sem misturar com complementos.
+
+    Prioriza a classificacao do fornecedor (quando existe) e usa os termos do
+    nome como fallback. Isso faz o segundo carrossel mostrar alternativas do
+    mesmo tipo do produto que o cliente esta vendo, enquanto
+    ``/api/recomendacoes`` continua responsavel pelo cross-sell.
+    """
+    limit = max(1, min(int(limit or 8), 20))
+    itens = [i for i in (itens or []) if isinstance(i, dict)]
+    cnpjs = [str(c or "").strip() for c in (cnpjlojas or []) if str(c or "").strip()]
+    if not cnpjs:
+        cnpjs = sorted({str(i.get("cnpjloja") or "").strip() for i in itens if i.get("cnpjloja")})
+    base_eans = {_ean_key(i.get("ean")) for i in itens if _ean_key(i.get("ean"))}
+    exclude_eans = set(base_eans)
+    exclude_eans.update(
+        _ean_key(ean) for ean in (extra_exclude_eans or []) if _ean_key(ean)
+    )
+    base_names = [(i.get("nome") or "").strip() for i in itens if (i.get("nome") or "").strip()]
+    if not cnpjs or not (base_eans or base_names):
+        return {"titulo": "Produtos relacionados", "subtitulo": "Alternativas semelhantes aos produtos selecionados", "produtos": []}
+
+    conn = None
+    try:
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        base_classifications = []
+        if base_eans:
+            cur.execute(
+                "SELECT DISTINCT classificacao FROM ecommerce_alpha_produtos "
+                "WHERE cnpjloja = ANY(%s) AND LTRIM(COALESCE(ean,''),'0') = ANY(%s) "
+                "AND COALESCE(classificacao,'') <> ''",
+                (cnpjs, list(base_eans)),
+            )
+            base_classifications = [r["classificacao"] for r in cur.fetchall()]
+
+        name_tokens = []
+        for name in base_names:
+            name_tokens.extend(sorted(_recommendation_tokens(name), key=len, reverse=True)[:3])
+        patterns = [f"%{token}%" for token in dict.fromkeys(name_tokens)][:12]
+        if not base_classifications and not patterns:
+            cur.close()
+            return {"titulo": "Produtos relacionados", "subtitulo": "Alternativas semelhantes aos produtos selecionados", "produtos": []}
+
+        cur.execute(
+            """
+            SELECT ap.cnpjloja, ap.ean, ap.nome, ap.classificacao,
+                   CAST(ap.estoque AS INTEGER) AS qty, ap.preco_venda AS preco,
+                   ap.imagem_url AS imagem, 'alpha_a7' AS fonte_estoque,
+                   u.razao, u.endereco
+            FROM ecommerce_alpha_produtos ap
+            LEFT JOIN users u ON u.cnpjloja = ap.cnpjloja
+            WHERE ap.cnpjloja = ANY(%s)
+              AND COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > 0
+              AND (
+                    (cardinality(%s::text[]) > 0 AND ap.classificacao = ANY(%s))
+                 OR (cardinality(%s::text[]) > 0 AND LOWER(COALESCE(ap.nome,'')) LIKE ANY(%s))
+              )
+            ORDER BY COALESCE(ap.estoque, 0) DESC
+            LIMIT 180
+            """,
+            (cnpjs, base_classifications, base_classifications, patterns, patterns),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+    except Exception as exc:
+        app.logger.warning("related products error: %s", exc)
+        rows = []
+        base_classifications = []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    base_token_sets = [_recommendation_tokens(n) for n in base_names]
+    ranked = []
+    seen = set()
+    for row in rows:
+        ean_key = _ean_key(row.get("ean"))
+        key = (row.get("cnpjloja"), ean_key)
+        if not ean_key or ean_key in exclude_eans or key in seen or not _has_catalog_image(row):
+            continue
+        tokens = _recommendation_tokens(row.get("nome") or "")
+        overlap = max((len(tokens & bt) for bt in base_token_sets), default=0)
+        same_class = bool(row.get("classificacao") and row.get("classificacao") in base_classifications)
+        if not same_class and overlap < 1:
+            continue
+        score = (900 if same_class else 0) + overlap * 180 + min(int(row.get("qty") or 0), 100)
+        ranked.append((score, row))
+        seen.add(key)
+    ranked.sort(key=lambda x: (-x[0], (x[1].get("nome") or "").lower()))
+
+    # Se a classificacao detalhada nao produziu oito opcoes, completa apenas
+    # com itens da mesma categoria ampla. Assim o bloco continua util mesmo
+    # em cadastros antigos que ainda nao possuem classificacao do fornecedor.
+    if len(ranked) < limit:
+        base_categories = {_classificar_produto(name) for name in base_names if name}
+        fallback_rows = _quick_alpha_products_for_recommendations(cnpjs, terms=None, limit=160)
+        for row in fallback_rows:
+            ean_key = _ean_key(row.get("ean"))
+            key = (row.get("cnpjloja"), ean_key)
+            if (not ean_key or ean_key in exclude_eans or key in seen
+                    or _classificar_produto(row.get("nome") or "") not in base_categories):
+                continue
+            ranked.append((min(int(row.get("qty") or 0), 100), row))
+            seen.add(key)
+
+    produtos = []
+    result_seen_eans = set()
+    for _, row in ranked:
+        ean_key = _ean_key(row.get("ean"))
+        if not ean_key or ean_key in result_seen_eans:
+            continue
+        result_seen_eans.add(ean_key)
+        item = dict(row)
+        item["razao"] = _public_store_name(item)
+        item["categoria"] = item.get("categoria") or _classificar_produto(item.get("nome") or "")
+        item["motivo"] = "Semelhante ao produto selecionado"
+        produtos.append(item)
+        if len(produtos) >= limit:
+            break
+    try:
+        safety_conn = _new_conn_batch()
+        _marcar_tarja_batch(produtos, safety_conn, ensure_schema=False)
+        safety_conn.close()
+    except Exception as exc:
+        app.logger.warning("related products safety metadata error: %s", exc)
+    try:
+        _attach_product_promos(produtos)
+    except Exception:
+        pass
+    return {
+        "titulo": "Produtos relacionados",
+        "subtitulo": "Alternativas semelhantes aos produtos selecionados",
+        "produtos": produtos,
+    }
+
+
+@app.post("/api/produtos-relacionados")
+def api_produtos_relacionados():
+    data = request.get_json(silent=True) or {}
+    itens = data.get("itens") or []
+    cnpjlojas = list(data.get("cnpjlojas") or [])
+    if data.get("cnpjloja"):
+        cnpjlojas.append(data.get("cnpjloja"))
+    limit = data.get("limit") or 8
+    excluir_eans = data.get("excluir_eans") or []
+    try:
+        cache_key = (
+            "produtos_relacionados_v1",
+            tuple(sorted({str(c or "").strip() for c in cnpjlojas if str(c or "").strip()})),
+            tuple(sorted((_ean_key(i.get("ean")), _norm_text(i.get("nome") or "")[:80]) for i in itens if isinstance(i, dict))),
+            tuple(sorted({_ean_key(ean) for ean in excluir_eans if _ean_key(ean)})),
+            int(limit),
+        )
+        cached = _home_api_cache_get(cache_key, 300)
+        if cached is not None:
+            return jsonify(cached)
+    except Exception:
+        cache_key = None
+    result = _build_related_products(itens, cnpjlojas, limit, extra_exclude_eans=excluir_eans)
+    if cache_key:
+        _home_api_cache_set(cache_key, result, 300)
+    return jsonify(result)
+
+
 def _claude_haiku(prompt: str, max_tokens: int = 300, timeout: int = 5) -> str | None:
     """Chama Claude Haiku e retorna o texto da resposta ou None em caso de erro."""
     api_key = _anthropic_api_key()
@@ -21550,9 +21719,19 @@ _TIPO_MEDICAMENTO = re.compile(
     r"colirio|colírio|supositório|supositorio)\b",
     re.IGNORECASE,
 )
+# "Universo infantil" — itens de higiene/cuidado do bebê. Checado ANTES dos
+# demais tipos em _classificar_produto porque o vocabulario se sobrepoe (ex:
+# "sabonete infantil" cairia em perfumaria, "vitamina infantil" em suplemento)
+# e o publico quer esses itens agrupados numa categoria propria.
+_TIPO_INFANTIL = re.compile(
+    r"\b(infantil|mamadeira|chupeta|bico.mamadeira|bico.chupeta|babador|"
+    r"aspirador.nasal|trocador.de.fraldas|fralda.infantil|huggies|pampers|"
+    r"johnson.*baby|colonia.baby|shampoo.kids|condicionador.kids)\b",
+    re.IGNORECASE,
+)
 
 _TIPOS_NAO_MEDICAMENTO = frozenset({
-    "suplemento", "perfumaria", "dermocosmetico", "nutricao", "varejo",
+    "suplemento", "perfumaria", "dermocosmetico", "nutricao", "varejo", "infantil",
 })
 
 # aliases para valores antigos ainda presentes no banco
@@ -21570,6 +21749,14 @@ def _classificar_produto(nome: str) -> str:
     """Retorna categoria do produto pelo nome (fallback regex; prefira tipo_ia do banco)."""
     if not nome:
         return ""
+    # Medicamento (mesmo formulado pra crianca, ex: "PARACETAMOL GOTAS
+    # INFANTIL 200MG/ML") tem prioridade sobre "infantil" — o universo
+    # infantil e pra itens de higiene/cuidado do bebe, nao pra remedio
+    # pediatrico.
+    if _TIPO_MEDICAMENTO.search(nome):
+        return "medicamento"
+    if _TIPO_INFANTIL.search(nome):
+        return "infantil"
     if _TIPO_VAREJO.search(nome):
         return "varejo"
     if _TIPO_NUTRICAO.search(nome):
@@ -21580,8 +21767,6 @@ def _classificar_produto(nome: str) -> str:
         return "dermocosmetico"
     if _TIPO_PERFUMARIA.search(nome):
         return "perfumaria"
-    if _TIPO_MEDICAMENTO.search(nome):
-        return "medicamento"
     return ""
 
 
@@ -21618,6 +21803,12 @@ def _categoria_from_alpha_classificacao(classificacao):
     partes = [p.strip().upper() for p in str(classificacao).split(">") if p.strip()]
     if len(partes) < 2:
         return None
+    # "Universo infantil" (ex: "PRINCIPAL > HPC > INFANTIL") — o Alpha ja
+    # isola esses itens no 3o nivel (gondola) independente do ramo em que
+    # cairiam por padrao (HPC, DERMOCOSMETICO etc), entao tem prioridade
+    # sobre o mapeamento por ramo abaixo.
+    if len(partes) >= 3 and partes[2] == "INFANTIL":
+        return "infantil"
     return _ALPHA_CLASSIFICACAO_CATEGORIA.get(partes[1])
 
 
@@ -23118,7 +23309,14 @@ def admin_cupons():
                  (SELECT array_agg(cl.cnpjloja) FROM ecommerce_cupons_lojas cl WHERE cl.cupom_id = c.id),
                  ARRAY[]::text[]
                ) AS lojas_cnpjs,
-               (SELECT COALESCE(SUM(cl.usos_count),0) FROM ecommerce_cupons_lojas cl WHERE cl.cupom_id = c.id) AS usos_total
+               (SELECT COALESCE(SUM(cl.usos_count),0) FROM ecommerce_cupons_lojas cl WHERE cl.cupom_id = c.id) AS usos_total,
+               COALESCE(
+                 (SELECT json_agg(json_build_object('id', co.id::text, 'nome', co.nome))
+                  FROM ecommerce_cupons_clientes cc
+                  JOIN ecommerce_consumidores co ON co.id = cc.consumidor_id
+                  WHERE cc.cupom_id = c.id),
+                 '[]'::json
+               ) AS clientes_json
         FROM ecommerce_cupons c
         ORDER BY c.criado_em DESC
     """)
@@ -23276,6 +23474,13 @@ def admin_cupom_editar(cupom_id):
             flash("Regra não encontrada.", "error")
         else:
             _sync_cupom_lojas(cur, cupom_id, lojas_sel, codigo)
+            cur.execute("DELETE FROM ecommerce_cupons_clientes WHERE cupom_id=%s", (cupom_id,))
+            if publico == "especifico":
+                for cid in request.form.getlist("consumidores_ids"):
+                    try:
+                        cur.execute("INSERT INTO ecommerce_cupons_clientes (cupom_id, consumidor_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (cupom_id, cid))
+                    except Exception:
+                        pass
             conn.commit()
             flash("Regra de desconto atualizada.", "success")
     except Exception:
@@ -23323,6 +23528,27 @@ def admin_cupom_clientes(cupom_id):
     conn.commit(); cur.close()
     flash("Clientes do cupom atualizados.", "success")
     return redirect(url_for("admin_cupons"))
+
+
+@app.get("/api/admin/consumidores/buscar")
+@admin_required
+def api_admin_consumidores_buscar():
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"consumidores": []})
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id, nome, email, telefone
+        FROM ecommerce_consumidores
+        WHERE nome ILIKE %s OR email ILIKE %s OR telefone ILIKE %s
+        ORDER BY nome
+        LIMIT 15
+    """, (f"%{q}%", f"%{q}%", f"%{q}%"))
+    rows = cur.fetchall(); cur.close()
+    return jsonify({"consumidores": [
+        {"id": str(r["id"]), "nome": r["nome"], "email": r["email"] or "", "telefone": r["telefone"] or ""}
+        for r in rows
+    ]})
 
 
 @app.get("/api/cupom/validar")

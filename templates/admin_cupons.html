@@ -137,7 +137,8 @@
           data-forma-pagamento="{{ c.forma_pagamento or '' }}"
           data-qtd-minima="{{ c.qtd_minima or 0 }}"
           data-so-assinantes="{{ '1' if c.so_assinantes else '0' }}"
-          data-lojas="{{ c.lojas_cnpjs | join(',') }}">
+          data-lojas="{{ c.lojas_cnpjs | join(',') }}"
+          data-clientes='{{ c.clientes_json | tojson }}'>
           <i class="fa fa-pen me-1"></i>Editar
         </button>
         <form method="post" action="{{ url_for('admin_cupom_toggle', cupom_id=c.id) }}" style="flex:1">
@@ -171,6 +172,17 @@
       <span style="display:block;font-size:.73rem;color:var(--pk-muted);font-weight:400">Só consumidores com assinatura ativa naquela loja recebem este desconto.</span>
     </span>
   </label>
+</div>
+{% endmacro %}
+
+{% macro clientes_picker(prefix) %}
+<div class="nf-field full" id="{{ prefix }}blk-clientes-especificos" style="display:none">
+  <label>Clientes específicos</label>
+  <input type="text" id="{{ prefix }}busca-cliente" placeholder="Buscar por nome, e-mail ou telefone..." autocomplete="off"
+         oninput="buscarClientes('{{ prefix }}', this.value)">
+  <div id="{{ prefix }}resultados-cliente"
+       style="display:none;position:relative;z-index:5;margin-top:4px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;max-height:200px;overflow-y:auto"></div>
+  <div id="{{ prefix }}chips-clientes" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
 </div>
 {% endmacro %}
 
@@ -240,6 +252,7 @@
             <option value="todos">Todos os clientes</option>
             <option value="primeira_compra">Quem ainda não comprou (primeira compra)</option>
             <option value="frequente">Clientes frequentes (mínimo de compras)</option>
+            <option value="especifico">Cliente(s) específico(s)</option>
           </select>
         </div>
         {{ so_assinantes_toggle() }}
@@ -247,6 +260,7 @@
           <label>Mínimo de compras realizadas na loja</label>
           <input type="number" name="min_compras" min="1" step="1" value="3">
         </div>
+        {{ clientes_picker('') }}
         <div class="nf-field full">
           <label>Para quais produtos vale o cupom?</label>
           <select name="escopo" id="sel-escopo" onchange="atualizarEscopoLegacy()">
@@ -258,7 +272,7 @@
         <div class="nf-field full" id="blk-categorias" style="display:none">
           <label>Selecione as categorias</label>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
-            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('infantil','Universo Infantil'),('','Outros')] %}
             <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
               <input type="checkbox" name="escopo_categorias" value="{{ cat }}" style="width:15px;height:15px;accent-color:var(--pk-yellow)">
               {{ label }}
@@ -330,7 +344,7 @@
         <div class="nf-field full" id="blk-cat-pag" style="display:none">
           <label>Selecione as categorias</label>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
-            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('infantil','Universo Infantil'),('','Outros')] %}
             <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
               <input type="checkbox" name="escopo_categorias" value="{{ cat }}" style="width:15px;height:15px;accent-color:var(--pk-yellow)">
               {{ label }}
@@ -397,7 +411,7 @@
         <div class="nf-field full" id="blk-cat-qtd" style="display:none">
           <label>Selecione as categorias</label>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
-            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            {% for cat, label in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('infantil','Universo Infantil'),('','Outros')] %}
             <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
               <input type="checkbox" name="escopo_categorias" value="{{ cat }}" style="width:15px;height:15px;accent-color:var(--pk-yellow)">
               {{ label }}
@@ -489,12 +503,14 @@
             <option value="todos">Todos os clientes</option>
             <option value="primeira_compra">Quem ainda não comprou</option>
             <option value="frequente">Clientes frequentes</option>
+            <option value="especifico">Cliente(s) específico(s)</option>
           </select>
         </div>
         <div class="nf-field full" id="edit-blk-min-compras" style="display:none">
           <label>Mínimo de compras realizadas</label>
           <input type="number" name="min_compras" id="edit-min-compras" min="1" step="1" value="3">
         </div>
+        {{ clientes_picker('edit-') }}
         <div class="nf-field full">
           <label>Para quais produtos vale?</label>
           <select name="escopo" id="edit-escopo" onchange="editAtualizarEscopo()">
@@ -506,7 +522,7 @@
         <div class="nf-field full" id="edit-blk-categorias" style="display:none">
           <label>Selecione as categorias</label>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
-            {% for cat, lbl in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('','Outros')] %}
+            {% for cat, lbl in [('medicamento','Medicamentos'),('cosmetico','Cosméticos'),('suplemento','Suplementos'),('infantil','Universo Infantil'),('','Outros')] %}
             <label style="display:flex;align-items:center;gap:6px;background:#0a0d14;border:1px solid var(--pk-line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.84rem">
               <input type="checkbox" name="escopo_categorias" value="{{ cat }}" class="edit-cat-chk"
                      style="width:15px;height:15px;accent-color:var(--pk-yellow)">
@@ -559,6 +575,62 @@ document.getElementById('inp-codigo').addEventListener('input', function() {
 function atualizarPublico() {
   const v = document.getElementById('sel-publico').value;
   document.getElementById('blk-min-compras').style.display = v === 'frequente' ? '' : 'none';
+  document.getElementById('blk-clientes-especificos').style.display = v === 'especifico' ? '' : 'none';
+}
+
+// ── Seletor de clientes específicos (cria + edita) ─────────────────────
+const _clientesSelecionados = { '': [], 'edit-': [] };
+let _buscaClienteTimer = null;
+
+function buscarClientes(prefix, q) {
+  clearTimeout(_buscaClienteTimer);
+  const box = document.getElementById(prefix + 'resultados-cliente');
+  q = q.trim();
+  if (q.length < 2) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  _buscaClienteTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/admin/consumidores/buscar?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      const lista = (d.consumidores || []).filter(c => !_clientesSelecionados[prefix].some(s => s.id === c.id));
+      if (!lista.length) {
+        box.innerHTML = '<div style="padding:10px 12px;font-size:.8rem;color:var(--pk-muted)">Nenhum cliente encontrado.</div>';
+        box.style.display = '';
+        return;
+      }
+      box.innerHTML = lista.map(c => `
+        <div onclick='selecionarCliente("${prefix}", ${JSON.stringify(c.id)}, ${JSON.stringify(c.nome)})'
+             style="padding:9px 12px;cursor:pointer;font-size:.83rem;border-bottom:1px solid var(--pk-line)">
+          <div style="font-weight:700;color:var(--pk-txt)">${c.nome}</div>
+          <div style="font-size:.72rem;color:var(--pk-muted)">${c.email || ''}${c.email && c.telefone ? ' · ' : ''}${c.telefone || ''}</div>
+        </div>`).join('');
+      box.style.display = '';
+    } catch { box.style.display = 'none'; }
+  }, 300);
+}
+
+function selecionarCliente(prefix, id, nome) {
+  if (!_clientesSelecionados[prefix].some(c => c.id === id)) {
+    _clientesSelecionados[prefix].push({ id, nome });
+  }
+  document.getElementById(prefix + 'busca-cliente').value = '';
+  document.getElementById(prefix + 'resultados-cliente').style.display = 'none';
+  renderChipsClientes(prefix);
+}
+
+function removerCliente(prefix, id) {
+  _clientesSelecionados[prefix] = _clientesSelecionados[prefix].filter(c => c.id !== id);
+  renderChipsClientes(prefix);
+}
+
+function renderChipsClientes(prefix) {
+  const box = document.getElementById(prefix + 'chips-clientes');
+  box.innerHTML = _clientesSelecionados[prefix].map(c => `
+    <span style="display:flex;align-items:center;gap:6px;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px;padding:5px 6px 5px 10px;font-size:.78rem;color:var(--pk-txt)">
+      ${c.nome}
+      <input type="hidden" name="consumidores_ids" value="${c.id}">
+      <button type="button" onclick='removerCliente("${prefix}", ${JSON.stringify(c.id)})'
+        style="background:none;border:none;color:var(--pk-muted);cursor:pointer;font-size:.9rem;line-height:1;padding:0">&times;</button>
+    </span>`).join('');
 }
 
 function atualizarEscopo(selEl, blkCatId, blkProdId) {
@@ -606,6 +678,8 @@ function abrirEdicao(btn) {
     document.getElementById('edit-codigo').value      = d.codigo;
     document.getElementById('edit-publico').value     = d.publico || 'todos';
     document.getElementById('edit-min-compras').value = d.minCompras || 1;
+    _clientesSelecionados['edit-'] = JSON.parse(d.clientes || '[]').map(c => ({ id: c.id, nome: c.nome }));
+    renderChipsClientes('edit-');
     editAtualizarPublico();
   } else if (tr === 'pagamento') {
     document.getElementById('edit-forma-pag').value = d.formaPagamento || 'pix';
@@ -642,6 +716,7 @@ function editAtualizarPlaceholder() {
 function editAtualizarPublico() {
   const v = document.getElementById('edit-publico').value;
   document.getElementById('edit-blk-min-compras').style.display = v === 'frequente' ? '' : 'none';
+  document.getElementById('edit-blk-clientes-especificos').style.display = v === 'especifico' ? '' : 'none';
 }
 
 function editAtualizarEscopo() {
@@ -651,5 +726,13 @@ function editAtualizarEscopo() {
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharEdicao(); });
+
+document.addEventListener('click', e => {
+  ['', 'edit-'].forEach(prefix => {
+    const box = document.getElementById(prefix + 'resultados-cliente');
+    const inp = document.getElementById(prefix + 'busca-cliente');
+    if (box && !box.contains(e.target) && e.target !== inp) box.style.display = 'none';
+  });
+});
 </script>
 {% endblock %}

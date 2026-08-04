@@ -1,0 +1,25 @@
+total: 2
+---
+id: 3
+pergunta: como faço compras aqui ?
+norm: como fa o compras aqui
+hits: 0
+resposta: Oi! É bem simples:
+
+1. **Navegue pelo catálogo** – explore os produtos disponíveis nas farmácias da rede
+2. **Escolha o que quer** – adicione os itens ao carrinho
+3. **Finalize a compra** – revise seu pedido, escolha o endereço de entrega e a forma de pagamento
+4. **Pague** – aceitamos cartão de débito, crédito ou Pix
+5. **Acompanhe** – sua farmácia prepara e envia para você!
+
+Cada farmácia da rede opera independentemente, então fretes e prazos podem variar. Tudo fica claro no checkout antes de você confirmar.
+
+Tem alguma dúvida específica? 😊
+---
+id: 2
+pergunta: Olaaa
+norm: olaaa
+hits: 0
+resposta: Oi! Tudo bem? 👋
+
+Sou a Poupinha, aqui para ajudar com suas dúvidas sobre a Poupaqui. O que precisa?

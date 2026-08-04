@@ -414,6 +414,24 @@
         </section>
       </div>
 
+      <div class="cart-recs-wrap">
+        <section id="cart-related" class="pq-recs-section" style="display:none">
+          <div class="pq-recs-header">
+            <div class="pq-recs-title-block">
+              <div class="pq-recs-title"><i class="fa fa-layer-group"></i><span>Produtos relacionados</span></div>
+              <div class="pq-recs-sub">Outras opções semelhantes aos produtos da sua cesta.</div>
+            </div>
+            <div class="pq-recs-nav">
+              <button class="pq-nav-btn" id="cart-related-prev" aria-label="Produtos relacionados anteriores"><i class="fa fa-chevron-left"></i></button>
+              <button class="pq-nav-btn" id="cart-related-next" aria-label="Próximos produtos relacionados"><i class="fa fa-chevron-right"></i></button>
+            </div>
+          </div>
+          <div class="pq-recs-track-wrap">
+            <div class="pq-recs-track" id="cart-related-track"></div>
+          </div>
+        </section>
+      </div>
+
       <div id="account-section" style="display:none">
         {% if consumidor %}
         <div class="account-card">
@@ -682,8 +700,21 @@ async function readJsonResponse(resp) {
 }
 
 let _cartRecItems = [];
+let _cartRelatedItems = [];
 function addCartRec(idx, btn) {
   const p = _cartRecItems[idx];
+  if (!p) return;
+  const promo = p.promo || null;
+  const precoBase = parseFloat(p.preco)||0;
+  const preco = promo && promo.aplicada && promo.preco_promo ? parseFloat(promo.preco_promo) : precoBase;
+  const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoBase)||precoBase;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco, preco_original:precoOriginal, promo, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.receita_retida || p.requer_receita), tarja:p.tarja||null});
+  if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>Adicionado'; }
+  renderCart();
+}
+
+function addCartRelated(idx, btn) {
+  const p = _cartRelatedItems[idx];
   if (!p) return;
   const promo = p.promo || null;
   const precoBase = parseFloat(p.preco)||0;
@@ -750,6 +781,33 @@ function calcDescontoQtdAuto(cnpjloja, itens) {
     if (calc > melhor) melhor = calc;
   });
   return Math.round(melhor * 100) / 100;
+}
+
+async function carregarRelacionadosCarrinho() {
+  const box = document.getElementById('cart-related');
+  const cart = getCart();
+  if (!cart.length) { box.style.display = 'none'; return; }
+  try {
+    const cnpjlojas = [...new Set(cart.map(i => i.cnpjloja).filter(Boolean))];
+    const r = await fetch('/api/produtos-relacionados', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        cnpjlojas,
+        limit:8,
+        itens:cart.map(i => ({ean:i.ean, nome:i.nome, cnpjloja:i.cnpjloja})),
+        excluir_eans:_cartRecItems.map(p => p.ean).filter(Boolean)
+      })
+    });
+    const data = await r.json();
+    const usados = new Set(_cartRecItems.map(p => String(p.ean || '').replace(/^0+/, '')));
+    const produtos = (data.produtos || []).filter(p => !usados.has(String(p.ean || '').replace(/^0+/, '')));
+    if (!produtos.length) { box.style.display = 'none'; return; }
+    _cartRelatedItems = produtos;
+    document.getElementById('cart-related-track').innerHTML = produtos.map((p,i) => pqRecCardHtml(p, i, 'addCartRelated')).join('');
+    box.style.display = '';
+    pqInitCarouselNav('cart-related');
+  } catch { box.style.display = 'none'; }
 }
 
 function renderDescontoQuantidade(cnpjloja, itens) {
@@ -1372,7 +1430,7 @@ function renderCart() {
   });
   atualizarTotaisComFrete();
   atualizarStatusHorarioCarrinho(cnpjs);
-  carregarRecomendacoesCarrinho();
+  carregarRecomendacoesCarrinho().then(carregarRelacionadosCarrinho);
 }
 
 function atualizarTotaisComFrete() {

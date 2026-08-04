@@ -929,6 +929,25 @@
     </section>
   </div>
 
+  <!-- PRODUTOS RELACIONADOS -->
+  <div class="pd-recs-wrap">
+    <section id="pd-related" class="pq-recs-section" style="display:none">
+      <div class="pq-recs-header">
+        <div class="pq-recs-title-block">
+          <div class="pq-recs-title"><i class="fa fa-layer-group"></i><span>Produtos relacionados</span></div>
+          <div class="pq-recs-sub">Veja outras opções semelhantes a este produto.</div>
+        </div>
+        <div class="pq-recs-nav">
+          <button class="pq-nav-btn" id="pd-related-prev" aria-label="Produtos relacionados anteriores"><i class="fa fa-chevron-left"></i></button>
+          <button class="pq-nav-btn" id="pd-related-next" aria-label="Próximos produtos relacionados"><i class="fa fa-chevron-right"></i></button>
+        </div>
+      </div>
+      <div class="pq-recs-track-wrap">
+        <div class="pq-recs-track" id="pd-related-track"></div>
+      </div>
+    </section>
+  </div>
+
 </div>
 
 <!-- LIGHTBOX -->
@@ -1113,8 +1132,20 @@ function pdToggleFavorito(ev) {
 }
 
 let _pdRecItems = [];
+let _pdRelatedItems = [];
 function addPdRec(idx, btn) {
   const p = _pdRecItems[idx];
+  if (!p) return;
+  const promo = p.promo || null;
+  const precoBase = parseFloat(p.preco)||0;
+  const preco = promo && promo.aplicada && promo.preco_promo ? parseFloat(promo.preco_promo) : precoBase;
+  const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoBase)||precoBase;
+  addToCart({ean:p.ean||'', nome:p.nome||'', preco, preco_original:precoOriginal, promo, imagem:p.imagem||'', cnpjloja:p.cnpjloja||'', razao:p.razao||'', qty:1, requer_receita:!!p.requer_receita, receita_retida:!!(p.receita_retida || p.requer_receita), tarja:p.tarja||null});
+  if (btn) { btn.classList.add('added'); btn.innerHTML='<i class="fa fa-check"></i>OK'; }
+}
+
+function addPdRelated(idx, btn) {
+  const p = _pdRelatedItems[idx];
   if (!p) return;
   const promo = p.promo || null;
   const precoBase = parseFloat(p.preco)||0;
@@ -1142,7 +1173,32 @@ async function carregarRecomendacoesProduto() {
   } catch {}
 }
 
-carregarRecomendacoesProduto();
+async function carregarRelacionadosProduto() {
+  if (!_pdCnpj || !_pdEan) return;
+  const box = document.getElementById('pd-related');
+  try {
+    const r = await fetch('/api/produtos-relacionados', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        cnpjloja:_pdCnpj,
+        limit:8,
+        itens:[{ean:_pdEan, nome:_pdNome, cnpjloja:_pdCnpj}],
+        excluir_eans:_pdRecItems.map(p => p.ean).filter(Boolean)
+      })
+    });
+    const data = await r.json();
+    const usados = new Set(_pdRecItems.map(p => String(p.ean || '').replace(/^0+/, '')));
+    const produtos = (data.produtos || []).filter(p => !usados.has(String(p.ean || '').replace(/^0+/, '')));
+    if (!produtos.length) { box.style.display = 'none'; return; }
+    _pdRelatedItems = produtos;
+    document.getElementById('pd-related-track').innerHTML = produtos.map((p,i) => pqRecCardHtml(p, i, 'addPdRelated')).join('');
+    box.style.display = '';
+    pqInitCarouselNav('pd-related');
+  } catch { box.style.display = 'none'; }
+}
+
+carregarRecomendacoesProduto().then(carregarRelacionadosProduto);
 
 {% if consumidor and loja and loja.cnpjloja %}
 (async () => {

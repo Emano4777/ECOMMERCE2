@@ -784,6 +784,7 @@
   color: var(--pq-muted) !important;
   font-weight: 800 !important;
 }
+
 </style>
 {% endblock %}
 
@@ -994,6 +995,7 @@ const CAT_LABELS = {
   dermocosmetico: 'Dermocosméticos',
   nutricao:       'Nutrição',
   varejo:         'Varejo/Conveniência',
+  infantil:       'Universo Infantil',
   // aliases para valores antigos ainda no banco
   cosmetico:      'Perfumaria e Higiene',
   higiene:        'Perfumaria e Higiene',
@@ -1072,12 +1074,16 @@ function productCategory(p) {
   const raw = (p.categoria || '').trim();
   if (raw) return _CAT_ALIAS[raw] || raw;
   const nome = normTxt(p.nome);
+  // Medicamento (mesmo pediátrico, ex: "paracetamol gotas infantil 200mg/ml")
+  // tem prioridade sobre "infantil" — universo infantil é pra higiene/cuidado
+  // do bebê, não remédio.
+  if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
+  if (/\b(infantil|mamadeira|chupeta|babador|aspirador.?nasal|trocador.?de.?fraldas|fralda.?infantil|huggies|pampers|colonia.?baby|shampoo.?kids|condicionador.?kids)\b/.test(nome)) return 'infantil';
   if (/\b(formula.?infantil|dieta.?enteral|papinha|adocante|sucralose|fresubin|nutren)\b/.test(nome)) return 'nutricao';
   if (/\b(bala|chiclete|pacoca|barrinha.cereal|biscoito|pilha|bateria.?alcalina|agulha|seringa|gaze|curativo|band.?aid|lanceta|termometro|nebulizador|agua.?oxigenada|clorexidina|carregador|brinquedo)\b/.test(nome)) return 'varejo';
   if (/\b(whey|creatina|protein|vitamina|suplement|colageno|bcaa|omega|probiotico|melatonina|vitnatu)\b/.test(nome)) return 'suplemento';
   if (/\b(protetor.?solar|fps\b|spf\b|serum|sérum|hidratante.?facial|creme.?facial|anti.?age|antiidade|clareador|antiacne|bb.?cream|agua.?micelar|esfoliante.?facial)\b/.test(nome)) return 'dermocosmetico';
   if (/\b(sabonete|shampoo|condicionador|pasta.?dental|escova.?dental|desodorante|absorvente|fralda|algodao|cotonete|preservativo|perfume|colonia|esmalte|acetona|tintura|batom|blush|maquiagem|depilat|protetor.?labial|lipgel|carmed)\b/.test(nome)) return 'perfumaria';
-  if (/\b(mg|mcg|ui|comprimido|capsula|xarope|solucao|colirio|ampola)\b/.test(nome)) return 'medicamento';
   return 'varejo';
 }
 
