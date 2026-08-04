@@ -1264,6 +1264,16 @@ function priceBlockHtml(p, qty) {
   if (cp) {
     const precoFinal = Math.max(0, priceOf(p) - cp.desconto);
     const label = cp.cupom.desconto_tipo === 'pct' ? `${parseInt(cp.cupom.desconto_valor)}% OFF` : `R$${cp.cupom.desconto_valor.toFixed(2).replace('.',',')} OFF`;
+    if (precoFinal <= 0) {
+      const regraUso = cp.cupom.desconto_tipo !== 'pct'
+        ? `Use em compras acima de ${brl(cp.cupom.desconto_valor)}`
+        : 'Não aplicável a este item isoladamente';
+      return `<div class="prod-preco">${brl(priceOf(p))}</div>
+        <div class="prod-cupom-badge" style="background:#fff8e6;color:#925f00">
+          <i class="fa fa-circle-info" style="flex-shrink:0"></i>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(cp.cupom.codigo)}: ${regraUso}</span>
+        </div>`;
+    }
     return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
       <span class="prod-preco">${brl(precoFinal)}</span>
       <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(p.preco)}</span>

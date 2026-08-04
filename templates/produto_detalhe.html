@@ -1237,10 +1237,20 @@ carregarRecomendacoesProduto().then(carregarRelacionadosProduto);
       const label = melhor.desconto_tipo === 'pct'
         ? `${parseInt(melhor.desconto_valor)}% OFF com ${melhor.codigo}`
         : `${brl(melhor.desconto_valor)} OFF com ${melhor.codigo}`;
-      document.getElementById('pd-preco-original').style.cssText = 'font-size:1.2rem;text-decoration:line-through;color:var(--pq-muted);font-weight:700';
-      document.getElementById('pd-price-label').textContent = 'preço normal';
-      document.getElementById('pd-preco-cupom').textContent = brl(precoFinal);
-      document.getElementById('pd-cupom-label').textContent = label;
+      const zeraItem = precoFinal <= 0;
+      document.getElementById('pd-preco-original').style.cssText = zeraItem
+        ? ''
+        : 'font-size:1.2rem;text-decoration:line-through;color:var(--pq-muted);font-weight:700';
+      document.getElementById('pd-price-label').textContent = zeraItem ? 'preço na farmácia' : 'preço normal';
+      document.getElementById('pd-preco-cupom').textContent = zeraItem ? 'Cupom disponível' : brl(precoFinal);
+      document.getElementById('pd-preco-cupom').style.color = zeraItem ? '#925f00' : '#16a34a';
+      document.getElementById('pd-cupom-label').textContent = zeraItem
+        ? (melhor.desconto_tipo !== 'pct'
+          ? `${melhor.codigo}: use em compras acima de ${brl(melhor.desconto_valor)}`
+          : `${melhor.codigo}: não aplicável a este item isoladamente`)
+        : label;
+      document.getElementById('pd-cupom-badge').style.background = zeraItem ? '#fff8e6' : '#fff0f2';
+      document.getElementById('pd-cupom-badge').style.color = zeraItem ? '#925f00' : 'var(--pq-red)';
       document.getElementById('pd-cupom-block').style.display = '';
     }
   } catch {}

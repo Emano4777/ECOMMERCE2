@@ -15506,6 +15506,13 @@ def api_checkout():
             cupom_pag_id = str(pag_rule["id"])
 
         desconto_total_aplicado = desconto_cupom + desconto_pag
+        if produtos_total > 0 and desconto_total_aplicado >= produtos_total:
+            return jsonify({
+                "error": (
+                    "O desconto não pode zerar o valor dos produtos. "
+                    "Adicione mais produtos elegíveis ou remova o cupom para finalizar o pedido."
+                )
+            }), 400
         total = max(0, total - desconto_total_aplicado)
 
         # Recalcula no servidor; nao confia apenas no booleano enviado pelo carrinho.
@@ -23938,6 +23945,22 @@ def api_cupom_validar():
         desconto = round(total * float(cupom["desconto_valor"]) / 100, 2)
     else:
         desconto = min(float(cupom["desconto_valor"]), total)
+    if total > 0 and desconto >= total:
+        valor_cupom = float(cupom["desconto_valor"])
+        if cupom["desconto_tipo"] != "pct":
+            falta = max(0.01, round(valor_cupom - total + 0.01, 2))
+            falta_txt = f"{falta:.2f}".replace(".", ",")
+            msg_zero = (
+                f"Este cupom não pode zerar a compra. Adicione pelo menos "
+                f"R$ {falta_txt} em produtos elegíveis para utilizá-lo."
+            )
+        else:
+            msg_zero = "Este cupom não pode reduzir a compra a R$ 0,00. Escolha outro cupom."
+        return jsonify({
+            "valido": False,
+            "bloqueio_total_zero": True,
+            "msg": msg_zero,
+        })
     tipo_label = (
         f"-{int(cupom['desconto_valor'])}%" if cupom["desconto_tipo"] == "pct"
         else f"R$ {float(cupom['desconto_valor']):.2f}"

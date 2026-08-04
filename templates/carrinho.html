@@ -1837,8 +1837,16 @@ async function aplicarCupom(cnpjloja) {
     } else {
       delete _cupomAplicado[cnpjloja];
       if (msg) {
-        msg.style.color = 'var(--pq-red)';
-        msg.innerHTML = `<i class="fa fa-xmark me-1"></i>${d.msg}`;
+        if (d.bloqueio_total_zero) {
+          msg.style.color = '#92400e';
+          msg.innerHTML = `<div style="display:flex;align-items:flex-start;gap:9px;background:#fffbeb;border:1.5px solid #f5c842;border-radius:10px;padding:10px 12px;line-height:1.4;font-size:.8rem">
+            <i class="fa fa-circle-info" style="margin-top:2px;flex-shrink:0"></i>
+            <span><strong>Cupom não aplicado.</strong> ${esc(d.msg)}</span>
+          </div>`;
+        } else {
+          msg.style.color = 'var(--pq-red)';
+          msg.innerHTML = `<i class="fa fa-xmark me-1"></i>${esc(d.msg)}`;
+        }
       }
     }
   } catch {
