@@ -5860,7 +5860,15 @@ def get_dns_products(
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                continue
+                # Imagem hotlinkada do site de outra farmacia (ex: CDN da
+                # Drogaria SP) — alem do risco de marca, essas URLs costumam
+                # bloquear hotlink e quebrar no navegador do cliente (produto
+                # aparece sem foto no catalogo publico, o que nao pode
+                # acontecer). Esvazia pra cair no filtro de "sem imagem" logo
+                # abaixo, em vez de manter a URL quebrada.
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -5870,6 +5878,12 @@ def get_dns_products(
         if dedupe_display
         else _dedupe_products_by_store_ean(combined)
     )
+    if not skip_image_filter:
+        # O filtro SQL acima so garante imagem_url nao-vazia — o bloco de
+        # marca de outra farmacia roda depois e pode ter esvaziado a imagem
+        # (URL hotlinkada quebrada); sem esse filtro aqui o produto voltaria
+        # pro catalogo publico sem foto nenhuma.
+        combined = [p for p in combined if _has_catalog_image(p)]
     cur.close()
     if schedule_fill:
         _schedule_fill_images(combined, cnpjloja=cnpjloja)
@@ -6301,7 +6315,15 @@ def get_dns_products_batch(cnpjs):
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                continue
+                # Imagem hotlinkada do site de outra farmacia (ex: CDN da
+                # Drogaria SP) — alem do risco de marca, essas URLs costumam
+                # bloquear hotlink e quebrar no navegador do cliente (produto
+                # aparece sem foto no catalogo publico, o que nao pode
+                # acontecer). Esvazia pra cair no filtro de "sem imagem" logo
+                # abaixo, em vez de manter a URL quebrada.
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -6458,7 +6480,15 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                continue
+                # Imagem hotlinkada do site de outra farmacia (ex: CDN da
+                # Drogaria SP) — alem do risco de marca, essas URLs costumam
+                # bloquear hotlink e quebrar no navegador do cliente (produto
+                # aparece sem foto no catalogo publico, o que nao pode
+                # acontecer). Esvazia pra cair no filtro de "sem imagem" logo
+                # abaixo, em vez de manter a URL quebrada.
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
@@ -6646,7 +6676,15 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         _img = (_p.get("imagem") or "").strip()
         if _img and _looks_like_other_pharmacy_brand(_img):
             if _is_alpha_product(_p):
-                continue
+                # Imagem hotlinkada do site de outra farmacia (ex: CDN da
+                # Drogaria SP) — alem do risco de marca, essas URLs costumam
+                # bloquear hotlink e quebrar no navegador do cliente (produto
+                # aparece sem foto no catalogo publico, o que nao pode
+                # acontecer). Esvazia pra cair no filtro de "sem imagem" logo
+                # abaixo, em vez de manter a URL quebrada.
+                _p["imagem"] = ""
+                _p.pop("imagem_padrao_poupaqui", None)
+                _p.pop("imagem_bloqueada_anvisa", None)
             else:
                 _p["imagem"] = _placeholder_for_tarja(_p.get("tarja")) or GENERIC_TARJA_VERMELHA_IMG
                 _p["imagem_padrao_poupaqui"] = True
