@@ -117,7 +117,18 @@
       "Bash(timeout 15 vercel logs \"https://ecommerce-2-b5lurr4us-emano4777s-projects.vercel.app\")",
       "Bash(timeout 15 vercel logs \"https://ecommerce-2-b5lurr4us-emano4777s-projects.vercel.app\" --json)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"https://www.drogariaspoupaqui.com.br/\")",
-      "PowerShell(py -3.13 \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Public-dns-ecommerce\\\\1c50bc6a-11d7-419d-9f97-4bcc968ce980\\\\scratchpad\\\\test_geocode.py\")"
+      "PowerShell(py -3.13 \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Public-dns-ecommerce\\\\1c50bc6a-11d7-419d-9f97-4bcc968ce980\\\\scratchpad\\\\test_geocode.py\")",
+      "Bash(curl -s -G https://www.drogariaspoupaqui.com.br/api/localizacao --data-urlencode 'q=Rua Oswaldo da Silva, 39 - Residencial São Pedro, São Pedro - SP, 13522-646')",
+      "Bash(curl -s -G https://ecommerce-2-gzd1qi13b-emano4777s-projects.vercel.app/api/localizacao --data-urlencode 'q=Rua Oswaldo da Silva, 39 - Residencial São Pedro, São Pedro - SP, 13522-646')",
+      "Bash(curl -s -G https://ecommerce-2-gzd1qi13b-emano4777s-projects.vercel.app/api/localizacao --data-urlencode q=teste)",
+      "Bash(curl -s -G https://www.drogariaspoupaqui.com.br/api/localizacao --data-urlencode 'q=Rua Oswaldo da Silva, 39 - Residencial São Pedro, São Pedro - SP, 13522-646' --data-urlencode _cb=__CMDSUB_OUTPUT__ -H 'Cache-Control: no-cache' -D - -o /tmp/resp.json)",
+      "Bash(echo \"--- sem CEP ---\")",
+      "Bash(curl -s -G https://www.drogariaspoupaqui.com.br/api/localizacao --data-urlencode 'q=São Pedro - SP')",
+      "Bash(echo \"--- com CEP \\(endereco completo da Karol\\) ---\")",
+      "Bash(awk '/^def api_localizacao/,0' app.py)",
+      "Bash(node --check __TRACKED_VAR__/base_public_extracted.js)",
+      "Bash(echo \"base_public.html JS OK\")",
+      "PowerShell(py -3.13 \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Public-dns-ecommerce\\\\1c50bc6a-11d7-419d-9f97-4bcc968ce980\\\\scratchpad\\\\test_gm_parse.py\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"

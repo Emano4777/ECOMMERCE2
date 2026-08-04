@@ -2934,6 +2934,67 @@ def _resolver_frete(dist, raio_entrega_km, cobra_frete, valor_frete, faixas=None
     return True, float(faixas_ordenadas[-1]["valor_frete"] or 0)
 
 
+# ─── GEOCODING (Google Maps — pago, com fallback Nominatim gratuito) ──────────
+
+def google_maps_geocode(endereco):
+    """Geocodifica endereço via Google Maps Geocoding API — muito mais preciso
+    que o Nominatim pra ruas brasileiras (o Nominatim não tem boa cobertura
+    de rua em cidades pequenas, ex: São Pedro-SP). Retorna lista no mesmo
+    formato usado pelos resultados do Nominatim (results[].address com
+    road/suburb/city/state_code etc), ou [] se a chave não estiver
+    configurada ou a API falhar/não achar nada — quem chamar deve cair no
+    fallback Nominatim nesse caso."""
+    gm_key = os.getenv("GOOGLE_MAPS_KEY", "").strip()
+    if not gm_key or not (endereco or "").strip():
+        return []
+    try:
+        url = "https://maps.googleapis.com/maps/api/geocode/json?" + urllib.parse.urlencode({
+            "address": f"{endereco}, Brasil",
+            "key": gm_key,
+            "language": "pt-BR",
+            "region": "br",
+            "components": "country:BR",
+        })
+        with urllib.request.urlopen(url, timeout=6, context=ssl.create_default_context()) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        if data.get("status") != "OK":
+            return []
+        results = []
+        for res in data.get("results", []):
+            comps = res.get("address_components", [])
+            def _comp(types, short=False):
+                for c in comps:
+                    if any(t in c.get("types", []) for t in types):
+                        return c["short_name"] if short else c["long_name"]
+                return ""
+            route = _comp(["route"])
+            num = _comp(["street_number"])
+            bairro = _comp(["sublocality_level_1", "sublocality", "neighborhood"])
+            cidade = _comp(["administrative_area_level_2", "locality"])
+            uf = _comp(["administrative_area_level_1"], short=True)
+            loc = (res.get("geometry") or {}).get("location") or {}
+            if loc.get("lat") is None:
+                continue
+            results.append({
+                "place_id": res.get("place_id"),
+                "lat": str(loc["lat"]),
+                "lon": str(loc["lng"]),
+                "display_name": res.get("formatted_address") or "",
+                "name": res.get("formatted_address") or "",
+                "address": {
+                    "road": route, "house_number": num, "suburb": bairro,
+                    "city": cidade, "town": cidade,
+                    "state_code": f"BR-{uf}" if uf else "",
+                    "state": _comp(["administrative_area_level_1"]),
+                    "postcode": _comp(["postal_code"]),
+                    "country": "Brasil", "country_code": "br",
+                },
+            })
+        return results
+    except Exception:
+        return []
+
+
 # ─── GEOCODING (Nominatim / OpenStreetMap — gratuito) ─────────────────────────
 
 _nom_lock = threading.Lock()
@@ -3257,6 +3318,23 @@ def api_localizacao():
     if len(termo) < 2:
         return jsonify({"results": []})
 
+    # Cache em memória: o mesmo endereço (normalizado) não precisa geocodificar
+    # de novo — a coordenada já fica salva no cadastro do cliente depois, então
+    # isso só evita repetir a chamada (cara, no caso do Google) dentro da mesma
+    # sessão/instância (ex: usuário volta e edita o endereço sem mudar nada,
+    # ou reenvia o form depois de corrigir outro campo).
+    cache_key = ("geocode", re.sub(r"\s+", " ", termo.strip().lower()))
+    cached = _home_api_cache_get(cache_key, ttl_seconds=86400)
+    if cached is not None:
+        return jsonify({"results": cached})
+
+    # Google Maps primeiro (se configurado) — cobre ruas que o Nominatim não
+    # tem, principal causa dos erros de geocoding em cidades pequenas.
+    gm_results = google_maps_geocode(termo)
+    if gm_results:
+        _home_api_cache_set(cache_key, gm_results, ttl_seconds=86400)
+        return jsonify({"results": gm_results[:10]})
+
     cidade_busca, uf_busca = _parse_cidade_uf(re.sub(r",?\s*\d{5}-?\d{3}\b", "", termo).strip(" ,-"))
     known_result = _known_city_location_result(termo, cidade_busca, uf_busca)
     queries = _location_queries(termo)
@@ -3378,7 +3456,10 @@ def api_localizacao():
         except Exception:
             pass
 
-    return jsonify({"results": results[:10]})
+    final_results = results[:10]
+    if final_results:
+        _home_api_cache_set(cache_key, final_results, ttl_seconds=86400)
+    return jsonify({"results": final_results})
 
 
 def get_or_geocode(cnpjloja, endereco, uf):

@@ -1473,7 +1473,7 @@ let _pendingAddress = null;
 let _selectedAddressType = 'casa';
 
 const _GM_KEY = {{ GOOGLE_MAPS_KEY | tojson }};
-const _GM_ENABLED = false; // ← mude para true para ativar Google Maps
+const _GM_ENABLED = true; // ← Google Maps ativo (chave já configurada no Vercel)
 let _gmQuotaHit = !!sessionStorage.getItem('pq_gm_quota');
 function _gmQuota() { _gmQuotaHit = true; sessionStorage.setItem('pq_gm_quota', '1'); }
 
