@@ -1031,6 +1031,21 @@
   </section>
 
 
+  {# ── Comprar novamente ── #}
+  <section class="home-section" id="sec-comprar-novamente" style="display:none">
+    <div class="home-section-head">
+      <div>
+        <h2 class="home-title"><i class="fa fa-rotate-right" style="color:var(--pq-red);font-size:1.1rem;margin-right:6px;vertical-align:middle"></i>Compre novamente</h2>
+        <div class="home-sub">Itens dos seus pedidos anteriores.</div>
+      </div>
+    </div>
+    <div class="home-row-wrap">
+      <button class="home-row-cnav home-row-cnav--prev" onclick="_homeCarouselNav('home-comprar-novamente',-1)" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="home-comprar-novamente" class="home-row"></div>
+      <button class="home-row-cnav home-row-cnav--next" onclick="_homeCarouselNav('home-comprar-novamente',1)" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+    </div>
+  </section>
+
   {# â”€â”€ Reposição sugerida â”€â”€ #}
   <section class="home-section" id="sec-lembretes" style="display:none">
     <div class="home-section-head">
@@ -1583,12 +1598,14 @@ const _LEMBRETE_ICOS = {
   estatina: {ico:'fa-heart',cls:'lembrete-ico--red'},
   tireoide: {ico:'fa-shield-halved',cls:'lembrete-ico--green'},
   vermifugo: {ico:'fa-leaf',cls:'lembrete-ico--green'},
+  fralda_infantil: {ico:'fa-baby',cls:'lembrete-ico--rose'},
 };
 
 const _LEMBRETE_TIPO_LABEL = {
   anticoncepcional:'Anticoncepcional', antibiotico:'Antibiótico',
   anti_hipertensivo:'Hipertensão', hipoglicemiante:'Diabetes',
-  ibp:'Gástrico', estatina:'Colesterol', tireoide:'Tireoide', vermifugo:'Vermífugo'
+  ibp:'Gástrico', estatina:'Colesterol', tireoide:'Tireoide', vermifugo:'Vermífugo',
+  fralda_infantil:'Universo Infantil',
 };
 function renderLembrete(l) {
   const cfg = _LEMBRETE_ICOS[l.tipo] || {ico:'fa-bell',cls:''};
@@ -1596,7 +1613,11 @@ function renderLembrete(l) {
   const tipoLabel = _LEMBRETE_TIPO_LABEL[l.tipo] || l.tipo;
   const dias = l.dias || 0;
   const precoNum = parseFloat(l.preco) || 0;
-  const urgente = dias >= 25;
+  // "Urgente" relativo ao ciclo estimado desse item — 25 dias fixos fazia
+  // sentido só pra medicamento de uso contínuo (~28 dias); pra fralda
+  // (~5 dias) isso nunca disparava.
+  const diasCiclo = l.dias_lembrete || 25;
+  const urgente = dias >= diasCiclo;
   const statusTag = urgente
     ? '<span class="lembrete-tag lembrete-tag--urgente"><i class="fa fa-triangle-exclamation" style="font-size:.5rem;margin-right:2px"></i>Urgente</span>'
     : '<span class="lembrete-tag lembrete-tag--normal">Normal</span>';
@@ -1656,7 +1677,7 @@ function carregarInsights() {
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/curva-a' + qs)
+  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d => {
       // Aviso sem farmácia prÃ³xima
       _sfpLogado = !!d.logado;

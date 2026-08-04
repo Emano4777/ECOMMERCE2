@@ -106,7 +106,9 @@
       "Bash(echo \"app.py OK\")",
       "Bash(node --check __TRACKED_VAR__/index_extracted.js)",
       "Bash(echo \"index.html JS OK\")",
-      "Bash(awk 'NR<=5860 && /^def /{last=NR\": \"$0} END{print last}' app.py)"
+      "Bash(awk 'NR<=5860 && /^def /{last=NR\": \"$0} END{print last}' app.py)",
+      "Bash(node --check __TRACKED_VAR__/home_extracted.js)",
+      "Bash(echo \"home.html JS OK\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"

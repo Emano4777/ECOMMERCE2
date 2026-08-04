@@ -9355,13 +9355,31 @@ def _detectar_tipo_med(nome, principio_ativo):
     return None
 
 
+# Reposição de itens consumíveis vendidos em pacote (ex: fralda) que não são
+# medicamento contínuo — não tem princípio ativo/tarja pra usar a lógica
+# acima, então estima pela quantidade de unidades no pacote (extraída do
+# nome, ex: "C/28") vezes um consumo médio diário aproximado. É uma
+# estimativa grosseira (varia MUITO com a idade/fase do bebê), só serve como
+# lembrete de "já deve estar acabando", não como cálculo exato.
+_QTD_EMBALAGEM_RE = re.compile(r"\bC\s*[/x]?\s*(\d{1,3})\s*(?:UN)?\b", re.IGNORECASE)
+_FRALDA_USO_DIARIO_MEDIO = 6  # média entre recém-nascido (~8-10/dia) e criança maior (~4-5/dia)
+
+
+def _extrair_qtd_embalagem(nome):
+    m = _QTD_EMBALAGEM_RE.search(nome or "")
+    if not m:
+        return None
+    qtd = int(m.group(1))
+    return qtd if 4 <= qtd <= 200 else None
+
+
 def _calcular_lembretes(consumidor_id, conn):
     from datetime import datetime, timezone
     cur = conn.cursor()
     # Busca compras + principio_ativo via anvisa_cache (por chave derivada do nome)
     cur.execute("""
         SELECT DISTINCT ON (pi.ean)
-            pi.ean, pi.nome, pi.imagem, pi.preco_unitario AS preco,
+            pi.ean, pi.nome, pi.imagem, pi.preco_unitario AS preco, pi.qty,
             p.criado_em, p.cnpjloja,
             ac.principio_ativo AS pa
         FROM ecommerce_pedido_itens pi
@@ -9382,12 +9400,23 @@ def _calcular_lembretes(consumidor_id, conn):
         nome = compra["nome"] or ""
         pa = compra.get("pa") or ""
         tipo = _detectar_tipo_med(nome, pa)
-        if not tipo:
+        if tipo:
+            cfg = next((c for c in _DRUG_REMINDERS if c[0] == tipo), None)
+            if not cfg:
+                continue
+            _, _, dias_lembrete, titulo, msg_tmpl = cfg
+        elif _eh_fralda_infantil(nome):
+            qtd_pacote = _extrair_qtd_embalagem(nome)
+            if not qtd_pacote:
+                continue
+            qtd_total = qtd_pacote * int(compra.get("qty") or 1)
+            dias_lembrete = max(3, round(qtd_total / _FRALDA_USO_DIARIO_MEDIO))
+            tipo = "fralda_infantil"
+            titulo = "Hora de repor?"
+            msg_tmpl = ("Você comprou {produto} há {dias} dias — um pacote desse tamanho "
+                        "costuma acabar por aí. Bora repor antes que falte?")
+        else:
             continue
-        cfg = next((c for c in _DRUG_REMINDERS if c[0] == tipo), None)
-        if not cfg:
-            continue
-        _, _, dias_lembrete, titulo, msg_tmpl = cfg
         data_compra = compra["criado_em"]
         if data_compra.tzinfo is None:
             data_compra = data_compra.replace(tzinfo=timezone.utc)
@@ -9406,6 +9435,7 @@ def _calcular_lembretes(consumidor_id, conn):
                 "preco": float(compra.get("preco") or 0),
                 "cnpjloja": compra.get("cnpjloja") or "",
                 "dias": dias,
+                "dias_lembrete": dias_lembrete,
             })
     # Um lembrete por tipo (evita duplicatas de genéricos diferentes do mesmo princípio ativo)
     seen_tipo: set = set()
