@@ -2049,7 +2049,25 @@ function buscarCidadeDebounced() {
           localStorage.setItem(LOC_KEY_TS, Date.now());
           _reverseGeocodeGM(pos.lat, pos.lng).then(n => setLocNome(n)).catch(() => {});
         })
-        .catch(() => {});
+        .catch(() => {
+          // GPS indisponível/negado — em vez de deixar a coordenada velha
+          // presa pra sempre (ela nunca mais seria re-testada), reprocessa
+          // o endereço por TEXTO que já tínhamos salvo, com o pipeline de
+          // geocoding atual (Google Maps + fixes). Sem isso, um endereço
+          // que geocodificou errado uma vez ficava errado indefinidamente
+          // pra quem nunca autoriza localização do navegador.
+          const nomeAtual = localStorage.getItem(LOC_KEY_NOME);
+          if (!nomeAtual) return;
+          fetchLocalizacao(nomeAtual, parseCidadeUf(nomeAtual))
+            .then(results => {
+              const res = (results || [])[0];
+              if (!res) return;
+              localStorage.setItem(LOC_KEY_LAT, res.lat);
+              localStorage.setItem(LOC_KEY_LNG, res.lon);
+              localStorage.setItem(LOC_KEY_TS, Date.now());
+            })
+            .catch(() => {});
+        });
     }
   } else {
     // Sem localização: tenta Google primeiro, depois navigator.geolocation

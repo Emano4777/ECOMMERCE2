@@ -128,7 +128,13 @@
       "Bash(awk '/^def api_localizacao/,0' app.py)",
       "Bash(node --check __TRACKED_VAR__/base_public_extracted.js)",
       "Bash(echo \"base_public.html JS OK\")",
-      "PowerShell(py -3.13 \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Public-dns-ecommerce\\\\1c50bc6a-11d7-419d-9f97-4bcc968ce980\\\\scratchpad\\\\test_gm_parse.py\")"
+      "PowerShell(py -3.13 \"C:\\\\Users\\\\windows\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Public-dns-ecommerce\\\\1c50bc6a-11d7-419d-9f97-4bcc968ce980\\\\scratchpad\\\\test_gm_parse.py\")",
+      "Bash(timeout 15 vercel logs \"https://ecommerce-2-alvb6pcci-emano4777s-projects.vercel.app\")",
+      "Bash(timeout 15 vercel logs \"https://ecommerce-2-alvb6pcci-emano4777s-projects.vercel.app\" --json)",
+      "Bash(vercel --prod --yes)",
+      "Bash(curl -s -X POST https://www.drogariaspoupaqui.com.br/api/cron/enviar-email-regiao-habilitada -H 'Authorization: Bearer poupaqui-alpha-cron-7x9k2m' -H 'Content-Type: application/json' -d '{\"consumidor_id\":\"d99597ab-13a1-40d2-9158-a85434242e60\"}')",
+      "Bash(node --check __TRACKED_VAR__/base_public_extracted2.js)",
+      "Bash(echo \"JS OK\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\emano\\pedidoeletronico\\pedidoeletronico"
