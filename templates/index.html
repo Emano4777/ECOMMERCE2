@@ -829,7 +829,7 @@
 
     <div class="idx-fd-field">
       <label for="filter-category">Categoria</label>
-      <select id="filter-category" onchange="filterAndRender(true)">
+      <select id="filter-category" onchange="onCategoryChange()">
         <option value="">Todas as categorias</option>
       </select>
     </div>
@@ -1572,6 +1572,22 @@ function filterAndRender(resetPage=false) {
       : `Exibindo produtos de ${lojas || 0} farmácia(s)`;
     renderSearchOrderCta(filteredProdutos.length > 0 && !_serverSearchLoading);
   }
+}
+
+function onCategoryChange() {
+  currentPage = 1;
+  updateFiltroCount();
+  if (_currentLat === null || _currentLng === null) {
+    filterAndRender(true);
+    return;
+  }
+  // A carga inicial traz uma vitrine enxuta de itens mais vendidos. Categorias
+  // precisam voltar ao servidor para pesquisar o catálogo completo; ao limpar
+  // a categoria também recarrega a vitrine normal, evitando manter só o recorte
+  // da categoria selecionada anteriormente.
+  _serverSearchLoading = true;
+  filterAndRender(true);
+  carregarProdutos(_currentLat, _currentLng, catalogSearchTerm());
 }
 
 function renderPager(totalPages, pageSize) {
