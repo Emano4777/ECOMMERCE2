@@ -15980,6 +15980,18 @@ def api_checkout():
             )
 
         conn.commit()
+        # Limpa o carrinho salvo dessa loja apos o pedido ser criado — sem
+        # isso, os itens ficavam presos no carrinho pra sempre (o checkout le
+        # o payload enviado pelo front, nao a tabela ecommerce_carrinho, entao
+        # nada limpava essa tabela depois de finalizar o pedido).
+        try:
+            cur.execute(
+                "DELETE FROM ecommerce_carrinho WHERE consumidor_id=%s AND cnpjloja=%s",
+                (session.get("consumidor_id"), cnpjloja),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
         _notificar_consumidor(
             session.get("consumidor_id"),
             "pedido",
