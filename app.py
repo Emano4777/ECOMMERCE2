@@ -1144,6 +1144,11 @@ def _wa_send(numero: str, msg: str) -> bool:
             headers={
                 'Authorization': f'Bearer {WASENDER_API_KEY}',
                 'Content-Type': 'application/json',
+                # Sem User-Agent de navegador, o Cloudflare da WA Sender bloqueia
+                # com 403 "error code: 1010" (Browser Integrity Check) — o
+                # cliente HTTP padrao do Python e facilmente identificado como bot.
+                'User-Agent': _VTEX_UA,
+                'Accept': 'application/json',
             },
             method='POST',
         )
