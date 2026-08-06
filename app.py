@@ -12077,26 +12077,32 @@ def api_cron_produto_canon_ia():
         ean = row.get("ean") or ""
         nome_raw = row.get("nome") or ""
         canon = _gerar_descricao_canon_ia(nome_raw)
-        if not canon or canon.strip().lower() == nome_raw.strip().lower():
+        if not canon:
+            # Falha transitoria (IA/rede) — nao grava nada, tenta de novo numa
+            # proxima rodada em vez de marcar como concluido.
             falhas.append({"ean": ean, "nome": nome_raw[:80]})
             continue
+        # Sem abreviacao pra expandir: grava mesmo assim (fonte 'anthropic_noop')
+        # so pra marcar como ja verificado — senao esse EAN nunca sai da fila de
+        # pendentes e o backfill fica reprocessando ele pra sempre.
+        sem_mudanca = canon.strip().lower() == nome_raw.strip().lower()
         try:
             cur2 = db().cursor()
             cur2.execute(
                 """
                 INSERT INTO produto_canon (ean, descricao_original, descricao_canon, fonte, criado_em, atualizado_em)
-                VALUES (%s, %s, %s, 'anthropic_canon', NOW(), NOW())
+                VALUES (%s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (ean) DO UPDATE SET
                     descricao_original = EXCLUDED.descricao_original,
                     descricao_canon    = EXCLUDED.descricao_canon,
-                    fonte               = 'anthropic_canon',
+                    fonte               = EXCLUDED.fonte,
                     atualizado_em       = NOW()
                 """,
-                (ean, nome_raw, canon),
+                (ean, nome_raw, canon, "anthropic_noop" if sem_mudanca else "anthropic_canon"),
             )
             cur2.connection.commit()
             cur2.close()
-            processados.append({"ean": ean, "de": nome_raw[:80], "para": canon[:80]})
+            processados.append({"ean": ean, "de": nome_raw[:80], "para": canon[:80], "mudou": not sem_mudanca})
         except Exception as e:
             try:
                 cur2.connection.rollback()
