@@ -6855,7 +6855,16 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         SELECT
             ap.cnpjloja,
             ap.ean,
-            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
+            CASE
+                WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
+                    THEN COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome)
+                -- Fora de medicamentos (cosmetico/higiene/perfumaria etc), o nome
+                -- padronizado por IA (produto_canon) tem prioridade sobre a
+                -- descricao abreviada da tabela de referencia (ex: "SH" vira
+                -- "Shampoo") — vale tanto pra exibicao quanto pro filtro de
+                -- relevancia da busca, que usa esse mesmo campo "nome".
+                ELSE COALESCE(NULLIF(pc.descricao_canon, 'SEM DESCR'), m.descricao, ap.nome)
+            END AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -6950,7 +6959,11 @@ def get_alpha_products_direct(cnpjs, limit=200):
         SELECT
             ap.cnpjloja,
             ap.ean,
-            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
+            CASE
+                WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
+                    THEN COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome)
+                ELSE COALESCE(NULLIF(pc.descricao_canon, 'SEM DESCR'), m.descricao, ap.nome)
+            END AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -9061,7 +9074,7 @@ def _api_produtos_proximos_impl():
         # só o recorte de mais vendidos que a vitrine de curva A usa (top ~160
         # EANs por score de venda) — senão categorias menos vendidas (ex:
         # suplemento) somem mesmo tendo produtos em estoque.
-        produtos_raw = get_alpha_products_direct(cnpjs, limit=2000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
+        produtos_raw = get_alpha_products_direct(cnpjs, limit=10000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
     elif not busca_q:
         produtos_raw = _curve_a_products_for_cnpjs(cnpjs, limit=(90 if home_mode else 500)) or get_dns_products_batch(cnpjs)
     # else: havia busca_q mas nenhuma etapa acima encontrou produto — deixa
@@ -11981,6 +11994,127 @@ def _claude_haiku(prompt: str, max_tokens: int = 300, timeout: int = 5) -> str |
         return (data_resp.get("content") or [{}])[0].get("text", "").strip()
     except Exception:
         return None
+
+
+def _gerar_descricao_canon_ia(nome_raw):
+    """Reescreve um nome de produto abreviado (ex: "SH HUGGIES 200ML SUAVE")
+    numa forma padronizada e legivel (ex: "Shampoo Huggies Extra Suave 200ml"),
+    expandindo abreviacoes comuns de farmacia/drogaria. Usado pra popular
+    produto_canon.descricao_canon, que alimenta tanto a exibicao (card/detalhe)
+    quanto o filtro de relevancia da busca — produtos com nome abreviado nao
+    batiam com buscas usando a palavra por extenso (ex: "shampoo" nao achava
+    "SH ...")."""
+    nome_raw = (nome_raw or "").strip()
+    if not nome_raw:
+        return None
+    prompt = (
+        "Voce e um catalogador de produtos de farmacia/drogaria brasileira. "
+        "Reescreva o nome de produto abaixo de forma padronizada e legivel, "
+        "expandindo abreviacoes comuns do setor para a palavra completa "
+        "(exemplos: SH -> Shampoo, COND -> Condicionador, CR -> Creme, "
+        "FD/FR -> Fralda, DES -> Desodorante, LOC -> Locao, SAB -> Sabonete, "
+        "ESM -> Esmalte, HIDR -> Hidratante, PROT -> Protetor). "
+        "Mantenha marca, variante/perfume e quantidade EXATAMENTE como estao — "
+        "nao invente, nao remova e nao traduza nenhuma informacao do nome original. "
+        "Responda em Portugues, em formato Titulo (primeira letra de cada palavra "
+        "maiuscula), APENAS com o nome final padronizado, sem aspas e sem "
+        "nenhum outro texto.\n\n"
+        f"Nome original: {nome_raw}\n"
+        "Nome padronizado:"
+    )
+    resp = _claude_haiku(prompt, max_tokens=60, timeout=8)
+    if not resp:
+        return None
+    linha = resp.strip().strip('"').strip().split("\n")[0].strip()
+    if not linha or len(linha) > 140:
+        return None
+    return linha
+
+
+@app.route("/api/cron/produto-canon-ia", methods=["GET", "POST"])
+def api_cron_produto_canon_ia():
+    """Preenche produto_canon.descricao_canon com nome padronizado por IA para
+    produtos ativos do catalogo Alpha que ainda nao tem uma descricao canonica
+    boa (nem manual, nem de outra fonte confiavel). Roda em lotes pequenos —
+    chamar repetidas vezes (cron externo) ate esgotar os pendentes."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    if not _anthropic_api_key():
+        return jsonify({"ok": False, "erro": "ANTHROPIC_API_KEY_nao_configurada"}), 503
+
+    try:
+        limit = int(request.args.get("limit") or request.form.get("limit") or 15)
+    except Exception:
+        limit = 15
+    limit = max(1, min(limit, 50))
+
+    _ensure_produto_canon_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT DISTINCT ON (LTRIM(COALESCE(ap.ean, ''), '0'))
+            LTRIM(COALESCE(ap.ean, ''), '0') AS ean, ap.nome
+        FROM ecommerce_alpha_produtos ap
+        LEFT JOIN produto_canon pc
+          ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+         AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+        WHERE COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND COALESCE(ap.ean, '') <> ''
+          AND COALESCE(ap.nome, '') <> ''
+          AND pc.ean IS NULL
+        ORDER BY LTRIM(COALESCE(ap.ean, ''), '0'), ap.estoque DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    pendentes = [dict(r) for r in cur.fetchall()]
+    cur.close()
+
+    processados, falhas = [], []
+    for row in pendentes:
+        ean = row.get("ean") or ""
+        nome_raw = row.get("nome") or ""
+        canon = _gerar_descricao_canon_ia(nome_raw)
+        if not canon or canon.strip().lower() == nome_raw.strip().lower():
+            falhas.append({"ean": ean, "nome": nome_raw[:80]})
+            continue
+        try:
+            cur2 = db().cursor()
+            cur2.execute(
+                """
+                INSERT INTO produto_canon (ean, descricao_original, descricao_canon, fonte, criado_em, atualizado_em)
+                VALUES (%s, %s, %s, 'anthropic_canon', NOW(), NOW())
+                ON CONFLICT (ean) DO UPDATE SET
+                    descricao_original = EXCLUDED.descricao_original,
+                    descricao_canon    = EXCLUDED.descricao_canon,
+                    fonte               = 'anthropic_canon',
+                    atualizado_em       = NOW()
+                """,
+                (ean, nome_raw, canon),
+            )
+            cur2.connection.commit()
+            cur2.close()
+            processados.append({"ean": ean, "de": nome_raw[:80], "para": canon[:80]})
+        except Exception as e:
+            try:
+                cur2.connection.rollback()
+            except Exception:
+                pass
+            falhas.append({"ean": ean, "nome": nome_raw[:80], "erro": str(e)[:200]})
+
+    if processados:
+        _batch_cache_clear()
+
+    return jsonify({
+        "ok": True,
+        "selecionados": len(pendentes),
+        "processados": len(processados),
+        "falhas": len(falhas),
+        "amostra_processados": processados[:5],
+        "amostra_falhas": falhas[:5],
+    })
 
 
 @app.get("/api/home/economia-ia")
@@ -22397,9 +22531,9 @@ def _categoria_from_alpha_classificacao(classificacao):
 
 
 def _categoria_produto(p):
-    """Resolve a categoria de um produto: categoria ja calculada > classificacao
-    do Alpha (quando o produto veio da sincronizacao Alpha A7) > fallback por
-    nome. Ordem de preferencia unica pra manter tudo consistente.
+    """Resolve a categoria de um produto: gondola infantil do Alpha > categoria
+    ja calculada > demais classificacoes Alpha > fallback por nome. A excecao
+    infantil evita que categorias genericas escondam a gondola mais especifica.
 
     Excecao: fralda infantil. A classificacao que o Alpha manda pra fralda e
     muito inconsistente — a mesma linha de produto (ex: mesma marca/tamanho)
@@ -22407,12 +22541,18 @@ def _categoria_produto(p):
     VAREJO dependendo do lote. Pra esse caso especifico o nome (com a
     exclusao de fralda geriatrica/adulto) e mais confiavel que o ramo do
     Alpha, entao e checado antes."""
+    categoria_alpha = _categoria_from_alpha_classificacao(p.get("classificacao"))
+    # A gondola INFANTIL do Alpha é mais específica que categorias genéricas
+    # vindas de medicamentos/produto_canon (perfumaria, cosmético, varejo etc.).
+    # Sem esta prioridade, centenas de itens infantis desaparecem do filtro.
+    if categoria_alpha == "infantil":
+        return "infantil"
     if p.get("categoria"):
         return p["categoria"]
     if _eh_fralda_infantil(p.get("nome") or ""):
         return "infantil"
     return (
-        _categoria_from_alpha_classificacao(p.get("classificacao"))
+        categoria_alpha
         or _classificar_produto(p.get("nome") or "")
     )
 
