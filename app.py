@@ -21591,6 +21591,7 @@ def api_cron_enviar_email_cupom():
     data = request.get_json(force=True) or {}
     consumidor_id = (data.get("consumidor_id") or "").strip()
     cupom_id = (data.get("cupom_id") or "").strip()
+    boas_vindas = bool(data.get("boas_vindas"))
     if not consumidor_id or not cupom_id:
         return jsonify({"ok": False, "erro": "consumidor_id_e_cupom_id_obrigatorios"}), 400
 
@@ -21623,12 +21624,18 @@ def api_cron_enviar_email_cupom():
     nome_completo = consumidor["nome"] or ""
     nome_curto = nome_completo.split()[0] if nome_completo else ""
     loja_txt = f" na <strong>{html.escape(cupom['loja'])}</strong>" if cupom.get("loja") else ""
+    intro = (
+        f"<p>Seja muito bem-vinda(o) à Poupaqui! Preparamos um cupom especial pra você usar "
+        f"na sua <strong>primeira compra</strong>.</p>"
+        if boas_vindas else
+        f"<p>Passando só pra agradecer a sua compra{loja_txt}! "
+        f"Preparamos um cupom especial pra você usar na próxima compra.</p>"
+    )
 
     corpo = (
         f"<p>Oi, {html.escape(nome_curto)}! Tudo bem?</p>"
-        f"<p>Passando só pra agradecer a sua compra{loja_txt}! "
-        f"Preparamos um cupom especial pra você usar na próxima compra.</p>"
-        f"<div class='info-box'>"
+        + intro
+        + f"<div class='info-box'>"
         f"<strong>Cupom:</strong> {html.escape(cupom['codigo'])}<br>"
         f"<strong>Desconto:</strong> {valor_label}<br>"
         + (f"<strong>Válido até:</strong> {validade}<br>" if validade else "")
@@ -21639,10 +21646,15 @@ def api_cron_enviar_email_cupom():
         f"<p style='text-align:center'><a class='btn' href='https://drogariaspoupaqui.com.br'>Comprar com o cupom</a></p>"
         f"<p>Qualquer dúvida, é só responder este e-mail. Um abraço! 💛</p>"
     )
+    assunto_cliente = (
+        f"🎟️ Bem-vinda(o) à Poupaqui — cupom {cupom['codigo']}" if boas_vindas
+        else f"🎟️ Um presente pra você — cupom {cupom['codigo']}"
+    )
+    titulo_cliente = "Seja bem-vinda (com desconto)" if boas_vindas else "Um agradecimento (com desconto) pra você"
     ok_cliente = _send_email(
         consumidor["email"],
-        f"🎟️ Um presente pra você — cupom {cupom['codigo']}",
-        _email_html_wrapper("Um agradecimento (com desconto) pra você", corpo),
+        assunto_cliente,
+        _email_html_wrapper(titulo_cliente, corpo),
     )
     ok_admin = False
     if ADMIN_SUPPORT_EMAIL:
@@ -21668,6 +21680,7 @@ def api_cron_enviar_whatsapp_cupom():
     data = request.get_json(force=True) or {}
     consumidor_id = (data.get("consumidor_id") or "").strip()
     cupom_id = (data.get("cupom_id") or "").strip()
+    boas_vindas = bool(data.get("boas_vindas"))
     if not consumidor_id or not cupom_id:
         return jsonify({"ok": False, "erro": "consumidor_id_e_cupom_id_obrigatorios"}), 400
 
@@ -21692,11 +21705,16 @@ def api_cron_enviar_whatsapp_cupom():
     )
     validade = cupom["valido_ate"].strftime("%d/%m/%Y") if cupom["valido_ate"] else ""
     nome_curto = (consumidor["nome"] or "").split()[0] if consumidor["nome"] else ""
+    intro_wa = (
+        "Seja muito bem-vinda(o)! Preparamos um cupom especial pra você usar na sua *primeira compra*:\n\n"
+        if boas_vindas else
+        "Passando só pra agradecer a sua compra! Preparamos um cupom especial pra você usar na próxima:\n\n"
+    )
 
     msg = (
         f"Oi, {nome_curto}! 👋 Aqui é da *Poupaqui*.\n\n"
-        f"Passando só pra agradecer a sua compra! Preparamos um cupom especial pra você usar na próxima:\n\n"
-        f"🎟️ Cupom: *{cupom['codigo']}*\n"
+        + intro_wa
+        + f"🎟️ Cupom: *{cupom['codigo']}*\n"
         f"💰 Desconto: {valor_label}\n"
         + (f"📅 Válido até: {validade}\n\n" if validade else "\n")
         + f"É só aplicar o código *{cupom['codigo']}* na hora de fechar o pedido, direto pelo nosso site "
