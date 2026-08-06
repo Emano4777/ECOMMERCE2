@@ -6897,7 +6897,13 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             patterns or ["__sem_match__"],
             patterns or ["__sem_match__"],
             f"%{ean_q}%" if ean_q else "__sem_match__",
-            int(limit),
+            # Busca todo o universo de candidatos (nao so `limit`, que e o teto de
+            # exibicao): com patterns genericos tipo "200m" batendo em centenas de
+            # produtos e ORDER BY ap.nome, um LIMIT baixo aqui cortava o resultado
+            # em ordem alfabetica ANTES do filtro de relevancia abaixo rodar,
+            # descartando o produto certo (ex: "SHAMPOO..." vem depois de "COND...".
+            # "CREME...", "FRALDA..." no alfabeto e ficava de fora do corte).
+            5000,
         ),
     )
     rows = [dict(r) for r in cur.fetchall()]
@@ -6930,7 +6936,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         rows = filtered_rows
     rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
-    return _dedupe_products_for_display(rows)
+    return _dedupe_products_for_display(rows)[:int(limit)]
 
 
 def get_alpha_products_direct(cnpjs, limit=200):
