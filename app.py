@@ -21653,6 +21653,56 @@ def api_cron_enviar_email_cupom():
     return jsonify({"ok": ok_cliente, "email_cliente": ok_cliente, "email_admin": ok_admin})
 
 
+@app.post("/api/cron/enviar-whatsapp-cupom")
+def api_cron_enviar_whatsapp_cupom():
+    """Envia por WhatsApp um cupom especifico pra um consumidor. Roda no
+    Vercel (mesmo motivo do endpoint de e-mail irmao): so la o envio ao
+    WA Sender passa sem ser bloqueado pelo Cloudflare deles."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    consumidor_id = (data.get("consumidor_id") or "").strip()
+    cupom_id = (data.get("cupom_id") or "").strip()
+    if not consumidor_id or not cupom_id:
+        return jsonify({"ok": False, "erro": "consumidor_id_e_cupom_id_obrigatorios"}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT nome, telefone FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    consumidor = cur.fetchone()
+    cur.execute(
+        "SELECT codigo, desconto_tipo, desconto_valor, valido_ate FROM ecommerce_cupons WHERE id = %s",
+        (cupom_id,),
+    )
+    cupom = cur.fetchone()
+    cur.close()
+    if not consumidor or not (consumidor.get("telefone") or "").strip():
+        return jsonify({"ok": False, "erro": "consumidor_sem_telefone"}), 404
+    if not cupom:
+        return jsonify({"ok": False, "erro": "cupom_nao_encontrado"}), 404
+
+    valor_label = (
+        f"{int(cupom['desconto_valor'])}%" if cupom["desconto_tipo"] == "pct"
+        else f"R$ {float(cupom['desconto_valor']):.2f}".replace(".", ",")
+    )
+    validade = cupom["valido_ate"].strftime("%d/%m/%Y") if cupom["valido_ate"] else ""
+    nome_curto = (consumidor["nome"] or "").split()[0] if consumidor["nome"] else ""
+
+    msg = (
+        f"Oi, {nome_curto}! 👋 Aqui é da *Poupaqui*.\n\n"
+        f"Passando só pra agradecer a sua compra! Preparamos um cupom especial pra você usar na próxima:\n\n"
+        f"🎟️ Cupom: *{cupom['codigo']}*\n"
+        f"💰 Desconto: {valor_label}\n"
+        + (f"📅 Válido até: {validade}\n\n" if validade else "\n")
+        + f"É só aplicar o código *{cupom['codigo']}* na hora de fechar o pedido, direto pelo nosso site "
+        f"— o desconto cai automaticamente no valor final:\n"
+        f"https://drogariaspoupaqui.com.br\n\n"
+        f"Qualquer dúvida, é só chamar por aqui!"
+    )
+    ok = _wa_send(consumidor["telefone"], msg)
+    return jsonify({"ok": ok, "whatsapp_cliente": ok})
+
+
 @app.post("/api/cron/wa-aviso-loja-regiao-mark-sent")
 def api_cron_wa_aviso_loja_regiao_mark_sent():
     """Marca aviso de cliente-novo-na-regiao como enviado. Chamado pelo cron
