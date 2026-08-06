@@ -9247,7 +9247,29 @@ def _api_produtos_proximos_impl():
             ]
 
     if busca_q:
-        result = sorted(produtos_view, key=lambda x: (x.get("distancia_km") is None, x.get("distancia_km") or 0, (x.get("nome") or "").lower()))
+        # Ordena por relevancia antes de distancia/nome — sem isso, produtos da
+        # mesma loja (mesma distancia) ficavam so em ordem alfabetica, entao
+        # "SAB.HUGGIES SUAVE" aparecia antes de "Shampoo ... Huggies ..." numa
+        # busca por "sh huggies" so por causa do "S" vir antes do "Sh" no
+        # alfabeto, mesmo o shampoo sendo o resultado mais relevante (o termo
+        # "sh" bate como prefixo da palavra "shampoo", nao de "sab").
+        _bq_tokens_rel = [t for t in _norm_text(busca_q).split() if t]
+        def _relevancia_busca(p):
+            nome_n = _norm_text(p.get("nome") or "")
+            palavras_n = nome_n.split()
+            score = 0
+            for t in _bq_tokens_rel:
+                if any(w.startswith(t) for w in palavras_n):
+                    score += len(t) * 2  # bate como prefixo de alguma palavra do nome
+                elif t in nome_n:
+                    score += len(t)      # bate so como substring solta
+            return -score
+        result = sorted(produtos_view, key=lambda x: (
+            _relevancia_busca(x),
+            x.get("distancia_km") is None,
+            x.get("distancia_km") or 0,
+            (x.get("nome") or "").lower(),
+        ))
     else:
         _home_sales_scores = _sales_scores_for_cnpjs(cnpjs, limit=1600)
         result = sorted(
@@ -22537,9 +22559,10 @@ def _categoria_from_alpha_classificacao(classificacao):
 
 
 def _categoria_produto(p):
-    """Resolve a categoria de um produto: gondola infantil do Alpha > categoria
-    ja calculada > demais classificacoes Alpha > fallback por nome. A excecao
-    infantil evita que categorias genericas escondam a gondola mais especifica.
+    """Resolve a categoria de um produto: classificacoes Alpha especificas e
+    confiaveis > categoria ja calculada > ramos Alpha amplos > fallback por
+    nome. HPC/VAREJO/DERMOCOSMETICO continuam depois da categoria salva porque
+    esses ramos misturam gondolas e a classificacao curada costuma ser melhor.
 
     Excecao: fralda infantil. A classificacao que o Alpha manda pra fralda e
     muito inconsistente — a mesma linha de produto (ex: mesma marca/tamanho)
@@ -22548,11 +22571,11 @@ def _categoria_produto(p):
     exclusao de fralda geriatrica/adulto) e mais confiavel que o ramo do
     Alpha, entao e checado antes."""
     categoria_alpha = _categoria_from_alpha_classificacao(p.get("classificacao"))
-    # A gondola INFANTIL do Alpha é mais específica que categorias genéricas
-    # vindas de medicamentos/produto_canon (perfumaria, cosmético, varejo etc.).
-    # Sem esta prioridade, centenas de itens infantis desaparecem do filtro.
-    if categoria_alpha == "infantil":
-        return "infantil"
+    # Categorias inequívocas do fornecedor não podem ser sobrescritas por uma
+    # classificação genérica/antiga. Isso preserva a gondola infantil, os tipos
+    # regulatórios de medicamento e o ramo específico de nutracêuticos.
+    if categoria_alpha in {"infantil", "generico", "similar", "referencia", "suplemento"}:
+        return categoria_alpha
     if p.get("categoria"):
         return p["categoria"]
     if _eh_fralda_infantil(p.get("nome") or ""):
