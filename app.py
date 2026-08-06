@@ -9056,14 +9056,18 @@ def _api_produtos_proximos_impl():
                             seen_search.add(key)
                     except Exception:
                         continue
-    elif cat_filter:
+    elif cat_filter and not busca_q:
         # Filtro por categoria precisa varrer o catálogo completo da loja, não
         # só o recorte de mais vendidos que a vitrine de curva A usa (top ~160
         # EANs por score de venda) — senão categorias menos vendidas (ex:
         # suplemento) somem mesmo tendo produtos em estoque.
         produtos_raw = get_alpha_products_direct(cnpjs, limit=2000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
-    else:
+    elif not busca_q:
         produtos_raw = _curve_a_products_for_cnpjs(cnpjs, limit=(90 if home_mode else 500)) or get_dns_products_batch(cnpjs)
+    # else: havia busca_q mas nenhuma etapa acima encontrou produto — deixa
+    # produtos_raw vazio (dispara "nenhum produto encontrado" no front) em vez
+    # de cair no fallback de mais vendidos, que mostrava produtos sem nenhuma
+    # relacao com o termo buscado como se fossem resultado da busca.
 
     if _catalogo_alpha_exclusivo() and busca_q:
         seen_alpha_direct = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
@@ -9246,6 +9250,13 @@ def _api_produtos_proximos_impl():
         try:
             q_norm_direct = _norm_text(busca_q)
             ean_direct = _digits(busca_q)
+            # So trata como busca por EAN quando os digitos extraidos parecem
+            # um codigo de barras de verdade (>=8 digitos). Com termos curtos
+            # tipo "200" (extraido de um "200ML" na frase), o LIKE '%200%'
+            # batia em qualquer EAN-13 que tivesse "200" em qualquer posicao —
+            # ou seja, produtos aleatorios sem nenhuma relacao com a busca.
+            if len(ean_direct) < 8:
+                ean_direct = ""
             alpha_rows = []
             if len(q_norm_direct) >= 4 or ean_direct:
                 conn_alpha_direct = db()
