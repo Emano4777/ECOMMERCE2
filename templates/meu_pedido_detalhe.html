@@ -145,9 +145,14 @@
 </style>
 {% endblock %}
 
+{% set _pag_instrucao = {
+  'whatsapp':    'Envie o comprovante pelo WhatsApp para acelerar o atendimento.',
+  'pix':         'Finalize o pagamento do PIX para confirmar o pedido.',
+  'mercadopago': 'Finalize o pagamento no cartão para confirmar o pedido.',
+}.get(pedido.forma_pagamento, 'Finalize o pagamento para confirmar o pedido.') %}
 {% if pedido.tipo_entrega == 'retirada' %}
   {% set status_msg = {
-    'pendente':        'Seu pedido foi recebido e aguarda confirmação do pagamento. Se escolheu WhatsApp, envie o comprovante para acelerar o atendimento.',
+    'pendente':        'Seu pedido foi recebido e aguarda confirmação do pagamento. ' ~ _pag_instrucao,
     'pago':            'Pagamento confirmado! Aguardando a farmácia separar o seu pedido.',
     'pronto_retirada': 'Seu pedido está pronto para retirada!',
     'entregue':        'Pedido retirado. Obrigado pela compra!',
@@ -155,7 +160,7 @@
   } %}
 {% else %}
   {% set status_msg = {
-    'pendente':  'Seu pedido foi recebido e ainda aguarda confirmação da farmácia ou confirmação do pagamento/comprovante. Se você escolheu WhatsApp, envie a mensagem para acelerar o atendimento.',
+    'pendente':  'Seu pedido foi recebido e ainda aguarda confirmação da farmácia ou do pagamento. ' ~ _pag_instrucao,
     'pago':      'Pagamento confirmado. A farmácia está preparando o seu pedido para entrega.',
     'enviado':   'Pedido enviado! O entregador está a caminho do seu endereço.',
     'entregue':  'Pedido entregue. Obrigado pela compra!',
