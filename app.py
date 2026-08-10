@@ -14297,7 +14297,9 @@ def meus_pedidos():
                 p.update(corrigido)
     for p in pedidos:
         p["razao"] = _public_store_name(p)
-    economia_total = sum(float(p.get("desconto_cupom") or 0) for p in pedidos)
+    economia_total = sum(
+        float(p.get("desconto_cupom") or 0) for p in pedidos if p.get("status") != "cancelado"
+    )
     agora = datetime.now(timezone.utc)
     for p in pedidos:
         prev_em = p.get("previsao_entrega_em")
@@ -14338,6 +14340,41 @@ def meus_pedidos():
         for row in cur.fetchall():
             pid = str(row["pedido_id"])
             itens_map.setdefault(pid, []).append(dict(row))
+
+        # Economia de preco promocional Alpha: compara o que foi pago com o
+        # preco de tabela ATUAL do produto (o pedido nao guarda o preco
+        # original vigente na epoca da promo, entao usa o de agora como
+        # melhor aproximacao disponivel — mesma logica do carrinho, so que
+        # olhando pro historico em vez do preco em tempo real).
+        _pedido_cnpj = {str(p["id"]): p["cnpjloja"] for p in pedidos if p.get("status") != "cancelado"}
+        _eans_por_loja: dict = {}
+        for pid, itens_p in itens_map.items():
+            cnpj = _pedido_cnpj.get(pid)
+            if not cnpj:
+                continue
+            for it in itens_p:
+                ean_norm = (it.get("ean") or "").strip().lstrip("0")
+                if ean_norm:
+                    _eans_por_loja.setdefault(cnpj, set()).add(ean_norm)
+        _preco_atual = {}
+        for cnpj, eans in _eans_por_loja.items():
+            cur.execute(
+                "SELECT LTRIM(COALESCE(ean,''),'0') AS ean_norm, preco_venda "
+                "FROM ecommerce_alpha_produtos WHERE cnpjloja=%s AND LTRIM(COALESCE(ean,''),'0') = ANY(%s)",
+                (cnpj, list(eans)),
+            )
+            for r in cur.fetchall():
+                _preco_atual[(cnpj, r["ean_norm"])] = float(r["preco_venda"] or 0)
+        for pid, itens_p in itens_map.items():
+            cnpj = _pedido_cnpj.get(pid)
+            if not cnpj:
+                continue
+            for it in itens_p:
+                ean_norm = (it.get("ean") or "").strip().lstrip("0")
+                preco_atual = _preco_atual.get((cnpj, ean_norm))
+                preco_pago = float(it.get("preco_unitario") or 0)
+                if preco_atual and preco_atual > preco_pago:
+                    economia_total += (preco_atual - preco_pago) * int(it.get("qty") or 1)
     cur.close()
     for p in pedidos:
         _itens_p = itens_map.get(str(p["id"]), [])
