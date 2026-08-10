@@ -681,11 +681,22 @@ function pickupContextHtml(cfg, razao) {
   const lojaIcon = cfg.logo_url
     ? `<div class="pickup-card-icon has-logo"><img src="${esc(cfg.logo_url)}" alt="Logo ${esc(razao || cfg.razao || 'da farmácia')}" onerror="this.style.display='none';this.nextElementSibling.style.display='';this.parentElement.classList.remove('has-logo')"><i class="fa fa-store" style="display:none"></i></div>`
     : `<div class="pickup-card-icon"><i class="fa fa-store"></i></div>`;
+  // Aviso (nao bloqueia) quando o endereco/localizacao atual do cliente esta
+  // muito longe da loja de retirada — pedido pra buscar so faz sentido se
+  // ele de fato consegue ir ate la.
+  const dist = distanciaParaLoja(cfg);
+  const avisoDistancia = (dist !== undefined && dist > 60)
+    ? `<div class="pickup-tip" style="background:#fffbeb;border:1.5px solid #fbbf24;color:#92400e;border-radius:10px">
+         <i class="fa fa-triangle-exclamation" style="margin-top:2px;color:#b45309"></i>
+         <span>Você está a <strong>${Math.round(dist)} km</strong> dessa loja. Confirme que vai conseguir vir buscar antes de finalizar o pedido.</span>
+       </div>`
+    : '';
   return `<div class="checkout-address-title">Retirar em</div>
     <div class="pickup-card">
       ${lojaIcon}
       <div style="min-width:0"><strong>${esc(razao || cfg.razao || 'Drogaria Poupaqui')}</strong><span><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>${esc(endereco)}</span></div>
     </div>
+    ${avisoDistancia}
     <div class="pickup-tip"><i class="fa fa-circle-info" style="margin-top:2px"></i><span>Você receberá uma confirmação quando o pedido estiver pronto para retirada.</span></div>`;
 }
 

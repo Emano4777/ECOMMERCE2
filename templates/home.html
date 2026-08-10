@@ -1291,15 +1291,21 @@ function _renderAchadosFallback(produtos, opts) {
   achadosEl.innerHTML = lista.map(p => prodCard(p, '')).join('');
   secAchados.style.display = '';
   setTimeout(() => _homeCarousel('home-achados'), 50);
-  renderMaisVendidos(produtos);
+  // opts.rede tambem fica true so por "nao logado" (framing do achados) —
+  // pro carrossel de mais vendidos so importa distancia de verdade.
+  renderMaisVendidos(produtos, !!(opts && opts.semFarmaciaProxima));
   return true;
 }
-function renderMaisVendidos(produtos) {
+function renderMaisVendidos(produtos, foraDoRaio) {
   // Nao reordena por preco (como o achados/Ofertas Relampago faz) — mantem
   // a ordem que ja vem do backend, que e por score de venda (curva A).
+  // Diferente do achados (que cai pra "conheca nossos produtos" quando nao
+  // ha loja perto), esse carrossel e "mais vendidos DA LOJA" — nao faz
+  // sentido mostrar isso pra quem esta fora do raio de nenhuma farmacia.
   const el = document.getElementById('home-mais-vendidos');
   const sec = document.getElementById('sec-mais-vendidos');
   if (!el || !sec) return;
+  if (foraDoRaio) { sec.style.display = 'none'; return; }
   const lista = (produtos || []).filter(p => p.imagem && parseFloat(p.preco) > 0).slice(0, 20);
   if (!lista.length) { sec.style.display = 'none'; return; }
   el.innerHTML = lista.map(p => prodCard(p, '')).join('');
@@ -1310,7 +1316,7 @@ function renderHomeProdutos(produtos, opts){
   const validos = produtos.filter(p => p.imagem && parseFloat(p.preco) > 0);
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
-  renderMaisVendidos(produtos);
+  renderMaisVendidos(produtos, !!(opts && opts.rede));
   if (validos.length) {
     _setAchadosCopy(opts && opts.rede ? 'rede' : 'normal');
     achadosEl.innerHTML = validos.slice().sort((a,b)=>parseFloat(a.preco)-parseFloat(b.preco)).slice(0,10).map(p => prodCard(p, '')).join('');
@@ -1371,7 +1377,7 @@ function carregarProdutosGerais(){
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
   _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/curva-a' + qs)
     .then(d=>{
-      if (_renderAchadosFallback(d.trending_lojas || [], {rede: d.sem_farmacia_proxima || !d.logado})) return;
+      if (_renderAchadosFallback(d.trending_lojas || [], {rede: d.sem_farmacia_proxima || !d.logado, semFarmaciaProxima: !!d.sem_farmacia_proxima})) return;
       throw new Error('sem-trending');
     })
     .catch(()=>carregarProdutosDestaqueFallback());
@@ -1385,7 +1391,7 @@ function carregarProdutosDestaqueFallback(){
     .then(d=>{
       const lista = (d.produtos||[]).filter(p=>p.imagem && parseFloat(p.preco)>0).slice(0,12);
       if (lista.length) {
-        _renderAchadosFallback(lista, {rede:true});
+        _renderAchadosFallback(lista, {rede:true, semFarmaciaProxima:true});
         return;
       }
       _setAchadosCopy('rede');
@@ -1787,7 +1793,7 @@ function carregarInsights() {
         if (trending.length) setTimeout(() => _homeCarousel('home-trending-lojas'), 50);
       }
       if (trending.length && !_achadosTemProdutos()) {
-        _renderAchadosFallback(trending, {rede: d.sem_farmacia_proxima || !d.logado});
+        _renderAchadosFallback(trending, {rede: d.sem_farmacia_proxima || !d.logado, semFarmaciaProxima: !!d.sem_farmacia_proxima});
       }
     })
     .catch(() => {});
