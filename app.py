@@ -21613,6 +21613,7 @@ def api_cron_enviar_email_cupom():
     consumidor_id = (data.get("consumidor_id") or "").strip()
     cupom_id = (data.get("cupom_id") or "").strip()
     boas_vindas = bool(data.get("boas_vindas"))
+    condicao_extra = (data.get("condicao_extra") or "").strip()
     if not consumidor_id or not cupom_id:
         return jsonify({"ok": False, "erro": "consumidor_id_e_cupom_id_obrigatorios"}), 400
 
@@ -21662,7 +21663,8 @@ def api_cron_enviar_email_cupom():
         + (f"<strong>Válido até:</strong> {validade}<br>" if validade else "")
         + "<strong>Onde vale:</strong> compras direto pelo site"
         + "</div>"
-        f"<p>É só aplicar o código <strong>{html.escape(cupom['codigo'])}</strong> na hora de fechar o pedido, "
+        + (f"<p>⚠️ {html.escape(condicao_extra)}</p>" if condicao_extra else "")
+        + f"<p>É só aplicar o código <strong>{html.escape(cupom['codigo'])}</strong> na hora de fechar o pedido, "
         f"direto pelo <strong>site da Poupaqui</strong> — o desconto cai automaticamente no valor final.</p>"
         f"<p style='text-align:center'><a class='btn' href='https://drogariaspoupaqui.com.br'>Comprar com o cupom</a></p>"
         f"<p>Qualquer dúvida, é só responder este e-mail. Um abraço! 💛</p>"
@@ -21702,6 +21704,7 @@ def api_cron_enviar_whatsapp_cupom():
     consumidor_id = (data.get("consumidor_id") or "").strip()
     cupom_id = (data.get("cupom_id") or "").strip()
     boas_vindas = bool(data.get("boas_vindas"))
+    condicao_extra = (data.get("condicao_extra") or "").strip()
     if not consumidor_id or not cupom_id:
         return jsonify({"ok": False, "erro": "consumidor_id_e_cupom_id_obrigatorios"}), 400
 
@@ -21738,6 +21741,7 @@ def api_cron_enviar_whatsapp_cupom():
         + f"🎟️ Cupom: *{cupom['codigo']}*\n"
         f"💰 Desconto: {valor_label}\n"
         + (f"📅 Válido até: {validade}\n\n" if validade else "\n")
+        + (f"⚠️ {condicao_extra}\n\n" if condicao_extra else "")
         + f"É só aplicar o código *{cupom['codigo']}* na hora de fechar o pedido, direto pelo nosso site "
         f"— o desconto cai automaticamente no valor final:\n"
         f"https://drogariaspoupaqui.com.br\n\n"
