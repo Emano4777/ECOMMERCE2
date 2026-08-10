@@ -63,7 +63,8 @@
         <td style="color:#f0b429;font-weight:800">R$ {{ '%.2f'|format(p.total|float) }}</td>
         <td>
           <form method="post" action="{{ url_for('admin_repasses_marcar_pago_loja', cnpjloja=p.cnpjloja) }}"
-                onsubmit="return confirm('Marcar todos os repasses pendentes de ' + {{ (p.razao or p.cnpjloja) | tojson }} + ' como pagos? Confirme que você já acertou o valor com a loja antes.')">
+                data-loja-nome="{{ p.razao or p.cnpjloja }}"
+                onsubmit="return confirm('Marcar todos os repasses pendentes de ' + this.dataset.lojaNome + ' como pagos? Confirme que você já acertou o valor com a loja antes.')">
             <button type="submit" class="rp-btn"><i class="fa fa-check me-1"></i>Marcar tudo como pago</button>
           </form>
         </td>

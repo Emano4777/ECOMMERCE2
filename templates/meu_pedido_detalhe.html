@@ -634,7 +634,8 @@
         <div style="font-size:.78rem;color:var(--pq-muted);margin-top:4px">{{ pedido.loja_endereco }}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button"
-            onclick="navigator.clipboard.writeText({{ pedido.loja_endereco | tojson }}).then(()=>{this.innerHTML='<i class=\'fa fa-check me-1\'></i>Copiado!';}).catch(()=>alert('Não foi possível copiar.'))"
+            data-endereco="{{ pedido.loja_endereco }}"
+            onclick="navigator.clipboard.writeText(this.dataset.endereco).then(()=>{this.innerHTML='<i class=\'fa fa-check me-1\'></i>Copiado!';}).catch(()=>alert('Não foi possível copiar.'))"
             style="border:1px solid #ddd;border-radius:6px;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;background:#fff;font-family:inherit">
             <i class="fa fa-copy me-1"></i>Copiar endereço
           </button>
