@@ -447,6 +447,23 @@ $('#frmCadastro').addEventListener('submit', async function(e) {
     }
     $('#endereco_lat').value = res.lat;
     $('#endereco_lng').value = res.lon;
+
+    // Aviso (nao bloqueia) quando o endereco fica fora da area de
+    // atendimento das lojas ativas — cliente pode confirmar e criar a
+    // conta mesmo assim se quiser.
+    try {
+      const cobertura = await fetch(`/api/home/curva-a?lat=${encodeURIComponent(res.lat)}&lng=${encodeURIComponent(res.lon)}`);
+      const cd = await cobertura.json();
+      if (cd.sem_farmacia_proxima) {
+        const confirmarDistante = confirm('Esse endereço parece estar longe da nossa área de atendimento atual. Você ainda pode criar a conta, mas pode não fazer sentido pedir entrega ou retirada dessa distância. Deseja continuar mesmo assim?');
+        if (!confirmarDistante) {
+          btn.disabled = false;
+          btn.textContent = 'Criar conta';
+          return;
+        }
+      }
+    } catch (_) {}
+
     $$('[data-side-step]').forEach(el => {
       const n = Number(el.dataset.sideStep);
       el.classList.toggle('is-active', n === 3);

@@ -14740,7 +14740,7 @@ def meu_pedido_detalhe(pedido_id):
         """
         SELECT p.*, u.razao, u.telefone, u.endereco,
                u.endereco2 AS loja_endereco,
-               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url
+               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
         FROM ecommerce_pedidos p
         JOIN users u ON u.cnpjloja = p.cnpjloja
         LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -14756,7 +14756,7 @@ def meu_pedido_detalhe(pedido_id):
             """
             SELECT p.*, u.razao, u.telefone, u.endereco,
                    u.endereco2 AS loja_endereco,
-                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url
+                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
             FROM ecommerce_pedidos p
             JOIN users u ON u.cnpjloja = p.cnpjloja
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -14779,7 +14779,7 @@ def meu_pedido_detalhe(pedido_id):
             """
             SELECT p.*, u.razao, u.telefone,
                    u.endereco2 AS loja_endereco,
-                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url
+                   c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
             FROM ecommerce_pedidos p
             JOIN users u ON u.cnpjloja = p.cnpjloja
             LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -14813,6 +14813,19 @@ def meu_pedido_detalhe(pedido_id):
     cur.close()
     pedido = dict(pedido)
     pedido["razao"] = _public_store_name(pedido)
+    # mp_customer_id habilita o Brick a listar cartoes salvos do cliente na
+    # tela de retomar pagamento — so busca quando o pedido de fato ainda
+    # pode ser pago por cartao (evita chamada a toa na API do Mercado Pago).
+    mp_access_token = pedido.pop("mp_access_token", None)
+    if (
+        mp_access_token
+        and pedido.get("forma_pagamento") == "mercadopago"
+        and (pedido.get("pagamento_status") or "").lower() != "approved"
+    ):
+        pedido["mp_customer_id"] = _obter_ou_criar_mp_customer(
+            mp_access_token, session["consumidor_id"], pedido.get("cnpjloja"),
+            {"nome": pedido.get("cliente_nome") or "", "email": pedido.get("cliente_email") or ""},
+        )
     if pedido.get("data_entrega_agendada"):
         _data_ag = pedido["data_entrega_agendada"]
         _dia_ag = (_data_ag.weekday() + 1) % 7
@@ -17522,7 +17535,7 @@ def pedido_confirmacao():
                        p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
                        p.receita_status,
                        u.razao, u.telefone,
-                       c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_access_token
+                       c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
                 FROM ecommerce_pedidos p
                 JOIN users u ON u.cnpjloja = p.cnpjloja
                 LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
@@ -17552,7 +17565,7 @@ def pedido_confirmacao():
                                p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
                                p.receita_status,
                                u.razao, u.telefone,
-                               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_access_token
+                               c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
                         FROM ecommerce_pedidos p
                         JOIN users u ON u.cnpjloja = p.cnpjloja
                         LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja

@@ -448,10 +448,10 @@
         {% if pedido.receita_status == 'aprovada' %}
         <div style="font-size:.82rem;font-weight:800;color:#3730a3;margin-bottom:10px"><i class="fa fa-circle-check me-1" style="color:#16a34a"></i>Receita aprovada — clique abaixo para pagar</div>
         {% endif %}
-        <a href="{{ pedido.mp_init_point }}" target="_blank"
-           style="display:inline-flex;align-items:center;gap:8px;background:#009ee3;color:#fff;border-radius:10px;padding:10px 18px;font-weight:800;text-decoration:none;font-size:.88rem">
+        <button type="button" onclick="openMpCardBrick(_mpPedidoAtual)"
+           style="display:inline-flex;align-items:center;gap:8px;background:#009ee3;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-weight:800;cursor:pointer;font-size:.88rem;font-family:inherit">
           <i class="fa fa-credit-card"></i>Pagar com cartão
-        </a>
+        </button>
       </div>
       {% endif %}
     {% endif %}
@@ -705,11 +705,239 @@
     <div class="pq-recs-track" id="det-crosssell-track"></div>
   </div>
 </section>
+
+{# Modal do formulario de cartao (Mercado Pago Brick) — mesma logica do
+   carrinho, pra "Pagar com cartao" aqui reabrir o pagamento transparente
+   em vez de so linkar pro checkout redirecionado do Mercado Pago. #}
+<div id="mp-card-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(15,23,42,.58);align-items:center;justify-content:center;padding:18px">
+  <div style="width:min(520px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:12px;box-shadow:0 18px 60px rgba(15,23,42,.28);border:1px solid #e5e7eb">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #eef2f7">
+      <div>
+        <div style="font-size:.78rem;color:#64748b;font-weight:800;text-transform:uppercase">Pagamento seguro</div>
+        <div id="mp-card-title" style="font-size:1.05rem;font-weight:900;color:#111827">Cartão</div>
+      </div>
+      <button type="button" onclick="closeMpCardModal()" style="width:34px;height:34px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#64748b;cursor:pointer"><i class="fa fa-xmark"></i></button>
+    </div>
+    <div style="padding:18px">
+      <div style="display:grid;grid-template-columns:112px 1fr;gap:10px;margin-bottom:14px">
+        <label style="display:block">
+          <span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">Documento</span>
+          <select id="mp-doc-type" style="width:100%;height:42px;border:1px solid #d1d5db;border-radius:8px;padding:0 10px;font:inherit;font-weight:700;color:#111827;background:#fff">
+            <option value="CPF">CPF</option>
+            <option value="CNPJ">CNPJ</option>
+          </select>
+        </label>
+        <label style="display:block">
+          <span style="display:block;font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:5px">CPF/CNPJ do pagador</span>
+          <input id="mp-doc-number" inputmode="numeric" autocomplete="off" maxlength="18" placeholder="Somente numeros"
+                 style="width:100%;height:42px;border:1px solid #d1d5db;border-radius:8px;padding:0 12px;font:inherit;color:#111827">
+        </label>
+      </div>
+      <div id="mp-card-brick"></div>
+      <div id="mp-card-msg" style="display:none;margin-top:12px;border-radius:9px;padding:10px 12px;font-size:.82rem;font-weight:800"></div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>window.PQ_SUPORTE_PEDIDO_ID = "{{ pedido.id }}";</script>
 <script>
+/* ── Pagamento por cartão (Mercado Pago Brick) — mesma logica do carrinho,
+   pra "Pagar com cartão" reabrir o formulario transparente em vez de so
+   linkar pro checkout redirecionado. ── */
+const CONSUMIDOR_EMAIL = {{ (consumidor.email if consumidor else '')|tojson }};
+const _mpPedidoAtual = {{ {
+  'id': pedido.id,
+  'mp_public_key': pedido.mp_public_key or '',
+  'mp_init_point': pedido.mp_init_point or '',
+  'mp_customer_id': pedido.mp_customer_id or '',
+  'total': pedido.total|float,
+  'razao': pedido.razao or '',
+} | tojson }};
+let _mpBrickController = null;
+
+function onlyDigits(v) {
+  return String(v || '').replace(/\D+/g, '');
+}
+function escHtml(v) {
+  return String(v || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function closeMpCardModal() {
+  document.getElementById('mp-card-modal').style.display = 'none';
+  try { _mpBrickController?.unmount?.(); } catch {}
+  _mpBrickController = null;
+  const box = document.getElementById('mp-card-brick');
+  if (box) box.innerHTML = '';
+}
+function setMpCardMsg(text, ok=false) {
+  const el = document.getElementById('mp-card-msg');
+  el.style.display = '';
+  el.style.background = ok ? '#dcfce7' : '#fef2f2';
+  el.style.color = ok ? '#166534' : '#991b1b';
+  el.textContent = text;
+}
+function getMpPayerIdentification() {
+  const docTypeEl = document.getElementById('mp-doc-type');
+  const docNumberEl = document.getElementById('mp-doc-number');
+  const number = onlyDigits(docNumberEl?.value || '');
+  const type = (docTypeEl?.value || (number.length === 14 ? 'CNPJ' : 'CPF')).toUpperCase();
+  const expected = type === 'CNPJ' ? 14 : 11;
+  if (number.length !== expected) {
+    return {error: `Informe um ${type} valido do pagador.`};
+  }
+  return {type, number};
+}
+function showMpCheckoutFallback(pedido, text) {
+  const msg = document.getElementById('mp-card-msg');
+  if (!msg) return;
+  msg.style.display = '';
+  msg.style.background = '#fffbeb';
+  msg.style.color = '#92400e';
+  const link = pedido?.mp_init_point || '';
+  msg.innerHTML = `
+    <div>${escHtml(text || 'O formulario do cartao nao carregou. Voce pode continuar pelo checkout seguro do Mercado Pago.')}</div>
+    ${link ? `<a href="${escHtml(link)}" style="display:inline-flex;margin-top:10px;padding:10px 14px;border-radius:10px;background:#009ee3;color:#fff;font-weight:900;text-decoration:none">Abrir pagamento seguro</a>` : ''}
+  `;
+}
+async function ensureMercadoPagoSdk() {
+  if (window.MercadoPago) return true;
+  return new Promise((resolve) => {
+    const existing = document.querySelector('script[src*="sdk.mercadopago.com/js/v2"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(!!window.MercadoPago), {once:true});
+      existing.addEventListener('error', () => resolve(false), {once:true});
+      setTimeout(() => resolve(!!window.MercadoPago), 4000);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://sdk.mercadopago.com/js/v2';
+    script.onload = () => resolve(!!window.MercadoPago);
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+}
+async function openMpCardBrick(pedido) {
+  const mpPublicKey = String(pedido?.mp_public_key || '').trim();
+  if (!mpPublicKey) {
+    if (pedido?.mp_init_point) {
+      window.location.href = pedido.mp_init_point;
+      return true;
+    }
+    alert('Nao foi possivel carregar o pagamento por cartao agora. Tente novamente.');
+    return false;
+  }
+  const sdkOk = await ensureMercadoPagoSdk();
+  if (!sdkOk) {
+    if (pedido?.mp_init_point) {
+      window.location.href = pedido.mp_init_point;
+      return true;
+    }
+    alert('SDK do Mercado Pago nao carregou. Verifique sua conexao e tente novamente.');
+    return false;
+  }
+  let fallbackTimer = null;
+  try {
+    closeMpCardModal();
+    document.getElementById('mp-card-title').textContent = `${pedido.razao || 'Farmácia'} · ${brlGlobal(pedido.total)}`;
+    document.getElementById('mp-card-modal').style.display = 'flex';
+    document.getElementById('mp-card-msg').style.display = 'none';
+    const brickBox = document.getElementById('mp-card-brick');
+    if (brickBox) {
+      brickBox.innerHTML = '';
+    }
+    setMpCardMsg('Carregando formulario do cartao...', true);
+    fallbackTimer = setTimeout(() => {
+      const hasBrick = !!document.querySelector('#mp-card-brick iframe, #mp-card-brick input, #mp-card-brick button');
+      if (!hasBrick) {
+        showMpCheckoutFallback(pedido, 'O formulario do cartao demorou para carregar. Voce pode continuar pelo checkout seguro do Mercado Pago.');
+      }
+    }, 9000);
+    const mp = new MercadoPago(mpPublicKey, { locale: 'pt-BR' });
+    const bricksBuilder = mp.bricks();
+    _mpBrickController = await bricksBuilder.create('cardPayment', 'mp-card-brick', {
+      initialization: {
+        amount: Number(pedido.total || 0),
+        payer: {
+          email: CONSUMIDOR_EMAIL || undefined,
+          customerId: pedido.mp_customer_id || undefined,
+        },
+      },
+      customization: {
+        paymentMethods: { maxInstallments: 6 },
+      },
+      callbacks: {
+        onReady: () => {
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          document.getElementById('mp-card-msg').style.display = 'none';
+        },
+        onSubmit: (cardFormData) => new Promise((resolve, reject) => {
+          const identification = getMpPayerIdentification();
+          if (identification.error) {
+            setMpCardMsg(identification.error);
+            reject();
+            return;
+          }
+          cardFormData.payer = {
+            ...(cardFormData.payer || {}),
+            email: (cardFormData.payer || {}).email || CONSUMIDOR_EMAIL || undefined,
+            identification: {
+              type: identification.type,
+              number: identification.number,
+            },
+          };
+          fetch(`/api/pedido/${encodeURIComponent(pedido.id)}/cartao-transparente`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(cardFormData),
+          })
+            .then(async r => {
+              const d = await r.json().catch(() => ({}));
+              if (!r.ok || d.error) {
+                throw new Error(d.error || 'Não foi possível processar o cartão agora.');
+              }
+              return d;
+            })
+            .then(d => {
+              if (d.status === 'approved' || d.pedido_status === 'pago') {
+                setMpCardMsg('Pagamento aprovado. Pedido confirmado.', true);
+                setTimeout(() => { window.location.reload(); }, 900);
+                resolve();
+                return;
+              }
+              setMpCardMsg('Pagamento enviado, mas ainda não aprovado: ' + (d.status_detail || d.status || 'pendente'));
+              reject();
+            })
+            .catch((err) => {
+              console.error('Mercado Pago cartão:', err);
+              setMpCardMsg(err.message || 'Não foi possível processar o cartão agora.');
+              reject();
+            });
+        }),
+        onError: (error) => {
+          console.error('Mercado Pago Brick:', error);
+          if (pedido?.mp_init_point) {
+            showMpCheckoutFallback(pedido, error?.message || 'Nao foi possivel carregar o formulario de cartao.');
+          } else {
+            setMpCardMsg(error?.message || 'Erro ao carregar o formulario de cartao.');
+          }
+        },
+      },
+    });
+    return true;
+  } catch (err) {
+    console.error('Mercado Pago Brick init:', err);
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    document.getElementById('mp-card-modal').style.display = 'flex';
+    if (pedido?.mp_init_point) {
+      showMpCheckoutFallback(pedido, err?.message || 'Nao foi possivel iniciar o formulario de cartao.');
+    } else {
+      setMpCardMsg(err?.message || 'Erro ao iniciar o checkout transparente do Mercado Pago.');
+    }
+    return false;
+  }
+}
+
 /* ── Cross-sell IA no detalhe do pedido ─────────────────── */
 let _detRecItems = [];
 function addDetRec(idx, btn) {
