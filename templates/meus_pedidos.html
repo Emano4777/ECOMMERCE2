@@ -407,7 +407,7 @@
             </div>
             <div class="order-store-copy">
               <div class="order-store">{{ p.razao }}</div>
-              <div class="order-id">Pedido #{{ p.id[:8].upper() }} · {{ p.criado_em.strftime('%d/%m/%Y') if p.criado_em else '-' }}</div>
+              <div class="order-id">Pedido #{{ p.id[:8].upper() }} · {{ p.criado_em | brt('%d/%m/%Y') if p.criado_em else '-' }}</div>
             </div>
           </div>
           {% if p.atrasado %}

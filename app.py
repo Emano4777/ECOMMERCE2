@@ -14728,7 +14728,7 @@ def _montar_timeline_pedido(pedido):
             "label": fluxo_label[st],
             "done": idx <= atual_idx,
             "atual": idx == atual_idx,
-            "timestamp_label": ts.strftime("%d/%m · %H:%M") if ts else None,
+            "timestamp_label": _filter_brt(ts, "%d/%m · %H:%M") if ts else None,
         })
     return passos
 

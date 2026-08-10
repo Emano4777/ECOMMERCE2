@@ -250,7 +250,7 @@
       <div>
         <div class="store">{{ pedido.razao }}</div>
         <div class="meta">
-          <span>{{ pedido.criado_em.strftime('%d/%m/%Y %H:%M') if pedido.criado_em else '' }}</span>
+          <span>{{ pedido.criado_em | brt if pedido.criado_em else '' }}</span>
           <span>{{ 'Cartão' if pedido.forma_pagamento == 'mercadopago' else pedido.forma_pagamento|capitalize }}</span>
         </div>
       </div>
@@ -385,7 +385,7 @@
           <div style="font-weight:900;color:#166534;margin-bottom:2px">Receita aprovada!</div>
           <div style="font-size:.84rem;color:#166534">Sua receita foi validada pela farmácia. A entrega está liberada.
             {% if pedido.receita_avaliada_em %}
-              <span style="font-size:.76rem;opacity:.75"> — Avaliada em {{ pedido.receita_avaliada_em.strftime('%d/%m/%Y %H:%M') }}</span>
+              <span style="font-size:.76rem;opacity:.75"> — Avaliada em {{ pedido.receita_avaliada_em | brt }}</span>
             {% endif %}
           </div>
         </div>
@@ -664,14 +664,14 @@
         <div class="pd-side-paid-tag">
           <i class="fa fa-{{ 'check-circle' if pedido.status not in ('pendente',) else 'clock' }}"></i>
           {{ 'Cartão' if pedido.forma_pagamento == 'mercadopago' else pedido.forma_pagamento|capitalize }}
-          {% if pedido.pagamento_confirmado_em %} — {{ pedido.pagamento_confirmado_em.strftime('%d/%m/%Y') }}{% endif %}
+          {% if pedido.pagamento_confirmado_em %} — {{ pedido.pagamento_confirmado_em | brt('%d/%m/%Y') }}{% endif %}
         </div>
       </div>
 
       <div class="pd-side-card">
         <h4><i class="fa fa-circle-question"></i>Precisa de ajuda?</h4>
         <div style="font-size:.82rem;color:var(--pq-muted);margin-bottom:12px">Fale com a farmácia ou reporte um problema com este pedido.</div>
-        <button type="button" class="pd-help-btn" onclick="document.getElementById('form-reclamacao')?.classList.remove('hidden');document.getElementById('form-reclamacao')?.scrollIntoView({behavior:'smooth'})">
+        <button type="button" class="pd-help-btn" onclick="abrirAjudaPedido()">
           <i class="fa fa-triangle-exclamation me-1"></i>Tive um problema com este pedido
         </button>
       </div>
@@ -743,6 +743,20 @@
 {% block extra_js %}
 <script>window.PQ_SUPORTE_PEDIDO_ID = "{{ pedido.id }}";</script>
 <script>
+function abrirAjudaPedido() {
+  // O formulario de reclamacao (#form-reclamacao) so existe na pagina pra
+  // pedidos pago/enviado/entregue/atrasado — pra qualquer outro status (ex:
+  // pendente, ainda aguardando pagamento) o botao nao tinha pra onde ir e
+  // clicar nao fazia nada. Sem o formulario, abre o chat de suporte.
+  const form = document.getElementById('form-reclamacao');
+  if (form) {
+    form.classList.remove('hidden');
+    form.scrollIntoView({behavior:'smooth'});
+  } else if (typeof window.pqSuporteToggle === 'function') {
+    window.pqSuporteToggle();
+  }
+}
+
 /* ── Pagamento por cartão (Mercado Pago Brick) — mesma logica do carrinho,
    pra "Pagar com cartão" reabrir o formulario transparente em vez de so
    linkar pro checkout redirecionado. ── */
