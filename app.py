@@ -15747,6 +15747,15 @@ def api_checkout():
                         for item in itens
                         if (item.get("ean") or "").strip() in escopo_eans_set
                     )
+                elif escopo_c == "produto_exceto" and escopo_eans_set:
+                    # Cupom so vale pra produtos DIFERENTES dos listados em
+                    # escopo_eans (ex: incentivo pra comprar algo novo, nao so
+                    # repetir o mesmo item de uma compra anterior).
+                    applicable_total = sum(
+                        float(item.get("preco", 0)) * int(item.get("qty", 1))
+                        for item in itens
+                        if (item.get("ean") or "").strip() not in escopo_eans_set
+                    )
                 else:
                     applicable_total = produtos_total
                 if cupom["desconto_tipo"] == "pct":
