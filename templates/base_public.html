@@ -1341,7 +1341,7 @@
         <label style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase">Complemento
           <input id="loc-complemento" type="text" maxlength="160" placeholder="Apto, bloco, referência" style="display:block;width:100%;margin-top:5px;height:38px;border:1px solid #ddd4d1;border-radius:8px;padding:0 10px;font:inherit;box-sizing:border-box">
         </label>
-        <label style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase">Número
+        <label style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase">Número <span id="loc-numero-opcional" style="text-transform:none;font-weight:700;color:#a39a97;display:none">(opcional pra só navegar)</span>
           <input id="loc-numero" type="text" maxlength="30" placeholder="Nº" inputmode="numeric" style="display:block;width:100%;margin-top:5px;height:38px;border:1px solid #ddd4d1;border-radius:8px;padding:0 10px;font:inherit;box-sizing:border-box">
         </label>
       </div>
@@ -1809,6 +1809,8 @@ function abrirConfirmacaoEndereco(d, formatted) {
   document.getElementById('loc-complemento').value = '';
   document.getElementById('loc-confirm-base').textContent = formatted.label || d.display_name || '';
   document.getElementById('loc-save-status').textContent = '';
+  const numeroOpcional = document.getElementById('loc-numero-opcional');
+  if (numeroOpcional) numeroOpcional.style.display = LOC_USER_LOGGED ? 'none' : 'inline';
   document.getElementById('loc-search-step').style.display = 'none';
   document.getElementById('loc-confirm-step').style.display = '';
   document.querySelectorAll('[data-address-type]').forEach(b => b.classList.toggle('active', b.dataset.addressType === 'casa'));
@@ -1831,10 +1833,14 @@ async function salvarEnderecoConfirmado() {
   const numero = document.getElementById('loc-numero').value.trim();
   const complemento = document.getElementById('loc-complemento').value.trim();
   const status = document.getElementById('loc-save-status');
-  if (!numero) { status.textContent = 'Informe o número do endereço.'; document.getElementById('loc-numero').focus(); return; }
+  // Numero so e obrigatorio quando isso vai virar endereco salvo na conta
+  // (LOC_USER_LOGGED) — pra so navegar/ver produtos por proximidade, cidade
+  // e bairro ja bastam. Numero exato so importa de verdade na hora de
+  // calcular frete/checkout, onde ja existe validacao propria e completa.
+  if (LOC_USER_LOGGED && !numero) { status.textContent = 'Informe o número do endereço.'; document.getElementById('loc-numero').focus(); return; }
   const p = _pendingAddress;
   const rua = p.road || p.baseLabel.split(' - ')[0].replace(/,\s*\d+.*$/, '');
-  const endereco = [rua && `${rua}, ${numero}`, complemento, p.bairro, [p.cidade,p.uf].filter(Boolean).join('/'), p.cep && `CEP ${p.cep}`].filter(Boolean).join(' - ');
+  const endereco = [rua && (numero ? `${rua}, ${numero}` : rua), complemento, p.bairro, [p.cidade,p.uf].filter(Boolean).join('/'), p.cep && `CEP ${p.cep}`].filter(Boolean).join(' - ');
   const btn = document.getElementById('loc-save-btn');
   btn.disabled = true; btn.textContent = 'Salvando...'; status.textContent = '';
   let lat = p.lat, lng = p.lng;
