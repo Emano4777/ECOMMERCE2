@@ -356,6 +356,15 @@
     Minha cesta <small id="cart-title-count"></small>
   </div>
 
+  <div id="pedido-pendente-aviso" style="display:none;margin-bottom:16px;background:#fffbe6;border:1.5px solid #fbbf24;border-radius:12px;padding:14px 16px;align-items:center;gap:12px;flex-wrap:wrap">
+    <i class="fa fa-triangle-exclamation" style="color:#b45309;font-size:1.1rem;flex-shrink:0"></i>
+    <div style="flex:1;min-width:200px">
+      <div style="font-weight:800;font-size:.9rem;color:#78350f" id="pedido-pendente-texto">Você já tem um pedido aguardando pagamento.</div>
+      <div style="font-size:.8rem;color:#92400e">Você pode retomar o pagamento dele em vez de criar um pedido novo — ou seguir e criar outro mesmo assim, sem problema.</div>
+    </div>
+    <a id="pedido-pendente-link" href="#" style="background:#b45309;color:#fff;border-radius:8px;padding:9px 16px;font-weight:800;font-size:.82rem;text-decoration:none;white-space:nowrap">Ver esse pedido</a>
+  </div>
+
   <div class="cart-layout">
     <main class="cart-main">
       <div id="cart-container">
@@ -992,6 +1001,10 @@ async function openMpCardBrick(pedido) {
         amount: Number(pedido.total || 0),
         payer: {
           email: CONSUMIDOR_EMAIL || undefined,
+          // Com customerId, o Brick lista automaticamente os cartoes ja
+          // salvos desse cliente nessa loja — ele so digita o CVV em vez
+          // de preencher tudo de novo.
+          customerId: pedido.mp_customer_id || undefined,
         },
       },
       customization: {
@@ -2153,6 +2166,22 @@ async function finalizarPedido() {
   await carregarEnderecosCheckout();
   await carregarConfigLojas();
   renderCart();
+  verificarPedidoPendente();
 })();
+
+async function verificarPedidoPendente() {
+  try {
+    const r = await fetch('/api/meu-pedido-pendente');
+    if (!r.ok) return;
+    const data = await r.json();
+    const pedido = data.pedido;
+    const box = document.getElementById('pedido-pendente-aviso');
+    if (!pedido || !box) return;
+    document.getElementById('pedido-pendente-texto').textContent =
+      `Você já tem um pedido aguardando pagamento na ${pedido.razao || 'farmácia'} (${brl(pedido.total)}).`;
+    document.getElementById('pedido-pendente-link').href = pedido.url;
+    box.style.display = 'flex';
+  } catch {}
+}
 </script>
 {% endblock %}

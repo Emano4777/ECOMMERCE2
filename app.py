@@ -14183,6 +14183,51 @@ def consumidor_logout():
     return redirect(url_for("index"))
 
 
+@app.get("/api/meu-pedido-pendente")
+def api_meu_pedido_pendente():
+    """Pedido mais recente do cliente logado ainda aguardando pagamento —
+    usado no carrinho pra avisar antes de criar outro pedido em vez de
+    retomar o pagamento do que ja existe."""
+    if not session.get("consumidor_id"):
+        return jsonify({"pedido": None})
+    cnpjloja = (request.args.get("cnpjloja") or "").strip()
+    conn = db()
+    cur = conn.cursor()
+    params = [session["consumidor_id"]]
+    extra_sql = ""
+    if cnpjloja:
+        extra_sql = "AND p.cnpjloja = %s"
+        params.append(cnpjloja)
+    cur.execute(
+        f"""
+        SELECT p.id, p.total, p.forma_pagamento, p.criado_em, u.razao
+        FROM ecommerce_pedidos p
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        WHERE p.consumidor_id = %s
+          AND p.status = 'pendente'
+          AND COALESCE(p.pagamento_status, '') NOT IN ('approved', 'pago')
+          {extra_sql}
+        ORDER BY p.criado_em DESC
+        LIMIT 1
+        """,
+        params,
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"pedido": None})
+    row = dict(row)
+    return jsonify({
+        "pedido": {
+            "id": row["id"],
+            "total": float(row["total"] or 0),
+            "forma_pagamento": row.get("forma_pagamento") or "",
+            "razao": _public_store_name(row),
+            "url": url_for("meu_pedido_detalhe", pedido_id=row["id"]),
+        }
+    })
+
+
 @app.get("/meus-pedidos")
 @_consumer_required
 def meus_pedidos():
@@ -16040,6 +16085,7 @@ def api_checkout():
             or (gateway_pagamento == "asaas" and bool(loja.get("asaas_api_key")))
             or (gateway_pagamento == "pagbank" and bool(loja.get("pagbank_token")) and bool(loja.get("pagbank_public_key")))
         )
+        mp_customer_id_checkout = None
         if receita_status == "pendente":
             pass  # pagamento criado apenas após aprovação da receita
         elif pagamento == "mercadopago" and gateway_pagamento == "asaas" and loja.get("asaas_api_key"):
@@ -16093,6 +16139,14 @@ def api_checkout():
         elif pagamento == "pix" and gateway_pagamento != "mercadopago":
             pix_erro = f"Gateway {gateway_pagamento} configurado, mas o PIX automático deste gateway ainda não está ativo."
         elif pagamento == "mercadopago" and loja.get("mp_access_token"):
+            if loja.get("mp_public_key"):
+                # So busca/cria o Customer quando ha public key (Brick
+                # transparente ativo) — e o que permite o Brick listar
+                # cartoes salvos do cliente pra ele nao precisar redigitar
+                # toda vez.
+                mp_customer_id_checkout = _obter_ou_criar_mp_customer(
+                    loja["mp_access_token"], session.get("consumidor_id"), cnpjloja, cliente
+                )
             mp_pref = _criar_preferencia_mp(
                 loja["mp_access_token"], pedido_id, itens, total, cliente
             )
@@ -16180,6 +16234,7 @@ def api_checkout():
             "pix_nome":     loja["pix_nome"]  or "",
             "mp_init_point":mp_init,
             "mp_public_key": loja.get("mp_public_key") or "",
+            "mp_customer_id": mp_customer_id_checkout or "",
             "gateway_pagamento": gateway_pagamento,
             "gateway_habilitado": gateway_habilitado,
             "mp_erro":      mp_erro,
@@ -16256,7 +16311,7 @@ def api_pedido_cartao_transparente(pedido_id):
     }
     consumidor_id = str(row.get("consumidor_id") or "")
     cnpjloja = str(row.get("cnpjloja") or "")
-    mp_customer_id = None
+    mp_customer_id = _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
     pay = _criar_pagamento_cartao_mp(row["mp_access_token"], pedido_id, row["total"], cliente, data, mp_customer_id)
     erro = pay.get("_erro") if isinstance(pay, dict) else None
     if erro:
@@ -16278,6 +16333,11 @@ def api_pedido_cartao_transparente(pedido_id):
         """,
         (str(pay.get("id") or ""), status, detail, pedido_status, pedido_status, pedido_id),
     )
+    if mp_customer_id and status in ("approved", "in_process"):
+        # Salva o cartao pro cliente nao precisar redigitar na proxima compra
+        # dessa loja — so quando o pagamento foi de fato aceito/processado
+        # (nao salva cartao de pagamento rejeitado).
+        _registrar_cartao_de_pagamento(conn, pay, consumidor_id, cnpjloja)
     conn.commit()
     cur.close()
     _registrar_status_pedido(pedido_id, pedido_status)
