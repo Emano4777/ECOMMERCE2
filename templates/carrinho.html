@@ -1803,6 +1803,10 @@ function _calcApplicableTotal(cnpjloja, codigo) {
       if (!escCats.includes(cat)) return s;
     } else if (escopo === 'produto') {
       if (!escEans.includes((i.ean || '').trim())) return s;
+    } else if (escopo === 'produto_exceto') {
+      // Cupom vale pra tudo MENOS os EANs listados (ex: incentivo a comprar
+      // algo diferente do que ja levou) — oposto do escopo 'produto'.
+      if (escEans.includes((i.ean || '').trim())) return s;
     }
     return s + (parseFloat(i.preco||0) * (i.qty||1));
   }, 0);
@@ -1837,6 +1841,7 @@ async function aplicarCupom(cnpjloja) {
         const esc = d.escopo || 'todos';
         if (esc === 'categoria') return ` (categorias: ${d.escopo_categorias || '?'})`;
         if (esc === 'produto') return ' (produtos específicos)';
+        if (esc === 'produto_exceto') return ' (só vale se levar outro item além do já indicado)';
         return '';
       })();
       _cupomAplicado[cnpjloja] = {
