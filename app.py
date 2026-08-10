@@ -9875,7 +9875,7 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
                 SELECT DISTINCT ON (LTRIM(e.barras,'0'))
                     e.barras AS ean,
                     COALESCE(m.descricao, e.descricao) AS nome,
-                    COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
+                    COALESCE(apimg.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
                     e.cnpj AS cnpjloja, u.razao,
                     COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
                 FROM estoque e
@@ -9885,6 +9885,8 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
                     AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
                 LEFT JOIN users u ON u.cnpjloja = e.cnpj
                 LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
+                LEFT JOIN ecommerce_alpha_produtos apimg ON apimg.cnpjloja = e.cnpj AND LTRIM(COALESCE(apimg.ean,''),'0') = LTRIM(e.barras,'0')
+                LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = e.cnpj AND LTRIM(COALESCE(epi.ean,''),'0') = LTRIM(e.barras,'0')
                 WHERE {conds} AND e.estoque > 0 AND u.is_admin = FALSE {cnpj_filt}
                 ORDER BY LTRIM(e.barras,'0') LIMIT 1
             """, params)
