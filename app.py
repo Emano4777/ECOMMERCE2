@@ -7608,6 +7608,7 @@ def api_vitnatu_produtos():
     conn = db()
     cur  = conn.cursor()
     proximas, loja_info = [], {}
+    geo_encontrado = False
 
     if not sem_loc:
         cur.execute("""
@@ -7620,6 +7621,7 @@ def api_vitnatu_produtos():
         """)
         geo = cur.fetchall()
         if geo:
+            geo_encontrado = True
             dists = []
             for l in geo:
                 lat_l, lng_l = _geo_override(l.get("endereco"), l.get("endereco2"), l.get("uf"))
@@ -7628,10 +7630,14 @@ def api_vitnatu_produtos():
                 dists.append({**dict(l), "lat": lat_l, "lng": lng_l,
                                "distancia_km": round(haversine(lat_usr, lng_usr, lat_l, lng_l), 2)})
             dists.sort(key=lambda x: x["distancia_km"])
-            proximas = [l for l in dists if l["distancia_km"] <= 60] or dists[:5]
+            # So mostra loja fora do raio de 60km quando NENHUMA loja tem geo
+            # cadastrado (fallback abaixo) — com localizacao real informada e
+            # nada perto, o certo e nao mostrar nenhum produto "perto de voce",
+            # nao empurrar a loja mais proxima mesmo estando a centenas de km.
+            proximas = [l for l in dists if l["distancia_km"] <= 60]
             loja_info = {l["cnpjloja"]: l for l in proximas}
 
-    if not proximas:
+    if not proximas and (sem_loc or not geo_encontrado):
         cur.execute("""
             SELECT u.cnpjloja, u.razao, u.endereco
             FROM users u
