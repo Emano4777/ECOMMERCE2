@@ -14086,6 +14086,41 @@ def consumidor_login_post():
     return redirect(next_url)
 
 
+@app.get("/painel/admin/consumidor/<consumidor_id>/entrar-como")
+@admin_required
+def admin_entrar_como_consumidor(consumidor_id):
+    """Loga o admin como esse cliente no site publico (mesma sessao/navegador),
+    pra suporte poder ver exatamente o que o cliente ve (ex: tela de Meus
+    Pedidos). Nao mexe nas chaves de sessao do painel (painel_ok/is_admin),
+    entao o admin continua logado no painel tambem — so precisa deslogar da
+    conta de cliente (via /sair) pra encerrar a visualizacao."""
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, nome, email, telefone, documento, endereco, endereco_lat, endereco_lng
+        FROM ecommerce_consumidores WHERE id = %s
+        """,
+        (consumidor_id,),
+    )
+    user = cur.fetchone()
+    cur.close()
+    if not user:
+        flash("Cliente não encontrado.", "error")
+        return redirect(url_for("painel_home"))
+    session["consumidor_id"] = str(user["id"])
+    session["consumidor_nome"] = user["nome"]
+    session["consumidor_email"] = user["email"]
+    session["consumidor_telefone"] = user["telefone"]
+    session["consumidor_documento"] = user.get("documento") or ""
+    session["consumidor_endereco"] = user.get("endereco") or ""
+    session["consumidor_lat"] = user.get("endereco_lat")
+    session["consumidor_lng"] = user.get("endereco_lng")
+    session["email_verificado"] = True
+    flash(f"Visualizando o site como {user['nome']}. Para sair, use 'Sair' no menu do cliente.", "success")
+    return redirect(url_for("meus_pedidos"))
+
+
 @app.get("/criar-conta")
 def consumidor_criar_conta():
     if session.get("consumidor_id"):
