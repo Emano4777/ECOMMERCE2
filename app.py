@@ -9818,7 +9818,7 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
     prompt = (
         f"Histórico de compras do cliente: {', '.join(historico_nomes[:8])}\n\n"
         f"Catálogo disponível:\n" + "\n".join(catalogo_sample[:80]) + "\n\n"
-        f"Sugira EXATAMENTE 4 produtos do catálogo mais relevantes para este cliente "
+        f"Sugira EXATAMENTE 10 produtos do catálogo mais relevantes para este cliente "
         f"(itens que ele provavelmente compra com frequência ou pode precisar repor). "
         f"Não sugira medicamentos tarjados, controlados ou que exijam receita médica.\n"
         f"Crie também uma frase curta (máx 15 palavras) em português, amigável, sobre CONVENIÊNCIA "
@@ -9832,7 +9832,7 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
     )
     body = json.dumps({
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 300,
+        "max_tokens": 500,
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -9855,7 +9855,7 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
                 raw = raw[4:]
         _parsed = json.loads(raw.strip())
         mensagem_ia = (_parsed.get("mensagem") or "").strip()
-        sugestoes_nomes = _parsed.get("sugestoes", [])[:4]
+        sugestoes_nomes = _parsed.get("sugestoes", [])[:10]
     except Exception as exc:
         app.logger.warning(f"cross_sell claude error: {exc}")
         cur.close()

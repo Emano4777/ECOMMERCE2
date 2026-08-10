@@ -335,7 +335,7 @@ async function carregarRecsConfirmacao() {
     const r = await fetch('/api/recomendacoes', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({cnpjlojas, limit:8, itens:itensConfirmacao})
+      body: JSON.stringify({cnpjlojas, limit:20, itens:itensConfirmacao})
     });
     const data = await r.json();
     const produtos = data.produtos || [];

@@ -743,7 +743,7 @@ async function carregarRecomendacoesCarrinho() {
     const r = await fetch('/api/recomendacoes', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({cnpjlojas, limit:8, itens:cart.map(i => ({ean:i.ean, nome:i.nome, cnpjloja:i.cnpjloja}))})
+      body: JSON.stringify({cnpjlojas, limit:20, itens:cart.map(i => ({ean:i.ean, nome:i.nome, cnpjloja:i.cnpjloja}))})
     });
     const data = await r.json();
     const produtos = data.produtos || [];
@@ -803,7 +803,7 @@ async function carregarRelacionadosCarrinho() {
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         cnpjlojas,
-        limit:8,
+        limit:20,
         itens:cart.map(i => ({ean:i.ean, nome:i.nome, cnpjloja:i.cnpjloja})),
         excluir_eans:_cartRecItems.map(p => p.ean).filter(Boolean)
       })
