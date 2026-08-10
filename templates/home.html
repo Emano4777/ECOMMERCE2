@@ -1031,6 +1031,21 @@
   </section>
 
 
+  {# ── Mais vendidos da loja ── #}
+  <section class="home-section" id="sec-mais-vendidos" style="display:none">
+    <div class="home-section-head">
+      <div>
+        <h2 class="home-title"><i class="fa fa-ranking-star" style="color:var(--pq-red);font-size:1.1rem;margin-right:6px;vertical-align:middle"></i>Mais vendidos da loja</h2>
+        <div class="home-sub">Os queridinhos de quem compra aqui.</div>
+      </div>
+    </div>
+    <div class="home-row-wrap">
+      <button class="home-row-cnav home-row-cnav--prev" onclick="_homeCarouselNav('home-mais-vendidos',-1)" aria-label="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="home-mais-vendidos" class="home-row"></div>
+      <button class="home-row-cnav home-row-cnav--next" onclick="_homeCarouselNav('home-mais-vendidos',1)" aria-label="Próximo"><i class="fa fa-chevron-right"></i></button>
+    </div>
+  </section>
+
   {# ── Comprar novamente ── #}
   <section class="home-section" id="sec-comprar-novamente" style="display:none">
     <div class="home-section-head">
@@ -1276,12 +1291,26 @@ function _renderAchadosFallback(produtos, opts) {
   achadosEl.innerHTML = lista.map(p => prodCard(p, '')).join('');
   secAchados.style.display = '';
   setTimeout(() => _homeCarousel('home-achados'), 50);
+  renderMaisVendidos(produtos);
   return true;
+}
+function renderMaisVendidos(produtos) {
+  // Nao reordena por preco (como o achados/Ofertas Relampago faz) — mantem
+  // a ordem que ja vem do backend, que e por score de venda (curva A).
+  const el = document.getElementById('home-mais-vendidos');
+  const sec = document.getElementById('sec-mais-vendidos');
+  if (!el || !sec) return;
+  const lista = (produtos || []).filter(p => p.imagem && parseFloat(p.preco) > 0).slice(0, 20);
+  if (!lista.length) { sec.style.display = 'none'; return; }
+  el.innerHTML = lista.map(p => prodCard(p, '')).join('');
+  sec.style.display = '';
+  setTimeout(() => _homeCarousel('home-mais-vendidos'), 50);
 }
 function renderHomeProdutos(produtos, opts){
   const validos = produtos.filter(p => p.imagem && parseFloat(p.preco) > 0);
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
+  renderMaisVendidos(produtos);
   if (validos.length) {
     _setAchadosCopy(opts && opts.rede ? 'rede' : 'normal');
     achadosEl.innerHTML = validos.slice().sort((a,b)=>parseFloat(a.preco)-parseFloat(b.preco)).slice(0,10).map(p => prodCard(p, '')).join('');

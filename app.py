@@ -11062,6 +11062,21 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
             rows = [p for p in fallback if _has_catalog_image(p)]
         except Exception:
             rows = []
+    elif len(rows) < limit:
+        # Historico de vendas existe mas nao preenche o limite pedido —
+        # completa com o resto do catalogo (ordenado por qty/preco, sem
+        # score de venda) em vez de devolver um carrossel curto demais.
+        try:
+            existentes = {_ean_key(r.get("ean")) for r in rows}
+            complemento = get_alpha_products_direct(cnpjs, limit=limit * 6) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
+            complemento = [
+                p for p in complemento
+                if _ean_key(p.get("ean")) not in existentes and _has_catalog_image(p) and float(p.get("preco") or 0) > 0
+            ]
+            complemento = _curve_a_sort_products(complemento, sales_scores)
+            rows = rows + complemento[: limit - len(rows)]
+        except Exception:
+            pass
     try:
         _attach_product_promos(rows)
     except Exception:
