@@ -176,6 +176,73 @@
 }
 .idx-empty i { font-size: 2.2rem; opacity: .3; display: block; margin-bottom: 12px; }
 .idx-empty div { font-size: .9rem; }
+
+/* Estado vazio regional (mesmo padrao do catalogo /catalogo) — sem produto
+   nao pelo termo buscado, mas por nao ter farmacia na regiao. */
+.idx-empty-region {
+  grid-column: 1/-1;
+  background: #fff;
+  border: 1px solid var(--pq-border);
+  border-radius: 18px;
+  box-shadow: var(--pq-shadow);
+  padding: 44px 28px 36px;
+  text-align: center;
+  max-width: 620px;
+  margin: 0 auto;
+}
+.idx-empty-region .er-icon {
+  width: 68px; height: 68px;
+  background: #fff5f7;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 18px;
+  font-size: 1.9rem; color: var(--pq-red);
+}
+.idx-empty-region .er-title {
+  font-size: 1.1rem; font-weight: 900;
+  color: var(--pq-text); margin-bottom: 8px;
+}
+.idx-empty-region .er-sub {
+  font-size: .875rem; color: var(--pq-muted);
+  line-height: 1.6; margin-bottom: 22px;
+  max-width: 440px; margin-left: auto; margin-right: auto;
+}
+.er-lojas-fisicas {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  max-width: 500px; margin: 0 auto 22px; padding: 15px 17px;
+  background: #fff8ec; border: 1.5px solid #f6d79b;
+  border-radius: 12px; text-align: left;
+}
+.er-lojas-fisicas-texto {
+  display: flex; align-items: flex-start; gap: 10px;
+  color: #704b00; font-size: .82rem; line-height: 1.45;
+}
+.er-lojas-fisicas-texto i { color: #d88a00; margin-top: 3px; }
+.er-btn-lojas {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 10px 16px; border-radius: 9px;
+  background: var(--pq-red); color: #fff; text-decoration: none;
+  font-size: .82rem; font-weight: 800; white-space: nowrap;
+  transition: background .15s;
+}
+.er-btn-lojas:hover { background: var(--pq-red-dk); color: #fff; }
+@media(max-width:520px) {
+  .er-lojas-fisicas { flex-direction: column; align-items: stretch; }
+  .er-btn-lojas { width: 100%; }
+}
+.idx-empty-region .er-actions {
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+}
+.er-btn-loc {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 11px 22px; border-radius: 10px;
+  font-size: .88rem; font-weight: 800;
+  cursor: pointer; font-family: inherit;
+  background: #fff; color: var(--pq-red);
+  border: 1.5px solid var(--pq-red);
+  transition: background .15s;
+}
+.er-btn-loc:hover { background: #fff5f7; }
 </style>
 {% endblock %}
 
@@ -318,7 +385,30 @@ function vtLoad(lat, lng) {
         : 'Nenhum produto encontrado';
       const grid = document.getElementById('vt-grid');
       if (!ps.length) {
-        grid.innerHTML = `<div class="idx-empty"><i class="fa fa-box-open"></i><div style="font-weight:800;font-size:1rem;margin-bottom:6px">Nenhum produto encontrado</div><div>Tente usar sua localização ou visite uma farmácia Poupaqui.</div></div>`;
+        // Mesmo padrao visual/mensagem do "sem farmacia na regiao" do
+        // catalogo — nao e "nao achou esse termo", e "nao tem loja perto".
+        grid.innerHTML = `<div class="idx-empty-region">
+          <div class="er-icon"><i class="fa fa-map-location-dot"></i></div>
+          <div class="er-title">Nenhum produto disponível nessa área</div>
+          <div class="er-sub">
+            Sua localização pode não estar precisa, ou esta região ainda não conta
+            com produtos Vitnatu disponíveis no e-commerce.
+          </div>
+          <div class="er-lojas-fisicas">
+            <div class="er-lojas-fisicas-texto">
+              <i class="fa fa-store"></i>
+              <span>Temos outras lojas físicas onde você pode comprar presencialmente.</span>
+            </div>
+            <a class="er-btn-lojas" href="{{ url_for('lojas_vitrine') }}">
+              <i class="fa fa-location-dot"></i>Ver nossas lojas
+            </a>
+          </div>
+          <div class="er-actions">
+            <button class="er-btn-loc" onclick="abrirModalLoc()">
+              <i class="fa fa-location-crosshairs"></i>Alterar localização
+            </button>
+          </div>
+        </div>`;
       } else {
         grid.innerHTML = ps.map((p,i) => vtCard(p,i)).join('');
       }
