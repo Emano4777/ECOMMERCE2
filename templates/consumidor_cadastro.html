@@ -248,6 +248,15 @@ function setInvalid(id, msg) {
   return !msg;
 }
 
+const DDDS_VALIDOS_BR = new Set('11 12 13 14 15 16 17 18 19 21 22 24 27 28 31 32 33 34 35 37 38 41 42 43 44 45 46 47 48 49 51 53 54 55 61 62 63 64 65 66 67 68 69 71 73 74 75 77 79 81 82 83 84 85 86 87 88 89 91 92 93 94 95 96 97 98 99'.split(' '));
+function telefoneValidoBr(d) {
+  if (![10, 11].includes(d.length)) return false;
+  if (new Set(d).size <= 2) return false;
+  if (!DDDS_VALIDOS_BR.has(d.slice(0, 2))) return false;
+  if (d.length === 11) return d[2] === '9';
+  return '2345'.includes(d[2]);
+}
+
 function formatPhone(v) {
   let all = digits(v);
   if (all.length > 11 && all.startsWith('55')) all = all.slice(2);
@@ -315,7 +324,7 @@ function validateStep1() {
   const nome = $('#nome').value.trim();
   const nomeOk = /^[A-Za-zÀ-ÿ' ]+$/.test(nome) && nome.split(/\s+/).filter(p => p.length >= 2).length >= 2;
   const telDigits = digits($('#telefone').value);
-  const telOk = [10, 11].includes(telDigits.length) && new Set(telDigits).size > 2 && (telDigits.length !== 11 || telDigits[2] === '9');
+  const telOk = telefoneValidoBr(telDigits);
   const docOk = validDocumento($('#documento').value);
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('#email').value.trim());
   const senha = $('#senha').value;
