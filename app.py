@@ -2778,9 +2778,23 @@ def _valid_email(email):
     return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email or ""))
 
 
-def _valid_phone(phone):
+def _normalize_phone_br(phone):
     d = _digits(phone)
-    return len(d) in (10, 11) and len(set(d)) > 2
+    if len(d) > 11 and d.startswith("55"):
+        d = d[2:]
+    if len(d) not in (10, 11):
+        return None
+    if len(set(d)) <= 2:
+        return None
+    if len(d) == 11 and d[2] != "9":
+        return None
+    if len(d) == 11:
+        return f"({d[0:2]}) {d[2:7]}-{d[7:11]}"
+    return f"({d[0:2]}) {d[2:6]}-{d[6:10]}"
+
+
+def _valid_phone(phone):
+    return _normalize_phone_br(phone) is not None
 
 
 def _valid_cpf(cpf):
@@ -14176,8 +14190,9 @@ def consumidor_criar_conta_post():
     if not _valid_nome(nome):
         flash("Informe nome e sobrenome reais.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
-    if not _valid_phone(telefone):
-        flash("Informe um WhatsApp válido com DDD.", "error")
+    telefone = _normalize_phone_br(telefone)
+    if not telefone:
+        flash("Informe um WhatsApp válido com DDD (celular com 9 dígitos).", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
     if not _valid_documento(documento):
         flash("Informe CPF ou CNPJ válido.", "error")
@@ -15565,8 +15580,9 @@ def consumidor_perfil_post():
     if not _valid_nome(nome):
         flash("Informe nome e sobrenome reais.", "error")
         return redirect(url_for("consumidor_perfil"))
-    if not _valid_phone(telefone):
-        flash("Informe um WhatsApp válido com DDD.", "error")
+    telefone = _normalize_phone_br(telefone)
+    if not telefone:
+        flash("Informe um WhatsApp válido com DDD (celular com 9 dígitos).", "error")
         return redirect(url_for("consumidor_perfil"))
     if not _valid_documento(documento):
         flash("Informe CPF ou CNPJ válido.", "error")

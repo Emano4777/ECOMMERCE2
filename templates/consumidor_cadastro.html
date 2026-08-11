@@ -249,7 +249,9 @@ function setInvalid(id, msg) {
 }
 
 function formatPhone(v) {
-  const d = digits(v).slice(0, 11);
+  let all = digits(v);
+  if (all.length > 11 && all.startsWith('55')) all = all.slice(2);
+  const d = all.slice(0, 11);
   if (d.length <= 10) return d.replace(/^(\d{0,2})(\d{0,4})(\d{0,4}).*/, (_, a, b, c) => [a && `(${a}`, a && a.length === 2 ? ') ' : '', b, c && `-${c}`].join(''));
   return d.replace(/^(\d{2})(\d{0,5})(\d{0,4}).*/, (_, a, b, c) => `(${a}) ${b}${c ? '-' + c : ''}`);
 }
@@ -312,14 +314,15 @@ function goStep(step) {
 function validateStep1() {
   const nome = $('#nome').value.trim();
   const nomeOk = /^[A-Za-zÀ-ÿ' ]+$/.test(nome) && nome.split(/\s+/).filter(p => p.length >= 2).length >= 2;
-  const telOk = [10, 11].includes(digits($('#telefone').value).length) && new Set(digits($('#telefone').value)).size > 2;
+  const telDigits = digits($('#telefone').value);
+  const telOk = [10, 11].includes(telDigits.length) && new Set(telDigits).size > 2 && (telDigits.length !== 11 || telDigits[2] === '9');
   const docOk = validDocumento($('#documento').value);
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('#email').value.trim());
   const senha = $('#senha').value;
   const senhaOk = isGoogleSignup || (senha.length >= 6 && !/^\d+$/.test(senha) && new Set(senha).size >= 4);
   const ok = [
     setInvalid('nome', nomeOk ? '' : 'Informe nome e sobrenome reais.'),
-    setInvalid('telefone', telOk ? '' : 'Informe um WhatsApp válido com DDD.'),
+    setInvalid('telefone', telOk ? '' : 'Informe um WhatsApp válido com DDD (celular com 9 dígitos).'),
     setInvalid('documento', docOk ? '' : 'Informe um CPF ou CNPJ válido.'),
     setInvalid('email', emailOk ? (emailBloqueado ? 'Este e-mail já tem uma conta.' : '') : 'Informe um e-mail válido.'),
     setInvalid('senha', senhaOk ? '' : 'Use pelo menos 6 caracteres com variedade.')

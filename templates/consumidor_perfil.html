@@ -234,7 +234,10 @@ function setHint(id, msg) {
 function onlyDigits(v) { return String(v || '').replace(/\D/g, ''); }
 function validEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim()); }
 function validNome(v) { return String(v || '').trim().split(/\s+/).filter(Boolean).length >= 2; }
-function validPhone(v) { return onlyDigits(v).length >= 10; }
+function validPhone(v) {
+  const d = onlyDigits(v);
+  return [10, 11].includes(d.length) && (d.length !== 11 || d[2] === '9');
+}
 function validCPF(cpf) {
   cpf = onlyDigits(cpf);
   if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
