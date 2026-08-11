@@ -12,6 +12,7 @@
 
 .ss-escalada_loja { background:#2a1e00; color:#fbbf24; padding:3px 10px; border-radius:20px; font-size:.74rem; font-weight:700; white-space:nowrap; }
 .ss-resolvida { background:#1a1a1a; color:#6b7280; padding:3px 10px; border-radius:20px; font-size:.74rem; font-weight:700; white-space:nowrap; }
+.sup-motivo-sem-resposta { background:#3a0d0d; color:#f87171; padding:3px 10px; border-radius:20px; font-size:.74rem; font-weight:700; white-space:nowrap; }
 
 .sup-empty { text-align:center; padding:60px 20px; color:var(--pk-muted); }
 .sup-empty i { font-size:3rem; opacity:.25; display:block; margin-bottom:14px; }
@@ -33,6 +34,7 @@
         <th>Protocolo</th>
         <th>Cliente</th>
         <th>Pedido</th>
+        <th>Motivo</th>
         <th>Última atividade</th>
         <th>Status</th>
       </tr>
@@ -47,6 +49,10 @@
         </td>
         <td style="font-size:.8rem">
           {% if c.pedido_id %}#{{ c.pedido_id|string|upper|truncate(8,true,'') }}{% else %}—{% endif %}
+        </td>
+        <td style="font-size:.78rem;max-width:220px">
+          {% if c.motivo_categoria == 'sem_resposta' %}<span class="sup-motivo-sem-resposta">IA não conseguiu responder</span><br>{% endif %}
+          <span style="color:var(--pk-muted)">{{ (c.motivo_escalonamento or '—')|truncate(60) }}</span>
         </td>
         <td style="font-size:.78rem;color:var(--pk-muted)">{{ c.ultima_atividade_em.strftime('%d/%m/%Y %H:%M') if c.ultima_atividade_em else '—' }}</td>
         <td><span class="ss-{{ c.status }}">{{ 'Aguardando resposta' if c.status == 'escalada_loja' else 'Resolvido' }}</span></td>

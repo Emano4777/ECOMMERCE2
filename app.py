@@ -18827,23 +18827,31 @@ _SUPORTE_SISTEMA_PROMPT = (
     "(disponível depois que o pedido é pago/enviado/entregue) — isso abre um chat direto com a farmácia.\n"
     "- Pagamento: cartão de débito (sem juros) ou crédito (pode ter juros conforme parcelamento), "
     "e Pix (sem taxas).\n\n"
-    "Se não souber responder com confiança, diga que o cliente pode pedir para falar com um "
-    "atendente humano clicando no botão da tela. Você nunca decide sozinha encaminhar para "
-    "atendente — isso só acontece se o cliente pedir explicitamente.\n\n"
+    "Não existe mais botão de \"falar com atendente\" na tela — encaminhar pra um humano é "
+    "decisão sua, através da ferramenta escalar_atendimento. Escale quando: o cliente pedir "
+    "explicitamente; você tentar ajudar e não conseguir resolver depois de 1-2 tentativas "
+    "reais; ou o assunto exigir decisão da loja (reembolso, produto com defeito, negociação, "
+    "reclamação séria). Em casos claros, pode escalar direto e avisar o cliente que um "
+    "atendente vai continuar por ali. Em casos ambíguos, pergunte primeiro (\"quer que eu "
+    "chame um atendente pra te ajudar com isso?\") e só escale depois que o cliente confirmar. "
+    "Nunca insista tentando resolver algo que claramente precisa de humano — melhor escalar "
+    "cedo do que deixar o cliente frustrado repetindo a pergunta.\n\n"
     "Quando a mensagem vier acompanhada de uma lista de pedidos recentes do cliente (ou do "
     "contexto de um pedido específico), use esses dados reais pra responder direto — nunca "
     "diga só para o cliente ir conferir sozinho em Meus Pedidos se você já tem o status ali no "
     "contexto. Se houver mais de um pedido recente e não ficar claro qual o cliente quer dizer, "
-    "pergunte qual (pelo número curto ou pela data) antes de responder. Se o cliente já disse "
-    "que tentou conferir e não encontrou ou não conseguiu, não repita a mesma orientação de novo "
-    "— aí é hora de reforçar a opção de falar com atendente humano.\n\n"
-    "Você tem ferramentas pra consultar dado real na hora: buscar um pedido específico (mesmo "
-    "que não esteja nos recentes), consultar se um produto está disponível e o preço, ver se o "
-    "cliente tem cupom pessoal disponível, e checar se o endereço dele está na área de entrega. "
-    "Use a ferramenta sempre que a resposta depender de dado real em vez de adivinhar ou mandar "
-    "o cliente ir conferir sozinho. Depois do resultado da ferramenta, responda em texto corrido "
-    "normal (sem formatação), como o resto das suas respostas — nunca copie o resultado bruto da "
-    "ferramenta."
+    "pergunte qual (pelo número curto ou pela data) antes de responder.\n\n"
+    "Você tem ferramentas pra consultar dado real na hora e até agir: buscar um pedido "
+    "específico (mesmo que não esteja nos recentes), consultar se um produto está disponível e "
+    "o preço, ver se o cliente tem cupom pessoal disponível (e o link que já aplica ele no "
+    "carrinho), checar se o endereço dele está na área de entrega, ver se a farmácia está "
+    "aberta agora, cancelar um pedido pendente, e escalar pra atendente humano. Use a "
+    "ferramenta sempre que a resposta depender de dado real em vez de adivinhar ou mandar o "
+    "cliente ir conferir sozinho. A ferramenta cancelar_pedido é irreversível — só chame depois "
+    "que o cliente confirmar explicitamente que quer cancelar, nunca na primeira menção do "
+    "assunto. Depois do resultado de qualquer ferramenta, responda em texto corrido normal (sem "
+    "formatação), como o resto das suas respostas — nunca copie o resultado bruto da "
+    "ferramenta, nem mencione nomes de ferramentas pro cliente."
 )
 
 
@@ -18889,6 +18897,10 @@ def _ensure_suporte_schema():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_chats_consumidor ON ecommerce_suporte_chats(consumidor_id, ultima_atividade_em DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_chats_loja ON ecommerce_suporte_chats(cnpjloja, status) WHERE cnpjloja IS NOT NULL")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_chats_admin ON ecommerce_suporte_chats(status) WHERE status = 'escalada_admin'")
+        # motivo_categoria: tag curta de por que a IA escalou ('cliente_pediu',
+        # 'sem_resposta', 'acao_humana') — usada pro painel destacar chats onde
+        # a IA nao conseguiu ajudar sozinha, sem depender de parsear texto livre.
+        cur.execute("ALTER TABLE ecommerce_suporte_chats ADD COLUMN IF NOT EXISTS motivo_categoria TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_suporte_msgs (
                 id SERIAL PRIMARY KEY,
@@ -19015,15 +19027,19 @@ def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
     threading.Thread(target=_persist, daemon=True).start()
 
 
-def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None, consumidor_id=None):
+def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None, consumidor_id=None, chat_id=None):
     """Chama Claude Haiku pra responder uma pergunta de suporte, com tool use
-    pra consultar dado real ao vivo (pedido especifico, produto, cupom,
-    cobertura de entrega — ver _SUPORTE_TOOLS). Retorna uma tupla
-    (texto, usou_dado_pessoal); texto e None em qualquer falha (sem API key,
-    timeout, erro). usou_dado_pessoal e True quando a resposta usou contexto
-    de pedido/ferramenta — sinaliza pro chamador que essa resposta NUNCA pode
-    ir pro cache generico por similaridade (senao vaza pedido/cupom/link de
-    pagamento de um cliente pra outro que pergunte algo parecido).
+    pra consultar dado real ao vivo e ate agir (pedido especifico, produto,
+    cupom, cobertura de entrega, horario, cancelar pedido, escalar pra humano
+    — ver _SUPORTE_TOOLS). Retorna uma tupla (texto, usou_dado_pessoal,
+    escalou); texto e None em qualquer falha (sem API key, timeout, erro).
+    usou_dado_pessoal e True quando a resposta usou contexto de pedido/
+    ferramenta — sinaliza pro chamador que essa resposta NUNCA pode ir pro
+    cache generico por similaridade (senao vaza pedido/cupom/link de
+    pagamento de um cliente pra outro que pergunte algo parecido). escalou e
+    True quando a ferramenta escalar_atendimento foi chamada com sucesso
+    nesse turno — sinaliza pro chamador mostrar o aviso de "encaminhado" na
+    UI.
 
     historico: mensagens anteriores do MESMO chat (ecommerce_suporte_msgs,
     autor 'consumidor'/'ia', em ordem cronologica, SEM a mensagem atual) —
@@ -19037,8 +19053,9 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
     consultar."""
     api_key = _anthropic_api_key()
     if not api_key:
-        return None, False
+        return None, False, False
     usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
+    escalou = False
     user_msg = pergunta.strip()[:2000]
     if pedido_ctx:
         user_msg = (
@@ -19075,7 +19092,7 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
         messages.append({"role": "user", "content": user_msg})
 
     ctx = ssl.create_default_context()
-    for _ in range(3):
+    for _ in range(4):
         payload = json.dumps({
             "model": "claude-haiku-4-5-20251001",
             "max_tokens": 500,
@@ -19094,7 +19111,7 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
                 data = json.loads(r.read().decode("utf-8"))
         except Exception as exc:
             app.logger.warning("_claude_suporte_responder error: %s", exc)
-            return None, usou_dado_pessoal
+            return None, usou_dado_pessoal, escalou
 
         blocos = data.get("content") or []
         if data.get("stop_reason") == "tool_use" and consumidor_id:
@@ -19103,15 +19120,17 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
             resultados = []
             for b in blocos:
                 if b.get("type") == "tool_use":
-                    resultado = _executar_ferramenta_suporte(b.get("name"), b.get("input") or {}, consumidor_id)
+                    resultado = _executar_ferramenta_suporte(b.get("name"), b.get("input") or {}, consumidor_id, chat_id)
+                    if b.get("name") == "escalar_atendimento" and isinstance(resultado, str) and resultado.startswith("ESCALADO_OK"):
+                        escalou = True
                     resultados.append({"type": "tool_result", "tool_use_id": b.get("id"), "content": resultado})
             messages.append({"role": "user", "content": resultados})
             continue
 
         texto = "".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
-        return (texto or None), usou_dado_pessoal
+        return (texto or None), usou_dado_pessoal, escalou
 
-    return "No momento não consigo buscar essa informação. Você pode tentar de novo ou falar com um atendente.", True
+    return "No momento não consigo buscar essa informação. Você pode tentar de novo ou falar com um atendente.", True, escalou
 
 
 def _pedido_ctx_para_ia(pedido_id, consumidor_id):
@@ -19170,24 +19189,6 @@ def _pedidos_recentes_ctx_para_ia(consumidor_id, limit=3):
     return "\n".join(linhas)
 
 
-def _pedidos_recentes_consumidor(consumidor_id, limit=5):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, status, total, criado_em FROM ecommerce_pedidos WHERE consumidor_id=%s ORDER BY criado_em DESC LIMIT %s",
-        (consumidor_id, limit),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    return [
-        {
-            "id": str(r["id"]),
-            "label": f"#{str(r['id'])[:8].upper()} - {r['criado_em'].strftime('%d/%m/%Y') if r['criado_em'] else ''} - {fmt_brl(r['total'])}",
-        }
-        for r in rows
-    ]
-
-
 # ─── FERRAMENTAS (TOOL USE) DA IA DE SUPORTE ──────────────────────────────────
 # Antes a IA so respondia com o que eu injetava manualmente no prompt (pedido
 # vinculado ao chat, ou os ultimos 3 pedidos em texto). Com tool use ela decide
@@ -19241,6 +19242,60 @@ _SUPORTE_TOOLS = [
             "entrega/retirada (raio de 60km) de alguma farmacia da rede."
         ),
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "loja_aberta_agora",
+        "description": "Verifica se a farmacia mais proxima do cliente esta aberta agora, e se nao, quando abre.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cancelar_pedido",
+        "description": (
+            "Cancela um pedido do cliente que ainda esta pendente (nao pago/nao confirmado). "
+            "AÇÃO IRREVERSÍVEL: so chame esta ferramenta depois que o cliente confirmar "
+            "explicitamente que quer cancelar (ex: respondeu 'sim', 'confirmo', 'pode cancelar' "
+            "depois que você perguntou). Nunca chame na primeira menção do assunto — pergunte "
+            "primeiro qual pedido e confirme a intenção."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "identificador": {"type": "string", "description": "Numero curto (8 caracteres) do pedido a cancelar"}
+            },
+            "required": ["identificador"],
+        },
+    },
+    {
+        "name": "escalar_atendimento",
+        "description": (
+            "Encaminha a conversa pra um atendente humano (da farmácia, se for sobre um pedido "
+            "especifico, ou da plataforma, se for assunto geral). Use quando: o cliente pedir "
+            "explicitamente para falar com atendente/humano; você tentar ajudar e não conseguir "
+            "resolver depois de 1-2 tentativas; ou o assunto exigir decisão humana (reembolso, "
+            "produto com defeito, negociação). Pode escalar direto quando for claro, ou perguntar "
+            "'quer que eu chame um atendente?' primeiro se não tiver certeza — e escalar assim que "
+            "o cliente confirmar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "motivo": {"type": "string", "description": "Resumo curto do motivo do encaminhamento"},
+                "categoria": {
+                    "type": "string",
+                    "enum": ["cliente_pediu", "sem_resposta", "acao_humana"],
+                    "description": (
+                        "cliente_pediu = cliente pediu explicitamente; sem_resposta = você não "
+                        "conseguiu ajudar/responder; acao_humana = assunto exige decisão da loja "
+                        "(reembolso, defeito, negociação)"
+                    ),
+                },
+                "pedido_identificador": {
+                    "type": "string",
+                    "description": "Numero curto do pedido relacionado, se houver (opcional)",
+                },
+            },
+            "required": ["motivo", "categoria"],
+        },
     },
 ]
 
@@ -19309,13 +19364,35 @@ def _ia_tool_consultar_produto(consumidor_id, nome):
     if not cnpjs or sem_farmacia:
         return "Nao ha farmacia da rede disponivel na regiao desse cliente para consultar estoque."
     produtos = get_alpha_products_direct_by_query(cnpjs, nome, limit=6)
-    if not produtos:
-        return f'Nenhum produto encontrado para "{nome}" na farmacia mais proxima do cliente.'
-    linhas = [
-        f"{p['nome']} - {fmt_brl(p['preco'])} ({'em estoque' if (p.get('qty') or 0) > 0 else 'sem estoque'})"
-        for p in produtos[:5]
-    ]
-    return "\n".join(linhas)
+    if produtos:
+        linhas = [
+            f"{p['nome']} - {fmt_brl(p['preco'])} ({'em estoque' if (p.get('qty') or 0) > 0 else 'sem estoque'})"
+            for p in produtos[:5]
+        ]
+        return "\n".join(linhas)
+    # Nao achou nada com o termo exato — tenta so a palavra mais significativa
+    # antes de desistir (ex: "shampoo infantil de camomila" -> so "shampoo"),
+    # e se ainda assim nao achar, sugere os mais vendidos da loja como
+    # alternativa em vez de simplesmente dizer que nao tem.
+    termos = [t for t in _search_terms_for_query(nome) if len(t) >= 4]
+    termo_largo = max(termos, key=len) if termos else ""
+    if termo_largo and termo_largo != _norm_text(nome):
+        produtos_largos = get_alpha_products_direct_by_query(cnpjs, termo_largo, limit=5)
+        if produtos_largos:
+            linhas = [f"{p['nome']} - {fmt_brl(p['preco'])}" for p in produtos_largos[:5]]
+            return (
+                f'Nao achei exatamente "{nome}", mas encontrei estes produtos parecidos:\n'
+                + "\n".join(linhas)
+            )
+    populares = _curve_a_products_for_cnpjs(cnpjs, limit=5)
+    if populares:
+        linhas = [f"{p.get('nome','')} - {fmt_brl(p.get('preco', 0))}" for p in populares[:5] if p.get("nome")]
+        if linhas:
+            return (
+                f'Nao encontrei "{nome}" disponivel na farmacia mais proxima do cliente. '
+                f"Produtos mais vendidos da loja que podem interessar:\n" + "\n".join(linhas)
+            )
+    return f'Nenhum produto encontrado para "{nome}" na farmacia mais proxima do cliente.'
 
 
 def _ia_tool_verificar_cupom(consumidor_id):
@@ -19342,7 +19419,14 @@ def _ia_tool_verificar_cupom(consumidor_id):
     for c in cupons:
         valor = f"{int(c['desconto_valor'])}%" if c["desconto_tipo"] == "pct" else fmt_brl(c["desconto_valor"])
         validade = f", valido ate {c['valido_ate'].strftime('%d/%m/%Y')}" if c["valido_ate"] else ""
-        linhas.append(f"Cupom {c['codigo']}: {valor} de desconto{validade}. So vale comprando direto pelo site.")
+        try:
+            link = url_for("carrinho", cupom=c["codigo"], _external=True)
+        except Exception:
+            link = f"/carrinho?cupom={c['codigo']}"
+        linhas.append(
+            f"Cupom {c['codigo']}: {valor} de desconto{validade}. So vale comprando direto pelo site. "
+            f"Link que ja aplica o cupom automaticamente no carrinho: {link}"
+        )
     return "\n".join(linhas)
 
 
@@ -19363,20 +19447,145 @@ def _ia_tool_verificar_cobertura(consumidor_id):
     return f"O endereco cadastrado ({c['endereco']}) esta fora do raio de atendimento (60km) de qualquer farmacia da rede no momento."
 
 
-def _executar_ferramenta_suporte(nome_ferramenta, entrada, consumidor_id):
+def _ia_tool_loja_aberta(consumidor_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    c = cur.fetchone()
+    cur.close()
+    lat = float(c["endereco_lat"]) if c and c.get("endereco_lat") is not None else 0.0
+    lng = float(c["endereco_lng"]) if c and c.get("endereco_lng") is not None else 0.0
+    cnpjs, sem_farmacia = _home_public_cnpjs(lat, lng)
+    if not cnpjs or sem_farmacia:
+        return "Nao ha farmacia da rede disponivel na regiao desse cliente para checar horario."
+    status = _status_horario_entrega(cnpjs[0])
+    if not status.get("configurado"):
+        return "A farmacia nao tem horario configurado no sistema — nao e possivel confirmar se esta aberta agora."
+    if status.get("aberta"):
+        return f"Sim, a farmacia esta aberta agora. Fecha hoje as {status.get('hora_fechamento') or '?'}."
+    proximo = status.get("proximo") or {}
+    if proximo.get("hoje"):
+        return f"A farmacia esta fechada no momento. Abre hoje as {proximo.get('hora_abertura')}."
+    if proximo.get("nome_dia"):
+        return f"A farmacia esta fechada no momento. Proxima abertura: {proximo['nome_dia']} as {proximo.get('hora_abertura')}."
+    return "A farmacia esta fechada no momento."
+
+
+def _ia_tool_cancelar_pedido(consumidor_id, identificador):
+    ident = re.sub(r"[^A-Z0-9]", "", (identificador or "").strip().upper())[:8]
+    if not ident:
+        return "Preciso do numero curto do pedido pra cancelar."
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status, pagamento_status FROM ecommerce_pedidos "
+        "WHERE consumidor_id=%s AND UPPER(LEFT(id::text,8))=%s LIMIT 1",
+        (consumidor_id, ident),
+    )
+    pedido = cur.fetchone()
+    if not pedido:
+        cur.close()
+        return "Nao encontrei esse pedido pra esse cliente."
+    if pedido["status"] != "pendente":
+        cur.close()
+        return (
+            f"Esse pedido esta com status \"{_STATUS_LABEL.get(pedido['status'], pedido['status'])}\" — "
+            "so e possivel cancelar por aqui pedidos ainda pendentes (nao pagos/nao confirmados). "
+            "Pra esse caso, oriente o cliente a abrir uma reclamacao em Meus Pedidos."
+        )
+    cur.execute(
+        "UPDATE ecommerce_pedidos SET status='cancelado', atualizado_em=NOW() WHERE id=%s AND consumidor_id=%s",
+        (pedido["id"], consumidor_id),
+    )
+    conn.commit()
+    cur.close()
+    _registrar_status_pedido(pedido["id"], "cancelado")
+    _wa_notif_pedido_loja(
+        pedido["id"],
+        f"❌ Cliente cancelou o pedido #{str(pedido['id'])[:8].upper()} pelo chat de suporte.",
+    )
+    return f"Pedido #{str(pedido['id'])[:8].upper()} cancelado com sucesso."
+
+
+def _ia_tool_escalar_atendimento(chat_id, consumidor_id, motivo, categoria, pedido_identificador=None):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, pedido_id, cnpjloja, status FROM ecommerce_suporte_chats WHERE id=%s AND consumidor_id=%s LIMIT 1", (chat_id, consumidor_id))
+    chat = cur.fetchone()
+    if not chat:
+        cur.close()
+        return "Nao consegui identificar essa conversa pra escalar."
+    if chat["status"] != "bot":
+        cur.close()
+        return "Essa conversa ja foi encaminhada pra um atendente humano — nao precisa escalar de novo."
+
+    pedido_id = chat["pedido_id"]
+    cnpjloja = chat["cnpjloja"]
+    if not pedido_id and pedido_identificador:
+        ident = re.sub(r"[^A-Z0-9]", "", (pedido_identificador or "").upper())[:8]
+        if ident:
+            cur.execute(
+                "SELECT id, cnpjloja FROM ecommerce_pedidos WHERE consumidor_id=%s AND UPPER(LEFT(id::text,8))=%s LIMIT 1",
+                (consumidor_id, ident),
+            )
+            p = cur.fetchone()
+            if p:
+                pedido_id, cnpjloja = p["id"], p["cnpjloja"]
+
+    motivo_txt = (motivo or "Cliente precisa de atendimento humano.")[:500]
+    categoria = categoria if categoria in ("cliente_pediu", "sem_resposta", "acao_humana") else "cliente_pediu"
+
+    if pedido_id:
+        novo_status = "escalada_loja"
+        cur.execute(
+            "UPDATE ecommerce_suporte_chats SET status=%s, pedido_id=%s, cnpjloja=%s, motivo_escalonamento=%s, "
+            "motivo_categoria=%s, escalada_em=NOW() WHERE id=%s",
+            (novo_status, pedido_id, cnpjloja, motivo_txt, categoria, chat_id),
+        )
+        conn.commit()
+        cur.close()
+        _wa_notif_pedido_loja(
+            pedido_id,
+            f"🆘 Cliente pediu atendimento humano no suporte (pedido #{str(pedido_id)[:8].upper()}): {motivo_txt[:200]}",
+        )
+    else:
+        novo_status = "escalada_admin"
+        cur.execute(
+            "UPDATE ecommerce_suporte_chats SET status=%s, motivo_escalonamento=%s, motivo_categoria=%s, "
+            "escalada_em=NOW() WHERE id=%s",
+            (novo_status, motivo_txt, categoria, chat_id),
+        )
+        conn.commit()
+        cur.close()
+        _notificar_admin_suporte(chat_id, motivo_txt)
+
+    return f"ESCALADO_OK status={novo_status}. Avise o cliente que um atendente humano vai continuar por aqui em breve."
+
+
+def _executar_ferramenta_suporte(nome_ferramenta, entrada, consumidor_id, chat_id=None):
+    entrada = entrada or {}
     try:
         if nome_ferramenta == "buscar_pedido":
-            return _ia_tool_buscar_pedido(consumidor_id, (entrada or {}).get("identificador", ""))
+            return _ia_tool_buscar_pedido(consumidor_id, entrada.get("identificador", ""))
         if nome_ferramenta == "consultar_produto":
-            return _ia_tool_consultar_produto(consumidor_id, (entrada or {}).get("nome", ""))
+            return _ia_tool_consultar_produto(consumidor_id, entrada.get("nome", ""))
         if nome_ferramenta == "verificar_cupom_disponivel":
             return _ia_tool_verificar_cupom(consumidor_id)
         if nome_ferramenta == "verificar_cobertura_entrega":
             return _ia_tool_verificar_cobertura(consumidor_id)
+        if nome_ferramenta == "loja_aberta_agora":
+            return _ia_tool_loja_aberta(consumidor_id)
+        if nome_ferramenta == "cancelar_pedido":
+            return _ia_tool_cancelar_pedido(consumidor_id, entrada.get("identificador", ""))
+        if nome_ferramenta == "escalar_atendimento":
+            return _ia_tool_escalar_atendimento(
+                chat_id, consumidor_id, entrada.get("motivo", ""), entrada.get("categoria", ""),
+                entrada.get("pedido_identificador"),
+            )
         return "Ferramenta desconhecida."
     except Exception as exc:
         app.logger.warning("_executar_ferramenta_suporte error (%s): %s", nome_ferramenta, exc)
-        return "Nao consegui consultar essa informacao agora."
+        return "Nao consegui executar essa acao agora."
 
 
 def _notificar_admin_suporte(chat_id, resumo):
@@ -19494,10 +19703,11 @@ def api_suporte_mensagem():
     pedido_ctx = None
     resposta = None
     from_cache = False
+    escalou = False
     if chat["pedido_id"]:
         pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
-        resposta, _ = _claude_suporte_responder(
-            mensagem, pedido_ctx=pedido_ctx, historico=historico, consumidor_id=consumidor_id
+        resposta, _, escalou = _claude_suporte_responder(
+            mensagem, pedido_ctx=pedido_ctx, historico=historico, consumidor_id=consumidor_id, chat_id=chat_id
         )
     else:
         resposta = None if pula_atalho else _suporte_resposta_topico(mensagem)
@@ -19509,9 +19719,9 @@ def api_suporte_mensagem():
                 from_cache = True
             else:
                 pedidos_recentes_ctx = _pedidos_recentes_ctx_para_ia(consumidor_id)
-                resposta, usou_dado_pessoal = _claude_suporte_responder(
+                resposta, usou_dado_pessoal, escalou = _claude_suporte_responder(
                     mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx,
-                    consumidor_id=consumidor_id,
+                    consumidor_id=consumidor_id, chat_id=chat_id,
                 )
                 # Nunca cacheia resposta que usou pedido/ferramenta — e dado pessoal
                 # de UM cliente; o cache e global por similaridade de texto, entao
@@ -19521,7 +19731,9 @@ def api_suporte_mensagem():
                     _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
 
     if not resposta:
-        resposta = "No momento não consigo responder automaticamente. Você pode tentar novamente ou falar com um atendente."
+        resposta = "No momento não consigo responder automaticamente. Vou chamar um atendente pra te ajudar."
+        _ia_tool_escalar_atendimento(chat_id, consumidor_id, "IA nao conseguiu gerar resposta", "sem_resposta")
+        escalou = True
 
     cur.execute(
         "INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem, origem_cache) VALUES (%s, 'ia', %s, %s)",
@@ -19529,68 +19741,7 @@ def api_suporte_mensagem():
     )
     conn.commit()
     cur.close()
-    return jsonify({"ok": True, "resposta": resposta, "pode_escalar": True})
-
-
-@app.post("/api/suporte/escalar")
-@_consumer_required
-def api_suporte_escalar():
-    _ensure_suporte_schema()
-    consumidor_id = session["consumidor_id"]
-    data = request.get_json(silent=True) or {}
-    chat_id = (data.get("chat_id") or "").strip()
-    pedido_id_escolhido = (data.get("pedido_id") or "").strip() or None
-    geral = bool(data.get("geral"))
-
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM ecommerce_suporte_chats WHERE id=%s AND consumidor_id=%s LIMIT 1", (chat_id, consumidor_id))
-    chat = cur.fetchone()
-    if not chat:
-        cur.close()
-        return jsonify({"ok": False, "erro": "Chat não encontrado."}), 404
-
-    pedido_id = chat["pedido_id"] or pedido_id_escolhido
-    if not pedido_id and not geral:
-        cur.close()
-        return jsonify({
-            "ok": True, "precisa_escolher": True,
-            "pedidos_recentes": _pedidos_recentes_consumidor(consumidor_id),
-        })
-
-    cur.execute(
-        "SELECT mensagem FROM ecommerce_suporte_msgs WHERE chat_id=%s AND autor='consumidor' ORDER BY enviada_em DESC LIMIT 1",
-        (chat_id,),
-    )
-    ultima = cur.fetchone()
-    motivo = (ultima["mensagem"] if ultima else "") or ""
-
-    if pedido_id:
-        cur.execute("SELECT cnpjloja FROM ecommerce_pedidos WHERE id=%s AND consumidor_id=%s LIMIT 1", (pedido_id, consumidor_id))
-        pedido_row = cur.fetchone()
-        if not pedido_row:
-            cur.close()
-            return jsonify({"ok": False, "erro": "Pedido inválido."}), 400
-        cur.execute(
-            "UPDATE ecommerce_suporte_chats SET status='escalada_loja', pedido_id=%s, cnpjloja=%s, motivo_escalonamento=%s, escalada_em=NOW() WHERE id=%s",
-            (pedido_id, pedido_row["cnpjloja"], motivo[:500], chat_id),
-        )
-        conn.commit()
-        cur.close()
-        _wa_notif_pedido_loja(
-            pedido_id,
-            f"🆘 Cliente pediu atendimento humano no suporte (pedido #{str(pedido_id)[:8].upper()}): {motivo[:200]}",
-        )
-        return jsonify({"ok": True, "status": "escalada_loja"})
-
-    cur.execute(
-        "UPDATE ecommerce_suporte_chats SET status='escalada_admin', motivo_escalonamento=%s, escalada_em=NOW() WHERE id=%s",
-        (motivo[:500], chat_id),
-    )
-    conn.commit()
-    cur.close()
-    _notificar_admin_suporte(chat_id, motivo[:500])
-    return jsonify({"ok": True, "status": "escalada_admin"})
+    return jsonify({"ok": True, "resposta": resposta, "escalado": escalou})
 
 
 @app.get("/painel/suporte")

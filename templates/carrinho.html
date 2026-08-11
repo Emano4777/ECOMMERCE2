@@ -2234,7 +2234,19 @@ async function finalizarPedido() {
   await carregarConfigLojas();
   renderCart();
   verificarPedidoPendente();
+  aplicarCupomDaUrl();
 })();
+
+function aplicarCupomDaUrl() {
+  const codigo = new URLSearchParams(location.search).get('cupom');
+  if (!codigo) return;
+  const cnpj = getCart().map(i => i.cnpjloja).find(Boolean);
+  if (!cnpj) return;
+  const inp = document.getElementById(`cupom-inp-${cnpj}`);
+  if (!inp) return;
+  inp.value = codigo.trim().toUpperCase();
+  aplicarCupom(cnpj);
+}
 
 async function verificarPedidoPendente() {
   try {
