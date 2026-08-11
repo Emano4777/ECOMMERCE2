@@ -18836,7 +18836,14 @@ _SUPORTE_SISTEMA_PROMPT = (
     "contexto. Se houver mais de um pedido recente e não ficar claro qual o cliente quer dizer, "
     "pergunte qual (pelo número curto ou pela data) antes de responder. Se o cliente já disse "
     "que tentou conferir e não encontrou ou não conseguiu, não repita a mesma orientação de novo "
-    "— aí é hora de reforçar a opção de falar com atendente humano."
+    "— aí é hora de reforçar a opção de falar com atendente humano.\n\n"
+    "Você tem ferramentas pra consultar dado real na hora: buscar um pedido específico (mesmo "
+    "que não esteja nos recentes), consultar se um produto está disponível e o preço, ver se o "
+    "cliente tem cupom pessoal disponível, e checar se o endereço dele está na área de entrega. "
+    "Use a ferramenta sempre que a resposta depender de dado real em vez de adivinhar ou mandar "
+    "o cliente ir conferir sozinho. Depois do resultado da ferramenta, responda em texto corrido "
+    "normal (sem formatação), como o resto das suas respostas — nunca copie o resultado bruto da "
+    "ferramenta."
 )
 
 
@@ -19008,9 +19015,15 @@ def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
     threading.Thread(target=_persist, daemon=True).start()
 
 
-def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None):
-    """Chama Claude Haiku pra responder uma pergunta de suporte. Retorna o
-    texto da resposta ou None em qualquer falha (sem API key, timeout, erro).
+def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None, consumidor_id=None):
+    """Chama Claude Haiku pra responder uma pergunta de suporte, com tool use
+    pra consultar dado real ao vivo (pedido especifico, produto, cupom,
+    cobertura de entrega — ver _SUPORTE_TOOLS). Retorna uma tupla
+    (texto, usou_dado_pessoal); texto e None em qualquer falha (sem API key,
+    timeout, erro). usou_dado_pessoal e True quando a resposta usou contexto
+    de pedido/ferramenta — sinaliza pro chamador que essa resposta NUNCA pode
+    ir pro cache generico por similaridade (senao vaza pedido/cupom/link de
+    pagamento de um cliente pra outro que pergunte algo parecido).
 
     historico: mensagens anteriores do MESMO chat (ecommerce_suporte_msgs,
     autor 'consumidor'/'ia', em ordem cronologica, SEM a mensagem atual) —
@@ -19024,7 +19037,8 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
     consultar."""
     api_key = _anthropic_api_key()
     if not api_key:
-        return None
+        return None, False
+    usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
     user_msg = pergunta.strip()[:2000]
     if pedido_ctx:
         user_msg = (
@@ -19059,27 +19073,45 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
         messages[-1]["content"] += "\n" + user_msg
     else:
         messages.append({"role": "user", "content": user_msg})
-    payload = json.dumps({
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 500,
-        "system": _SUPORTE_SISTEMA_PROMPT,
-        "messages": messages,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
-        method="POST",
-    )
-    try:
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        text = (data.get("content") or [{}])[0].get("text", "").strip()
-        return text or None
-    except Exception as exc:
-        app.logger.warning("_claude_suporte_responder error: %s", exc)
-        return None
+
+    ctx = ssl.create_default_context()
+    for _ in range(3):
+        payload = json.dumps({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 500,
+            "system": _SUPORTE_SISTEMA_PROMPT,
+            "messages": messages,
+            "tools": _SUPORTE_TOOLS,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except Exception as exc:
+            app.logger.warning("_claude_suporte_responder error: %s", exc)
+            return None, usou_dado_pessoal
+
+        blocos = data.get("content") or []
+        if data.get("stop_reason") == "tool_use" and consumidor_id:
+            usou_dado_pessoal = True
+            messages.append({"role": "assistant", "content": blocos})
+            resultados = []
+            for b in blocos:
+                if b.get("type") == "tool_use":
+                    resultado = _executar_ferramenta_suporte(b.get("name"), b.get("input") or {}, consumidor_id)
+                    resultados.append({"type": "tool_result", "tool_use_id": b.get("id"), "content": resultado})
+            messages.append({"role": "user", "content": resultados})
+            continue
+
+        texto = "".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
+        return (texto or None), usou_dado_pessoal
+
+    return "No momento não consigo buscar essa informação. Você pode tentar de novo ou falar com um atendente.", True
 
 
 def _pedido_ctx_para_ia(pedido_id, consumidor_id):
@@ -19154,6 +19186,197 @@ def _pedidos_recentes_consumidor(consumidor_id, limit=5):
         }
         for r in rows
     ]
+
+
+# ─── FERRAMENTAS (TOOL USE) DA IA DE SUPORTE ──────────────────────────────────
+# Antes a IA so respondia com o que eu injetava manualmente no prompt (pedido
+# vinculado ao chat, ou os ultimos 3 pedidos em texto). Com tool use ela decide
+# sozinha, a cada pergunta, se precisa consultar um dado real — outro pedido,
+# produto, cupom pessoal, cobertura de entrega — em vez de so repetir "confira
+# no site". Cada ferramenta so faz leitura (nunca cancela pedido, aplica cupom
+# etc.) — acao que muda dado continua exigindo o fluxo humano (escalonamento).
+
+_SUPORTE_TOOLS = [
+    {
+        "name": "buscar_pedido",
+        "description": (
+            "Busca um pedido especifico do cliente pelo numero curto de 8 caracteres "
+            "(ex: A1B2C3D4, como aparece em Meus Pedidos) ou pela palavra 'ultimo' para "
+            "o pedido mais recente. Retorna status, itens, total, forma de entrega e, se "
+            "o pedido ainda estiver aguardando pagamento, o link para pagar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "identificador": {
+                    "type": "string",
+                    "description": "Numero curto do pedido (8 caracteres) ou 'ultimo' para o mais recente",
+                }
+            },
+            "required": ["identificador"],
+        },
+    },
+    {
+        "name": "consultar_produto",
+        "description": (
+            "Consulta em tempo real se um produto esta disponivel e qual o preco atual "
+            "na farmacia mais proxima do cliente. Use sempre que o cliente perguntar se "
+            "tem algum produto ou qual o preco, em vez de mandar ele olhar no site."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"nome": {"type": "string", "description": "Nome do produto buscado"}},
+            "required": ["nome"],
+        },
+    },
+    {
+        "name": "verificar_cupom_disponivel",
+        "description": "Verifica se o cliente tem algum cupom de desconto pessoal ativo e ainda nao usado.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "verificar_cobertura_entrega",
+        "description": (
+            "Verifica se o endereco cadastrado do cliente esta dentro da area de "
+            "entrega/retirada (raio de 60km) de alguma farmacia da rede."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+]
+
+
+def _ia_tool_buscar_pedido(consumidor_id, identificador):
+    ident = (identificador or "").strip().upper()
+    conn = db()
+    cur = conn.cursor()
+    pedido = None
+    if ident and not re.match(r"^(ULTIMO|ÚLTIMO|MAIS RECENTE)$", ident):
+        ident_limpo = re.sub(r"[^A-Z0-9]", "", ident)[:8]
+        if ident_limpo:
+            cur.execute(
+                "SELECT id, status, total, criado_em, tipo_entrega, forma_pagamento, pagamento_status "
+                "FROM ecommerce_pedidos WHERE consumidor_id=%s AND UPPER(LEFT(id::text,8))=%s LIMIT 1",
+                (consumidor_id, ident_limpo),
+            )
+            pedido = cur.fetchone()
+    if not pedido:
+        cur.execute(
+            "SELECT id, status, total, criado_em, tipo_entrega, forma_pagamento, pagamento_status "
+            "FROM ecommerce_pedidos WHERE consumidor_id=%s ORDER BY criado_em DESC LIMIT 1",
+            (consumidor_id,),
+        )
+        pedido = cur.fetchone()
+    if not pedido:
+        cur.close()
+        return "Esse cliente nao tem nenhum pedido."
+    cur.execute(
+        "SELECT nome, qty FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id LIMIT 10",
+        (pedido["id"],),
+    )
+    itens = cur.fetchall()
+    cur.close()
+    itens_resumo = ", ".join(f"{i['qty']}x {i['nome']}" for i in itens) or "sem itens"
+    id_curto = str(pedido["id"])[:8].upper()
+    tipo = "Entrega" if (pedido.get("tipo_entrega") or "retirada") == "entrega" else "Retirada na loja"
+    linhas = [
+        f"Pedido #{id_curto}",
+        f"Status: {_STATUS_LABEL.get(pedido['status'], pedido['status'])}",
+        f"Feito em: {pedido['criado_em'].strftime('%d/%m/%Y') if pedido['criado_em'] else ''}",
+        f"Itens: {itens_resumo}",
+        f"Total: {fmt_brl(pedido['total'])}",
+        f"Entrega: {tipo}",
+    ]
+    if pedido["status"] == "pendente" and (pedido.get("pagamento_status") or "") not in ("approved", "pago"):
+        try:
+            link = url_for("meu_pedido_detalhe", pedido_id=pedido["id"], _external=True)
+        except Exception:
+            link = "/meu-pedido/" + str(pedido["id"])
+        linhas.append(f"Pagamento pendente. Link para pagar: {link}")
+    return "\n".join(linhas)
+
+
+def _ia_tool_consultar_produto(consumidor_id, nome):
+    if not (nome or "").strip():
+        return "Nome do produto nao informado."
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    c = cur.fetchone()
+    cur.close()
+    lat = float(c["endereco_lat"]) if c and c.get("endereco_lat") is not None else 0.0
+    lng = float(c["endereco_lng"]) if c and c.get("endereco_lng") is not None else 0.0
+    cnpjs, sem_farmacia = _home_public_cnpjs(lat, lng)
+    if not cnpjs or sem_farmacia:
+        return "Nao ha farmacia da rede disponivel na regiao desse cliente para consultar estoque."
+    produtos = get_alpha_products_direct_by_query(cnpjs, nome, limit=6)
+    if not produtos:
+        return f'Nenhum produto encontrado para "{nome}" na farmacia mais proxima do cliente.'
+    linhas = [
+        f"{p['nome']} - {fmt_brl(p['preco'])} ({'em estoque' if (p.get('qty') or 0) > 0 else 'sem estoque'})"
+        for p in produtos[:5]
+    ]
+    return "\n".join(linhas)
+
+
+def _ia_tool_verificar_cupom(consumidor_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT c.codigo, c.desconto_tipo, c.desconto_valor, c.valido_ate
+        FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_clientes cc ON cc.cupom_id = c.id AND cc.consumidor_id = %s
+        WHERE c.ativo = TRUE
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+          AND (c.uso_maximo = 0 OR c.usos_count < c.uso_maximo)
+        ORDER BY c.valido_ate NULLS LAST
+        LIMIT 3
+        """,
+        (consumidor_id,),
+    )
+    cupons = cur.fetchall()
+    cur.close()
+    if not cupons:
+        return "Esse cliente nao tem nenhum cupom disponivel no momento."
+    linhas = []
+    for c in cupons:
+        valor = f"{int(c['desconto_valor'])}%" if c["desconto_tipo"] == "pct" else fmt_brl(c["desconto_valor"])
+        validade = f", valido ate {c['valido_ate'].strftime('%d/%m/%Y')}" if c["valido_ate"] else ""
+        linhas.append(f"Cupom {c['codigo']}: {valor} de desconto{validade}. So vale comprando direto pelo site.")
+    return "\n".join(linhas)
+
+
+def _ia_tool_verificar_cobertura(consumidor_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT endereco, endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s",
+        (consumidor_id,),
+    )
+    c = cur.fetchone()
+    cur.close()
+    if not c or c.get("endereco_lat") is None:
+        return "Esse cliente nao tem endereco cadastrado para verificar cobertura."
+    cnpjs, sem_farmacia = _home_public_cnpjs(float(c["endereco_lat"]), float(c["endereco_lng"]))
+    if cnpjs and not sem_farmacia:
+        return f"O endereco cadastrado ({c['endereco']}) esta dentro da area de atendimento de alguma farmacia da rede."
+    return f"O endereco cadastrado ({c['endereco']}) esta fora do raio de atendimento (60km) de qualquer farmacia da rede no momento."
+
+
+def _executar_ferramenta_suporte(nome_ferramenta, entrada, consumidor_id):
+    try:
+        if nome_ferramenta == "buscar_pedido":
+            return _ia_tool_buscar_pedido(consumidor_id, (entrada or {}).get("identificador", ""))
+        if nome_ferramenta == "consultar_produto":
+            return _ia_tool_consultar_produto(consumidor_id, (entrada or {}).get("nome", ""))
+        if nome_ferramenta == "verificar_cupom_disponivel":
+            return _ia_tool_verificar_cupom(consumidor_id)
+        if nome_ferramenta == "verificar_cobertura_entrega":
+            return _ia_tool_verificar_cobertura(consumidor_id)
+        return "Ferramenta desconhecida."
+    except Exception as exc:
+        app.logger.warning("_executar_ferramenta_suporte error (%s): %s", nome_ferramenta, exc)
+        return "Nao consegui consultar essa informacao agora."
 
 
 def _notificar_admin_suporte(chat_id, resumo):
@@ -19273,7 +19496,9 @@ def api_suporte_mensagem():
     from_cache = False
     if chat["pedido_id"]:
         pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
-        resposta = _claude_suporte_responder(mensagem, pedido_ctx=pedido_ctx, historico=historico)
+        resposta, _ = _claude_suporte_responder(
+            mensagem, pedido_ctx=pedido_ctx, historico=historico, consumidor_id=consumidor_id
+        )
     else:
         resposta = None if pula_atalho else _suporte_resposta_topico(mensagem)
         if resposta:
@@ -19284,8 +19509,15 @@ def api_suporte_mensagem():
                 from_cache = True
             else:
                 pedidos_recentes_ctx = _pedidos_recentes_ctx_para_ia(consumidor_id)
-                resposta = _claude_suporte_responder(mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx)
-                if resposta and not pula_atalho:
+                resposta, usou_dado_pessoal = _claude_suporte_responder(
+                    mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx,
+                    consumidor_id=consumidor_id,
+                )
+                # Nunca cacheia resposta que usou pedido/ferramenta — e dado pessoal
+                # de UM cliente; o cache e global por similaridade de texto, entao
+                # cachear aqui vazaria pedido/cupom/link de pagamento pra outro
+                # cliente que perguntasse algo parecido depois.
+                if resposta and not pula_atalho and not usou_dado_pessoal:
                     _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
 
     if not resposta:
