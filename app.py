@@ -21952,6 +21952,69 @@ def api_cron_enviar_whatsapp_cupom():
     return jsonify({"ok": ok, "whatsapp_cliente": ok})
 
 
+@app.post("/api/cron/enviar-aviso-promo-fralda")
+def api_cron_enviar_aviso_promo_fralda():
+    """Dispara (e-mail + WhatsApp) um aviso pontual destacando a promoção de
+    fralda Babysec + toalha umedecida pra um consumidor especifico. So existe
+    pra disparo manual (curl + CRON_SECRET), mesmo padrao das rotas de cupom."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    consumidor_id = (data.get("consumidor_id") or "").strip()
+    if not consumidor_id:
+        return jsonify({"ok": False, "erro": "consumidor_id_obrigatorio"}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT nome, telefone, email FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    consumidor = cur.fetchone()
+    cur.close()
+    if not consumidor:
+        return jsonify({"ok": False, "erro": "consumidor_nao_encontrado"}), 404
+
+    nome_curto = (consumidor["nome"] or "").split()[0] if consumidor["nome"] else ""
+
+    corpo = (
+        f"<p>Oi, {html.escape(nome_curto)}! Tudo bem?</p>"
+        f"<p>Separamos umas ofertas especiais que só valem <strong>direto no site</strong> "
+        f"da Poupaqui e queríamos que você desse uma olhada:</p>"
+        f"<div class='info-box'>"
+        f"🧷 <strong>Fralda Babysec</strong> com preço exclusivo do site<br>"
+        f"💧 <strong>Toalha umedecida</strong> com condição especial<br>"
+        f"🛒 e muitos outros itens em promoção"
+        f"</div>"
+        f"<p>E tem mais: comprando agora você pode ganhar <strong>cupons promocionais</strong> "
+        f"pra deixar sua próxima compra ainda mais barata! 🎉</p>"
+        f"<p style='text-align:center'><a class='btn' href='https://drogariaspoupaqui.com.br'>Ver ofertas no site</a></p>"
+        f"<p>Essas condições valem só em compras feitas direto pelo <strong>drogariaspoupaqui.com.br</strong>.</p>"
+    )
+    ok_email = False
+    if (consumidor.get("email") or "").strip():
+        ok_email = _send_email(
+            consumidor["email"],
+            "🧷 Fralda Babysec com preço exclusivo no site — Poupaqui",
+            _email_html_wrapper("Ofertas especiais pra você", corpo),
+        )
+
+    msg = (
+        f"Oi, {nome_curto}! 👋 Aqui é da *Poupaqui*.\n\n"
+        f"Separamos ofertas que só valem *direto no site*:\n\n"
+        f"🧷 *Fralda Babysec* com preço exclusivo do site\n"
+        f"💧 *Toalha umedecida* com condição especial\n"
+        f"🛒 e muitos outros itens em promoção\n\n"
+        f"E tem mais: comprando agora você pode ganhar *cupons promocionais* pra deixar sua "
+        f"próxima compra ainda mais barata! 🎉\n\n"
+        f"Essas condições valem só em compras feitas direto pelo nosso site:\n"
+        f"https://drogariaspoupaqui.com.br\n\n"
+        f"Qualquer dúvida, é só chamar por aqui!"
+    )
+    ok_wa = False
+    if (consumidor.get("telefone") or "").strip():
+        ok_wa = _wa_send(consumidor["telefone"], msg)
+
+    return jsonify({"ok": ok_email or ok_wa, "email_cliente": ok_email, "whatsapp_cliente": ok_wa})
+
+
 @app.post("/api/cron/wa-aviso-loja-regiao-mark-sent")
 def api_cron_wa_aviso_loja_regiao_mark_sent():
     """Marca aviso de cliente-novo-na-regiao como enviado. Chamado pelo cron
