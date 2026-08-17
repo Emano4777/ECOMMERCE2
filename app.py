@@ -23391,6 +23391,7 @@ def _alpha_classificacao_specific_match(a, b):
     return len(pa) >= 4 and pa == pb
 
 _ANVISA_SCHEMA_READY = False
+_ANVISA_SCHEMA_MIG_KEY = "anvisa_cache_schema_v1"
 
 
 def _anvisa_schema():
@@ -23399,6 +23400,19 @@ def _anvisa_schema():
         return
     conn = db()
     cur  = conn.cursor()
+    # Guard em memoria (_ANVISA_SCHEMA_READY) so vale dentro da mesma instancia;
+    # em serverless cada cold start zera e refaria as ~20 ALTER TABLE abaixo.
+    # Guard no banco evita isso: sob trafego real, varias instancias frias
+    # tentavam pegar lock exclusivo na mesma tabela ao mesmo tempo, empilhando
+    # fila de lock e travando outras queries em anvisa_cache.
+    try:
+        cur.execute("SELECT 1 FROM pq_migrations WHERE key=%s LIMIT 1", (_ANVISA_SCHEMA_MIG_KEY,))
+        if cur.fetchone():
+            _ANVISA_SCHEMA_READY = True
+            cur.close()
+            return
+    except Exception:
+        conn.rollback()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS anvisa_cache (
             id              SERIAL PRIMARY KEY,
@@ -23438,6 +23452,8 @@ def _anvisa_schema():
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_confianca TEXT")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS fonte_fabricante_consultada_em TIMESTAMPTZ")
     cur.execute("ALTER TABLE anvisa_cache ADD COLUMN IF NOT EXISTS override_manual BOOLEAN DEFAULT FALSE")
+    cur.execute("CREATE TABLE IF NOT EXISTS pq_migrations (key TEXT PRIMARY KEY)")
+    cur.execute("INSERT INTO pq_migrations (key) VALUES (%s) ON CONFLICT DO NOTHING", (_ANVISA_SCHEMA_MIG_KEY,))
     conn.commit()
     cur.close()
     _ANVISA_SCHEMA_READY = True
