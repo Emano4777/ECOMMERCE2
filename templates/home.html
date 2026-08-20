@@ -1222,6 +1222,21 @@ function _homeCardQty(ev, el, delta) {
   const cur = parseInt(valEl.textContent || '1') || 1;
   valEl.textContent = String(Math.max(1, Math.min(99, cur + delta)));
 }
+// Garante que nenhum produto apareca em mais de um carrossel da home —
+// cada funcao de render abaixo passa sua lista de candidatos por aqui antes
+// de fatiar/exibir; o primeiro carrossel a "reivindicar" um EAN o exclui dos
+// demais, nao importa a ordem em que os fetches resolvem.
+const _homeCarouselEans = new Set();
+function _dedupeContraHome(lista) {
+  const out = [];
+  for (const p of (lista || [])) {
+    const ean = p && p.ean;
+    if (ean && _homeCarouselEans.has(ean)) continue;
+    if (ean) _homeCarouselEans.add(ean);
+    out.push(p);
+  }
+  return out;
+}
 function homeCartButton(p, preco, label) {
   if (!p || !p.ean) return '';
   return `<div class="home-prod-cart" data-item="${homeCartPayload(p, preco)}">
@@ -1285,7 +1300,7 @@ function _renderAchadosFallback(produtos, opts) {
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
   if (!achadosEl || !secAchados) return false;
-  const lista = (produtos || []).filter(p => p.imagem && parseFloat(p.preco) > 0).slice(0, 12);
+  const lista = _dedupeContraHome((produtos || []).filter(p => p.imagem && parseFloat(p.preco) > 0)).slice(0, 12);
   if (!lista.length) return false;
   _setAchadosCopy(opts && opts.rede ? 'rede' : 'normal');
   achadosEl.innerHTML = lista.map(p => prodCard(p, '')).join('');
@@ -1306,7 +1321,7 @@ function renderMaisVendidos(produtos, foraDoRaio) {
   const sec = document.getElementById('sec-mais-vendidos');
   if (!el || !sec) return;
   if (foraDoRaio) { sec.style.display = 'none'; return; }
-  const lista = (produtos || []).filter(p => p.imagem && parseFloat(p.preco) > 0).slice(0, 20);
+  const lista = _dedupeContraHome((produtos || []).filter(p => p.imagem && parseFloat(p.preco) > 0)).slice(0, 20);
   if (!lista.length) { sec.style.display = 'none'; return; }
   el.innerHTML = lista.map(p => prodCard(p, '')).join('');
   sec.style.display = '';
@@ -1317,9 +1332,10 @@ function renderHomeProdutos(produtos, opts){
   const achadosEl = document.getElementById('home-achados');
   const secAchados = document.getElementById('sec-achados');
   renderMaisVendidos(produtos, !!(opts && opts.rede));
-  if (validos.length) {
+  const validosDedup = _dedupeContraHome(validos.slice().sort((a,b)=>parseFloat(a.preco)-parseFloat(b.preco)));
+  if (validosDedup.length) {
     _setAchadosCopy(opts && opts.rede ? 'rede' : 'normal');
-    achadosEl.innerHTML = validos.slice().sort((a,b)=>parseFloat(a.preco)-parseFloat(b.preco)).slice(0,10).map(p => prodCard(p, '')).join('');
+    achadosEl.innerHTML = validosDedup.slice(0,10).map(p => prodCard(p, '')).join('');
     if (secAchados) secAchados.style.display = '';
     setTimeout(() => _homeCarousel('home-achados'), 50);
     // Atualiza contador de farmácias no hero visual (pelo nÃºmero de lojas com produtos)
@@ -1461,7 +1477,9 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
       // Formata como "47,50" sem o "R$ "
       ecVal.textContent = parseFloat(d.economia_total).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
     }
-    gridEl.innerHTML = d.produtos.slice(0,6).map(p => {
+    const listaEco = _dedupeContraHome(d.produtos).slice(0,6);
+    if (!listaEco.length) return;
+    gridEl.innerHTML = listaEco.map(p => {
       const badge = p.economia > 0.5 ? `<i class="fa fa-circle-arrow-down"></i>Economia de ${hBrl(p.economia)}` : '';
       return prodCard(p, badge);
     }).join('');
@@ -1605,13 +1623,13 @@ function fecharPopupLoja() {
   }, 230);
 }
 
-const _comprarNovamenteEans = new Set();
 _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
   .then(d=>{
     if(!d.logado || !(d.produtos||[]).length) return;
-    (d.produtos||[]).forEach(p => { if (p.ean) _comprarNovamenteEans.add(p.ean); });
+    const listaCN = _dedupeContraHome(d.produtos || []);
+    if (!listaCN.length) return;
     document.getElementById('sec-comprar-novamente').style.display='';
-    document.getElementById('home-comprar-novamente').innerHTML = (d.produtos||[]).map(p=>{
+    document.getElementById('home-comprar-novamente').innerHTML = listaCN.map(p=>{
       const url=`/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
       return `<a class="home-prod" href="${url}">
         <img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
@@ -1760,7 +1778,7 @@ function carregarInsights() {
       }
 
       // Para você (só com imagem e preço)
-      const paraVoce = (d.para_voce || []).filter(p => p.imagem && parseFloat(p.preco) > 0);
+      const paraVoce = _dedupeContraHome((d.para_voce || []).filter(p => p.imagem && parseFloat(p.preco) > 0));
       if (paraVoce.length) {
         document.getElementById('sec-para-voce').style.display = '';
         document.getElementById('home-para-voce').innerHTML = paraVoce.map(p => renderInsightCard(p, null)).join('');
