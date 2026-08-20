@@ -1605,9 +1605,11 @@ function fecharPopupLoja() {
   }, 230);
 }
 
+const _comprarNovamenteEans = new Set();
 _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
   .then(d=>{
     if(!d.logado || !(d.produtos||[]).length) return;
+    (d.produtos||[]).forEach(p => { if (p.ean) _comprarNovamenteEans.add(p.ean); });
     document.getElementById('sec-comprar-novamente').style.display='';
     document.getElementById('home-comprar-novamente').innerHTML = (d.produtos||[]).map(p=>{
       const url=`/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;

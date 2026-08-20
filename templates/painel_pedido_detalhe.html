@@ -300,7 +300,17 @@
       {% endfor %}
     </tbody>
   </table>
-  <div style="padding:12px 16px;display:flex;justify-content:flex-end;border-top:1px solid var(--pk-line)">
+  <div style="padding:12px 16px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;border-top:1px solid var(--pk-line)">
+    {% set _subtotal = namespace(v=0) %}
+    {% for item in itens %}{% set _subtotal.v = _subtotal.v + (item.preco_unitario * item.qty) %}{% endfor %}
+    {% if pedido.tipo_entrega == 'entrega' %}
+      <span style="font-size:.86rem;color:var(--pk-muted)">Subtotal: {{ money(_subtotal.v) }}</span>
+      {% if pedido.frete_gratis_assinante %}
+        <span style="font-size:.86rem;color:#16a34a">Frete: Grátis (assinante)</span>
+      {% else %}
+        <span style="font-size:.86rem;color:var(--pk-muted)">Frete: {{ money(pedido.frete_valor or 0) }}</span>
+      {% endif %}
+    {% endif %}
     <span style="font-weight:900;font-size:1rem;color:var(--pk-yellow)">Total: {{ money(pedido.total) }}</span>
   </div>
 </div>
