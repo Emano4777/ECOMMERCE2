@@ -9716,97 +9716,84 @@ def _calcular_lembretes(consumidor_id, conn):
     return lembretes_dedup[:3]
 
 
-def _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos=None):
-    """EANs mais comprados pelo consumidor que ainda estão no catálogo das lojas próximas."""
-    _ensure_logo_url_column()
+def _historico_nomes_consumidor(consumidor_id, conn, limit=8):
+    """Nomes dos itens mais comprados pelo cliente, direto do historico de
+    pedidos (sem checar se ainda estao no catalogo) — usado so como contexto
+    textual pra IA (banner da semana, cross-sell), nunca exibido direto pro
+    cliente."""
     cur = conn.cursor()
     cur.execute("""
-        SELECT pi.ean,
-               MAX(pi.nome)     AS nome,
-               MAX(pi.imagem)   AS imagem,
-               p.cnpjloja,
-               MAX(u.razao)     AS razao,
-               AVG(pi.preco_unitario) AS preco,
-               COUNT(*)         AS vezes
+        SELECT pi.nome, COUNT(*) AS vezes
         FROM ecommerce_pedido_itens pi
         JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
-        JOIN users u ON u.cnpjloja = p.cnpjloja
-        WHERE p.consumidor_id = %s
-          AND p.status NOT IN ('cancelado')
-        GROUP BY pi.ean, p.cnpjloja
+        WHERE p.consumidor_id = %s AND p.status NOT IN ('cancelado')
+        GROUP BY pi.nome
         ORDER BY vezes DESC, MAX(p.criado_em) DESC
-        LIMIT 20
-    """, (consumidor_id,))
-    historico = [dict(r) for r in cur.fetchall()]
+        LIMIT %s
+    """, (consumidor_id, limit))
+    nomes = [r["nome"] for r in cur.fetchall() if r["nome"]]
+    cur.close()
+    return nomes
 
-    if not historico:
+
+def _sugestoes_categoria_ultima_compra(consumidor_id, conn, cnpjs_proximos=None, limit=20):
+    """"Bom para você": produtos da(s) categoria(s) do pedido MAIS RECENTE do
+    cliente (ex: comprou fralda -> sugere outros itens de infantil como
+    chupeta, lenço umedecido etc.), excluindo qualquer EAN que ele já tenha
+    comprado alguma vez. Antes essa seção repetia literalmente os itens mais
+    comprados — igual a "Compre novamente" — o que fazia os dois carrosséis
+    mostrarem o mesmo produto."""
+    if not consumidor_id or not cnpjs_proximos:
+        return []
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT p.id FROM ecommerce_pedidos p
+        WHERE p.consumidor_id=%s AND p.status NOT IN ('cancelado')
+        ORDER BY p.criado_em DESC LIMIT 1
+    """, (consumidor_id,))
+    ultimo = cur.fetchone()
+    if not ultimo:
         cur.close()
         return []
 
-    eans_norm = list({(r["ean"] or "").lstrip("0") for r in historico if r.get("ean")})
-    # Verifica quais estão no estoque atual (prefere registros com imagem)
-    cur.execute(f"""
-        SELECT DISTINCT ON (LTRIM(e.barras,'0'))
-               e.barras AS ean,
-               COALESCE(m.descricao, e.descricao) AS nome,
-               COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) AS imagem,
-               e.cnpj AS cnpjloja, u.razao, cl.logo_url,
-               COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
-        FROM estoque e
-        LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(e.barras,'0')
-        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean,''),'0') = LTRIM(e.barras,'0')
-            AND pc.fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken')
-        LEFT JOIN users u ON u.cnpjloja = e.cnpj
-        LEFT JOIN ecommerce_config_loja cl ON cl.cnpjloja = e.cnpj
-        LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = e.cnpj AND ep.ean = e.barras
-        WHERE LTRIM(e.barras,'0') = ANY(%s)
-          AND e.estoque > 0 AND u.is_admin = FALSE
-          {'AND e.cnpj = ANY(%s)' if cnpjs_proximos else ''}
-        ORDER BY LTRIM(e.barras,'0'),
-                 (COALESCE(mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem),'')) IS NOT NULL) DESC,
-                 e.estoque DESC
-    """, [eans_norm] + ([cnpjs_proximos] if cnpjs_proximos else []))
-    em_catalogo = {dict(r)["ean"].lstrip("0"): dict(r) for r in cur.fetchall()}
+    cur.execute("SELECT nome FROM ecommerce_pedido_itens WHERE pedido_id=%s", (ultimo["id"],))
+    categorias_alvo = {_classificar_produto(r["nome"]) for r in cur.fetchall() if r.get("nome")}
+    categorias_alvo.discard("")
+    if not categorias_alvo:
+        cur.close()
+        return []
 
-    # Também checa automatiza_estoque
-    faltam = [e for e in eans_norm if e not in em_catalogo]
-    if faltam:
-        cur.execute(f"""
-            SELECT DISTINCT ON (LTRIM(ae.ean,'0'))
-                   ae.ean AS ean,
-                   COALESCE(m.descricao, ae.descricao_produto) AS nome,
-                   COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem),'')) AS imagem,
-                   ae.cnpj_loja AS cnpjloja, u.razao, cl.logo_url,
-                   COALESCE(ep.preco_customizado, ae.valor_final_produto) AS preco
-            FROM automatiza_estoque ae
-            LEFT JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm,m.barra,''),'0') = LTRIM(ae.ean,'0')
-            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
-            LEFT JOIN users u ON u.cnpjloja = ae.cnpj_loja
-            LEFT JOIN ecommerce_config_loja cl ON cl.cnpjloja = ae.cnpj_loja
-            LEFT JOIN ecommerce_precos ep ON ep.cnpjloja = ae.cnpj_loja AND ep.ean = ae.ean
-            WHERE LTRIM(ae.ean,'0') = ANY(%s)
-              AND ae.quantidade_estoque > 0 AND u.is_admin = FALSE
-              {'AND ae.cnpj_loja = ANY(%s)' if cnpjs_proximos else ''}
-            ORDER BY LTRIM(ae.ean,'0'),
-                     (COALESCE(mi.cloudinary_url, NULLIF(TRIM(m.imagem),'')) IS NOT NULL) DESC,
-                     ae.quantidade_estoque DESC
-        """, [faltam] + ([cnpjs_proximos] if cnpjs_proximos else []))
-        for r in cur.fetchall():
-            r = dict(r)
-            ean_k = r["ean"].lstrip("0")
-            if ean_k not in em_catalogo:
-                em_catalogo[ean_k] = r
+    cur.execute("""
+        SELECT DISTINCT pi.ean FROM ecommerce_pedido_itens pi
+        JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
+        WHERE p.consumidor_id=%s AND p.status NOT IN ('cancelado')
+    """, (consumidor_id,))
+    eans_ja_comprados = {r["ean"] for r in cur.fetchall() if r.get("ean")}
     cur.close()
 
+    produtos_raw = get_alpha_products_direct(cnpjs_proximos, limit=10000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs_proximos)
+    if not produtos_raw:
+        return []
+    for p in produtos_raw:
+        p["categoria"] = _categoria_produto(p)
+
+    candidatos = [
+        p for p in produtos_raw
+        if p.get("categoria") in categorias_alvo and p.get("ean") not in eans_ja_comprados
+    ]
+    candidatos = _curve_a_sort_products(candidatos)
+
+    vistos = set()
     resultado = []
-    for item in historico:
-        ean_n = (item["ean"] or "").lstrip("0")
-        if ean_n in em_catalogo:
-            prod = em_catalogo[ean_n].copy()
-            prod["vezes"] = item["vezes"]
-            resultado.append(prod)
-    return resultado[:10]
+    for p in candidatos:
+        ean = p.get("ean")
+        if not ean or ean in vistos:
+            continue
+        vistos.add(ean)
+        resultado.append(p)
+        if len(resultado) >= limit:
+            break
+    return resultado
 
 
 def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos=None):
@@ -10454,8 +10441,14 @@ def api_home_insights():
         except Exception as e:
             app.logger.warning(f"lembretes: {e}")
 
+        historico_nomes_ia = []
         try:
-            resultado["para_voce"] = _recomendacoes_pessoais(consumidor_id, conn, cnpjs_proximos)
+            historico_nomes_ia = _historico_nomes_consumidor(consumidor_id, conn, limit=8)
+        except Exception as e:
+            app.logger.warning(f"historico_nomes_ia: {e}")
+
+        try:
+            resultado["para_voce"] = _sugestoes_categoria_ultima_compra(consumidor_id, conn, cnpjs_proximos, limit=20)
             if resultado["para_voce"]:
                 _apply_saved_categories(resultado["para_voce"])
                 _marcar_tarja_batch(resultado["para_voce"], conn, ensure_schema=False)
@@ -10464,9 +10457,8 @@ def api_home_insights():
 
         try:
             api_key = _anthropic_api_key()
-            if api_key and resultado["para_voce"]:
-                nomes = [p.get("nome", "") for p in resultado["para_voce"][:6] if p.get("nome")]
-                _cs = _cross_sell_ia(consumidor_id, nomes, conn, api_key, cnpjs_proximos)
+            if api_key and historico_nomes_ia:
+                _cs = _cross_sell_ia(consumidor_id, historico_nomes_ia[:6], conn, api_key, cnpjs_proximos)
                 if isinstance(_cs, dict):
                     resultado["cross_sell"] = _cs.get("produtos", [])
                     resultado["cross_sell_mensagem"] = _cs.get("mensagem", "")
@@ -10479,8 +10471,7 @@ def api_home_insights():
             api_key = _anthropic_api_key()
             if api_key:
                 nome_consumidor = session.get("consumidor_nome", "")
-                nomes_hist = [p.get("nome", "") for p in (resultado["para_voce"] or [])[:5] if p.get("nome")]
-                resultado["banner_ia"] = _banner_semana_ia(consumidor_id, nome_consumidor, nomes_hist, conn, api_key)
+                resultado["banner_ia"] = _banner_semana_ia(consumidor_id, nome_consumidor, historico_nomes_ia[:5], conn, api_key)
         except Exception as e:
             app.logger.warning(f"banner_ia: {e}")
 
@@ -23214,7 +23205,7 @@ _TIPO_INFANTIL = re.compile(
 # Alpha pra fralda é muito inconsistente: a mesma linha de produto aparece
 # espalhada em HPC>PERFUMARIA, HPC>INFANTIL, HPC>OUTROS e até VAREJO,
 # então aqui o nome tem prioridade sobre o ramo que o Alpha mandar.
-_TIPO_FRALDA = re.compile(r"\bfraldas?\b", re.IGNORECASE)
+_TIPO_FRALDA = re.compile(r"\bfraldas?\b|^fd\s", re.IGNORECASE)
 _TIPO_FRALDA_ADULTO = re.compile(r"geri[aá]tric|adulto|incontinen", re.IGNORECASE)
 
 
