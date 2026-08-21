@@ -29,8 +29,12 @@
        style="width:100%;max-width:320px;height:180px;object-fit:cover;border-radius:10px;display:block;margin-bottom:16px">
   {% endif %}
 
-  <form method="POST">
+  <form method="POST" enctype="multipart/form-data">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="grid-column:1/-1">
+        <label class="pk-label">Nova imagem <span style="color:var(--pk-muted);font-weight:400">(deixe em branco pra manter a atual)</span></label>
+        <input class="pk-input" type="file" name="nova_imagem" accept="image/*">
+      </div>
       <div>
         <label class="pk-label">Cidade *</label>
         <input class="pk-input" type="text" name="cidade" value="{{ loja.cidade }}" required>

@@ -8054,6 +8054,50 @@ def _ik_delete_file(file_id):
             raise
 
 
+def _ik_upload_file(file_bytes, filename, cidade=""):
+    """Envia um novo arquivo pro ImageKit (pasta /lojas_poupAqui/), autenticado
+    com a mesma chave privada usada pra listar/apagar. Retorna (file_id, url)
+    do arquivo criado, ou (None, None) em falha."""
+    import uuid
+    if not file_bytes:
+        return None, None
+    boundary = uuid.uuid4().hex
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename or "loja.jpg") or "loja.jpg"
+
+    def _field(name, value):
+        return (
+            f'--{boundary}\r\n'
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f'{value}\r\n'
+        ).encode("utf-8")
+
+    parts = [
+        _field("fileName", safe_name),
+        _field("folder", "/lojas_poupAqui/"),
+        _field("useUniqueFileName", "true"),
+    ]
+    if cidade:
+        parts.append(_field("tags", cidade))
+    parts.append(
+        f'--{boundary}\r\n'
+        f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'
+        f'Content-Type: application/octet-stream\r\n\r\n'
+    .encode("utf-8"))
+    parts.append(file_bytes)
+    parts.append(f'\r\n--{boundary}--\r\n'.encode("utf-8"))
+    body = b"".join(parts)
+
+    req = urllib.request.Request(
+        "https://upload.imagekit.io/api/v1/files/upload",
+        data=body,
+        headers={**_ik_auth_header(), "Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data.get("fileId"), data.get("url")
+
+
 def _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp):
     """Atualiza customMetadata de um arquivo no ImageKit."""
     import urllib.request
@@ -23043,9 +23087,18 @@ def admin_lojas_vitrine_ik_edit(file_id):
         telefone = (request.form.get("telefone") or "").strip()
         whatsapp = (request.form.get("whatsapp") or "").strip()
         cnpjloja = (request.form.get("cnpjloja") or "").strip() or None
+        nova_imagem = request.files.get("nova_imagem")
         try:
-            _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp)
-            flash("Loja atualizada no ImageKit.", "success")
+            if nova_imagem and nova_imagem.filename:
+                novo_file_id, _novo_url = _ik_upload_file(nova_imagem.read(), nova_imagem.filename, cidade)
+                if not novo_file_id:
+                    raise RuntimeError("upload nao retornou fileId")
+                _ik_update_metadata(novo_file_id, cidade, endereco, telefone, whatsapp)
+                _ik_delete_file(file_id)
+                flash("Loja e imagem atualizadas no ImageKit.", "success")
+            else:
+                _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp)
+                flash("Loja atualizada no ImageKit.", "success")
         except Exception as e:
             flash(f"Erro ao atualizar: {e}", "danger")
         # salva/atualiza mapeamento cidade→cnpjloja para rastreio de cliques
