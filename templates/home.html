@@ -1649,10 +1649,15 @@ function fecharPopupLoja() {
 _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
   .then(d=>{
     if(!d.logado || !(d.produtos||[]).length) return;
-    const listaCN = _dedupeContraHome(d.produtos || []);
-    if (!listaCN.length) return;
+    // "Compre novamente" e pessoal (itens que ESSE cliente ja comprou) —
+    // diferente dos carrosseis genericos, nao pode nunca ficar vazio so
+    // porque outro carrossel reivindicou o mesmo produto primeiro (ex:
+    // cliente so comprou 1 produto e esse produto tambem e best-seller).
+    // Ainda reivindica os proprios EANs pra quem renderiza DEPOIS evitar
+    // repetir, mas a exibicao aqui e sempre incondicional.
+    (d.produtos || []).forEach(p => { if (p.ean) _homeCarouselEans.add(p.ean); });
     document.getElementById('sec-comprar-novamente').style.display='';
-    document.getElementById('home-comprar-novamente').innerHTML = listaCN.map(p=>{
+    document.getElementById('home-comprar-novamente').innerHTML = (d.produtos || []).map(p=>{
       const url=`/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
       return `<a class="home-prod" href="${url}">
         <img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
