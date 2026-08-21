@@ -10304,7 +10304,12 @@ def _home_curva_cache_key(cnpjs):
 
 
 def _build_home_curva_payload(cnpjs, sem_farmacia_proxima=False):
-    produtos = _curve_a_products_for_cnpjs(cnpjs or [], limit=24)
+    # limit=24 nao dava produto suficiente pra "Ofertas Relampago" (ate 12) e
+    # "Mais vendidos da loja" (ate 20) nao se sobreporem — como os dois vinham
+    # do mesmo pool pequeno, "mais vendidos" (que renderiza primeiro no fluxo
+    # tipico) esgotava quase tudo e "ofertas relampago" ficava vazio depois
+    # do filtro de deduplicacao entre carrosseis da home.
+    produtos = _curve_a_products_for_cnpjs(cnpjs or [], limit=60)
     return _home_json_safe({
         "produtos": produtos,
         "trending_lojas": produtos,
