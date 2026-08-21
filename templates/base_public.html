@@ -2046,7 +2046,15 @@ function buscarCidadeDebounced() {
     if (!localStorage.getItem(LOC_KEY_LAT)) localStorage.setItem(LOC_KEY_LAT, savedLat);
     if (!localStorage.getItem(LOC_KEY_LNG)) localStorage.setItem(LOC_KEY_LNG, savedLng);
     if (typeof onLocationReady === 'function') onLocationReady(parseFloat(savedLat), parseFloat(savedLng));
-    // Cache expirado (>24h): atualiza silenciosamente em background
+    // Cache expirado (>24h): atualiza em background. Antes so salvava a
+    // coordenada nova no localStorage sem re-renderizar nada — a home ja
+    // tinha carregado com a coordenada velha (onLocationReady da linha
+    // acima), entao ficava com carrosseis inconsistentes na mesma tela:
+    // "Ofertas Relampago"/"Mais vendidos" usando a posicao antiga (podendo
+    // cair no fallback de "nenhuma farmacia perto"), enquanto "Bom para
+    // voce"/"Compre novamente" (que leem o localStorage de novo, mais
+    // tarde) ja pegavam a posicao corrigida. Rechamar onLocationReady aqui
+    // garante que a pagina toda re-renderize com a mesma coordenada.
     if (Date.now() - savedTs > LOC_CACHE_TTL) {
       _geolocateGM()
         .then(pos => {
@@ -2054,6 +2062,7 @@ function buscarCidadeDebounced() {
           localStorage.setItem(LOC_KEY_LNG, pos.lng);
           localStorage.setItem(LOC_KEY_TS, Date.now());
           _reverseGeocodeGM(pos.lat, pos.lng).then(n => setLocNome(n)).catch(() => {});
+          if (typeof onLocationReady === 'function') onLocationReady(pos.lat, pos.lng);
         })
         .catch(() => {
           // GPS indisponível/negado — em vez de deixar a coordenada velha
