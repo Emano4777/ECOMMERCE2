@@ -6908,7 +6908,10 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_venda AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
-            'alpha_a7' AS fonte_estoque
+            'alpha_a7' AS fonte_estoque,
+            ap.preco_promocional AS preco_promocional,
+            ap.promo_inicio AS promo_inicio,
+            ap.promo_fim AS promo_fim
         FROM ecommerce_alpha_produtos ap
         LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
@@ -6959,6 +6962,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         pass
     _apply_safe_catalog_images(rows)
     _apply_saved_categories(rows)
+    _apply_alpha_realtime_promo(rows)
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
@@ -7007,7 +7011,10 @@ def get_alpha_products_direct(cnpjs, limit=200):
             CAST(ap.estoque AS INTEGER) AS qty,
             ap.preco_venda AS preco,
             COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
-            'alpha_a7' AS fonte_estoque
+            'alpha_a7' AS fonte_estoque,
+            ap.preco_promocional AS preco_promocional,
+            ap.promo_inicio AS promo_inicio,
+            ap.promo_fim AS promo_fim
         FROM ecommerce_alpha_produtos ap
         LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
         LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
@@ -7032,6 +7039,7 @@ def get_alpha_products_direct(cnpjs, limit=200):
         pass
     _apply_safe_catalog_images(rows)
     _apply_saved_categories(rows)
+    _apply_alpha_realtime_promo(rows)
     try:
         conn2 = _new_conn()
         _marcar_tarja_batch(rows, conn2)
