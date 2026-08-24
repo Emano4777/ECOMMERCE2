@@ -5235,18 +5235,14 @@ def _is_alpha_product(produto):
 
 
 def _has_catalog_image(produto):
+    # Regra do e-commerce: produto sem foto real nunca aparece na loja (nem
+    # com icone generico) — ou tem foto de verdade, ou fica de fora ate
+    # _fill_one_catalog_image() conseguir uma (ver _schedule_fill_images).
     img = (produto.get("imagem") or "").strip()
     if not img:
         return False
     if _is_alpha_product(produto) and (img in _MEDICINE_PLACEHOLDER_URLS or produto.get("imagem_padrao_poupaqui")):
-        if produto.get("imagem_bloqueada_anvisa") and produto.get("anvisa_cache_encontrado"):
-            return True
-        # Placeholder generico sem confirmacao de tarja: nao e motivo pra
-        # sumir do catalogo inteiro, so pra nao mostrar a caixinha generica
-        # como se fosse foto real (mesma regra de "OTC sem imagem = sem
-        # imagem" ja usada na pagina de produto).
-        produto["imagem"] = None
-        return True
+        return bool(produto.get("imagem_bloqueada_anvisa") and produto.get("anvisa_cache_encontrado"))
     if img in _MEDICINE_PLACEHOLDER_URLS:
         tarja = (produto.get("tarja") or "").strip().lower()
         if tarja in ("vermelha", "preta"):
@@ -5256,8 +5252,7 @@ def _has_catalog_image(produto):
             return True
         if produto.get("imagem_bloqueada_anvisa"):
             return True
-        produto["imagem"] = None
-        return True
+        return False
     return True
 
 
