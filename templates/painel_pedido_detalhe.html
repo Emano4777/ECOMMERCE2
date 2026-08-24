@@ -294,7 +294,14 @@
         <td style="font-weight:700;max-width:220px">{{ item.nome }}</td>
         <td><code style="font-size:.75rem;color:var(--pk-muted)">{{ item.ean }}</code></td>
         <td>{{ item.qty }}</td>
-        <td>{{ money(item.preco_unitario) }}</td>
+        <td>
+          {% if item.preco_unitario_promo is defined %}
+            <span style="text-decoration:line-through;color:var(--pk-muted);font-size:.8rem">{{ money(item.preco_unitario) }}</span>
+            <span style="color:#16a34a;font-weight:700">{{ money(item.preco_unitario_promo) }}</span>
+          {% else %}
+            {{ money(item.preco_unitario) }}
+          {% endif %}
+        </td>
         <td style="font-weight:800;color:var(--pk-yellow)">{{ money(item.preco_unitario * item.qty) }}</td>
       </tr>
       {% endfor %}
@@ -305,11 +312,17 @@
     {% for item in itens %}{% set _subtotal.v = _subtotal.v + (item.preco_unitario * item.qty) %}{% endfor %}
     {% if pedido.tipo_entrega == 'entrega' %}
       <span style="font-size:.86rem;color:var(--pk-muted)">Subtotal: {{ money(_subtotal.v) }}</span>
+      {% if pedido.desconto_cupom and pedido.desconto_cupom > 0 %}
+        <span style="font-size:.86rem;color:#16a34a">Desconto (cupom): -{{ money(pedido.desconto_cupom) }}</span>
+      {% endif %}
       {% if pedido.frete_gratis_assinante %}
         <span style="font-size:.86rem;color:#16a34a">Frete: Grátis (assinante)</span>
       {% else %}
         <span style="font-size:.86rem;color:var(--pk-muted)">Frete: {{ money(pedido.frete_valor or 0) }}</span>
       {% endif %}
+    {% elif pedido.desconto_cupom and pedido.desconto_cupom > 0 %}
+      <span style="font-size:.86rem;color:var(--pk-muted)">Subtotal: {{ money(_subtotal.v) }}</span>
+      <span style="font-size:.86rem;color:#16a34a">Desconto (cupom): -{{ money(pedido.desconto_cupom) }}</span>
     {% endif %}
     <span style="font-weight:900;font-size:1rem;color:var(--pk-yellow)">Total: {{ money(pedido.total) }}</span>
   </div>

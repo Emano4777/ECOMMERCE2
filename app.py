@@ -17793,6 +17793,21 @@ def painel_pedido_detalhe(pedido_id):
         return redirect(url_for("painel_pedidos"))
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
+    desconto_cupom_valor = float(pedido.get("desconto_cupom") or 0)
+    if pedido.get("cupom_id") and desconto_cupom_valor > 0:
+        cur.execute(
+            "SELECT escopo, escopo_eans FROM ecommerce_cupons WHERE id=%s",
+            (pedido["cupom_id"],),
+        )
+        _cupom_row = cur.fetchone()
+        if _cupom_row and _cupom_row["escopo"] == "produto" and _cupom_row["escopo_eans"]:
+            _eans_cupom = {e.strip() for e in _cupom_row["escopo_eans"].split(",") if e.strip()}
+            _qtd_alvo = sum(int(i.get("qty") or 0) for i in itens if i.get("ean") in _eans_cupom)
+            if _qtd_alvo > 0:
+                _desc_unit = round(desconto_cupom_valor / _qtd_alvo, 2)
+                for i in itens:
+                    if i.get("ean") in _eans_cupom:
+                        i["preco_unitario_promo"] = round(float(i["preco_unitario"]) - _desc_unit, 2)
     _ensure_pendencia_schema()
     pendencia = _pendencia_ativa_do_pedido(cur, pedido_id)
     cur.close()
