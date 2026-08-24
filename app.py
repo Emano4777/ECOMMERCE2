@@ -14877,6 +14877,7 @@ def meu_pedido_detalhe(pedido_id):
         pedido = cur.fetchone() or pedido
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
+    _aplicar_preco_promo_itens_cupom(cur, pedido, itens)
     # Reclamação ativa (se houver)
     cur.execute(
         "SELECT id, status FROM ecommerce_reclamacoes WHERE pedido_id=%s AND consumidor_id=%s ORDER BY aberta_em DESC LIMIT 1",
@@ -17772,6 +17773,30 @@ def painel_pedidos():
                            sf_receita=sf_receita, receitas_pendentes=receitas_pendentes)
 
 
+def _aplicar_preco_promo_itens_cupom(cur, pedido, itens):
+    """Marca em `itens` (in-place) o preco_unitario_promo dos itens cobertos
+    por um cupom de escopo='produto' aplicado ao pedido, ratando o
+    desconto_cupom pelas unidades do(s) EAN(s) do cupom."""
+    desconto_cupom_valor = float(pedido.get("desconto_cupom") or 0)
+    if not pedido.get("cupom_id") or desconto_cupom_valor <= 0:
+        return
+    cur.execute(
+        "SELECT escopo, escopo_eans FROM ecommerce_cupons WHERE id=%s",
+        (pedido["cupom_id"],),
+    )
+    cupom_row = cur.fetchone()
+    if not cupom_row or cupom_row["escopo"] != "produto" or not cupom_row["escopo_eans"]:
+        return
+    eans_cupom = {e.strip() for e in cupom_row["escopo_eans"].split(",") if e.strip()}
+    qtd_alvo = sum(int(i.get("qty") or 0) for i in itens if i.get("ean") in eans_cupom)
+    if qtd_alvo <= 0:
+        return
+    desc_unit = round(desconto_cupom_valor / qtd_alvo, 2)
+    for i in itens:
+        if i.get("ean") in eans_cupom:
+            i["preco_unitario_promo"] = round(float(i["preco_unitario"]) - desc_unit, 2)
+
+
 @app.get("/painel/pedidos/<pedido_id>")
 @painel_required
 def painel_pedido_detalhe(pedido_id):
@@ -17793,21 +17818,7 @@ def painel_pedido_detalhe(pedido_id):
         return redirect(url_for("painel_pedidos"))
     cur.execute("SELECT * FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id", (pedido_id,))
     itens = [dict(i) for i in cur.fetchall()]
-    desconto_cupom_valor = float(pedido.get("desconto_cupom") or 0)
-    if pedido.get("cupom_id") and desconto_cupom_valor > 0:
-        cur.execute(
-            "SELECT escopo, escopo_eans FROM ecommerce_cupons WHERE id=%s",
-            (pedido["cupom_id"],),
-        )
-        _cupom_row = cur.fetchone()
-        if _cupom_row and _cupom_row["escopo"] == "produto" and _cupom_row["escopo_eans"]:
-            _eans_cupom = {e.strip() for e in _cupom_row["escopo_eans"].split(",") if e.strip()}
-            _qtd_alvo = sum(int(i.get("qty") or 0) for i in itens if i.get("ean") in _eans_cupom)
-            if _qtd_alvo > 0:
-                _desc_unit = round(desconto_cupom_valor / _qtd_alvo, 2)
-                for i in itens:
-                    if i.get("ean") in _eans_cupom:
-                        i["preco_unitario_promo"] = round(float(i["preco_unitario"]) - _desc_unit, 2)
+    _aplicar_preco_promo_itens_cupom(cur, pedido, itens)
     _ensure_pendencia_schema()
     pendencia = _pendencia_ativa_do_pedido(cur, pedido_id)
     cur.close()

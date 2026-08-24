@@ -466,12 +466,22 @@
         {% endif %}
         <div class="item-info">
           <div class="item-name">{{ item.nome }}</div>
+          {% if item.preco_unitario_promo is defined %}
+          <div class="item-qty">{{ item.qty }}x <span style="text-decoration:line-through;color:var(--pq-muted)">{{ money(item.preco_unitario) }}</span> <span style="color:#16a34a;font-weight:700">{{ money(item.preco_unitario_promo) }}</span></div>
+          {% else %}
           <div class="item-qty">{{ item.qty }}x {{ money(item.preco_unitario) }}</div>
+          {% endif %}
         </div>
         <div class="item-total">{{ money(item.preco_unitario * item.qty) }}</div>
       </div>
       {% endfor %}
     </div>
+    {% if pedido.desconto_cupom and pedido.desconto_cupom > 0 %}
+    <div class="total-row">
+      <span>Desconto (cupom)</span>
+      <strong style="color:#16a34a">-{{ money(pedido.desconto_cupom) }}</strong>
+    </div>
+    {% endif %}
     <div class="total-row">
       <span>Total do pedido</span>
       <strong>{{ money(pedido.total) }}</strong>
@@ -655,7 +665,12 @@
 
       <div class="pd-side-card">
         <h4><i class="fa fa-receipt"></i>Resumo do pagamento</h4>
-        <div class="pd-side-row"><span>Subtotal</span><strong>{{ money(pedido.total - (pedido.frete_valor or 0)) }}</strong></div>
+        {% set _subtotal_itens = namespace(v=0) %}
+        {% for item in itens %}{% set _subtotal_itens.v = _subtotal_itens.v + (item.preco_unitario * item.qty) %}{% endfor %}
+        <div class="pd-side-row"><span>Subtotal</span><strong>{{ money(_subtotal_itens.v) }}</strong></div>
+        {% if pedido.desconto_cupom and pedido.desconto_cupom > 0 %}
+        <div class="pd-side-row"><span>Desconto (cupom)</span><strong style="color:#16a34a">-{{ money(pedido.desconto_cupom) }}</strong></div>
+        {% endif %}
         <div class="pd-side-row">
           <span>{{ 'Retirada' if pedido.tipo_entrega == 'retirada' else 'Entrega' }}</span>
           <strong style="{% if not pedido.frete_valor %}color:#16a34a{% endif %}">{{ money(pedido.frete_valor) if pedido.frete_valor else 'Grátis' }}</strong>
