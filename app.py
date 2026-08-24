@@ -10719,16 +10719,24 @@ def api_comprar_novamente():
     conn = db(); cur = conn.cursor()
     cur.execute("""
         SELECT DISTINCT ON (pi.ean)
-               pi.ean, pi.nome, pi.imagem, pi.preco_unitario AS preco,
+               pi.ean, pi.nome,
+               COALESCE(epi.imagem_url, pi.imagem) AS imagem,
+               pi.preco_unitario AS preco,
                p.cnpjloja, u.razao, p.criado_em
         FROM ecommerce_pedido_itens pi
         JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
         JOIN users u ON u.cnpjloja = p.cnpjloja
+        LEFT JOIN ecommerce_produto_imagens epi
+               ON epi.cnpjloja = p.cnpjloja
+              AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(pi.ean, ''), '0')
         WHERE p.consumidor_id = %s
           AND p.status NOT IN ('cancelado')
-          AND pi.imagem IS NOT NULL AND TRIM(pi.imagem) <> ''
+          AND (
+            (pi.imagem IS NOT NULL AND TRIM(pi.imagem) <> '')
+            OR (epi.imagem_url IS NOT NULL AND TRIM(epi.imagem_url) <> '')
+          )
           AND COALESCE(pi.ean, '') <> ''
-        ORDER BY pi.ean, p.criado_em DESC
+        ORDER BY pi.ean, p.criado_em DESC, epi.updated_at DESC NULLS LAST
         LIMIT 20
     """, (consumidor_id,))
     produtos = [dict(r) for r in cur.fetchall()]
