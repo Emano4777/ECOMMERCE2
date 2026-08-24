@@ -1680,7 +1680,7 @@ _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
     document.getElementById('home-comprar-novamente').innerHTML = (d.produtos || []).map(p=>{
       const url=`/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
       return `<a class="home-prod" href="${url}">
-        <img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">
+        ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}" onerror="this.style.display='none'">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
         <div class="home-prod-name">${hEsc(p.nome)}</div>
         <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(p.razao||'Farmácia')}</div>
         <div class="home-prod-price">${hBrl(p.preco)}</div>

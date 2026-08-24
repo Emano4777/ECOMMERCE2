@@ -3754,10 +3754,17 @@ def _post_json(url, payload, headers=None, timeout=12):
         return json.loads(r.read().decode("utf-8", "ignore"))
 
 
+_NORM_DOSAGEM_UNIDADE_RE = re.compile(r"(?<=\d) (?=(mg|mcg|ml|g|ui|mm|cm|kg|cp|cpr|comprimidos?)\b)")
+
+
 def _norm_text(value):
     value = html.unescape(value or "").lower()
     value = re.sub(r"[^a-z0-9]+", " ", value)
-    return re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"\s+", " ", value).strip()
+    # "10 mg" digitado com espaco nao batia com nomes de produto, que nunca
+    # tem espaco entre numero e unidade (ex: "LORATADINA 10MG") — colapsa
+    # pra manter o "10mg" como um unico termo significativo na busca.
+    return _NORM_DOSAGEM_UNIDADE_RE.sub("", value)
 
 
 _BUSCA_STOPWORDS = {
@@ -5232,7 +5239,14 @@ def _has_catalog_image(produto):
     if not img:
         return False
     if _is_alpha_product(produto) and (img in _MEDICINE_PLACEHOLDER_URLS or produto.get("imagem_padrao_poupaqui")):
-        return bool(produto.get("imagem_bloqueada_anvisa") and produto.get("anvisa_cache_encontrado"))
+        if produto.get("imagem_bloqueada_anvisa") and produto.get("anvisa_cache_encontrado"):
+            return True
+        # Placeholder generico sem confirmacao de tarja: nao e motivo pra
+        # sumir do catalogo inteiro, so pra nao mostrar a caixinha generica
+        # como se fosse foto real (mesma regra de "OTC sem imagem = sem
+        # imagem" ja usada na pagina de produto).
+        produto["imagem"] = None
+        return True
     if img in _MEDICINE_PLACEHOLDER_URLS:
         tarja = (produto.get("tarja") or "").strip().lower()
         if tarja in ("vermelha", "preta"):
@@ -5242,7 +5256,8 @@ def _has_catalog_image(produto):
             return True
         if produto.get("imagem_bloqueada_anvisa"):
             return True
-        return False
+        produto["imagem"] = None
+        return True
     return True
 
 
