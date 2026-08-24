@@ -6887,7 +6887,15 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         return []
     q_norm = _norm_text(query)
     patterns = []
-    for term in _search_terms_for_query(query):
+    # Limita a poucos padroes (frase completa + no maximo 2 palavras) -- cada
+    # padrao "%palavra%" solto vira um OR contra varias colunas de texto
+    # juntadas via LEFT JOIN, e mais padroes = mais linhas candidatas
+    # avancando pros JOINs antes do filtro de relevancia (Python) descartar
+    # a maioria. Pra frases longas (ex: nome colado de uma sugestao de busca)
+    # isso fazia a query levar segundos e a request inteira estourar timeout,
+    # devolvendo "nenhum produto encontrado" mesmo com o produto em estoque.
+    # A precisao real fica por conta do filtro required_terms mais abaixo.
+    for term in _search_terms_for_query(query)[:3]:
         if len(term) < 4 and not term.isdigit():
             continue
         if term and f"%{term}%" not in patterns:
@@ -9191,7 +9199,13 @@ def _api_produtos_proximos_impl():
     # de cair no fallback de mais vendidos, que mostrava produtos sem nenhuma
     # relacao com o termo buscado como se fossem resultado da busca.
 
-    if _catalogo_alpha_exclusivo() and busca_q:
+    if _catalogo_alpha_exclusivo() and busca_q and not produtos_raw:
+        # produtos_raw ja vem da mesma get_alpha_products_direct_by_query()
+        # la em cima (linha ~8954) quando ela encontra algo — repetir a
+        # chamada aqui incondicionalmente dobrava o custo de toda busca (a
+        # mesma query pesada rodando 2x) sem nunca agregar produto novo.
+        # So roda de novo aqui como rede de seguranca pro caso raro de a
+        # primeira chamada ter vindo vazia.
         seen_alpha_direct = {(p.get("cnpjloja"), p.get("ean")) for p in produtos_raw}
         for p in get_alpha_products_direct_by_query(cnpjs, busca_q):
             key = (p.get("cnpjloja"), p.get("ean"))
