@@ -1220,7 +1220,24 @@ function _homeCardQty(ev, el, delta) {
   const valEl = wrap ? wrap.querySelector('.home-prod-qty-val') : null;
   if (!valEl) return;
   const cur = parseInt(valEl.textContent || '1') || 1;
-  valEl.textContent = String(Math.max(1, Math.min(99, cur + delta)));
+  const novaQty = Math.max(1, Math.min(99, cur + delta));
+  valEl.textContent = String(novaQty);
+  _homeCardUpdatePrice(wrap, novaQty);
+}
+function _homeCardUpdatePrice(wrap, qty) {
+  if (!wrap) return;
+  const pqRaw = wrap.dataset.promoQtd;
+  if (!pqRaw) return;
+  let pq;
+  try { pq = JSON.parse(pqRaw); } catch(e) { return; }
+  const priceEl = wrap.closest('.home-prod')?.querySelector('.home-prod-price');
+  if (!priceEl) return;
+  const precoBase = parseFloat(wrap.dataset.precoBase) || 0;
+  if (qty >= pq.qtd_minima) {
+    priceEl.innerHTML = `${hBrl(pq.preco_unit_promo)} <s style="font-size:.72rem;color:var(--pq-muted);font-weight:600">${hBrl(precoBase)}</s>`;
+  } else {
+    priceEl.innerHTML = hBrl(precoBase);
+  }
 }
 // Garante que nenhum produto apareca em mais de um carrossel da home —
 // cada funcao de render abaixo passa sua lista de candidatos por aqui antes
@@ -1262,7 +1279,10 @@ function _dedupeContraHome(lista, limit) {
 }
 function homeCartButton(p, preco, label) {
   if (!p || !p.ean) return '';
-  return `<div class="home-prod-cart" data-item="${homeCartPayload(p, preco)}">
+  const precoAtual = parseFloat(p.preco) || 0;
+  const temPromoAssinante = p.promo?.aplicada && p.promo?.preco_promo && p.promo.preco_promo < precoAtual;
+  const pqAttr = (p.promo_qtd && !temPromoAssinante) ? hEsc(JSON.stringify(p.promo_qtd)) : '';
+  return `<div class="home-prod-cart" data-item="${homeCartPayload(p, preco)}" data-preco-base="${precoAtual}" data-promo-qtd="${pqAttr}">
     <div class="home-prod-qty" aria-label="Quantidade">
       <span role="button" tabindex="0" class="home-prod-qty-btn" onclick="_homeCardQty(event,this,-1)" onkeydown="if(event.key==='Enter'||event.key===' '){_homeCardQty(event,this,-1)}"><i class="fa fa-minus"></i></span>
       <span class="home-prod-qty-val">1</span>

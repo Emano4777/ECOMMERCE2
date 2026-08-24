@@ -10684,6 +10684,10 @@ def api_comprar_novamente():
     except Exception as exc:
         app.logger.warning("comprar_novamente marcar_tarja error: %s", exc)
     produtos = [p for p in produtos if _has_catalog_image(p)]
+    try:
+        _attach_quantidade_promos(produtos)
+    except Exception:
+        pass
     cur.close()
     return jsonify({"produtos": produtos, "logado": True})
 
@@ -11164,6 +11168,10 @@ def _curve_a_products_for_cnpjs(cnpjs, limit=24):
             pass
     try:
         _attach_product_promos(rows)
+    except Exception:
+        pass
+    try:
+        _attach_quantidade_promos(rows)
     except Exception:
         pass
     return rows[:limit]
