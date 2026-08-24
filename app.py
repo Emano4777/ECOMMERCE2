@@ -6946,6 +6946,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
                 -- relevancia da busca, que usa esse mesmo campo "nome".
                 ELSE COALESCE(NULLIF(pc.descricao_canon, 'SEM DESCR'), m.descricao, ap.nome)
             END AS nome,
+            ap.nome AS nome_alpha_raw,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -7020,6 +7021,7 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         for r in rows:
             hay = _norm_text(" ".join([
                 r.get("nome") or "",
+                r.get("nome_alpha_raw") or "",
                 r.get("laboratorio") or "",
                 r.get("marca") or "",
                 r.get("classificacao") or "",
@@ -9348,6 +9350,7 @@ def _api_produtos_proximos_impl():
                 hay_raw = " ".join([
                     p.get("ean") or "",
                     p.get("nome") or "",
+                    p.get("nome_alpha_raw") or "",
                     p.get("razao") or "",
                     p.get("laboratorio") or "",
                     p.get("marca") or "",
