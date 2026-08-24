@@ -292,7 +292,7 @@
     <div class="status-box">
       <div style="grid-column:1 / -1">
         <div class="info-chips">
-          {% if pedido.data_entrega_agendada %}
+          {% if pedido.data_entrega_agendada and pedido.status not in ['entregue', 'cancelado'] %}
           <div class="info-chip info-chip-blue">
             <div class="info-chip-icon"><i class="fa fa-calendar-check"></i></div>
             <div>
