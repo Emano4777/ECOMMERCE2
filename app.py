@@ -3738,6 +3738,37 @@ def _serper_api_key():
     )
 
 
+def _serper_api_keys():
+    """Todas as chaves Serper disponiveis, na ordem de tentativa: a chave
+    principal primeiro, depois o pool de backup (SERPER_API_KEYS, separadas
+    por virgula) -- sem isso, uma unica chave sem credito derrubava o
+    preenchimento automatico de imagem do catalogo inteiro."""
+    keys = []
+    principal = _serper_api_key()
+    if principal:
+        keys.append(principal)
+    for k in os.getenv("SERPER_API_KEYS", "").split(","):
+        k = k.strip()
+        if k and k not in keys:
+            keys.append(k)
+    return keys
+
+
+def _serper_post_json(url, payload, timeout=12):
+    """POST autenticado no Serper, tentando cada chave do pool ate uma
+    funcionar (chave sem credito ou invalida derruba pra proxima)."""
+    last_exc = None
+    for api_key in _serper_api_keys():
+        try:
+            return _post_json(url, payload, headers={"X-API-KEY": api_key}, timeout=timeout)
+        except Exception as exc:
+            last_exc = exc
+            continue
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("nenhuma chave Serper configurada")
+
+
 def _post_json(url, payload, headers=None, timeout=12):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -4757,15 +4788,13 @@ def _extract_structured_image_url(html_text, base_url):
 
 
 def _fetch_verified_serper_image_url(ean, nome):
-    api_key = _serper_api_key()
     ean_digits = _digits(ean)
-    if not api_key or len(ean_digits) < 8:
+    if not _serper_api_keys() or len(ean_digits) < 8:
         return None
     try:
-        data = _post_json(
+        data = _serper_post_json(
             "https://google.serper.dev/search",
             {"q": f'"{ean_digits}"', "num": 8, "gl": "br", "hl": "pt-br"},
-            headers={"X-API-KEY": api_key},
             timeout=12,
         )
     except Exception:
@@ -4940,9 +4969,8 @@ def _fetch_serper_image_result_url(ean, nome):
     A verificação de EAN é garantida pela query — os filtros de farmácia/banner
     protegem contra imagens inadequadas.
     """
-    api_key = _serper_api_key()
     ean_digits = _digits(ean)
-    if not api_key or len(ean_digits) < 8:
+    if not _serper_api_keys() or len(ean_digits) < 8:
         return None
 
     # monta as queries em ordem de prioridade
@@ -4959,10 +4987,9 @@ def _fetch_serper_image_result_url(ean, nome):
 
     for q in queries:
         try:
-            data = _post_json(
+            data = _serper_post_json(
                 "https://google.serper.dev/images",
                 {"q": q, "num": 10, "gl": "br", "hl": "pt-br"},
-                headers={"X-API-KEY": api_key},
                 timeout=12,
             )
         except Exception:
