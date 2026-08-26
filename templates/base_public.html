@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>{% block title %}Poupaqui - Produtos{% endblock %}</title>
+  {% block meta_description %}{% endblock %}
 
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='poupaqui-logo.png') }}"/>
@@ -1435,6 +1436,7 @@
       <div class="pq-footer-col-title">Atendimento</div>
       <a class="pq-footer-link" href="mailto:contato@drogariaspoupaqui.com.br">contato@drogariaspoupaqui.com.br</a>
       <a class="pq-footer-link" href="{{ url_for('politica_privacidade') }}">Política de Privacidade</a>
+      <a class="pq-footer-link" href="{{ url_for('politica_devolucao') }}">Política de Trocas e Devoluções</a>
       <a class="pq-footer-link" href="{{ url_for('minhas_reclamacoes') if consumidor else url_for('consumidor_login') }}">Reclamações/SAC</a>
       <a class="pq-footer-link" href="https://consultas.anvisa.gov.br/#/bulario" target="_blank" rel="noopener noreferrer">Bulário Anvisa</a>
     </div>

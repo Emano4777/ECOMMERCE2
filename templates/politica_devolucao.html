@@ -1,0 +1,48 @@
+{% extends "base_public.html" %}
+{% block title %}Política de Trocas e Devoluções — Poupaqui{% endblock %}
+{% block meta_description %}<meta name="description" content="Conheça a Política de Trocas, Devoluções e Reembolsos da Drogarias Poupaqui para compras realizadas pelo site.">{% endblock %}
+
+{% block content %}
+<div style="max-width:760px;margin:0 auto;padding:32px 0 60px">
+  <h1 style="font-size:1.6rem;font-weight:900;color:var(--pq-red);margin-bottom:6px">Política de Trocas e Devoluções</h1>
+  <p style="color:var(--pq-muted);font-size:.85rem;margin-bottom:32px">Última atualização: agosto de 2026</p>
+
+  <div style="background:#fff;border-radius:14px;padding:28px 32px;box-shadow:var(--pq-shadow);line-height:1.8;color:#333">
+    <p>Esta política se aplica aos pedidos realizados pelo site da <strong>Drogarias Poupaqui</strong>. A Poupaqui funciona como marketplace da rede, e a venda é atendida pela farmácia indicada no pedido. A plataforma e a loja vendedora prestarão o suporte necessário em cada solicitação.</p>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">1. Direito de arrependimento em compras online</h2>
+    <p>Nas compras feitas pelo site, o consumidor pode desistir da compra no prazo de <strong>7 (sete) dias corridos</strong>, contado do recebimento do produto, conforme o artigo 49 do Código de Defesa do Consumidor.</p>
+    <p>A solicitação deve ser feita dentro desse prazo pelos canais indicados no item 6. O consumidor receberá orientações para coleta ou entrega do produto, sem custo adicional. Após a conclusão da devolução, os valores pagos serão restituídos, inclusive o frete original quando houver.</p>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">2. Produto com defeito, avaria ou divergência</h2>
+    <p>Se o produto chegar avariado, com lacre violado, vencido, em quantidade diferente da informada, com desvio de qualidade ou diferente do item comprado, não o utilize. Guarde o produto, a embalagem e os acessórios e entre em contato assim que identificar o problema.</p>
+    <p>O caso será analisado conforme o Código de Defesa do Consumidor. Confirmada a ocorrência, serão oferecidas as soluções legalmente aplicáveis, como substituição do produto, restituição do valor pago ou abatimento proporcional.</p>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">3. Cuidados especiais com medicamentos</h2>
+    <p>Medicamentos exigem controle sanitário e não podem voltar ao estoque para revenda após saírem da responsabilidade da farmácia. Por isso, trocas por preferência pessoal, interrupção do tratamento ou erro na escolha feito pelo consumidor podem não ser aceitas fora das hipóteses previstas em lei.</p>
+    <p>Medicamentos com desvio de qualidade ou quantidade serão avaliados pelo farmacêutico responsável. Medicamentos controlados e antimicrobianos também seguem regras sanitárias específicas. Essas condições não afastam o direito de arrependimento aplicável às compras realizadas fora do estabelecimento comercial.</p>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">4. Condições para envio do produto</h2>
+    <ul>
+      <li>Não descarte o produto antes de receber as orientações de atendimento.</li>
+      <li>Sempre que possível, mantenha a embalagem original, lacres, manuais, acessórios e nota ou comprovante do pedido.</li>
+      <li>Informe o número do pedido e descreva o motivo da solicitação; fotos podem ser pedidas para agilizar a análise.</li>
+      <li>Produtos que dependam de conservação especial devem ser mantidos conforme as instruções do fabricante.</li>
+    </ul>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">5. Reembolso</h2>
+    <p>Quando houver restituição, ela será processada pelo mesmo meio de pagamento utilizado na compra, sempre que possível. Em pagamentos por cartão, o prazo de visualização do estorno pode depender da administradora e do fechamento da fatura. Em outros meios, poderão ser solicitados os dados necessários para a devolução do valor.</p>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">6. Como solicitar</h2>
+    <p>Envie a solicitação para <a href="mailto:contato@drogariaspoupaqui.com.br" style="color:var(--pq-red)">contato@drogariaspoupaqui.com.br</a>, informando o número do pedido, o produto e o motivo do contato. Clientes cadastrados também podem consultar o pedido na área <a href="{{ url_for('meus_pedidos') }}" style="color:var(--pq-red)">Meus pedidos</a> e usar o canal de Reclamações/SAC.</p>
+    <p>O recebimento da solicitação será confirmado pelo canal informado pelo consumidor. A farmácia responsável pelo pedido poderá entrar em contato para combinar a coleta, entrega ou demais providências.</p>
+
+    <h2 style="font-size:1.05rem;font-weight:900;color:var(--pq-text);margin:24px 0 10px">7. Base legal</h2>
+    <p>Esta política observa a Lei nº 8.078/1990 (Código de Defesa do Consumidor), especialmente os artigos 18, 26 e 49, o Decreto nº 7.962/2013 sobre comércio eletrônico e as normas sanitárias aplicáveis a medicamentos.</p>
+
+    <div style="margin-top:28px;padding:14px 18px;background:var(--pq-yellow-lt);border-radius:10px;border:1px solid var(--pq-yellow);font-size:.85rem">
+      <strong>Precisa de ajuda?</strong> Fale com a equipe pelo e-mail <a href="mailto:contato@drogariaspoupaqui.com.br" style="color:var(--pq-red)">contato@drogariaspoupaqui.com.br</a>.
+    </div>
+  </div>
+</div>
+{% endblock %}

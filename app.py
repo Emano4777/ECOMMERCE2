@@ -27989,6 +27989,11 @@ def politica_privacidade():
     return render_template("politica_privacidade.html")
 
 
+@app.get("/politica-de-trocas-e-devolucoes")
+def politica_devolucao():
+    return render_template("politica_devolucao.html")
+
+
 @app.get("/api/dbg-email")
 def api_dbg_email():
     if request.args.get("t") != os.getenv("SECRET_KEY", ""):
