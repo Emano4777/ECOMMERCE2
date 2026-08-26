@@ -29512,6 +29512,150 @@ def api_horario_status(cnpjloja):
     return jsonify(_status_horario_entrega(cnpjloja))
 
 
+# ── SITEMAPS PÚBLICOS (descoberta Google/Merchant Center) ────────────────
+
+_SITEMAP_PAGE_SIZE = 45000
+_sitemap_cache = {}
+_sitemap_cache_lock = threading.Lock()
+
+
+def _sitemap_cached(key, builder, ttl_seconds=21600):
+    now = time.time()
+    with _sitemap_cache_lock:
+        cached = _sitemap_cache.get(key)
+        if cached and now - cached[0] < ttl_seconds:
+            return cached[1]
+    value = builder()
+    with _sitemap_cache_lock:
+        _sitemap_cache[key] = (now, value)
+    return value
+
+
+def _sitemap_product_query(count_only=False):
+    if _catalogo_alpha_exclusivo():
+        source = """
+            SELECT DISTINCT TRIM(cnpjloja) AS cnpjloja, TRIM(ean) AS ean
+            FROM ecommerce_alpha_produtos
+            WHERE COALESCE(inativo, FALSE) = FALSE
+              AND COALESCE(estoque, 0) > 0
+              AND COALESCE(preco_venda, 0) > 0
+              AND TRIM(COALESCE(cnpjloja, '')) <> ''
+              AND TRIM(COALESCE(ean, '')) ~ '^[0-9]{8,14}$'
+        """
+    else:
+        source = """
+            SELECT DISTINCT cnpjloja, ean FROM (
+                SELECT TRIM(cnpj) AS cnpjloja, TRIM(COALESCE(barras_norm, barras)) AS ean
+                FROM estoque
+                WHERE COALESCE(estoque, 0) > 0
+                  AND COALESCE(preco_referencial, 0) > 0
+                UNION ALL
+                SELECT TRIM(cnpj_loja), TRIM(ean)
+                FROM automatiza_estoque
+                WHERE COALESCE(quantidade_estoque, 0) > 0
+                  AND COALESCE(valor_final_produto, 0) > 0
+            ) produtos
+            WHERE cnpjloja <> '' AND ean ~ '^[0-9]{8,14}$'
+        """
+    if count_only:
+        return f"SELECT COUNT(*) AS total FROM ({source}) sitemap_produtos"
+    return source + " ORDER BY cnpjloja, ean LIMIT %s OFFSET %s"
+
+
+def _sitemap_product_count():
+    def load():
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        try:
+            cur.execute(_sitemap_product_query(count_only=True))
+            return int(cur.fetchone()["total"] or 0)
+        finally:
+            cur.close()
+            conn.close()
+    return _sitemap_cached("product_count", load)
+
+
+def _sitemap_xml_response(xml):
+    response = Response(xml, content_type="application/xml; charset=utf-8")
+    response.headers["Cache-Control"] = "public, max-age=3600, s-maxage=21600"
+    return response
+
+
+@app.get("/sitemap.xml")
+def sitemap_index():
+    total = _sitemap_product_count()
+    pages = max(1, math.ceil(total / _SITEMAP_PAGE_SIZE))
+    base_url = (os.getenv("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    locations = [f"{base_url}/sitemap-static.xml"] + [
+        f"{base_url}/sitemap-products-{page}.xml" for page in range(1, pages + 1)
+    ]
+    body = "".join(f"<sitemap><loc>{html.escape(url)}</loc></sitemap>" for url in locations)
+    return _sitemap_xml_response(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"{body}</sitemapindex>"
+    )
+
+
+@app.get("/sitemap-static.xml")
+def sitemap_static():
+    endpoint_names = (
+        "index", "lojas_vitrine", "catalogo_publico", "receita_medica",
+        "vitnatu_page", "seja_assinante", "politica_privacidade", "politica_devolucao",
+    )
+    urls = [url_for(endpoint, _external=True, _scheme="https") for endpoint in endpoint_names]
+    body = "".join(f"<url><loc>{html.escape(url)}</loc></url>" for url in urls)
+    return _sitemap_xml_response(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"{body}</urlset>"
+    )
+
+
+@app.get("/sitemap-products-<int:page>.xml")
+def sitemap_products(page):
+    if page < 1:
+        return Response("Sitemap não encontrado.", status=404, content_type="text/plain; charset=utf-8")
+
+    def load():
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        try:
+            cur.execute(_sitemap_product_query(), (_SITEMAP_PAGE_SIZE, (page - 1) * _SITEMAP_PAGE_SIZE))
+            return [dict(row) for row in cur.fetchall()]
+        finally:
+            cur.close()
+            conn.close()
+
+    rows = _sitemap_cached(f"products_{page}", load)
+    if not rows and page > 1:
+        return Response("Sitemap não encontrado.", status=404, content_type="text/plain; charset=utf-8")
+    base_url = (os.getenv("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    body = "".join(
+        "<url><loc>"
+        + html.escape(f"{base_url}/produto/{row['ean']}?cnpj={row['cnpjloja']}")
+        + "</loc></url>"
+        for row in rows
+    )
+    return _sitemap_xml_response(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"{body}</urlset>"
+    )
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    base_url = (os.getenv("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    return Response(
+        "User-agent: *\nAllow: /\n"
+        "Disallow: /admin/\nDisallow: /painel/\nDisallow: /api/\n"
+        f"Sitemap: {base_url}/sitemap.xml\n",
+        content_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600, s-maxage=21600"},
+    )
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
 
