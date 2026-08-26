@@ -12942,6 +12942,39 @@ def _produto_descricao_ia(
         return _fallback_info() if allow_fallback else {}
 
 
+def _gtin_schema_property(value):
+    """Retorna a propriedade schema.org apenas para GTIN com checksum válido."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) not in (8, 12, 13, 14):
+        return None, None
+    body = digits[:-1]
+    total = sum(
+        int(digit) * (3 if (len(body) - index) % 2 else 1)
+        for index, digit in enumerate(body)
+    )
+    if (10 - total % 10) % 10 != int(digits[-1]):
+        return None, None
+    return f"gtin{len(digits)}", digits
+
+
+def _merchant_product_description(nome, tipo_produto):
+    nome_limpo = re.sub(r"\s+", " ", str(nome or "Produto")).strip().rstrip(". ")
+    complemento = {
+        "medicamento": "Medicamento comercializado conforme as regras sanitárias aplicáveis.",
+        "cosmetico": "Produto cosmético para cuidados pessoais.",
+        "dermocosmetico": "Produto dermocosmético para cuidados com a pele.",
+        "suplemento": "Suplemento alimentar; siga as recomendações de consumo do fabricante.",
+        "nutricao": "Produto destinado à alimentação e nutrição.",
+        "perfumaria": "Produto de perfumaria e cuidados pessoais.",
+        "varejo": "Produto para higiene, saúde ou cuidados pessoais.",
+    }.get(tipo_produto, "Produto para saúde, higiene ou cuidados pessoais.")
+    return (
+        f"{nome_limpo}. {complemento} "
+        "Consulte a embalagem para conferir composição, modo de uso, quantidade, "
+        "advertências e recomendações do fabricante antes da utilização."
+    )[:1000]
+
+
 @app.get("/produto/<ean>")
 def produto_detalhe(ean):
     cnpjloja  = (request.args.get("cnpj")  or "").strip()
@@ -13047,6 +13080,7 @@ def produto_detalhe(ean):
                     SELECT ap.ean, COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
                            CAST(ap.estoque AS INTEGER) AS qty,
                            ap.preco_venda AS preco,
+                           ap.fabricante,
                            COALESCE(%s, ap.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), epi.imagem_url) AS imagem,
                            'alpha_a7' AS fonte_estoque,
                            ap.alpha_o_id, ap.classificacao
@@ -13344,6 +13378,55 @@ def produto_detalhe(ean):
     if loja and loja.get("cnpjloja") and produto and produto.get("preco"):
         promo_qtd = _promo_quantidade_info(ean, loja["cnpjloja"], float(produto["preco"]))
 
+    merchant_description = _merchant_product_description(nome, tipo_produto)
+    merchant_brand = (
+        (med.get("marca") if med else None)
+        or (produto.get("fabricante") if produto else None)
+        or (med.get("laboratorio") if med else None)
+        or anvisa.get("laboratorio")
+        or ""
+    )
+    merchant_url = url_for(
+        "produto_detalhe",
+        ean=ean,
+        cnpj=loja.get("cnpjloja") if loja else None,
+        _external=True,
+        _scheme="https",
+    )
+    merchant_schema = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": nome,
+        "description": merchant_description,
+        "sku": str(ean),
+        "url": merchant_url,
+    }
+    if imagem:
+        merchant_schema["image"] = [imagem]
+    gtin_property, gtin_value = _gtin_schema_property(ean)
+    if gtin_property:
+        merchant_schema[gtin_property] = gtin_value
+    if merchant_brand:
+        merchant_schema["brand"] = {"@type": "Brand", "name": merchant_brand}
+    if produto and produto.get("preco"):
+        merchant_schema["offers"] = {
+            "@type": "Offer",
+            "url": merchant_url,
+            "priceCurrency": "BRL",
+            "price": f"{float(produto['preco']):.2f}",
+            "availability": (
+                "https://schema.org/InStock"
+                if int(produto.get("qty") or 0) > 0
+                else "https://schema.org/OutOfStock"
+            ),
+            "itemCondition": "https://schema.org/NewCondition",
+        }
+        if loja:
+            merchant_schema["offers"]["seller"] = {
+                "@type": "Organization",
+                "name": loja.get("razao") or "Drogarias Poupaqui",
+            }
+
     return render_template(
         "produto_detalhe.html",
         ean=ean, nome=nome, imagem=imagem,
@@ -13362,6 +13445,8 @@ def produto_detalhe(ean):
         assinatura_pendente=assinatura_pendente,
         status_entrega=status_entrega,
         promo_qtd=promo_qtd,
+        merchant_description=merchant_description,
+        merchant_schema=merchant_schema,
     )
 
 

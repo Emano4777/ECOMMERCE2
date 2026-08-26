@@ -1,5 +1,10 @@
 {% extends "base_public.html" %}
-{% block title %}Poupaqui - Produtos{% endblock %}
+{% block title %}{{ nome }} — Drogarias Poupaqui{% endblock %}
+{% block meta_description %}
+<meta name="description" content="{{ merchant_description }}">
+<link rel="canonical" href="{{ merchant_schema.url }}">
+<script type="application/ld+json">{{ merchant_schema | tojson }}</script>
+{% endblock %}
 
 {% block extra_style %}
 <style>
@@ -550,6 +555,8 @@
           <span><i class="fa fa-atom"></i>{{ anvisa.principio_ativo }}</span>
         {% endif %}
       </div>
+
+      <p style="font-size:.84rem;line-height:1.55;color:var(--pq-muted);margin:0">{{ merchant_description }}</p>
 
       {% if reputacao %}
       <div class="pd-rating-row">
