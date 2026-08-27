@@ -971,6 +971,35 @@ def _ensure_aviso_chegada_schema():
         _mark_migration_done(key)
 
 
+def _ensure_lancamento_rio_preto_schema():
+    key = "lancamento_rio_preto_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_lancamento_rio_preto_leads (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(), consumidor_id UUID,
+                nome TEXT NOT NULL, telefone TEXT NOT NULL UNIQUE, email TEXT,
+                lat DOUBLE PRECISION, lng DOUBLE PRECISION, distancia_km NUMERIC(6,2),
+                localizacao_label TEXT, origem TEXT NOT NULL DEFAULT 'popup_rio_preto',
+                criado_em TIMESTAMPTZ DEFAULT NOW(), atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+                notificado_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_rio_preto_leads_pendentes ON ecommerce_lancamento_rio_preto_leads(criado_em DESC) WHERE notificado_em IS NULL")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_aviso_loja_regiao_schema():
     key = "aviso_loja_regiao_v1"
     if key in _schema_ready:
@@ -14892,6 +14921,44 @@ def api_aviso_chegada_criar():
         """,
         (consumidor_id, cidade, uf, lat, lng),
     )
+    conn.commit()
+    cur.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/lancamento-rio-preto/interesse")
+@_rate_limited_api(max_calls=8, window_secs=60)
+def api_lancamento_rio_preto_interesse():
+    """Guarda contatos de moradores do raio do futuro lancamento em Rio Preto."""
+    data = request.get_json(silent=True) or {}
+    nome = re.sub(r"\s+", " ", str(data.get("nome") or "")).strip()[:120]
+    telefone = re.sub(r"\D", "", str(data.get("telefone") or ""))[:13]
+    email = str(data.get("email") or "").strip().lower()[:180] or None
+    lat = _to_float_or_none(data.get("lat"))
+    lng = _to_float_or_none(data.get("lng"))
+    distancia = _to_float_or_none(data.get("distancia_km"))
+    label = str(data.get("localizacao_label") or "").strip()[:240] or None
+    if len(nome) < 2:
+        return jsonify({"ok": False, "erro": "Informe seu nome."}), 400
+    if len(telefone) < 10:
+        return jsonify({"ok": False, "erro": "Informe um WhatsApp válido com DDD."}), 400
+    if email and not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+        return jsonify({"ok": False, "erro": "Informe um e-mail válido."}), 400
+    if distancia is not None and distancia > 35:
+        return jsonify({"ok": False, "erro": "Cadastro disponível para São José do Rio Preto e região próxima."}), 400
+    _ensure_lancamento_rio_preto_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO ecommerce_lancamento_rio_preto_leads
+          (consumidor_id, nome, telefone, email, lat, lng, distancia_km, localizacao_label)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (telefone) DO UPDATE SET
+          consumidor_id=COALESCE(EXCLUDED.consumidor_id, ecommerce_lancamento_rio_preto_leads.consumidor_id),
+          nome=EXCLUDED.nome, email=COALESCE(EXCLUDED.email, ecommerce_lancamento_rio_preto_leads.email),
+          lat=EXCLUDED.lat, lng=EXCLUDED.lng, distancia_km=EXCLUDED.distancia_km,
+          localizacao_label=EXCLUDED.localizacao_label, atualizado_em=NOW()
+    """, (session.get("consumidor_id"), nome, telefone, email, lat, lng, distancia, label))
     conn.commit()
     cur.close()
     return jsonify({"ok": True})

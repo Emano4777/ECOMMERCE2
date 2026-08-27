@@ -1097,6 +1097,13 @@
       text-decoration:none; transition:border-color .15s, color .15s;
     }
     .pq-rec-btn-view:hover { border-color:var(--pq-red); color:var(--pq-red); }
+    /* Campanha regional, sem interferir na operação atual */
+    .pq-rp-overlay{display:none;position:fixed;inset:0;z-index:2100;background:rgba(30,12,13,.68);backdrop-filter:blur(7px);padding:18px;align-items:center;justify-content:center}
+    .pq-rp-overlay.show{display:flex;animation:pqRpFade .25s ease}.pq-rp-card{position:relative;width:min(920px,100%);overflow:hidden;border-radius:28px;background:linear-gradient(125deg,#9d1021 0%,#d71937 55%,#ef334f 100%);color:#fff;box-shadow:0 28px 80px rgba(60,0,10,.42);display:grid;grid-template-columns:1.05fr .95fr}.pq-rp-card:before{content:'';position:absolute;width:330px;height:330px;border-radius:50%;background:rgba(255,211,0,.18);right:-115px;top:-160px}
+    .pq-rp-copy{padding:46px 38px 42px;position:relative}.pq-rp-badge{display:inline-flex;align-items:center;gap:8px;background:#ffd600;color:#59100f;border-radius:999px;padding:8px 13px;font-size:.72rem;font-weight:950;text-transform:uppercase;letter-spacing:.05em}.pq-rp-copy h2{font-size:clamp(2rem,4vw,3.25rem);line-height:1.02;font-weight:950;margin:20px 0 14px;letter-spacing:-.045em}.pq-rp-copy p{font-size:1rem;line-height:1.55;margin:0;color:#fff7f7;max-width:520px}.pq-rp-perks{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}.pq-rp-perk{display:flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.11);border-radius:12px;padding:9px 11px;font-size:.78rem;font-weight:850}
+    .pq-rp-formbox{position:relative;margin:22px;background:#fff;color:#2b2021;border-radius:21px;padding:29px;align-self:center;box-shadow:0 12px 40px rgba(70,0,12,.22)}.pq-rp-formbox h3{font-size:1.25rem;font-weight:950;margin:0 0 5px}.pq-rp-formbox>p{font-size:.82rem;color:#716566;margin:0 0 18px;line-height:1.45}.pq-rp-field{display:block;font-size:.69rem;font-weight:900;text-transform:uppercase;color:#65595a;margin-top:11px}.pq-rp-field input{display:block;width:100%;height:43px;margin-top:5px;border:1.5px solid #e3d9da;border-radius:10px;padding:0 12px;font:700 .86rem inherit;box-sizing:border-box;outline:none}.pq-rp-field input:focus{border-color:#d71937;box-shadow:0 0 0 3px rgba(215,25,55,.1)}
+    .pq-rp-submit{width:100%;border:0;border-radius:11px;background:#ffd600;color:#44100f;min-height:48px;margin-top:17px;font:950 .87rem inherit;cursor:pointer;box-shadow:0 8px 20px rgba(224,178,0,.28);transition:transform .15s}.pq-rp-submit:hover{transform:translateY(-2px)}.pq-rp-submit:disabled{opacity:.7;cursor:wait;transform:none}.pq-rp-small{font-size:.66rem!important;text-align:center;color:#8a7e7f!important;margin:10px 0 0!important}.pq-rp-small a{color:#9d1021}.pq-rp-status{min-height:18px;font-size:.75rem;font-weight:800;text-align:center;margin-top:8px;color:#b3152d}.pq-rp-success{text-align:center;padding:25px 5px}.pq-rp-success i{font-size:2.8rem;color:#25a55f}.pq-rp-success h3{margin:12px 0 7px}.pq-rp-close{position:absolute;z-index:3;right:13px;top:13px;width:36px;height:36px;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:rgba(70,0,10,.22);color:#fff;cursor:pointer}@keyframes pqRpFade{from{opacity:0}to{opacity:1}}
+    @media(max-width:760px){.pq-rp-card{display:block;max-height:calc(100vh - 24px);overflow-y:auto;border-radius:22px}.pq-rp-copy{padding:35px 23px 20px}.pq-rp-copy h2{font-size:2.2rem}.pq-rp-formbox{margin:0 14px 14px;padding:22px}.pq-rp-perks{margin-top:18px}.pq-rp-close{position:fixed;right:24px;top:24px}}
   </style>
   {% block extra_style %}{% endblock %}
 </head>
@@ -1391,6 +1398,35 @@
   </div>
 </div>
 
+<!-- AVISO DE LANÇAMENTO: exibido somente no raio de São José do Rio Preto -->
+<div class="pq-rp-overlay" id="pq-rp-overlay" role="dialog" aria-modal="true" aria-labelledby="pq-rp-title" onclick="if(event.target===this)pqRpFechar()">
+  <div class="pq-rp-card">
+    <button class="pq-rp-close" type="button" onclick="pqRpFechar()" aria-label="Fechar aviso"><i class="fa fa-xmark"></i></button>
+    <div class="pq-rp-copy">
+      <span class="pq-rp-badge"><i class="fa fa-location-dot"></i> Novidade na sua região</span>
+      <h2 id="pq-rp-title">A Poupaqui está chegando a Rio Preto!</h2>
+      <p>Em breve, você poderá comprar pelo nosso e-commerce e receber em toda São José do Rio Preto e região próxima.</p>
+      <div class="pq-rp-perks">
+        <span class="pq-rp-perk"><i class="fa fa-bolt"></i> Entrega no mesmo dia</span>
+        <span class="pq-rp-perk"><i class="fa fa-clock"></i> Normalmente em até 1 hora*</span>
+        <span class="pq-rp-perk"><i class="fa fa-map-location-dot"></i> Cobertura em toda a cidade</span>
+      </div>
+    </div>
+    <div class="pq-rp-formbox" id="pq-rp-formbox">
+      <h3>Seja um dos primeiros</h3>
+      <p>Cadastre-se gratuitamente e avisaremos quando as entregas começarem na sua região.</p>
+      <form id="pq-rp-form" onsubmit="pqRpCadastrar(event)">
+        <label class="pq-rp-field">Seu nome<input id="pq-rp-nome" maxlength="120" autocomplete="name" required></label>
+        <label class="pq-rp-field">WhatsApp com DDD<input id="pq-rp-fone" maxlength="18" inputmode="tel" autocomplete="tel" placeholder="(17) 99999-9999" required></label>
+        <label class="pq-rp-field">E-mail <span style="font-weight:600;text-transform:none">(opcional)</span><input id="pq-rp-email" maxlength="180" type="email" autocomplete="email"></label>
+        <button class="pq-rp-submit" id="pq-rp-submit" type="submit"><i class="fa fa-bell me-1"></i> Quero ser avisado no lançamento</button>
+        <div class="pq-rp-status" id="pq-rp-status" aria-live="polite"></div>
+      </form>
+      <p class="pq-rp-small">*Prazo e taxa de entrega variam conforme endereço, disponibilidade e eventuais imprevistos. Ao enviar, você concorda com nossa <a href="{{ url_for('politica_privacidade') }}">Política de Privacidade</a>.</p>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL PRODUTO -->
 <div class="pq-prod-overlay" id="prod-overlay" onclick="if(event.target===this)fecharModalProd()">
   <div class="pq-prod-modal">
@@ -1591,7 +1627,40 @@ function aplicarLocalizacao(lat, lng) {
   localStorage.setItem(LOC_KEY_TS, Date.now());
   reverseGeocode(lat, lng);
   fecharModalLoc();
+  pqRpVerificar(lat, lng);
   if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
+}
+
+const PQ_RP_LAT = -20.8113, PQ_RP_LNG = -49.3758, PQ_RP_RAIO_KM = 30;
+let _pqRpCoords = null;
+function pqRpDistancia(lat1,lng1,lat2,lng2){
+  const r=6371, rad=n=>n*Math.PI/180, dLat=rad(lat2-lat1), dLng=rad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2+Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLng/2)**2;
+  return r*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function pqRpVerificar(lat,lng){
+  lat=parseFloat(lat);lng=parseFloat(lng);if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
+  const distancia=pqRpDistancia(lat,lng,PQ_RP_LAT,PQ_RP_LNG);_pqRpCoords={lat,lng,distancia};
+  const dispensado=parseInt(localStorage.getItem('pq_rp_dispensado')||'0');
+  if(distancia<=PQ_RP_RAIO_KM&&!localStorage.getItem('pq_rp_cadastrado')&&Date.now()-dispensado>7*86400000){
+    setTimeout(()=>document.getElementById('pq-rp-overlay')?.classList.add('show'),900);
+  }
+}
+function pqRpFechar(){
+  document.getElementById('pq-rp-overlay')?.classList.remove('show');
+  localStorage.setItem('pq_rp_dispensado',Date.now());
+}
+async function pqRpCadastrar(ev){
+  ev.preventDefault();
+  const btn=document.getElementById('pq-rp-submit'),status=document.getElementById('pq-rp-status');
+  btn.disabled=true;status.textContent='Salvando seu cadastro…';
+  const payload={nome:document.getElementById('pq-rp-nome').value,telefone:document.getElementById('pq-rp-fone').value,email:document.getElementById('pq-rp-email').value,lat:_pqRpCoords?.lat,lng:_pqRpCoords?.lng,distancia_km:_pqRpCoords?.distancia,localizacao_label:localStorage.getItem(LOC_KEY_NOME)||''};
+  try{
+    const r=await fetch('/api/lancamento-rio-preto/interesse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),d=await r.json();
+    if(!r.ok||!d.ok)throw new Error(d.erro||'Não foi possível concluir o cadastro.');
+    localStorage.setItem('pq_rp_cadastrado','1');
+    document.getElementById('pq-rp-formbox').innerHTML='<div class="pq-rp-success"><i class="fa fa-circle-check"></i><h3>Cadastro realizado!</h3><p>Pronto! Vamos avisar você assim que a Poupaqui chegar à sua região.</p><button class="pq-rp-submit" type="button" onclick="pqRpFechar()">Continuar navegando</button></div>';
+  }catch(e){status.textContent=e.message;btn.disabled=false}
 }
 
 let _gpsLat = null, _gpsLng = null, _gpsNome = null;
@@ -2073,6 +2142,7 @@ function buscarCidadeDebounced() {
   if (savedLat && savedLng) {
     if (!localStorage.getItem(LOC_KEY_LAT)) localStorage.setItem(LOC_KEY_LAT, savedLat);
     if (!localStorage.getItem(LOC_KEY_LNG)) localStorage.setItem(LOC_KEY_LNG, savedLng);
+    pqRpVerificar(savedLat, savedLng);
     if (typeof onLocationReady === 'function') onLocationReady(parseFloat(savedLat), parseFloat(savedLng));
     // Cache expirado (>24h): atualiza em background. Antes so salvava a
     // coordenada nova no localStorage sem re-renderizar nada — a home ja
