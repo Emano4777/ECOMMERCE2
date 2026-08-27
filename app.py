@@ -13378,6 +13378,11 @@ def produto_detalhe(ean):
     if loja and loja.get("cnpjloja") and produto and produto.get("preco"):
         promo_qtd = _promo_quantidade_info(ean, loja["cnpjloja"], float(produto["preco"]))
 
+    # O Merchant Center proibe medicamentos sob prescricao no Brasil e exige
+    # certificacao previa da farmacia para MIPs/OTC. A pagina continua publica
+    # e indexavel na busca organica, mas so itens nao medicamentos recebem a
+    # marcacao Product/Offer usada pela fonte automatica "Encontrado pelo Google".
+    merchant_eligible = not _is_med
     merchant_description = _merchant_product_description(nome, tipo_produto)
     merchant_brand = (
         (med.get("marca") if med else None)
@@ -13393,39 +13398,41 @@ def produto_detalhe(ean):
         _external=True,
         _scheme="https",
     )
-    merchant_schema = {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        "name": nome,
-        "description": merchant_description,
-        "sku": str(ean),
-        "url": merchant_url,
-    }
-    if imagem:
-        merchant_schema["image"] = [imagem]
-    gtin_property, gtin_value = _gtin_schema_property(ean)
-    if gtin_property:
-        merchant_schema[gtin_property] = gtin_value
-    if merchant_brand:
-        merchant_schema["brand"] = {"@type": "Brand", "name": merchant_brand}
-    if produto and produto.get("preco"):
-        merchant_schema["offers"] = {
-            "@type": "Offer",
+    merchant_schema = None
+    if merchant_eligible:
+        merchant_schema = {
+            "@context": "https://schema.org",
+            "@type": "Product",
+            "name": nome,
+            "description": merchant_description,
+            "sku": str(ean),
             "url": merchant_url,
-            "priceCurrency": "BRL",
-            "price": f"{float(produto['preco']):.2f}",
-            "availability": (
-                "https://schema.org/InStock"
-                if int(produto.get("qty") or 0) > 0
-                else "https://schema.org/OutOfStock"
-            ),
-            "itemCondition": "https://schema.org/NewCondition",
         }
-        if loja:
-            merchant_schema["offers"]["seller"] = {
-                "@type": "Organization",
-                "name": loja.get("razao") or "Drogarias Poupaqui",
+        if imagem:
+            merchant_schema["image"] = [imagem]
+        gtin_property, gtin_value = _gtin_schema_property(ean)
+        if gtin_property:
+            merchant_schema[gtin_property] = gtin_value
+        if merchant_brand:
+            merchant_schema["brand"] = {"@type": "Brand", "name": merchant_brand}
+        if produto and produto.get("preco"):
+            merchant_schema["offers"] = {
+                "@type": "Offer",
+                "url": merchant_url,
+                "priceCurrency": "BRL",
+                "price": f"{float(produto['preco']):.2f}",
+                "availability": (
+                    "https://schema.org/InStock"
+                    if int(produto.get("qty") or 0) > 0
+                    else "https://schema.org/OutOfStock"
+                ),
+                "itemCondition": "https://schema.org/NewCondition",
             }
+            if loja:
+                merchant_schema["offers"]["seller"] = {
+                    "@type": "Organization",
+                    "name": loja.get("razao") or "Drogarias Poupaqui",
+                }
 
     return render_template(
         "produto_detalhe.html",
@@ -13447,6 +13454,7 @@ def produto_detalhe(ean):
         promo_qtd=promo_qtd,
         merchant_description=merchant_description,
         merchant_schema=merchant_schema,
+        merchant_eligible=merchant_eligible,
     )
 
 
@@ -23379,7 +23387,7 @@ def health():
 ANVISA_CACHE_TTL_DAYS = int(os.getenv("ANVISA_CACHE_TTL_DAYS", "3650"))
 
 _TIPO_PERFUMARIA = re.compile(
-    r"\b(sabonete|shampoo|condicionador|creme.capilar|mascara.capilar|oleo.capilar|anticaspa|"
+    r"\b(sabonete|sab|shampoo|condicionador|creme.capilar|mascara.capilar|oleo.capilar|anticaspa|"
     r"tintura.capilar|tinta.cabelo|coloracao.capilar|depilatorio|depilatório|cera.depilatoria|"
     r"pasta.dental|creme.dental|escova.dental|fio.dental|enxaguante|colutorio|antisseptico.bucal|"
     r"desodorante|antitranspirante|fralda|fraldas|absorvente|lenco.umedecido|lenco.umid\w*|toalha.umed\w*|toalha.umid\w*|toalha.beb|pano.umed\w*|protetor.diario|"

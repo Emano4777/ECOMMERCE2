@@ -2,8 +2,10 @@
 {% block title %}{{ nome }} — Drogarias Poupaqui{% endblock %}
 {% block meta_description %}
 <meta name="description" content="{{ merchant_description }}">
-<link rel="canonical" href="{{ merchant_schema.url }}">
+<link rel="canonical" href="{{ url_for('produto_detalhe', ean=ean, cnpj=loja.cnpjloja if loja else None, _external=True, _scheme='https') }}">
+{% if merchant_schema %}
 <script type="application/ld+json">{{ merchant_schema | tojson }}</script>
+{% endif %}
 {% endblock %}
 
 {% block extra_style %}
@@ -453,7 +455,7 @@
 {% set tem_bula = anvisa and (anvisa.url_bula_fabricante or anvisa.url_bula) %}
 {% set frete_gratis_clube = plano_assinatura and plano_assinatura.frete_gratis_primeira_entrega and not ja_assina %}
 
-<div class="pd-wrap">
+<div class="pd-wrap"{% if not merchant_eligible %} data-nosnippet{% endif %}>
 
   <!-- BREADCRUMB -->
   <div class="pd-bc">
