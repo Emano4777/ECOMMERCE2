@@ -17840,6 +17840,7 @@ def api_pagamento_status(pedido_id):
 def pedido_confirmacao():
     _ensure_receita_schema()
     _ensure_logo_url_column()
+    _ensure_previsao_entrega_em_column()
     ids = [i.strip() for i in (request.args.get("ids") or "").split(",") if i.strip()]
     if not ids:
         return redirect(url_for("index"))
@@ -17852,11 +17853,12 @@ def pedido_confirmacao():
             cur.execute(
                 """
                 SELECT p.id, p.cnpjloja, p.cliente_nome, p.forma_pagamento,
-                       p.status, p.total, p.criado_em,
+                       p.status, p.total, p.criado_em, p.cliente_email,
                        p.mp_preference_id, p.mp_payment_id, p.mp_init_point,
                        p.pix_qr_code, p.pix_qr_base64,
                        p.pagamento_status, p.pagamento_status_detail, p.pagamento_confirmado_em,
                        p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
+                       p.previsao_entrega_em, p.data_entrega_agendada,
                        p.receita_status,
                        u.razao, u.telefone,
                        c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
@@ -17882,11 +17884,12 @@ def pedido_confirmacao():
                     cur.execute(
                         """
                         SELECT p.id, p.cnpjloja, p.cliente_nome, p.forma_pagamento,
-                               p.status, p.total, p.criado_em,
+                               p.status, p.total, p.criado_em, p.cliente_email,
                                p.mp_preference_id, p.mp_payment_id, p.mp_init_point,
                                p.pix_qr_code, p.pix_qr_base64,
                                p.pagamento_status, p.pagamento_status_detail, p.pagamento_confirmado_em,
                                p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
+                               p.previsao_entrega_em, p.data_entrega_agendada,
                                p.receita_status,
                                u.razao, u.telefone,
                                c.whatsapp_pedidos, c.pix_chave, c.pix_nome, c.logo_url, c.mp_public_key, c.mp_access_token
@@ -17910,7 +17913,37 @@ def pedido_confirmacao():
             pass
 
     cur.close()
-    return render_template("pedido_confirmacao.html", pedidos=pedidos)
+
+    # Google Avaliacoes do Consumidor: uma confirmacao pode conter pedidos
+    # separados por loja, mas representa uma unica experiencia de checkout.
+    gcr_data = None
+    if pedidos:
+        email = next((str(e["pedido"].get("cliente_email") or "").strip() for e in pedidos
+                      if e["pedido"].get("cliente_email")), "")
+        if re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+            datas = []
+            gtins = []
+            for entry in pedidos:
+                p = entry["pedido"]
+                prevista = p.get("previsao_entrega_em") or p.get("data_entrega_agendada") or p.get("criado_em")
+                if prevista:
+                    datas.append(prevista.date() if hasattr(prevista, "date") else prevista)
+                for item in entry["itens"]:
+                    gtin = re.sub(r"\D", "", str(item.get("ean") or ""))
+                    if len(gtin) in (8, 12, 13, 14) and gtin not in gtins:
+                        gtins.append(gtin)
+            pedido_ids = sorted(str(e["pedido"]["id"]) for e in pedidos)
+            order_id = pedido_ids[0] if len(pedido_ids) == 1 else "PQ-" + hashlib.sha256("|".join(pedido_ids).encode()).hexdigest()[:24]
+            data_estimada = max(datas) if datas else datetime.now(_BRT).date()
+            gcr_data = {
+                "merchant_id": int(os.getenv("GOOGLE_MERCHANT_ID", "5843392200")),
+                "order_id": order_id,
+                "email": email,
+                "delivery_country": "BR",
+                "estimated_delivery_date": data_estimada.strftime("%Y-%m-%d"),
+                "products": [{"gtin": gtin} for gtin in gtins],
+            }
+    return render_template("pedido_confirmacao.html", pedidos=pedidos, gcr_data=gcr_data)
 
 
 # ─── PAINEL: ALERTAS SONOROS (polling) ───────────────────────────────────────

@@ -285,6 +285,20 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if gcr_data %}
+<!-- Google Avaliações do Consumidor: exibido somente após uma compra real -->
+<script>
+window.renderOptIn = function() {
+  window.gapi.load('surveyoptin', function() {
+    const dadosAvaliacao = {{ gcr_data|tojson }};
+    dadosAvaliacao.opt_in_style = 'CENTER_DIALOG';
+    if (!dadosAvaliacao.products || !dadosAvaliacao.products.length) delete dadosAvaliacao.products;
+    window.gapi.surveyoptin.render(dadosAvaliacao);
+  });
+};
+</script>
+<script src="https://apis.google.com/js/platform.js?onload=renderOptIn" async defer></script>
+{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 function copiarPix(id) {
