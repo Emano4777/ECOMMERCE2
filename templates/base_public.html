@@ -5,6 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>{% block title %}Poupaqui - Produtos{% endblock %}</title>
   {% block meta_description %}{% endblock %}
+  <script type="application/ld+json">
+  {{ {
+    "@context": "https://schema.org",
+    "@type": "OnlineStore",
+    "@id": "https://www.drogariaspoupaqui.com.br/#store",
+    "name": "Drogarias Poupaqui",
+    "url": "https://www.drogariaspoupaqui.com.br/",
+    "logo": "https://www.drogariaspoupaqui.com.br/static/poupaqui-logo.png",
+    "sameAs": ["https://www.instagram.com/drogariaspoupaqui/"],
+    "hasMerchantReturnPolicy": {
+      "@type": "MerchantReturnPolicy",
+      "@id": "https://www.drogariaspoupaqui.com.br/politica-de-trocas-e-devolucoes#policy",
+      "applicableCountry": "BR",
+      "returnPolicyCountry": "BR",
+      "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+      "merchantReturnDays": 7,
+      "returnMethod": [
+        "https://schema.org/ReturnByMail",
+        "https://schema.org/ReturnInStore"
+      ],
+      "returnFees": "https://schema.org/FreeReturn",
+      "refundType": "https://schema.org/FullRefund",
+      "merchantReturnLink": "https://www.drogariaspoupaqui.com.br/politica-de-trocas-e-devolucoes"
+    }
+  } | tojson }}
+  </script>
 
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}"/>
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='poupaqui-logo.png') }}"/>

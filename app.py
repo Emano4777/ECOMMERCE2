@@ -13427,6 +13427,10 @@ def produto_detalhe(ean):
                     else "https://schema.org/OutOfStock"
                 ),
                 "itemCondition": "https://schema.org/NewCondition",
+                "hasMerchantReturnPolicy": {
+                    "@id": "https://www.drogariaspoupaqui.com.br/"
+                           "politica-de-trocas-e-devolucoes#policy",
+                },
             }
             if loja:
                 merchant_schema["offers"]["seller"] = {
