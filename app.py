@@ -16200,6 +16200,8 @@ def api_checkout():
                  "is_assinante": is_assinante_checkout},
             )
             cupom = cur.fetchone()
+            if cupom and float(cupom.get("valor_minimo") or 0) > produtos_total:
+                cupom = None  # nao atinge o valor minimo do pedido pra esse cupom
             if cupom:
                 escopo_c = (cupom.get("escopo") or "todos")
                 escopo_cats = set(x.strip() for x in (cupom.get("escopo_categorias") or "").split(",") if x.strip())
@@ -25030,6 +25032,10 @@ def _ensure_cupons_schema():
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS forma_pagamento TEXT DEFAULT ''")
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS qtd_minima INTEGER DEFAULT 0")
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS so_assinantes BOOLEAN DEFAULT FALSE")
+        # valor_minimo: valor minimo do TOTAL do pedido (em R$) pra poder usar o
+        # cupom — diferente de qtd_minima (quantidade de itens) e min_compras
+        # (numero de compras anteriores, usado so pro publico 'frequente').
+        cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS valor_minimo NUMERIC(10,2) DEFAULT 0")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_cupons_clientes (
                 id SERIAL PRIMARY KEY,
@@ -25415,6 +25421,13 @@ def api_cupom_validar():
     cupom = cur.fetchone(); cur.close()
     if not cupom:
         return jsonify({"valido": False, "msg": "Cupom inválido ou expirado."})
+    valor_minimo = float(cupom.get("valor_minimo") or 0)
+    if valor_minimo > 0 and total < valor_minimo:
+        valor_min_txt = f"{valor_minimo:.2f}".replace(".", ",")
+        return jsonify({
+            "valido": False,
+            "msg": f"Esse cupom só vale para compras a partir de R$ {valor_min_txt}.",
+        })
     desconto = 0.0
     if cupom["desconto_tipo"] == "pct":
         desconto = round(total * float(cupom["desconto_valor"]) / 100, 2)
