@@ -265,6 +265,20 @@
     {% endif %}
 
     <div class="field"><label>Assunto</label><input class="pk-input" name="titulo" id="titulo" maxlength="160" required placeholder="Semana de economia"></div>
+
+    {% if cupons %}
+    <div class="field">
+      <label>Cupom disponível (opcional)</label>
+      <select class="pk-input" name="cupom_id" id="cupomSelect">
+        <option value="">Nenhum</option>
+        {% for c in cupons %}
+        <option value="{{ c.id }}">{{ c.codigo }} — {{ (c.desconto_valor|int ~ '%') if c.desconto_tipo=='pct' else ('R$ ' ~ '%.2f'|format(c.desconto_valor|float)) }} OFF</option>
+        {% endfor %}
+      </select>
+      <span class="note" style="display:block;margin-top:6px">Escolhendo um cupom, use <code>{cupom}</code> na mensagem pra inserir o código e o desconto automaticamente.</span>
+    </div>
+    {% endif %}
+
     <div class="field">
       <label>Mensagem</label>
       <textarea class="pk-input" name="mensagem" id="mensagem" rows="5" maxlength="600" required>Olá {primeiro_nome}, a {loja} preparou uma oferta para você.</textarea>
@@ -272,6 +286,7 @@
         <button class="btn-pk-ghost insert-var" type="button" data-target="mensagem" data-var="{primeiro_nome}">Primeiro nome</button>
         <button class="btn-pk-ghost insert-var" type="button" data-target="mensagem" data-var="{nome}">Nome completo</button>
         <button class="btn-pk-ghost insert-var" type="button" data-target="mensagem" data-var="{loja}">Nome da loja</button>
+        {% if cupons %}<button class="btn-pk-ghost insert-var" type="button" data-target="mensagem" data-var="{cupom}">Cupom</button>{% endif %}
       </div>
       <span class="note" style="display:block;margin-top:7px">Os códigos serão substituídos automaticamente pelos dados de cada cliente e da loja.</span>
     </div>
@@ -438,12 +453,24 @@
       </div>
     </div>
     <div class="field"><label>Assunto</label><input class="pk-input" name="titulo" maxlength="160" required></div>
+    {% if cupons %}
+    <div class="field">
+      <label>Cupom disponível (opcional)</label>
+      <select class="pk-input" name="cupom_id">
+        <option value="">Nenhum</option>
+        {% for c in cupons %}
+        <option value="{{ c.id }}">{{ c.codigo }} — {{ (c.desconto_valor|int ~ '%') if c.desconto_tipo=='pct' else ('R$ ' ~ '%.2f'|format(c.desconto_valor|float)) }} OFF</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
     <div class="field"><label>Mensagem</label>
       <textarea class="pk-input" id="automationMessage" name="mensagem" rows="4" maxlength="600" required>Olá {primeiro_nome}, </textarea>
       <div class="note" style="margin-top:7px">Adicionar na mensagem:
         <button class="btn-pk-ghost insert-var" type="button" data-target="automationMessage" data-var="{primeiro_nome}">Primeiro nome</button>
         <button class="btn-pk-ghost insert-var" type="button" data-target="automationMessage" data-var="{nome}">Nome completo</button>
         <button class="btn-pk-ghost insert-var" type="button" data-target="automationMessage" data-var="{loja}">Nome da loja</button>
+        {% if cupons %}<button class="btn-pk-ghost insert-var" type="button" data-target="automationMessage" data-var="{cupom}">Cupom</button>{% endif %}
       </div>
     </div>
     <div class="field"><label>Imagem opcional</label><input class="pk-input" type="file" name="imagem" accept="image/jpeg,image/png"><span class="note">JPG ou PNG, até 5 MB. Também será enviada no WhatsApp.</span></div>
@@ -551,7 +578,13 @@ customerChecks.forEach(c=>c.onchange=updateSelected);
 clientSearch.oninput=e=>{const term=e.target.value.toLowerCase().trim();document.querySelectorAll('.client-row').forEach(r=>r.style.display=!term||r.dataset.search.includes(term)?'flex':'none')};
 
 /* ── Passo 4: preview ── */
-function previewPersonalizado(texto){return texto.replaceAll('{primeiro_nome}','Maria').replaceAll('{nome}','Maria da Silva').replaceAll('{loja}','Sua farmácia')}
+function previewPersonalizado(texto){
+  const cupomTxt = (window.cupomSelect && cupomSelect.value)
+    ? 'cupom ' + cupomSelect.options[cupomSelect.selectedIndex].text.replace(' — ', ' (') + ')'
+    : '';
+  return texto.replaceAll('{primeiro_nome}','Maria').replaceAll('{nome}','Maria da Silva').replaceAll('{loja}','Sua farmácia').replaceAll('{cupom}', cupomTxt);
+}
+if(window.cupomSelect) cupomSelect.addEventListener('change', updatePreviewText);
 function updatePreviewText(){const title=previewPersonalizado(titulo.value||'Assunto da campanha');const message=previewPersonalizado(mensagem.value||'Sua mensagem aparecerá aqui.');document.querySelectorAll('[data-preview-title]').forEach(e=>e.textContent=title);document.querySelectorAll('[data-preview-message]').forEach(e=>e.textContent=message)}
 const campaignChannels=[...document.querySelectorAll('#tab-novo [name="canais"]')];
 function updatePreviewChannels(){let active=0;campaignChannels.forEach(c=>{const box=document.querySelector(`[data-preview="${c.value}"]`);if(box)box.classList.toggle('show',c.checked);if(c.checked)active++});noPreview.style.display=active?'none':'block'}

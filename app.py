@@ -948,7 +948,7 @@ def _ensure_notificacoes_schema():
 
 def _ensure_crm_schema():
     """Estrutura unica de auditoria para disparos manuais e automaticos."""
-    key = "crm_v6"
+    key = "crm_v7"
     _load_db_migrations()
     if key in _schema_ready:
         return
@@ -1008,6 +1008,10 @@ def _ensure_crm_schema():
         # que foi mostrado na tela).
         cur.execute("ALTER TABLE ecommerce_crm_campanhas ADD COLUMN IF NOT EXISTS agendado_para TIMESTAMPTZ")
         cur.execute("ALTER TABLE ecommerce_crm_campanhas ADD COLUMN IF NOT EXISTS destinatarios_ids JSONB")
+        # Cupom opcional anexado a campanha/automacao -- vira texto pronto
+        # (codigo + desconto) pra substituir {cupom} na mensagem.
+        cur.execute("ALTER TABLE ecommerce_crm_campanhas ADD COLUMN IF NOT EXISTS cupom_id UUID")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS cupom_id UUID")
         cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_templates (
             id BIGSERIAL PRIMARY KEY, cnpjloja TEXT NOT NULL, nome TEXT NOT NULL,
             titulo TEXT NOT NULL, mensagem TEXT NOT NULL, criado_em TIMESTAMPTZ DEFAULT NOW())""")
@@ -1053,12 +1057,54 @@ def _crm_pode_enviar(cnpjloja, canal):
     return True, None
 
 
-def _crm_personalizar(texto, cliente, nome_loja=""):
+def _crm_personalizar(texto, cliente, nome_loja="", cupom_texto=""):
     nome = (cliente.get("nome") or "Cliente").strip()
     primeiro_nome = nome.split()[0] if nome else "Cliente"
     return (texto or "").replace("{primeiro_nome}", primeiro_nome).replace(
         "{nome}", nome
-    ).replace("{loja}", nome_loja or "nossa loja")
+    ).replace("{loja}", nome_loja or "nossa loja").replace("{cupom}", cupom_texto or "")
+
+
+def _crm_texto_cupom(cupom):
+    """Formata um cupom (codigo + desconto) pra inserir na mensagem via
+    {cupom}. Ex.: 'cupom PROMO10 (10% de desconto)'."""
+    if not cupom:
+        return ""
+    if cupom.get("desconto_tipo") == "pct":
+        desc = f"{int(cupom['desconto_valor'])}% de desconto"
+    else:
+        desc = f"R$ {float(cupom['desconto_valor']):.2f} de desconto".replace(".", ",")
+    return f"cupom {cupom['codigo']} ({desc})"
+
+
+def _crm_cupom_da_loja(cnpjloja, cupom_id):
+    """Busca um cupom de codigo ativo e vinculado a essa loja -- usado pra
+    validar o cupom_id vindo do formulario antes de anexar a campanha."""
+    if not cupom_id:
+        return None
+    cur = db().cursor()
+    cur.execute("""SELECT c.id, c.codigo, c.desconto_tipo, c.desconto_valor
+        FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id=c.id AND cl.cnpjloja=%s
+        WHERE c.id=%s AND c.ativo=TRUE AND COALESCE(c.tipo_regra,'codigo')='codigo'
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE) LIMIT 1""",
+        (cnpjloja, cupom_id))
+    row = cur.fetchone(); cur.close()
+    return row
+
+
+def _crm_cupons_disponiveis(cnpjloja):
+    """Cupons de codigo ativos da loja, pra oferecer como opcional nas
+    mensagens de CRM (campanha ou automacao)."""
+    cur = db().cursor()
+    cur.execute("""SELECT c.id, c.codigo, c.desconto_tipo, c.desconto_valor
+        FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id=c.id AND cl.cnpjloja=%s
+        WHERE c.ativo=TRUE AND COALESCE(c.tipo_regra,'codigo')='codigo'
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+        ORDER BY c.criado_em DESC""", (cnpjloja,))
+    rows = cur.fetchall(); cur.close()
+    return rows
 
 
 def _crm_whatsapp_permissao(consumidor_id):
@@ -21420,7 +21466,7 @@ def _consumidores_segmento_customizado(cnpjloja, ticket_min=None, dias=None, cid
     return list(base)
 
 
-def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores_ids):
+def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores_ids, cupom_texto=""):
     """Envia (de verdade) uma campanha já criada pra uma lista de
     consumidores. Compartilhado pelo disparo manual imediato e pelo
     processador de campanhas agendadas -- nome da loja vem direto do banco
@@ -21434,8 +21480,8 @@ def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, 
     destinatarios = cur.fetchall(); cur.close()
     enviados = 0
     for cliente in destinatarios:
-        titulo_cliente = _crm_personalizar(titulo, cliente, nome_loja)
-        mensagem_cliente = _crm_personalizar(mensagem, cliente, nome_loja)
+        titulo_cliente = _crm_personalizar(titulo, cliente, nome_loja, cupom_texto)
+        mensagem_cliente = _crm_personalizar(mensagem, cliente, nome_loja, cupom_texto)
         for canal in canais:
             ok = False; erro = None; external_id = None
             log = db().cursor(); log.execute("""INSERT INTO ecommerce_crm_envios
@@ -21556,9 +21602,10 @@ def _processar_campanhas_agendadas(limite=20):
         destinatarios_ids = [str(x) for x in (camp.get("destinatarios_ids") or [])]
         canais = camp.get("canais") or []
         destino = camp.get("url") or url_for("catalogo_loja", cnpjloja=camp["cnpjloja"], _external=True)
+        cupom_texto = _crm_texto_cupom(_crm_cupom_da_loja(camp["cnpjloja"], camp.get("cupom_id")))
         enviados = _crm_enviar_para_lista(
             camp["id"], camp["cnpjloja"], camp.get("titulo") or "", camp.get("mensagem") or "",
-            camp.get("imagem_url"), destino, canais, destinatarios_ids,
+            camp.get("imagem_url"), destino, canais, destinatarios_ids, cupom_texto,
         )
         processadas += 1; enviados_total += enviados
     return {"campanhas": processadas, "envios": enviados_total}
@@ -21669,7 +21716,8 @@ def _crm_dados(cnpjloja):
     cur.execute("SELECT id,nome,titulo,mensagem FROM ecommerce_crm_templates WHERE cnpjloja=%s ORDER BY criado_em DESC", (cnpjloja,))
     templates = cur.fetchall()
     cur.close()
-    return campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates
+    cupons = _crm_cupons_disponiveis(cnpjloja)
+    return campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons
 
 
 @app.get("/painel/notificacoes")
@@ -21684,11 +21732,11 @@ def painel_notificacoes():
         "assinantes": len(_consumidores_notificacao_loja(cnpjloja, "assinantes")),
         "favoritos": len(_consumidores_notificacao_loja(cnpjloja, "favoritos")),
     }
-    campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates = _crm_dados(cnpjloja)
+    campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons = _crm_dados(cnpjloja)
     return render_template("painel_notificacoes.html", publico_counts=publico_counts,
                            historico=campanhas, automacoes=automacoes, consumo=consumo,
                            clientes=clientes, crm_plano=crm_plano, kpis=kpis,
-                           aniversariantes=aniversariantes, templates=templates,
+                           aniversariantes=aniversariantes, templates=templates, cupons=cupons,
                            categorias_produto=["medicamento","infantil","dermocosmetico","perfumaria","nutricao","suplemento","varejo"])
 
 
@@ -21771,6 +21819,11 @@ def painel_notificacoes_enviar():
             (cnpjloja, request.form.get("template_nome").strip()[:120], titulo[:160], mensagem[:600]))
         db().commit(); cur.close()
 
+    cupom_id = (request.form.get("cupom_id") or "").strip() or None
+    cupom = _crm_cupom_da_loja(cnpjloja, cupom_id) if cupom_id else None
+    cupom_id = cupom["id"] if cupom else None  # ignora se nao pertence a loja/inativo
+    cupom_texto = _crm_texto_cupom(cupom)
+
     agendado_para = None
     agendado_raw = (request.form.get("agendado_para") or "").strip()
     if agendado_raw:
@@ -21784,20 +21837,20 @@ def painel_notificacoes_enviar():
     conn = db(); cur = conn.cursor()
     if agendado_para:
         cur.execute("""INSERT INTO ecommerce_crm_campanhas
-            (cnpjloja,nome,tipo,publico,titulo,mensagem,imagem_url,url,canais,status,agendado_para,destinatarios_ids)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'agendado',%s,%s::jsonb) RETURNING id""",
+            (cnpjloja,nome,tipo,publico,titulo,mensagem,imagem_url,url,canais,status,agendado_para,destinatarios_ids,cupom_id)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'agendado',%s,%s::jsonb,%s) RETURNING id""",
             (cnpjloja,titulo[:160],tipo,publico,titulo[:160],mensagem[:600],imagem_url,url,json.dumps(canais),
-             agendado_para, json.dumps([str(x) for x in consumidores])))
+             agendado_para, json.dumps([str(x) for x in consumidores]), cupom_id))
         conn.commit(); cur.close()
         flash(f"Campanha agendada para {agendado_para.astimezone(timezone(timedelta(hours=-3))).strftime('%d/%m/%Y às %H:%M')}.", "success")
         return redirect(url_for("painel_notificacoes"))
 
     cur.execute("""INSERT INTO ecommerce_crm_campanhas
-        (cnpjloja,nome,tipo,publico,titulo,mensagem,imagem_url,url,canais)
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING id""",
-        (cnpjloja,titulo[:160],tipo,publico,titulo[:160],mensagem[:600],imagem_url,url,json.dumps(canais)))
+        (cnpjloja,nome,tipo,publico,titulo,mensagem,imagem_url,url,canais,cupom_id)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s) RETURNING id""",
+        (cnpjloja,titulo[:160],tipo,publico,titulo[:160],mensagem[:600],imagem_url,url,json.dumps(canais),cupom_id))
     campanha_id = cur.fetchone()['id']; conn.commit(); cur.close()
-    enviados = _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores)
+    enviados = _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores, cupom_texto)
     flash(f"Campanha concluída: {enviados} envio(s) em {len(canais)} canal(is).", "success")
     return redirect(url_for("painel_notificacoes"))
 
@@ -21849,7 +21902,7 @@ def painel_crm_clientes_exportar():
     if not _crm_plano_loja(cnpjloja)["crm_completo"]:
         flash("Exportação não disponível no seu plano atual.", "error")
         return redirect(url_for("painel_notificacoes", aba="clientes"))
-    _, _, _, clientes, _, _, _ = _crm_dados(cnpjloja)
+    _, _, _, clientes, _, _, _, _ = _crm_dados(cnpjloja)
     linhas = ["Nome;E-mail;Telefone;Nascimento;Segmento;Pedidos;Total gasto;Última compra"]
     for c in clientes:
         linhas.append(";".join([
@@ -21938,13 +21991,16 @@ def painel_crm_automacao_criar():
     if not nome or gatilho not in gatilhos_validos or not titulo or not mensagem or not canais:
         flash("Preencha nome, gatilho, canais, assunto e mensagem da automação.", "error")
         return redirect(url_for("painel_notificacoes", aba="automacoes"))
+    cupom_id_raw = (request.form.get("cupom_id") or "").strip() or None
+    cupom = _crm_cupom_da_loja(session.get("cnpjloja"), cupom_id_raw) if cupom_id_raw else None
+    cupom_id = cupom["id"] if cupom else None
     codigo = "loja_" + secrets.token_hex(8)
     cur = db().cursor()
     cur.execute("""INSERT INTO ecommerce_crm_automacoes
-        (cnpjloja,codigo,nome,canais,ativa,gatilho,espera_horas,publico,titulo,mensagem,imagem_url,personalizada)
-        VALUES(%s,%s,%s,%s::jsonb,TRUE,%s,%s,%s,%s,%s,%s,TRUE)""",
+        (cnpjloja,codigo,nome,canais,ativa,gatilho,espera_horas,publico,titulo,mensagem,imagem_url,personalizada,cupom_id)
+        VALUES(%s,%s,%s,%s::jsonb,TRUE,%s,%s,%s,%s,%s,%s,TRUE,%s)""",
         (session.get("cnpjloja"), codigo, nome, json.dumps(canais), gatilho, espera_horas,
-         publico, titulo, mensagem, imagem_url))
+         publico, titulo, mensagem, imagem_url, cupom_id))
     db().commit(); cur.close()
     flash("Automação criada com sucesso.", "success")
     return redirect(url_for("painel_notificacoes", aba="automacoes"))
@@ -22826,6 +22882,7 @@ def _processar_crm_automacoes(limite=100):
         WHERE ativa=TRUE AND gatilho IS NOT NULL ORDER BY id""")
     automacoes = cur.fetchall(); processados = 0; enviados = 0
     _razao_cache = {}
+    _cupom_cache = {}
     for automacao in automacoes:
         if processados >= limite:
             break
@@ -22878,8 +22935,11 @@ def _processar_crm_automacoes(limite=100):
                 _row_razao = cur.fetchone()
                 _razao_cache[cnpj_automacao] = (_row_razao or {}).get("razao") or ""
             nome_loja = _razao_cache[cnpj_automacao]
-            titulo = _crm_personalizar(automacao.get("titulo"), cliente, nome_loja)
-            mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja)
+            if automacao["id"] not in _cupom_cache:
+                _cupom_cache[automacao["id"]] = _crm_texto_cupom(_crm_cupom_da_loja(cnpj_automacao, automacao.get("cupom_id")))
+            cupom_texto = _cupom_cache[automacao["id"]]
+            titulo = _crm_personalizar(automacao.get("titulo"), cliente, nome_loja, cupom_texto)
+            mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja, cupom_texto)
             destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
             for canal in (automacao.get("canais") or []):
                 ok = False
