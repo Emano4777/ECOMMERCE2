@@ -1107,6 +1107,51 @@ def _crm_cupons_disponiveis(cnpjloja):
     return rows
 
 
+def _crm_cupom_elegiveis(cupom, cnpjloja, consumidores_ids):
+    """Filtra, dentre os IDs recebidos, so quem realmente se qualifica pro
+    cupom escolhido -- respeita publico (especifico/primeira compra/
+    frequente) e o limite de uso da loja (esgotado = ninguem mais
+    qualifica). Evita prometer no texto da mensagem um desconto que o
+    cliente nao vai conseguir aplicar de verdade no checkout."""
+    ids = [str(x) for x in (consumidores_ids or [])]
+    if not cupom or not ids:
+        return set()
+    cur = db().cursor()
+    cur.execute("SELECT publico, min_compras, uso_maximo FROM ecommerce_cupons WHERE id=%s", (cupom["id"],))
+    regra = cur.fetchone()
+    if not regra:
+        cur.close()
+        return set()
+    uso_maximo = int(regra.get("uso_maximo") or 0)
+    if uso_maximo:
+        cur.execute("SELECT usos_count FROM ecommerce_cupons_lojas WHERE cupom_id=%s AND cnpjloja=%s", (cupom["id"], cnpjloja))
+        usos = cur.fetchone()
+        if usos and int(usos.get("usos_count") or 0) >= uso_maximo:
+            cur.close()
+            return set()  # cupom esgotado nessa loja -- ninguem qualifica
+    publico = regra.get("publico") or "todos"
+    if publico == "especifico":
+        cur.execute("SELECT consumidor_id FROM ecommerce_cupons_clientes WHERE cupom_id=%s AND consumidor_id=ANY(%s::uuid[])",
+            (cupom["id"], ids))
+        elegiveis = {str(r["consumidor_id"]) for r in cur.fetchall()}
+    elif publico == "primeira_compra":
+        cur.execute("""SELECT c.id FROM ecommerce_consumidores c WHERE c.id=ANY(%s::uuid[])
+            AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p WHERE p.consumidor_id=c.id AND p.cnpjloja=%s AND p.status<>'cancelado')""",
+            (ids, cnpjloja))
+        elegiveis = {str(r["id"]) for r in cur.fetchall()}
+    elif publico == "frequente":
+        min_compras = int(regra.get("min_compras") or 1)
+        cur.execute("""SELECT p.consumidor_id FROM ecommerce_pedidos p
+            WHERE p.consumidor_id=ANY(%s::uuid[]) AND p.cnpjloja=%s AND p.status<>'cancelado'
+            GROUP BY p.consumidor_id HAVING COUNT(*) >= %s""",
+            (ids, cnpjloja, min_compras))
+        elegiveis = {str(r["consumidor_id"]) for r in cur.fetchall()}
+    else:
+        elegiveis = set(ids)
+    cur.close()
+    return elegiveis
+
+
 def _crm_whatsapp_permissao(consumidor_id):
     """Opt-in obrigatório e limite de 1 envio/24h e 4 envios/30 dias."""
     cur = db().cursor()
@@ -21466,20 +21511,29 @@ def _consumidores_segmento_customizado(cnpjloja, ticket_min=None, dias=None, cid
     return list(base)
 
 
-def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores_ids, cupom_texto=""):
+def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores_ids, cupom=None):
     """Envia (de verdade) uma campanha já criada pra uma lista de
     consumidores. Compartilhado pelo disparo manual imediato e pelo
     processador de campanhas agendadas -- nome da loja vem direto do banco
-    (não de session, que não existe fora de um painel logado/no cron)."""
+    (não de session, que não existe fora de um painel logado/no cron).
+    Se um cupom for informado, so quem se qualifica pra ele (publico +
+    limite de uso) recebe o texto do cupom na mensagem -- os demais
+    recebem a mesma mensagem sem a parte do cupom, pra nao prometer
+    desconto que a pessoa nao vai conseguir usar no checkout. Retorna
+    (enviados, stats_cupom) -- stats_cupom e None se nenhum cupom foi
+    passado."""
     if not consumidores_ids:
-        return 0
+        return 0, None
     cur = db().cursor()
     cur.execute("SELECT razao FROM users WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
     nome_loja = (cur.fetchone() or {}).get("razao") or ""
     cur.execute("SELECT id,nome,email,telefone FROM ecommerce_consumidores WHERE id=ANY(%s::uuid[])", (consumidores_ids,))
     destinatarios = cur.fetchall(); cur.close()
+    elegiveis_cupom = _crm_cupom_elegiveis(cupom, cnpjloja, consumidores_ids) if cupom else set()
+    stats_cupom = {"elegiveis": len(elegiveis_cupom), "total": len(destinatarios)} if cupom else None
     enviados = 0
     for cliente in destinatarios:
+        cupom_texto = _crm_texto_cupom(cupom) if str(cliente["id"]) in elegiveis_cupom else ""
         titulo_cliente = _crm_personalizar(titulo, cliente, nome_loja, cupom_texto)
         mensagem_cliente = _crm_personalizar(mensagem, cliente, nome_loja, cupom_texto)
         for canal in canais:
@@ -21524,7 +21578,7 @@ def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, 
             db().commit(); log.close()
             enviados += int(ok)
     c = db().cursor(); c.execute("UPDATE ecommerce_crm_campanhas SET status='concluido',concluido_em=NOW() WHERE id=%s", (campanha_id,)); db().commit(); c.close()
-    return enviados
+    return enviados, stats_cupom
 
 
 def _crm_cliente_detalhe(cnpjloja, consumidor_id):
@@ -21602,10 +21656,10 @@ def _processar_campanhas_agendadas(limite=20):
         destinatarios_ids = [str(x) for x in (camp.get("destinatarios_ids") or [])]
         canais = camp.get("canais") or []
         destino = camp.get("url") or url_for("catalogo_loja", cnpjloja=camp["cnpjloja"], _external=True)
-        cupom_texto = _crm_texto_cupom(_crm_cupom_da_loja(camp["cnpjloja"], camp.get("cupom_id")))
-        enviados = _crm_enviar_para_lista(
+        cupom = _crm_cupom_da_loja(camp["cnpjloja"], camp.get("cupom_id"))
+        enviados, _stats = _crm_enviar_para_lista(
             camp["id"], camp["cnpjloja"], camp.get("titulo") or "", camp.get("mensagem") or "",
-            camp.get("imagem_url"), destino, canais, destinatarios_ids, cupom_texto,
+            camp.get("imagem_url"), destino, canais, destinatarios_ids, cupom,
         )
         processadas += 1; enviados_total += enviados
     return {"campanhas": processadas, "envios": enviados_total}
@@ -21822,7 +21876,6 @@ def painel_notificacoes_enviar():
     cupom_id = (request.form.get("cupom_id") or "").strip() or None
     cupom = _crm_cupom_da_loja(cnpjloja, cupom_id) if cupom_id else None
     cupom_id = cupom["id"] if cupom else None  # ignora se nao pertence a loja/inativo
-    cupom_texto = _crm_texto_cupom(cupom)
 
     agendado_para = None
     agendado_raw = (request.form.get("agendado_para") or "").strip()
@@ -21850,8 +21903,11 @@ def painel_notificacoes_enviar():
         VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s) RETURNING id""",
         (cnpjloja,titulo[:160],tipo,publico,titulo[:160],mensagem[:600],imagem_url,url,json.dumps(canais),cupom_id))
     campanha_id = cur.fetchone()['id']; conn.commit(); cur.close()
-    enviados = _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores, cupom_texto)
-    flash(f"Campanha concluída: {enviados} envio(s) em {len(canais)} canal(is).", "success")
+    enviados, stats_cupom = _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, url, canais, consumidores, cupom)
+    msg = f"Campanha concluída: {enviados} envio(s) em {len(canais)} canal(is)."
+    if stats_cupom and stats_cupom["elegiveis"] < stats_cupom["total"]:
+        msg += f" O cupom só se aplicava a {stats_cupom['elegiveis']} de {stats_cupom['total']} clientes selecionados — os demais receberam a mensagem sem a oferta do cupom."
+    flash(msg, "success")
     return redirect(url_for("painel_notificacoes"))
 
 
@@ -22936,8 +22992,13 @@ def _processar_crm_automacoes(limite=100):
                 _razao_cache[cnpj_automacao] = (_row_razao or {}).get("razao") or ""
             nome_loja = _razao_cache[cnpj_automacao]
             if automacao["id"] not in _cupom_cache:
-                _cupom_cache[automacao["id"]] = _crm_texto_cupom(_crm_cupom_da_loja(cnpj_automacao, automacao.get("cupom_id")))
-            cupom_texto = _cupom_cache[automacao["id"]]
+                _cupom_cache[automacao["id"]] = _crm_cupom_da_loja(cnpj_automacao, automacao.get("cupom_id"))
+            cupom_automacao = _cupom_cache[automacao["id"]]
+            cupom_texto = ""
+            if cupom_automacao:
+                elegivel = _crm_cupom_elegiveis(cupom_automacao, cnpj_automacao, [cliente["id"]])
+                if str(cliente["id"]) in elegivel:
+                    cupom_texto = _crm_texto_cupom(cupom_automacao)
             titulo = _crm_personalizar(automacao.get("titulo"), cliente, nome_loja, cupom_texto)
             mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja, cupom_texto)
             destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)

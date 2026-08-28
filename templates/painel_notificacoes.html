@@ -279,7 +279,7 @@
         <option value="{{ c.id }}">{{ c.codigo }} — {{ (c.desconto_valor|int ~ '%') if c.desconto_tipo=='pct' else ('R$ ' ~ '%.2f'|format(c.desconto_valor|float)) }} OFF</option>
         {% endfor %}
       </select>
-      <span class="note" style="display:block;margin-top:6px">Escolhendo um cupom, use <code>{cupom}</code> na mensagem pra inserir o código e o desconto automaticamente.</span>
+      <span class="note" style="display:block;margin-top:6px">Escolhendo um cupom, use <code>{cupom}</code> na mensagem pra inserir o código e o desconto automaticamente. Só quem realmente se qualifica pro cupom (público/limite de uso) recebe essa parte — os demais recebem a mensagem sem ela.</span>
     </div>
     {% endif %}
 
