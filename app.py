@@ -939,6 +939,160 @@ def _ensure_notificacoes_schema():
         _mark_migration_done(key)
 
 
+def _ensure_crm_schema():
+    """Estrutura unica de auditoria para disparos manuais e automaticos."""
+    key = "crm_v5"
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_campanhas (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(), cnpjloja TEXT NOT NULL,
+            nome TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'promocao', publico TEXT NOT NULL,
+            titulo TEXT, mensagem TEXT, imagem_url TEXT, url TEXT,
+            canais JSONB NOT NULL DEFAULT '[]'::jsonb, status TEXT NOT NULL DEFAULT 'processando',
+            automatico BOOLEAN NOT NULL DEFAULT FALSE, criado_em TIMESTAMPTZ DEFAULT NOW(), concluido_em TIMESTAMPTZ)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_envios (
+            id BIGSERIAL PRIMARY KEY, campanha_id UUID REFERENCES ecommerce_crm_campanhas(id),
+            cnpjloja TEXT NOT NULL, consumidor_id UUID, canal TEXT NOT NULL,
+            origem TEXT NOT NULL DEFAULT 'manual', status TEXT NOT NULL,
+            custo NUMERIC(12,4) NOT NULL DEFAULT 0, erro TEXT, titulo TEXT, mensagem TEXT,
+            criada_em TIMESTAMPTZ DEFAULT NOW(), enviado_em TIMESTAMPTZ)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_automacoes (
+            id BIGSERIAL PRIMARY KEY, cnpjloja TEXT NOT NULL, codigo TEXT NOT NULL,
+            nome TEXT NOT NULL, canais JSONB NOT NULL DEFAULT '[]'::jsonb,
+            ativa BOOLEAN NOT NULL DEFAULT TRUE, atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(cnpjloja, codigo))""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_envios_loja_data ON ecommerce_crm_envios(cnpjloja, criada_em DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_campanhas_loja_data ON ecommerce_crm_campanhas(cnpjloja, criado_em DESC)")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS gatilho TEXT")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS espera_horas INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS publico TEXT NOT NULL DEFAULT 'todos'")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS titulo TEXT")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS mensagem TEXT")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS imagem_url TEXT")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS personalizada BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_crm_automacoes ADD COLUMN IF NOT EXISTS cancelada_em TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_crm_envios ADD COLUMN IF NOT EXISTS visualizado_em TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_crm_envios ADD COLUMN IF NOT EXISTS clicado_em TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_crm_envios ADD COLUMN IF NOT EXISTS total_cliques INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE ecommerce_crm_envios ADD COLUMN IF NOT EXISTS external_id TEXT")
+        cur.execute("ALTER TABLE ecommerce_notificacoes_consumidor ADD COLUMN IF NOT EXISTS crm_envio_id BIGINT")
+        cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_automacao_execucoes (
+            id BIGSERIAL PRIMARY KEY, automacao_id BIGINT NOT NULL REFERENCES ecommerce_crm_automacoes(id),
+            consumidor_id UUID NOT NULL, referencia TEXT NOT NULL, criada_em TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(automacao_id, consumidor_id, referencia))""")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS data_nascimento DATE")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS aceita_marketing BOOLEAN NOT NULL DEFAULT TRUE")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS aceita_whatsapp_marketing BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS whatsapp_optout_token TEXT")
+        cur.execute("UPDATE ecommerce_consumidores SET whatsapp_optout_token=encode(gen_random_bytes(24),'hex') WHERE whatsapp_optout_token IS NULL")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_consumidor_whatsapp_optout ON ecommerce_consumidores(whatsapp_optout_token)")
+        cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_planos_loja (
+            cnpjloja TEXT PRIMARY KEY, plano TEXT NOT NULL DEFAULT 'gratuito',
+            atualizado_em TIMESTAMPTZ DEFAULT NOW())""")
+        cur.execute("""INSERT INTO ecommerce_crm_planos_loja(cnpjloja,plano)
+            VALUES('54185432000143','pro') ON CONFLICT(cnpjloja) DO NOTHING""")
+        conn.commit(); cur.close()
+        _schema_ready.add(key); _mark_migration_done(key)
+
+
+_CRM_CUSTO_CANAL = {"push": 0.0, "email": 0.004, "whatsapp": 0.08}
+_CRM_PLANOS = {
+    "gratuito": {"nome": "Gratuito", "limite": None, "canais": {"push"}, "crm_completo": False},
+    "pro": {"nome": "Pro", "limite": 500, "canais": {"push", "email", "whatsapp"}, "crm_completo": True},
+    "master": {"nome": "Master", "limite": 1000, "canais": {"push", "email", "whatsapp"}, "crm_completo": True},
+    "poupaqui": {"nome": "Poupaqui exclusivo", "limite": None, "canais": {"push", "email", "whatsapp"}, "crm_completo": True},
+}
+
+
+def _crm_plano_loja(cnpjloja):
+    _ensure_crm_schema()
+    cur = db().cursor()
+    cur.execute("SELECT plano FROM ecommerce_crm_planos_loja WHERE cnpjloja=%s", (cnpjloja,))
+    row = cur.fetchone() or {}
+    codigo = row.get("plano") if row.get("plano") in _CRM_PLANOS else "gratuito"
+    cur.execute("""SELECT COUNT(*) AS usados FROM ecommerce_crm_envios
+        WHERE cnpjloja=%s AND status='enviado' AND enviado_em>=date_trunc('month',NOW())""", (cnpjloja,))
+    usados = int((cur.fetchone() or {}).get("usados") or 0)
+    cur.close()
+    plano = dict(_CRM_PLANOS[codigo])
+    plano.update({"codigo": codigo, "usados": usados})
+    plano["restantes"] = None if plano["limite"] is None else max(0, plano["limite"] - usados)
+    return plano
+
+
+def _crm_pode_enviar(cnpjloja, canal):
+    plano = _crm_plano_loja(cnpjloja)
+    if canal not in plano["canais"]:
+        return False, f"O canal {canal} não está disponível no plano {plano['nome']}."
+    if plano["limite"] is not None and plano["usados"] >= plano["limite"]:
+        return False, f"O limite mensal de {plano['limite']} envios do plano {plano['nome']} foi atingido."
+    return True, None
+
+
+def _crm_personalizar(texto, cliente, nome_loja=""):
+    nome = (cliente.get("nome") or "Cliente").strip()
+    primeiro_nome = nome.split()[0] if nome else "Cliente"
+    return (texto or "").replace("{primeiro_nome}", primeiro_nome).replace(
+        "{nome}", nome
+    ).replace("{loja}", nome_loja or "nossa loja")
+
+
+def _crm_whatsapp_permissao(consumidor_id):
+    """Opt-in obrigatório e limite de 1 envio/24h e 4 envios/30 dias."""
+    cur = db().cursor()
+    cur.execute("SELECT aceita_whatsapp_marketing,whatsapp_optout_token FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    cliente = cur.fetchone() or {}
+    cur.execute("""SELECT COUNT(*) FILTER (WHERE criado_em>=NOW()-INTERVAL '24 hours') AS dia,
+        COUNT(*) FILTER (WHERE criado_em>=NOW()-INTERVAL '30 days') AS mes
+        FROM ecommerce_crm_envios WHERE consumidor_id=%s AND canal='whatsapp' AND status='enviado'""", (consumidor_id,))
+    freq = cur.fetchone() or {}; cur.close()
+    if not cliente.get("aceita_whatsapp_marketing"):
+        return False, "Cliente não autorizou promoções no WhatsApp", None
+    if int(freq.get("dia") or 0) >= 1 or int(freq.get("mes") or 0) >= 4:
+        return False, "Limite de frequência do WhatsApp atingido", None
+    return True, None, cliente.get("whatsapp_optout_token")
+
+
+def _crm_automacao_ativa(cnpjloja, codigo):
+    """Automacao padrao (reposicao/cross_sell/aniversario/carrinho) sem linha
+    ainda na tabela = ativa por padrao (loja nunca abriu o CRM pra pausar)."""
+    try:
+        _ensure_crm_schema()
+        cur = db().cursor()
+        cur.execute(
+            "SELECT ativa FROM ecommerce_crm_automacoes WHERE cnpjloja=%s AND codigo=%s AND cancelada_em IS NULL",
+            (cnpjloja, codigo),
+        )
+        row = cur.fetchone()
+        cur.close()
+        return bool(row["ativa"]) if row else True
+    except Exception:
+        return True
+
+
+def _crm_registrar_envio(cnpjloja, consumidor_id, canal, origem, status,
+                         titulo="", mensagem="", campanha_id=None, erro=None):
+    try:
+        _ensure_crm_schema()
+        cur = db().cursor()
+        cur.execute("""INSERT INTO ecommerce_crm_envios
+            (campanha_id,cnpjloja,consumidor_id,canal,origem,status,custo,erro,titulo,mensagem,enviado_em)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CASE WHEN %s='enviado' THEN NOW() ELSE NULL END)""",
+            (campanha_id, str(cnpjloja or "sistema"), consumidor_id, canal, origem, status,
+             _CRM_CUSTO_CANAL.get(canal, 0), (erro or "")[:500] or None,
+             (titulo or "")[:160], (mensagem or "")[:600], status))
+        db().commit(); cur.close()
+    except Exception as exc:
+        try: db().rollback(); app.logger.warning("crm registrar envio: %s", exc)
+        except Exception: pass
+
+
 def _ensure_aviso_chegada_schema():
     key = "aviso_chegada_v1"
     if key in _schema_ready:
@@ -1156,7 +1310,7 @@ def _notificar_todos_consumidores(titulo, mensagem="", url=None, tipo="sistema",
 
 # ─── WA SENDER (notificações WhatsApp para a loja) ───────────────────────────
 
-def _wa_send(numero: str, msg: str) -> bool:
+def _wa_send(numero: str, msg: str, imagem_url: str = None, retornar_dados: bool = False):
     """Envia mensagem WhatsApp via WA Sender API. Normaliza número para +55DD9XXXXXXXX."""
     if not WASENDER_API_KEY or not numero:
         app.logger.warning("wa_send: WASENDER_API_KEY vazia ou numero vazio (key=%r, num=%r)", bool(WASENDER_API_KEY), numero)
@@ -1167,9 +1321,12 @@ def _wa_send(numero: str, msg: str) -> bool:
         return False
     to = ('+55' + d) if not d.startswith('55') else ('+' + d)
     try:
+        payload = {'to': to, 'text': msg}
+        if imagem_url:
+            payload['imageUrl'] = imagem_url
         req = urllib.request.Request(
             'https://wasenderapi.com/api/send-message',
-            data=json.dumps({'to': to, 'text': msg}).encode(),
+            data=json.dumps(payload).encode(),
             headers={
                 'Authorization': f'Bearer {WASENDER_API_KEY}',
                 'Content-Type': 'application/json',
@@ -1183,7 +1340,9 @@ def _wa_send(numero: str, msg: str) -> bool:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             app.logger.warning("wa_send ok: to=%s status=%s", to, resp.status)
-            return True
+            try: resposta = json.loads(resp.read().decode("utf-8"))
+            except Exception: resposta = {"success": True}
+            return resposta if retornar_dados else True
     except urllib.error.HTTPError as e:
         body = e.read(300).decode(errors='replace')
         app.logger.warning("wa_send HTTPError %s to=%s: %s", e.code, to, body)
@@ -14435,6 +14594,7 @@ def consumidor_criar_conta():
 @app.post("/criar-conta")
 def consumidor_criar_conta_post():
     _ensure_consumidor_schema()
+    _ensure_crm_schema()
     nome = (request.form.get("nome") or "").strip()
     telefone = (request.form.get("telefone") or "").strip()
     documento = _digits(request.form.get("documento") or "")
@@ -14444,6 +14604,17 @@ def consumidor_criar_conta_post():
     endereco_lat = _to_float_or_none(request.form.get("endereco_lat"))
     endereco_lng = _to_float_or_none(request.form.get("endereco_lng"))
     next_url = request.form.get("next") or url_for("index")
+    data_nascimento_raw = (request.form.get("data_nascimento") or "").strip()
+    aceita_whatsapp_marketing = bool(request.form.get("aceita_whatsapp_marketing"))
+    try:
+        data_nascimento = datetime.strptime(data_nascimento_raw, "%Y-%m-%d").date()
+        hoje = datetime.now().date()
+        idade = hoje.year - data_nascimento.year - ((hoje.month, hoje.day) < (data_nascimento.month, data_nascimento.day))
+        if idade < 13 or idade > 120:
+            raise ValueError()
+    except Exception:
+        flash("Informe uma data de nascimento válida (idade mínima de 13 anos).", "error")
+        return redirect(url_for("consumidor_criar_conta", next=next_url))
     google_signup = session.get("google_signup") or {}
     google_email = _norm_email(google_signup.get("email"))
     is_google_signup = bool(google_email and google_email == email)
@@ -14475,11 +14646,11 @@ def consumidor_criar_conta_post():
     try:
         cur.execute(
             """
-            INSERT INTO ecommerce_consumidores (nome, telefone, documento, email, senha_hash, endereco, endereco_lat, endereco_lng, email_verificado)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ecommerce_consumidores (nome, telefone, documento, email, senha_hash, endereco, endereco_lat, endereco_lng, email_verificado, data_nascimento, aceita_whatsapp_marketing, whatsapp_optout_token)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, encode(gen_random_bytes(24),'hex'))
             RETURNING id, nome, telefone, documento, email, endereco, endereco_lat, endereco_lng
             """,
-            (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, is_google_signup),
+            (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, is_google_signup, data_nascimento, aceita_whatsapp_marketing),
         )
         user = cur.fetchone()
         conn.commit()
@@ -14757,6 +14928,10 @@ def api_notificacao_ler(notif_id):
         "UPDATE ecommerce_notificacoes_consumidor SET lida_em=COALESCE(lida_em, NOW()) WHERE id=%s AND consumidor_id=%s",
         (notif_id, session["consumidor_id"]),
     )
+    cur.execute("""UPDATE ecommerce_crm_envios e SET visualizado_em=COALESCE(e.visualizado_em,NOW())
+        FROM ecommerce_notificacoes_consumidor n
+        WHERE n.id=%s AND n.consumidor_id=%s AND n.crm_envio_id=e.id""",
+        (notif_id, session["consumidor_id"]))
     conn.commit(); cur.close()
     return jsonify({"ok": True})
 
@@ -14770,6 +14945,10 @@ def api_notificacoes_ler_todas():
         "UPDATE ecommerce_notificacoes_consumidor SET lida_em=COALESCE(lida_em, NOW()) WHERE consumidor_id=%s AND lida_em IS NULL",
         (session["consumidor_id"],),
     )
+    cur.execute("""UPDATE ecommerce_crm_envios e SET visualizado_em=COALESCE(e.visualizado_em,NOW())
+        FROM ecommerce_notificacoes_consumidor n
+        WHERE n.consumidor_id=%s AND n.crm_envio_id=e.id AND n.lida_em IS NOT NULL""",
+        (session["consumidor_id"],))
     conn.commit(); cur.close()
     return jsonify({"ok": True})
 
@@ -21111,25 +21290,64 @@ def admin_mp_test():
     return jsonify(resultado)
 
 
+def _consumidores_cadastrados_regiao_loja(cnpjloja: str):
+    """Consumidores cadastrados na mesma cidade/UF da loja, mesmo sem compra."""
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT endereco, endereco2, uf FROM users WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
+    loja = cur.fetchone() or {}
+    endereco_principal = (loja.get("endereco") or "").strip()
+    endereco_detalhado = (loja.get("endereco2") or "").strip()
+    # Lojas antigas guardam a cidade como "Cidade- CNPJ" em endereco e a rua
+    # (sem cidade) em endereco2. Não podemos priorizar endereco2 nesse caso.
+    m_cidade = re.match(r"^\s*(.+?)\s*-\s*\d{14}\s*$", endereco_principal)
+    cidade_principal = m_cidade.group(1).strip() if m_cidade else ""
+    cidade = cidade_principal or _extrair_cidade_precisa(endereco_detalhado)
+    cidade_parse, uf_parse = _parse_cidade_uf(endereco_detalhado or endereco_principal)
+    cidade = (cidade or cidade_parse or "").strip()
+    uf = (loja.get("uf") or uf_parse or "").strip().upper()
+    if not cidade:
+        cur.close()
+        return []
+    # Aceita cadastros antigos com ou sem acentos e com pontuação diferente.
+    cidade_busca = "".join(
+        c for c in unicodedata.normalize("NFD", cidade.lower())
+        if unicodedata.category(c) != "Mn"
+    )
+    endereco_normalizado = "translate(lower(endereco), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')"
+    padroes_cidade = [f"%, {cidade_busca} - %", f"%, {cidade_busca},%"]
+    if uf:
+        cur.execute(f"""SELECT id FROM ecommerce_consumidores
+            WHERE ({endereco_normalizado} LIKE %s OR {endereco_normalizado} LIKE %s)
+              AND (upper(endereco) LIKE %s OR {endereco_normalizado} LIKE %s)""",
+            (padroes_cidade[0], padroes_cidade[1], f"%{uf}%", f"%, {cidade_busca},%"))
+    else:
+        cur.execute(f"""SELECT id FROM ecommerce_consumidores
+            WHERE {endereco_normalizado} LIKE %s OR {endereco_normalizado} LIKE %s""",
+            tuple(padroes_cidade))
+    ids = [r["id"] for r in cur.fetchall()]
+    cur.close()
+    return ids
+
+
 def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
     _ensure_notificacoes_schema()
     _ensure_assinatura_schema()
     _ensure_favoritos_schema()
-    publico = publico if publico in {"todos", "compradores", "assinantes", "favoritos"} else "todos"
+    publico = publico if publico in {"todos", "relacionados", "compradores", "assinantes", "favoritos"} else "todos"
     conn = db()
     cur = conn.cursor()
     parts = []
     args = []
-    if publico in {"todos", "compradores"}:
+    if publico in {"todos", "relacionados", "compradores"}:
         parts.append("SELECT DISTINCT consumidor_id FROM ecommerce_pedidos WHERE cnpjloja=%s AND consumidor_id IS NOT NULL")
         args.append(cnpjloja)
-    if publico in {"todos", "assinantes"}:
+    if publico in {"todos", "relacionados", "assinantes"}:
         parts.append(
             "SELECT DISTINCT consumidor_id::uuid AS consumidor_id FROM ecommerce_assinantes "
             "WHERE cnpjloja=%s AND consumidor_id ~* '^[0-9a-f-]{36}$'"
         )
         args.append(cnpjloja)
-    if publico in {"todos", "favoritos"}:
+    if publico in {"todos", "relacionados", "favoritos"}:
         parts.append("SELECT DISTINCT consumidor_id FROM ecommerce_favoritos WHERE cnpjloja=%s AND consumidor_id IS NOT NULL")
         args.append(cnpjloja)
     if not parts:
@@ -21138,35 +21356,61 @@ def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
     cur.execute(" UNION ".join(parts), tuple(args))
     ids = [r["consumidor_id"] for r in cur.fetchall() if r.get("consumidor_id")]
     cur.close()
+    if publico == "todos":
+        ids = list(dict.fromkeys(ids + _consumidores_cadastrados_regiao_loja(cnpjloja)))
     return ids
+
+
+def _crm_dados(cnpjloja):
+    _ensure_crm_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("""INSERT INTO ecommerce_crm_automacoes(cnpjloja,codigo,nome,canais) VALUES
+        (%s,'reposicao','Recompra / reposição','[\"email\",\"whatsapp\"]'::jsonb),
+        (%s,'cross_sell','Cross-sell pós-compra','[\"push\",\"email\"]'::jsonb),
+        (%s,'aniversario','Aniversário do cliente','[\"email\"]'::jsonb),
+        (%s,'carrinho','Carrinho abandonado','[\"email\"]'::jsonb)
+        ON CONFLICT(cnpjloja,codigo) DO NOTHING""", (cnpjloja, cnpjloja, cnpjloja, cnpjloja))
+    conn.commit()
+    cur.execute("""SELECT c.*,COUNT(e.id) AS total_envios,
+        COUNT(e.id) FILTER (WHERE e.status='enviado') AS enviados,
+        COUNT(e.id) FILTER (WHERE e.visualizado_em IS NOT NULL) AS visualizados,
+        COUNT(e.id) FILTER (WHERE e.clicado_em IS NOT NULL) AS clicados,
+        COALESCE(SUM(e.total_cliques),0) AS total_cliques,
+        COALESCE(SUM(e.custo) FILTER (WHERE e.status='enviado'),0) AS custo
+        FROM ecommerce_crm_campanhas c LEFT JOIN ecommerce_crm_envios e ON e.campanha_id=c.id
+        WHERE c.cnpjloja=%s GROUP BY c.id ORDER BY c.criado_em DESC LIMIT 30""", (cnpjloja,))
+    campanhas = cur.fetchall()
+    cur.execute("SELECT * FROM ecommerce_crm_automacoes WHERE cnpjloja=%s ORDER BY id", (cnpjloja,)); automacoes=cur.fetchall()
+    cur.execute("""SELECT canal,COUNT(*) FILTER (WHERE status='enviado') AS usados,
+        COALESCE(SUM(custo) FILTER (WHERE status='enviado'),0) AS custo
+        FROM ecommerce_crm_envios WHERE cnpjloja=%s AND criada_em>=date_trunc('month',NOW()) GROUP BY canal""", (cnpjloja,))
+    consumo={r['canal']:dict(r) for r in cur.fetchall()}
+    relacionados = _consumidores_notificacao_loja(cnpjloja, "todos")
+    cur.execute("""SELECT c.id,c.nome,c.email,c.telefone,c.data_nascimento,MAX(p.criado_em) AS ultima_compra,
+        COUNT(DISTINCT p.id) AS pedidos,COALESCE(SUM(p.total) FILTER (WHERE p.cnpjloja=%s),0) AS total_gasto
+        FROM ecommerce_consumidores c LEFT JOIN ecommerce_pedidos p ON p.consumidor_id=c.id AND p.cnpjloja=%s
+        WHERE c.id=ANY(%s::uuid[]) GROUP BY c.id ORDER BY ultima_compra DESC NULLS LAST LIMIT 500""",
+        (cnpjloja, cnpjloja, relacionados or ["00000000-0000-0000-0000-000000000000"]))
+    clientes=cur.fetchall(); cur.close()
+    return campanhas, automacoes, consumo, clientes
 
 
 @app.get("/painel/notificacoes")
 @painel_required
 def painel_notificacoes():
     cnpjloja = session.get("cnpjloja")
+    crm_plano = _crm_plano_loja(cnpjloja)
     publico_counts = {
         "todos": len(_consumidores_notificacao_loja(cnpjloja, "todos")),
+        "relacionados": len(_consumidores_notificacao_loja(cnpjloja, "relacionados")),
         "compradores": len(_consumidores_notificacao_loja(cnpjloja, "compradores")),
         "assinantes": len(_consumidores_notificacao_loja(cnpjloja, "assinantes")),
         "favoritos": len(_consumidores_notificacao_loja(cnpjloja, "favoritos")),
     }
-    conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT n.titulo, n.mensagem, n.imagem_url, n.url, n.criada_em, COUNT(*) AS total
-        FROM ecommerce_notificacoes_consumidor n
-        WHERE n.tipo='loja' AND n.url LIKE %s
-        GROUP BY n.titulo, n.mensagem, n.imagem_url, n.url, n.criada_em
-        ORDER BY n.criada_em DESC
-        LIMIT 20
-        """,
-        (f"%/loja/{cnpjloja}%",),
-    )
-    historico = cur.fetchall()
-    cur.close()
-    return render_template("painel_notificacoes.html", publico_counts=publico_counts, historico=historico)
+    campanhas, automacoes, consumo, clientes = _crm_dados(cnpjloja)
+    return render_template("painel_notificacoes.html", publico_counts=publico_counts,
+                           historico=campanhas, automacoes=automacoes, consumo=consumo,
+                           clientes=clientes, crm_plano=crm_plano)
 
 
 @app.post("/painel/notificacoes")
@@ -21176,6 +21420,15 @@ def painel_notificacoes_enviar():
     titulo = (request.form.get("titulo") or "").strip()
     mensagem = (request.form.get("mensagem") or "").strip()
     publico = (request.form.get("publico") or "todos").strip()
+    tipo = (request.form.get("tipo") or "promocao").strip()
+    canais = [c for c in request.form.getlist("canais") if c in {"push", "email", "whatsapp"}]
+    plano = _crm_plano_loja(cnpjloja)
+    if not plano["crm_completo"]:
+        publico = publico if publico in {"relacionados", "compradores"} else "relacionados"
+    bloqueados = [canal for canal in canais if canal not in plano["canais"]]
+    if bloqueados:
+        flash(f"Canal não disponível no plano {plano['nome']}. Consulte Ver planos para liberar e-mail e WhatsApp.", "error")
+        return redirect(url_for("painel_notificacoes"))
     url = (request.form.get("url") or "").strip() or url_for("catalogo_loja", cnpjloja=cnpjloja)
     imagem_url = None
     imagem = request.files.get("imagem")
@@ -21195,34 +21448,218 @@ def painel_notificacoes_enviar():
         if not content_type:
             flash("Use uma imagem JPG, PNG, WEBP ou GIF.", "error")
             return redirect(url_for("painel_notificacoes"))
+        if "whatsapp" in canais and content_type not in {"image/jpeg", "image/png"}:
+            flash("Para enviar a imagem também pelo WhatsApp, use JPG ou PNG.", "error")
+            return redirect(url_for("painel_notificacoes"))
         storage_path = f"notificacoes/{cnpjloja}/{int(time.time())}-{secrets.token_hex(6)}.{ext}"
         imagem_url = upload_to_supabase_storage(raw, storage_path, content_type)
         if not imagem_url:
             flash("Não foi possível enviar a imagem. Tente novamente.", "error")
             return redirect(url_for("painel_notificacoes"))
-    if not titulo or not mensagem:
-        flash("Informe título e mensagem.", "error")
+    if not titulo or not mensagem or not canais:
+        flash("Informe título, mensagem e ao menos um canal.", "error")
         return redirect(url_for("painel_notificacoes"))
-    consumidores = _consumidores_notificacao_loja(cnpjloja, publico)
+    if publico == "especificos":
+        solicitados = {str(cid) for cid in request.form.getlist("clientes_ids")}
+        permitidos = {str(cid) for cid in _consumidores_notificacao_loja(cnpjloja, "todos")}
+        consumidores = list(solicitados & permitidos)
+    else:
+        consumidores = _consumidores_notificacao_loja(cnpjloja, publico)
     if not consumidores:
         flash("Nenhum consumidor encontrado para esse público.", "error")
         return redirect(url_for("painel_notificacoes"))
-    rows = [(cid, "loja", titulo[:160], mensagem[:600], imagem_url, url) for cid in consumidores]
+    estimativa = len(consumidores) * len(canais)
+    if plano["limite"] is not None and estimativa > plano["restantes"]:
+        flash(f"Esse disparo usaria até {estimativa} envios, mas restam {plano['restantes']} no plano {plano['nome']} neste mês.", "error")
+        return redirect(url_for("painel_notificacoes"))
     conn = db()
     cur = conn.cursor()
-    execute_values(
-        cur,
-        """
-        INSERT INTO ecommerce_notificacoes_consumidor
-          (consumidor_id, tipo, titulo, mensagem, imagem_url, url)
-        VALUES %s
-        """,
-        rows,
-    )
-    conn.commit()
-    cur.close()
-    flash(f"Notificação enviada para {len(rows)} consumidor(es).", "success")
+    cur.execute("""INSERT INTO ecommerce_crm_campanhas
+        (cnpjloja,nome,tipo,publico,titulo,mensagem,imagem_url,url,canais)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING id""",
+        (cnpjloja,titulo[:160],tipo,publico,titulo[:160],mensagem[:600],imagem_url,url,json.dumps(canais)))
+    campanha_id=cur.fetchone()['id']
+    cur.execute("SELECT id,nome,email,telefone FROM ecommerce_consumidores WHERE id=ANY(%s::uuid[])",(consumidores,))
+    destinatarios=cur.fetchall(); conn.commit(); cur.close(); enviados=0
+    for cliente in destinatarios:
+        titulo_cliente = _crm_personalizar(titulo, cliente, session.get("razao") or "")
+        mensagem_cliente = _crm_personalizar(mensagem, cliente, session.get("razao") or "")
+        for canal in canais:
+            ok=False; erro=None; external_id=None
+            log=db().cursor(); log.execute("""INSERT INTO ecommerce_crm_envios
+                (campanha_id,cnpjloja,consumidor_id,canal,origem,status,custo,titulo,mensagem)
+                VALUES(%s,%s,%s,%s,'manual','processando',%s,%s,%s) RETURNING id""",
+                (campanha_id,cnpjloja,cliente['id'],canal,_CRM_CUSTO_CANAL.get(canal,0),titulo_cliente[:160],mensagem_cliente[:600]))
+            envio_id=log.fetchone()['id']; db().commit(); log.close()
+            link_rastreado=url_for('crm_registrar_clique',envio_id=envio_id,url=url,_external=True)
+            permitido_plano, motivo_plano = _crm_pode_enviar(cnpjloja, canal)
+            if not permitido_plano:
+                log=db().cursor(); log.execute("UPDATE ecommerce_crm_envios SET status='bloqueado',erro=%s WHERE id=%s", (motivo_plano, envio_id))
+                db().commit(); log.close()
+                continue
+            try:
+                if canal == 'push':
+                    c=db().cursor(); c.execute("""INSERT INTO ecommerce_notificacoes_consumidor
+                        (consumidor_id,tipo,titulo,mensagem,imagem_url,url,crm_envio_id) VALUES(%s,'loja',%s,%s,%s,%s,%s)""",
+                        (cliente['id'],titulo_cliente[:160],mensagem_cliente[:600],imagem_url,link_rastreado,envio_id)); db().commit(); c.close(); ok=True
+                elif canal == 'email' and cliente.get('email'):
+                    pixel=url_for('crm_registrar_abertura',envio_id=envio_id,_external=True)
+                    corpo=f"<p>{html.escape(mensagem_cliente)}</p><p style='text-align:center'><a class='btn' href='{html.escape(link_rastreado)}'>Ver oferta</a></p><img src='{html.escape(pixel)}' width='1' height='1' alt='' style='display:block'>"
+                    ok=bool(_send_email(cliente['email'],titulo_cliente[:160],_email_html_wrapper(titulo_cliente[:160],corpo)))
+                elif canal == 'whatsapp' and cliente.get('telefone'):
+                    permitido,motivo,token=_crm_whatsapp_permissao(cliente['id'])
+                    if permitido:
+                        sair=url_for('crm_whatsapp_sair',token=token,_external=True)
+                        resposta_wa=_wa_send(cliente['telefone'],f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}\n\nParar mensagens: {sair}",imagem_url,True)
+                        ok=bool(resposta_wa)
+                        dados_wa=(resposta_wa or {}).get('data') or {}
+                        external_id=str(dados_wa.get('id') or dados_wa.get('msgId') or (dados_wa.get('key') or {}).get('id') or '') or None
+                    else:
+                        erro=motivo
+                else: erro='Contato indisponível'
+            except Exception as exc: erro=str(exc)
+            log=db().cursor(); log.execute("""UPDATE ecommerce_crm_envios SET status=%s,erro=%s,external_id=%s,
+                enviado_em=CASE WHEN %s='enviado' THEN NOW() ELSE NULL END WHERE id=%s""",
+                ('enviado' if ok else 'falhou',(erro or '')[:500] or None,external_id,'enviado' if ok else 'falhou',envio_id))
+            db().commit(); log.close()
+            enviados += int(ok)
+    c=db().cursor(); c.execute("UPDATE ecommerce_crm_campanhas SET status='concluido',concluido_em=NOW() WHERE id=%s",(campanha_id,)); db().commit(); c.close()
+    flash(f"Campanha concluída: {enviados} envio(s) em {len(canais)} canal(is).", "success")
     return redirect(url_for("painel_notificacoes"))
+
+
+@app.post("/painel/crm/automacoes/<codigo>/toggle")
+@painel_required
+def painel_crm_automacao_toggle(codigo):
+    if not _crm_plano_loja(session.get("cnpjloja"))["crm_completo"]:
+        flash("Gerenciar automações não está disponível no seu plano atual.", "error")
+        return redirect(url_for("painel_notificacoes", aba="automacoes"))
+    _ensure_crm_schema(); cur=db().cursor()
+    cur.execute("UPDATE ecommerce_crm_automacoes SET ativa=NOT ativa,atualizado_em=NOW() WHERE cnpjloja=%s AND codigo=%s AND cancelada_em IS NULL",(session.get('cnpjloja'),codigo))
+    db().commit(); cur.close()
+    return redirect(url_for('painel_notificacoes',aba='automacoes'))
+
+
+@app.post("/painel/crm/automacoes/<codigo>/cancelar")
+@painel_required
+def painel_crm_automacao_cancelar(codigo):
+    if not _crm_plano_loja(session.get("cnpjloja"))["crm_completo"]:
+        flash("Gerenciar automações não está disponível no seu plano atual.", "error")
+        return redirect(url_for("painel_notificacoes", aba="automacoes"))
+    _ensure_crm_schema(); cur=db().cursor()
+    cur.execute("""UPDATE ecommerce_crm_automacoes SET ativa=FALSE,cancelada_em=NOW(),atualizado_em=NOW()
+        WHERE cnpjloja=%s AND codigo=%s AND personalizada=TRUE AND cancelada_em IS NULL RETURNING id""",
+        (session.get("cnpjloja"), codigo))
+    cancelada=bool(cur.fetchone()); db().commit(); cur.close()
+    flash("Automação cancelada. O histórico foi mantido." if cancelada else "Não foi possível cancelar essa automação.", "success" if cancelada else "error")
+    return redirect(url_for("painel_notificacoes", aba="automacoes"))
+
+
+@app.post("/painel/crm/automacoes/criar")
+@painel_required
+def painel_crm_automacao_criar():
+    _ensure_crm_schema()
+    plano = _crm_plano_loja(session.get("cnpjloja"))
+    if not plano["crm_completo"]:
+        flash("Criar automações não está disponível no seu plano atual. Consulte Ver planos.", "error")
+        return redirect(url_for("painel_notificacoes", aba="automacoes"))
+    nome = (request.form.get("nome") or "").strip()[:120]
+    gatilho = (request.form.get("gatilho") or "").strip()
+    titulo = (request.form.get("titulo") or "").strip()[:160]
+    mensagem = (request.form.get("mensagem") or "").strip()[:600]
+    publico = (request.form.get("publico") or "todos").strip()
+    canais = [c for c in request.form.getlist("canais") if c in {"push", "email", "whatsapp"}]
+    imagem_url = None
+    imagem = request.files.get("imagem")
+    if imagem and imagem.filename:
+        raw = imagem.read(5 * 1024 * 1024 + 1)
+        ext = imagem.filename.rsplit(".", 1)[-1].lower() if "." in imagem.filename else "jpg"
+        content_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}.get(ext)
+        if len(raw) > 5 * 1024 * 1024 or not content_type:
+            flash("Na automação, use uma imagem JPG ou PNG de até 5 MB.", "error")
+            return redirect(url_for("painel_notificacoes", aba="automacoes"))
+        storage_path = f"automacoes/{session.get('cnpjloja')}/{int(time.time())}-{secrets.token_hex(6)}.{ext}"
+        imagem_url = upload_to_supabase_storage(raw, storage_path, content_type)
+        if not imagem_url:
+            flash("Não foi possível salvar a imagem da automação.", "error")
+            return redirect(url_for("painel_notificacoes", aba="automacoes"))
+    try:
+        espera_horas = max(0, min(int(request.form.get("espera_horas") or 0), 24 * 365))
+    except Exception:
+        espera_horas = 0
+    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro"}
+    if not nome or gatilho not in gatilhos_validos or not titulo or not mensagem or not canais:
+        flash("Preencha nome, gatilho, canais, assunto e mensagem da automação.", "error")
+        return redirect(url_for("painel_notificacoes", aba="automacoes"))
+    codigo = "loja_" + secrets.token_hex(8)
+    cur = db().cursor()
+    cur.execute("""INSERT INTO ecommerce_crm_automacoes
+        (cnpjloja,codigo,nome,canais,ativa,gatilho,espera_horas,publico,titulo,mensagem,imagem_url,personalizada)
+        VALUES(%s,%s,%s,%s::jsonb,TRUE,%s,%s,%s,%s,%s,%s,TRUE)""",
+        (session.get("cnpjloja"), codigo, nome, json.dumps(canais), gatilho, espera_horas,
+         publico, titulo, mensagem, imagem_url))
+    db().commit(); cur.close()
+    flash("Automação criada com sucesso.", "success")
+    return redirect(url_for("painel_notificacoes", aba="automacoes"))
+
+
+@app.get("/crm/clique/<int:envio_id>")
+def crm_registrar_clique(envio_id):
+    destino = (request.args.get("url") or url_for("index")).strip()
+    if destino.startswith("//") or not destino.startswith(("/", "https://drogariaspoupaqui.com.br/", "https://www.drogariaspoupaqui.com.br/")):
+        destino = url_for("index")
+    cur = db().cursor()
+    cur.execute("UPDATE ecommerce_crm_envios SET clicado_em=COALESCE(clicado_em,NOW()),total_cliques=total_cliques+1 WHERE id=%s", (envio_id,))
+    db().commit(); cur.close()
+    return redirect(destino)
+
+
+@app.get("/crm/whatsapp/parar/<token>")
+def crm_whatsapp_sair(token):
+    _ensure_crm_schema(); cur=db().cursor()
+    cur.execute("UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE WHERE whatsapp_optout_token=%s RETURNING id", (token,))
+    alterado=bool(cur.fetchone()); db().commit(); cur.close()
+    return "Você não receberá mais promoções pelo WhatsApp." if alterado else "Este link não é válido.", 200 if alterado else 404
+
+
+@app.post("/api/webhooks/wasender")
+def crm_wasender_webhook():
+    esperado = os.getenv("WASENDER_WEBHOOK_SECRET") or _CRON_SECRET
+    recebido = request.headers.get("X-Webhook-Signature") or request.args.get("secret")
+    if not esperado or not secrets.compare_digest(str(recebido or ""), str(esperado)):
+        return jsonify({"ok": False}), 401
+    payload = request.get_json(silent=True) or {}
+    if payload.get("event") in {"messages.received", "message.received"}:
+        data = payload.get("data") or {}; mensagem = data.get("messageBody") or data.get("text") or ""
+        key = data.get("key") or {}; numero = re.sub(r"\D", "", key.get("remoteJid") or data.get("from") or "")
+        if _sem_acento(str(mensagem)).strip().lower() in {"parar", "sair", "stop", "cancelar"} and numero:
+            cur=db().cursor(); cur.execute("""UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE
+                WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(%s,11)""", (numero,)); db().commit(); cur.close()
+        return jsonify({"ok": True})
+    if payload.get("event") not in {"messages.update", "message-receipt.update"}:
+        return jsonify({"ok": True})
+    data = payload.get("data") or {}; update = data.get("update") or {}
+    key = data.get("key") or (data.get("message") or {}).get("key") or {}
+    external_id = str(key.get("id") or data.get("id") or "")
+    try: status_wa = int(update.get("status") if update.get("status") is not None else data.get("status"))
+    except Exception: status_wa = 0
+    if external_id:
+        cur=db().cursor()
+        cur.execute("""UPDATE ecommerce_crm_envios SET
+            status=CASE WHEN %s>=3 THEN 'entregue' ELSE status END,
+            visualizado_em=CASE WHEN %s>=4 THEN COALESCE(visualizado_em,NOW()) ELSE visualizado_em END
+            WHERE external_id=%s""", (status_wa,status_wa,external_id))
+        db().commit(); cur.close()
+    return jsonify({"ok": True})
+
+
+@app.get("/crm/abertura/<int:envio_id>.gif")
+def crm_registrar_abertura(envio_id):
+    cur = db().cursor()
+    cur.execute("UPDATE ecommerce_crm_envios SET visualizado_em=COALESCE(visualizado_em,NOW()) WHERE id=%s", (envio_id,))
+    db().commit(); cur.close()
+    pixel = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")
+    return Response(pixel, mimetype="image/gif", headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 # ─── PAINEL: UPLOAD IMAGEM DO PRODUTO ────────────────────────────────────────
@@ -22032,6 +22469,99 @@ def _cron_authorized():
     return auth == f"Bearer {_CRON_SECRET}" or (request.args.get("secret") or "") == _CRON_SECRET
 
 
+def _processar_crm_automacoes(limite=100):
+    _ensure_crm_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("""SELECT * FROM ecommerce_crm_automacoes
+        WHERE ativa=TRUE AND personalizada=TRUE AND gatilho IS NOT NULL ORDER BY id""")
+    automacoes = cur.fetchall(); processados = 0; enviados = 0
+    for automacao in automacoes:
+        if processados >= limite:
+            break
+        espera = int(automacao.get("espera_horas") or 0)
+        gatilho = automacao.get("gatilho")
+        args = [automacao["cnpjloja"]]
+        if gatilho == "pos_compra":
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,MAX(p.criado_em) AS evento,
+                'compra:'||MAX(p.criado_em)::text AS referencia FROM ecommerce_consumidores c
+                JOIN ecommerce_pedidos p ON p.consumidor_id=c.id WHERE p.cnpjloja=%s AND p.status<>'cancelado'
+                GROUP BY c.id HAVING MAX(p.criado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
+        elif gatilho == "cadastro":
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,c.criado_em AS evento,
+                'cadastro:'||c.criado_em::text AS referencia FROM ecommerce_consumidores c
+                WHERE c.id=ANY(%s::uuid[]) AND c.criado_em <= NOW()-(%s||' hours')::interval"""
+            args = [_consumidores_notificacao_loja(automacao["cnpjloja"], "todos"), espera]
+        elif gatilho == "aniversario":
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,NOW() AS evento,
+                'aniversario:'||EXTRACT(YEAR FROM NOW())::text AS referencia FROM ecommerce_consumidores c
+                WHERE c.id=ANY(%s::uuid[]) AND EXTRACT(MONTH FROM c.data_nascimento)=EXTRACT(MONTH FROM NOW())
+                AND EXTRACT(DAY FROM c.data_nascimento)=EXTRACT(DAY FROM NOW())"""
+            args = [_consumidores_notificacao_loja(automacao["cnpjloja"], "todos")]
+        elif gatilho == "sem_comprar":
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,MAX(p.criado_em) AS evento,
+                'inativo:'||TO_CHAR(NOW(),'YYYY-MM') AS referencia FROM ecommerce_consumidores c
+                JOIN ecommerce_pedidos p ON p.consumidor_id=c.id WHERE p.cnpjloja=%s AND p.status<>'cancelado'
+                GROUP BY c.id HAVING MAX(p.criado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
+        elif gatilho == "carrinho":
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,MAX(x.atualizado_em) AS evento,
+                'carrinho:'||MAX(x.atualizado_em)::text AS referencia FROM ecommerce_consumidores c
+                JOIN ecommerce_carrinho x ON x.consumidor_id=c.id WHERE x.cnpjloja=%s
+                GROUP BY c.id HAVING MAX(x.atualizado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
+        else:
+            continue
+        cur.execute(f"""SELECT q.* FROM ({origem}) q WHERE NOT EXISTS (
+            SELECT 1 FROM ecommerce_crm_automacao_execucoes e
+            WHERE e.automacao_id=%s AND e.consumidor_id=q.id AND e.referencia=q.referencia)
+            ORDER BY q.evento LIMIT %s""", tuple(args + [automacao["id"], max(1, limite-processados)]))
+        candidatos = cur.fetchall()
+        for cliente in candidatos:
+            cur.execute("""INSERT INTO ecommerce_crm_automacao_execucoes(automacao_id,consumidor_id,referencia)
+                VALUES(%s,%s,%s) ON CONFLICT DO NOTHING RETURNING id""",
+                (automacao["id"], cliente["id"], cliente["referencia"]))
+            if not cur.fetchone():
+                continue
+            conn.commit(); processados += 1
+            titulo = _crm_personalizar(automacao.get("titulo"), cliente, session.get("razao") or "")
+            mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, session.get("razao") or "")
+            destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
+            for canal in (automacao.get("canais") or []):
+                ok = False
+                permitido_plano, motivo_plano = _crm_pode_enviar(automacao["cnpjloja"], canal)
+                if not permitido_plano:
+                    _crm_registrar_envio(automacao["cnpjloja"], cliente["id"], canal,
+                        f"automacao:{automacao['codigo']}", "bloqueado", titulo, mensagem, erro=motivo_plano)
+                    continue
+                try:
+                    if canal == "push":
+                        c2=db().cursor(); c2.execute("""INSERT INTO ecommerce_notificacoes_consumidor
+                            (consumidor_id,tipo,titulo,mensagem,imagem_url,url) VALUES(%s,'loja',%s,%s,%s,%s)""",
+                            (cliente["id"],titulo,mensagem,automacao.get("imagem_url"),destino)); db().commit(); c2.close(); ok=True
+                    elif canal == "email" and cliente.get("email"):
+                        corpo=f"<p>{html.escape(mensagem)}</p><p><a class='btn' href='{html.escape(destino)}'>Ver no site</a></p>"
+                        ok=bool(_send_email(cliente["email"],titulo,_email_html_wrapper(titulo,corpo)))
+                    elif canal == "whatsapp" and cliente.get("telefone"):
+                        permitido,motivo,token=_crm_whatsapp_permissao(cliente["id"])
+                        if permitido:
+                            sair=url_for("crm_whatsapp_sair",token=token,_external=True)
+                            ok=bool(_wa_send(cliente["telefone"],f"{titulo}\n\n{mensagem}\n\n{destino}\n\nParar mensagens: {sair}",automacao.get("imagem_url")))
+                except Exception as exc:
+                    app.logger.warning("crm automacao %s canal %s: %s", automacao["id"], canal, exc)
+                _crm_registrar_envio(automacao["cnpjloja"],cliente["id"],canal,
+                    f"automacao:{automacao['codigo']}","enviado" if ok else "falhou",titulo,mensagem)
+                enviados += int(ok)
+    cur.close()
+    return {"automacoes": len(automacoes), "processados": processados, "envios": enviados}
+
+
+@app.post("/api/cron/crm-automacoes")
+def api_cron_crm_automacoes():
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    try: limite = max(1, min(int(request.args.get("limit") or 100), 500))
+    except Exception: limite = 100
+    return jsonify({"ok": True, **_processar_crm_automacoes(limite)})
+
+
 @app.route("/api/cron/produto-descricao-ia", methods=["GET", "POST"])
 def api_cron_produto_descricao_ia():
     """Preenche cache de descricoes IA para EANs ativos do catalogo, em lotes pequenos."""
@@ -22430,12 +22960,28 @@ def _processar_notificacoes_reposicao(limit_consumidores=200):
             compra_em = lembrete.get("compra_em")
             if not ean or not compra_em:
                 continue
+            cur_loja = conn.cursor()
+            cur_loja.execute(
+                "SELECT cnpjloja FROM ecommerce_pedidos WHERE consumidor_id=%s AND criado_em=%s LIMIT 1",
+                (consumidor_id, compra_em),
+            )
+            loja_envio = cur_loja.fetchone() or {}
+            cur_loja.close()
+            cnpj_envio = loja_envio.get("cnpjloja") or "sistema"
+            if not _crm_automacao_ativa(cnpj_envio, "reposicao"):
+                continue
+            plano_crm = _crm_plano_loja(cnpj_envio)
             canais_disponiveis = []
-            if (cliente.get("email") or "").strip():
+            if "push" in plano_crm["canais"]:
+                canais_disponiveis.append("push")
+            if "email" in plano_crm["canais"] and (cliente.get("email") or "").strip():
                 canais_disponiveis.append("email")
-            if (cliente.get("telefone") or "").strip():
+            if "whatsapp" in plano_crm["canais"] and (cliente.get("telefone") or "").strip():
                 canais_disponiveis.append("whatsapp")
             for canal in canais_disponiveis:
+                permitido_plano, _ = _crm_pode_enviar(cnpj_envio, canal)
+                if not permitido_plano:
+                    continue
                 cur3 = conn.cursor()
                 inserted = None
                 try:
@@ -22453,7 +22999,15 @@ def _processar_notificacoes_reposicao(limit_consumidores=200):
                 if not inserted:
                     continue  # ja notificado nesse canal pra essa compra especifica
                 try:
-                    if canal == "email":
+                    if canal == "push":
+                        cur_push = conn.cursor()
+                        cur_push.execute("""INSERT INTO ecommerce_notificacoes_consumidor
+                            (consumidor_id,tipo,titulo,mensagem,url)
+                            VALUES(%s,'reposicao',%s,%s,%s)""", (
+                            consumidor_id, lembrete.get("titulo") or "Hora de repor?",
+                            lembrete.get("mensagem") or "", f"/produto/{ean}"))
+                        conn.commit(); cur_push.close(); ok = True
+                    elif canal == "email":
                         ok = _send_email(
                             cliente["email"],
                             f"🔔 {lembrete.get('titulo') or 'Hora de repor?'}",
@@ -22461,6 +23015,11 @@ def _processar_notificacoes_reposicao(limit_consumidores=200):
                         )
                     else:
                         ok = _wa_send(cliente["telefone"], _mensagem_lembrete_whatsapp(nome_cliente, lembrete))
+                    _crm_registrar_envio(
+                        cnpj_envio, consumidor_id, canal,
+                        "automatico_reposicao", "enviado" if ok else "falhou",
+                        lembrete.get("titulo") or "Hora de repor?", lembrete.get("mensagem") or "",
+                    )
                     if ok:
                         resultado["notificacoes_enviadas"] += 1
                         resultado["detalhes"].append({

@@ -56,6 +56,10 @@
   .pq-auth-secondary { border: 1px solid #dedfe4; background: #fff; color: #343948; }
   .pq-auth-check { display: flex; align-items: center; gap: 10px; margin: 18px 0 0; color: #343948; font-size: .82rem; font-weight: 500; }
   .pq-auth-check input { width: 18px; height: 18px; accent-color: var(--pq-red); }
+  .pq-auth-check.pq-whatsapp-consent { align-items: flex-start; padding: 14px 15px; border: 1px solid rgba(37, 211, 102, .48); border-radius: 12px; background: rgba(37, 211, 102, .08); color: #202735; }
+  .pq-auth-check.pq-whatsapp-consent input { flex: 0 0 auto; margin-top: 1px; }
+  .pq-auth-check.pq-whatsapp-consent span { line-height: 1.45; }
+  .pq-auth-check.pq-whatsapp-consent strong { display: block; margin-bottom: 2px; color: #128c4a; font-size: .86rem; }
   .pq-auth-footer { margin-top: 20px; text-align: center; color: #8a8f9d; font-size: .82rem; }
   .pq-auth-footer a { color: var(--pq-red); font-weight: 900; text-decoration: none; }
   @media (max-width: 860px) {
@@ -147,6 +151,17 @@
               <div class="pq-hint" data-hint-for="documento"></div>
             </div>
             <div class="pq-field full">
+              <label class="pq-auth-check pq-whatsapp-consent" style="margin-top:0">
+                <input type="checkbox" name="aceita_whatsapp_marketing">
+                <span><strong>Promoções pelo WhatsApp</strong>Quero receber promoções e novidades da minha região pelo WhatsApp. Posso cancelar quando quiser.</span>
+              </label>
+            </div>
+            <div class="pq-field full">
+              <label for="data_nascimento">Data de nascimento</label>
+              <input id="data_nascimento" name="data_nascimento" type="date" autocomplete="bday" required>
+              <div class="pq-hint" data-hint-for="data_nascimento">Usada para personalizar sua experiência e ofertas de aniversário.</div>
+            </div>
+            <div class="pq-field full">
               <label for="email">E-mail</label>
               <input id="email" name="email" type="email" autocomplete="email" placeholder="voce@email.com" value="{{ google_signup.get('email', '') }}" {% if google_signup %}readonly{% endif %} required>
               <div class="pq-hint" id="email-hint" data-hint-for="email"></div>
@@ -216,7 +231,6 @@
             <input type="checkbox" name="lembrar" checked>
             <span>Manter conectado neste dispositivo</span>
           </label>
-
           <div class="pq-actions">
             <button class="pq-auth-secondary" type="button" id="btnVoltar">Voltar</button>
             <button class="pq-auth-submit" type="submit" id="btnCadastrar">Criar conta</button>
@@ -326,6 +340,11 @@ function validateStep1() {
   const telDigits = digits($('#telefone').value);
   const telOk = telefoneValidoBr(telDigits);
   const docOk = validDocumento($('#documento').value);
+  const nascimento = new Date($('#data_nascimento').value + 'T12:00:00');
+  const hoje = new Date();
+  let idade = hoje.getFullYear() - nascimento.getFullYear();
+  if ((hoje.getMonth() < nascimento.getMonth()) || (hoje.getMonth() === nascimento.getMonth() && hoje.getDate() < nascimento.getDate())) idade--;
+  const nascimentoOk = !Number.isNaN(nascimento.getTime()) && idade >= 13 && idade <= 120;
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('#email').value.trim());
   const senha = $('#senha').value;
   const senhaOk = isGoogleSignup || (senha.length >= 6 && !/^\d+$/.test(senha) && new Set(senha).size >= 4);
@@ -333,6 +352,7 @@ function validateStep1() {
     setInvalid('nome', nomeOk ? '' : 'Informe nome e sobrenome reais.'),
     setInvalid('telefone', telOk ? '' : 'Informe um WhatsApp válido com DDD (celular com 9 dígitos).'),
     setInvalid('documento', docOk ? '' : 'Informe um CPF ou CNPJ válido.'),
+    setInvalid('data_nascimento', nascimentoOk ? '' : 'Informe uma data válida (idade mínima de 13 anos).'),
     setInvalid('email', emailOk ? (emailBloqueado ? 'Este e-mail já tem uma conta.' : '') : 'Informe um e-mail válido.'),
     setInvalid('senha', senhaOk ? '' : 'Use pelo menos 6 caracteres com variedade.')
   ].every(Boolean);
