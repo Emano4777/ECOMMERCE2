@@ -60,6 +60,8 @@
 .wa-bubble .preview-img{border-radius:6px;margin-bottom:7px;max-height:140px}
 .actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .lock{border:1px dashed #5d4d17;background:#211d0c;color:#e8c94a;padding:10px;border-radius:8px;margin-bottom:10px;font-size:.7rem}
+.tip{display:none;border:1px dashed #1d3a5d;background:#0c1a21;color:#7ec8e8;padding:10px;border-radius:8px;margin-top:8px;font-size:.7rem;line-height:1.5}
+.tip.show{display:block}
 .client-picker{display:none;background:#0d1119;border:1px solid var(--pk-line);border-radius:9px;padding:10px;margin:8px 0}
 .client-picker.show{display:block}
 .client-list{max-height:220px;overflow:auto;margin-top:8px}
@@ -280,6 +282,7 @@
         {% endfor %}
       </select>
       <span class="note" style="display:block;margin-top:6px">Escolhendo um cupom, use <code>{cupom}</code> na mensagem pra inserir o código e o desconto automaticamente. Só quem realmente se qualifica pro cupom (público/limite de uso) recebe essa parte — os demais recebem a mensagem sem ela.</span>
+      <div class="tip" id="cupomDica"><i class="fa fa-lightbulb"></i> <strong>Dica:</strong> escreva a frase pra funcionar bem mesmo sem o cupom — ex.: "Aproveite {cupom} nessa compra!" em vez de "Use o {cupom} agora!". Quem não se qualificar recebe a mensagem sem essa parte, e o texto não pode ficar estranho.</div>
     </div>
     {% endif %}
 
@@ -469,12 +472,13 @@
     {% if cupons %}
     <div class="field">
       <label>Cupom disponível (opcional)</label>
-      <select class="pk-input" name="cupom_id">
+      <select class="pk-input" name="cupom_id" id="automationCupomSelect">
         <option value="">Nenhum</option>
         {% for c in cupons %}
         <option value="{{ c.id }}">{{ c.codigo }} — {{ (c.desconto_valor|int ~ '%') if c.desconto_tipo=='pct' else ('R$ ' ~ '%.2f'|format(c.desconto_valor|float)) }} OFF</option>
         {% endfor %}
       </select>
+      <div class="tip" id="automationCupomDica"><i class="fa fa-lightbulb"></i> <strong>Dica:</strong> escreva a frase pra funcionar bem mesmo sem o cupom — ex.: "Aproveite {cupom} nessa compra!" em vez de "Use o {cupom} agora!". Quem não se qualificar recebe a mensagem sem essa parte.</div>
     </div>
     {% endif %}
     <div class="field"><label>Mensagem</label>
@@ -598,6 +602,22 @@ function previewPersonalizado(texto){
   return texto.replaceAll('{primeiro_nome}','Maria').replaceAll('{nome}','Maria da Silva').replaceAll('{loja}','Sua farmácia').replaceAll('{cupom}', cupomTxt);
 }
 if(window.cupomSelect) cupomSelect.addEventListener('change', updatePreviewText);
+
+/* ── Dica de cupom: só aparece quando um cupom de verdade foi escolhido ── */
+function alternarDicaCupom(select, dica){
+  if(!select || !dica) return;
+  dica.classList.toggle('show', !!select.value);
+}
+if(window.cupomSelect){
+  const dicaNovo=document.getElementById('cupomDica');
+  cupomSelect.addEventListener('change', ()=>alternarDicaCupom(cupomSelect, dicaNovo));
+  alternarDicaCupom(cupomSelect, dicaNovo);
+}
+if(window.automationCupomSelect){
+  const dicaAuto=document.getElementById('automationCupomDica');
+  automationCupomSelect.addEventListener('change', ()=>alternarDicaCupom(automationCupomSelect, dicaAuto));
+  alternarDicaCupom(automationCupomSelect, dicaAuto);
+}
 function updatePreviewText(){const title=previewPersonalizado(titulo.value||'Assunto da campanha');const message=previewPersonalizado(mensagem.value||'Sua mensagem aparecerá aqui.');document.querySelectorAll('[data-preview-title]').forEach(e=>e.textContent=title);document.querySelectorAll('[data-preview-message]').forEach(e=>e.textContent=message)}
 const campaignChannels=[...document.querySelectorAll('#tab-novo [name="canais"]')];
 function updatePreviewChannels(){let active=0;campaignChannels.forEach(c=>{const box=document.querySelector(`[data-preview="${c.value}"]`);if(box)box.classList.toggle('show',c.checked);if(c.checked)active++});noPreview.style.display=active?'none':'block'}
