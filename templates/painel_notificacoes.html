@@ -91,6 +91,10 @@
 .crm-filters{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
 .crm-filters input[type=search]{flex:1 1 220px}
 .crm-filters select{flex:0 0 auto}
+.bulk-bar{display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#1c2333;border:1px solid var(--pk-yellow);
+  border-radius:9px;padding:9px 12px;margin-bottom:10px;font-size:.74rem}
+.bulk-bar b{color:var(--pk-yellow)}
+.cliente-check,#selecionarTodosCheck{accent-color:var(--pk-yellow);width:15px;height:15px;cursor:pointer}
 
 /* ── Aniversariantes ── */
 .aniv-item{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--pk-line);font-size:.72rem}
@@ -381,8 +385,16 @@
     <a class="btn-pk-ghost" href="{{ url_for('painel_crm_clientes_exportar') }}"><i class="fa fa-file-csv"></i> Exportar CSV</a>
   </div>
 
+  <div class="bulk-bar" id="bulkBar">
+    <span><b id="bulkCount">0</b> selecionado(s)</span>
+    <button type="button" class="btn-pk-ghost" onclick="selecionarTodosFiltrados()"><i class="fa fa-check-double"></i> Selecionar todos os filtrados</button>
+    <button type="button" class="btn-pk-ghost" onclick="limparSelecaoClientes()">Limpar seleção</button>
+    <button type="button" class="btn-pk-yellow" onclick="mandarMensagemSelecionados()"><i class="fa fa-paper-plane"></i> Mandar mensagem pros selecionados</button>
+  </div>
+
   <table class="tablex" id="tabelaClientes">
     <thead><tr>
+      <th style="width:30px"><input type="checkbox" id="selecionarTodosCheck" onclick="toggleSelecionarTodos(this)" title="Selecionar todos os filtrados"></th>
       <th data-sort="nome">Cliente</th>
       <th>Contato</th>
       <th data-sort="segmento">Segmento</th>
@@ -397,6 +409,7 @@
       <tr data-id="{{ c.id }}" data-nome="{{ c.nome|lower }}" data-search="{{ (c.nome ~ ' ' ~ c.email ~ ' ' ~ c.telefone)|lower }}"
           data-segmento="{{ c.segmento }}" data-pedidos="{{ c.pedidos }}" data-total="{{ c.total_gasto }}"
           data-ultima="{{ c.ultima_compra.isoformat() if c.ultima_compra else '' }}">
+        <td><input type="checkbox" class="cliente-check" value="{{ c.id }}" onclick="event.stopPropagation()" onchange="atualizarSelecaoClientes()"></td>
         <td>{{ c.nome }}</td>
         <td>{{ c.email }}<br>{{ c.telefone }}</td>
         <td><span class="seg seg-{{ c.segmento }}">{{ seg_labels[c.segmento] }}</span></td>
@@ -406,7 +419,7 @@
         <td><button type="button" class="btn-pk-ghost btn-msg-cliente" data-id="{{ c.id }}" data-nome="{{ c.nome }}" onclick="event.stopPropagation();mandarMensagemPara(this.dataset.id,this.dataset.nome)"><i class="fa fa-paper-plane"></i></button></td>
       </tr>
       {% else %}
-      <tr><td colspan="7">Nenhum cliente relacionado à loja.</td></tr>
+      <tr><td colspan="8">Nenhum cliente relacionado à loja.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -664,6 +677,43 @@ function mandarMensagemPara(id,nome){
   if(cb){cb.checked=true; updateSelected();}
   document.getElementById('titulo').scrollIntoView({behavior:'smooth',block:'center'});
 }
+
+/* ── Selecao em massa na Base de clientes ── */
+function atualizarSelecaoClientes(){
+  const marcados=tabelaClientesEl.querySelectorAll('.cliente-check:checked');
+  bulkBar.style.display = marcados.length ? 'flex' : 'none';
+  bulkCount.textContent = marcados.length;
+}
+function linhasVisiveis(){
+  return [...tabelaClientesEl.querySelectorAll('tbody tr[data-id]')].filter(tr=>tr.style.display!=='none');
+}
+function toggleSelecionarTodos(master){
+  linhasVisiveis().forEach(tr=>{const cb=tr.querySelector('.cliente-check'); if(cb) cb.checked=master.checked;});
+  atualizarSelecaoClientes();
+}
+function selecionarTodosFiltrados(){
+  linhasVisiveis().forEach(tr=>{const cb=tr.querySelector('.cliente-check'); if(cb) cb.checked=true;});
+  document.getElementById('selecionarTodosCheck').checked=true;
+  atualizarSelecaoClientes();
+}
+function limparSelecaoClientes(){
+  tabelaClientesEl.querySelectorAll('.cliente-check').forEach(cb=>cb.checked=false);
+  document.getElementById('selecionarTodosCheck').checked=false;
+  atualizarSelecaoClientes();
+}
+function mandarMensagemSelecionados(){
+  const ids=[...tabelaClientesEl.querySelectorAll('.cliente-check:checked')].map(cb=>cb.value);
+  if(!ids.length)return;
+  abrirAba('novo');
+  publico.value='especificos'; atualizarPublico();
+  customerChecks.forEach(cb=>{cb.checked=ids.includes(cb.value)});
+  updateSelected();
+  document.getElementById('titulo').scrollIntoView({behavior:'smooth',block:'center'});
+}
+/* Mudar o filtro/busca desmarca "selecionar todos" (a selecao dos filtrados
+   visiveis pode ter mudado) mas preserva quem ja estava marcado */
+document.getElementById('clientesBusca')?.addEventListener('input',()=>document.getElementById('selecionarTodosCheck').checked=false);
+document.getElementById('clientesSegFiltro')?.addEventListener('change',()=>document.getElementById('selecionarTodosCheck').checked=false);
 
 /* ── Ficha do cliente (drawer) ── */
 function fecharFicha(){drawerOverlay.classList.remove('show');drawerFicha.classList.remove('show')}
