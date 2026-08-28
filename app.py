@@ -21364,12 +21364,28 @@ def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
 def _crm_dados(cnpjloja):
     _ensure_crm_schema()
     conn = db(); cur = conn.cursor()
-    cur.execute("""INSERT INTO ecommerce_crm_automacoes(cnpjloja,codigo,nome,canais) VALUES
-        (%s,'reposicao','Recompra / reposição','[\"email\",\"whatsapp\"]'::jsonb),
-        (%s,'cross_sell','Cross-sell pós-compra','[\"push\",\"email\"]'::jsonb),
-        (%s,'aniversario','Aniversário do cliente','[\"email\"]'::jsonb),
-        (%s,'carrinho','Carrinho abandonado','[\"email\"]'::jsonb)
-        ON CONFLICT(cnpjloja,codigo) DO NOTHING""", (cnpjloja, cnpjloja, cnpjloja, cnpjloja))
+    # reposicao tem job proprio (_processar_notificacoes_reposicao), por isso
+    # fica sem gatilho aqui -- as outras 3 usam o processador generico
+    # (_processar_crm_automacoes), que ja sabe lidar com esses gatilhos.
+    cur.execute("""INSERT INTO ecommerce_crm_automacoes
+        (cnpjloja,codigo,nome,canais,gatilho,espera_horas,titulo,mensagem) VALUES
+        (%s,'reposicao','Recompra / reposição','["email","whatsapp"]'::jsonb, NULL, 0, NULL, NULL),
+        (%s,'cross_sell','Cross-sell pós-compra','["push","email"]'::jsonb, 'pos_compra', 24,
+            'Separamos mais sugestões pra você',
+            'Baseado na sua última compra em {loja}, você pode gostar destes produtos. Dá uma olhada!'),
+        (%s,'aniversario','Aniversário do cliente','["email"]'::jsonb, 'aniversario', 0,
+            'Feliz aniversário, {primeiro_nome}! 🎉',
+            '{loja} deseja um feliz aniversário pra você! Aproveite pra conferir nossas ofertas especiais.'),
+        (%s,'carrinho','Carrinho abandonado','["email"]'::jsonb, 'carrinho', 24,
+            'Você deixou itens na sua cesta',
+            'Ainda estamos com os produtos separados pra você em {loja}. Que tal finalizar sua compra?')
+        ON CONFLICT(cnpjloja,codigo) DO UPDATE SET
+            gatilho = COALESCE(ecommerce_crm_automacoes.gatilho, EXCLUDED.gatilho),
+            titulo = COALESCE(ecommerce_crm_automacoes.titulo, EXCLUDED.titulo),
+            mensagem = COALESCE(ecommerce_crm_automacoes.mensagem, EXCLUDED.mensagem),
+            espera_horas = CASE WHEN ecommerce_crm_automacoes.gatilho IS NULL
+                THEN EXCLUDED.espera_horas ELSE ecommerce_crm_automacoes.espera_horas END
+        """, (cnpjloja, cnpjloja, cnpjloja, cnpjloja))
     conn.commit()
     cur.execute("""SELECT c.*,COUNT(e.id) AS total_envios,
         COUNT(e.id) FILTER (WHERE e.status='enviado') AS enviados,
@@ -22470,11 +22486,15 @@ def _cron_authorized():
 
 
 def _processar_crm_automacoes(limite=100):
+    """Processa tanto as automacoes padrao (reposicao fica de fora -- tem job
+    proprio) quanto as personalizadas por loja: qualquer automacao ativa com
+    gatilho preenchido passa por aqui."""
     _ensure_crm_schema()
     conn = db(); cur = conn.cursor()
     cur.execute("""SELECT * FROM ecommerce_crm_automacoes
-        WHERE ativa=TRUE AND personalizada=TRUE AND gatilho IS NOT NULL ORDER BY id""")
+        WHERE ativa=TRUE AND gatilho IS NOT NULL ORDER BY id""")
     automacoes = cur.fetchall(); processados = 0; enviados = 0
+    _razao_cache = {}
     for automacao in automacoes:
         if processados >= limite:
             break
@@ -22521,8 +22541,14 @@ def _processar_crm_automacoes(limite=100):
             if not cur.fetchone():
                 continue
             conn.commit(); processados += 1
-            titulo = _crm_personalizar(automacao.get("titulo"), cliente, session.get("razao") or "")
-            mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, session.get("razao") or "")
+            cnpj_automacao = automacao["cnpjloja"]
+            if cnpj_automacao not in _razao_cache:
+                cur.execute("SELECT razao FROM users WHERE cnpjloja=%s LIMIT 1", (cnpj_automacao,))
+                _row_razao = cur.fetchone()
+                _razao_cache[cnpj_automacao] = (_row_razao or {}).get("razao") or ""
+            nome_loja = _razao_cache[cnpj_automacao]
+            titulo = _crm_personalizar(automacao.get("titulo"), cliente, nome_loja)
+            mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja)
             destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
             for canal in (automacao.get("canais") or []):
                 ok = False
