@@ -1,4 +1,31 @@
-const CACHE = 'poupaqui-static-v20260623-1';
+const CACHE = 'poupaqui-static-v20260829-1';
+
+self.addEventListener('push', event => {
+  let dados = {};
+  try { dados = event.data ? event.data.json() : {}; } catch (e) {}
+  const titulo = dados.title || 'Poupaqui';
+  const opcoes = {
+    body: dados.body || '',
+    icon: dados.icon || '/static/poupaqui-logo.png',
+    badge: '/static/favicon.png',
+    image: dados.image || undefined,
+    data: { url: dados.url || '/' },
+  };
+  event.waitUntil(self.registration.showNotification(titulo, opcoes));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const c of clientList) {
+        if (c.url.includes(url) && 'focus' in c) return c.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
+  );
+});
 
 self.addEventListener('install', event => {
   event.waitUntil(self.skipWaiting());

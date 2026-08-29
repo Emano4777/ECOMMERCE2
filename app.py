@@ -42,6 +42,12 @@ try:
 except Exception:
     alpha_sync = None
 
+try:
+    from pywebpush import webpush, WebPushException
+except Exception:
+    webpush = None
+    WebPushException = Exception
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "poupaqui-ecommerce-dev-2026")
 app.permanent_session_lifetime = timedelta(days=30)
@@ -78,6 +84,11 @@ except Exception:
 
 SUPABASE_ANON = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+# ─── WEB PUSH (notificações push no navegador do cliente) ───────────────────
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").replace("\\n", "\n")
+VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:contato@poupaqui.com.br")
 
 # ─── MERCADO LIVRE ─────────────────────────────────────────────────────────────
 ML_APP_ID    = os.getenv("ML_APP_ID", "")
@@ -814,6 +825,7 @@ def inject_globals():
         "SUPABASE_ANON": SUPABASE_ANON,
         "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),
         "META_PIXEL_ID": os.getenv("META_PIXEL_ID", "1676450676965810"),
+        "VAPID_PUBLIC_KEY": VAPID_PUBLIC_KEY,
         "plano": plano,
         "loja_aberta": loja_aberta,
         "stats": painel_stats,
@@ -995,6 +1007,95 @@ def _ensure_notificacoes_schema():
         cur.close()
         _schema_ready.add(key)
         _mark_migration_done(key)
+
+
+def _ensure_push_schema():
+    """Assinaturas de push do navegador (Web Push API) por consumidor --
+    um mesmo consumidor pode ter varias (um por navegador/dispositivo)."""
+    key = "push_subscriptions_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_push_subscriptions (
+                id BIGSERIAL PRIMARY KEY,
+                consumidor_id UUID NOT NULL,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                user_agent TEXT,
+                criado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_push_sub_consumidor ON ecommerce_push_subscriptions(consumidor_id)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, imagem_url=None):
+    """Manda uma notificacao de verdade pro navegador do consumidor (Web
+    Push), pra todas as assinaturas ativas dele. Some calada se faltar
+    configuracao (VAPID) ou nao tiver assinatura -- quem quer garantia de
+    aviso deve continuar usando o inbox in-app (ecommerce_notificacoes_consumidor),
+    isso aqui e so o "toque" extra fora da aba/app aberto."""
+    if not (webpush and VAPID_PRIVATE_KEY and consumidor_id):
+        return 0
+    try:
+        _ensure_push_schema()
+        cur = db().cursor()
+        cur.execute("SELECT id,endpoint,p256dh,auth FROM ecommerce_push_subscriptions WHERE consumidor_id=%s", (consumidor_id,))
+        subs = cur.fetchall()
+        cur.close()
+    except Exception:
+        return 0
+    if not subs:
+        return 0
+    payload = json.dumps({
+        "title": (titulo or "Poupaqui")[:160],
+        "body": (mensagem or "")[:300],
+        "url": url or "/",
+        "icon": "/static/poupaqui-logo.png",
+        "image": imagem_url or None,
+    })
+    enviados = 0
+    mortas = []
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": sub["endpoint"],
+                    "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+                },
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
+                ttl=86400,
+            )
+            enviados += 1
+        except WebPushException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in (404, 410):
+                mortas.append(sub["id"])
+        except Exception:
+            pass
+    if mortas:
+        try:
+            cur = db().cursor()
+            cur.execute("DELETE FROM ecommerce_push_subscriptions WHERE id=ANY(%s)", (mortas,))
+            db().commit()
+            cur.close()
+        except Exception:
+            pass
+    return enviados
 
 
 def _ensure_crm_schema():
@@ -1405,6 +1506,7 @@ def _notificar_consumidor(consumidor_id, tipo, titulo, mensagem="", url=None, pe
         if own:
             conn.commit()
         cur.close()
+        _web_push_enviar_consumidor(consumidor_id, titulo, mensagem, url=url, imagem_url=imagem_url)
     except Exception as exc:
         try:
             app.logger.warning("_notificar_consumidor error: %s", exc)
@@ -15061,6 +15163,49 @@ def api_pedido_repetir(pedido_id):
     return jsonify({"disponiveis": disponiveis, "indisponiveis": indisponiveis})
 
 
+@app.get("/api/push/chave-publica")
+def api_push_chave_publica():
+    return jsonify({"publicKey": VAPID_PUBLIC_KEY})
+
+
+@app.post("/api/push/inscrever")
+@_consumer_required
+def api_push_inscrever():
+    _ensure_push_schema()
+    data = request.get_json(silent=True) or {}
+    endpoint = (data.get("endpoint") or "").strip()
+    keys = data.get("keys") or {}
+    p256dh = (keys.get("p256dh") or "").strip()
+    auth = (keys.get("auth") or "").strip()
+    if not endpoint or not p256dh or not auth:
+        return jsonify({"ok": False, "erro": "Assinatura inválida."}), 400
+    cur = db().cursor()
+    cur.execute(
+        """INSERT INTO ecommerce_push_subscriptions (consumidor_id, endpoint, p256dh, auth, user_agent)
+           VALUES (%s,%s,%s,%s,%s)
+           ON CONFLICT (endpoint) DO UPDATE SET consumidor_id=EXCLUDED.consumidor_id,
+               p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, user_agent=EXCLUDED.user_agent""",
+        (session["consumidor_id"], endpoint, p256dh, auth, (request.user_agent.string or "")[:300]),
+    )
+    db().commit()
+    cur.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/push/desinscrever")
+def api_push_desinscrever():
+    _ensure_push_schema()
+    data = request.get_json(silent=True) or {}
+    endpoint = (data.get("endpoint") or "").strip()
+    if not endpoint:
+        return jsonify({"ok": False}), 400
+    cur = db().cursor()
+    cur.execute("DELETE FROM ecommerce_push_subscriptions WHERE endpoint=%s", (endpoint,))
+    db().commit()
+    cur.close()
+    return jsonify({"ok": True})
+
+
 @app.get("/notificacoes")
 @_consumer_required
 def consumidor_notificacoes():
@@ -21624,6 +21769,7 @@ def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, 
                     c = db().cursor(); c.execute("""INSERT INTO ecommerce_notificacoes_consumidor
                         (consumidor_id,tipo,titulo,mensagem,imagem_url,url,crm_envio_id) VALUES(%s,'loja',%s,%s,%s,%s,%s)""",
                         (cliente['id'],titulo_cliente[:160],mensagem_cliente[:600],imagem_url,link_rastreado,envio_id)); db().commit(); c.close(); ok = True
+                    _web_push_enviar_consumidor(cliente['id'], titulo_cliente, mensagem_cliente, url=link_rastreado, imagem_url=imagem_url)
                 elif canal == 'email' and cliente.get('email'):
                     pixel = url_for('crm_registrar_abertura', envio_id=envio_id, _external=True)
                     corpo = f"<p>{html.escape(mensagem_cliente)}</p><p style='text-align:center'><a class='btn' href='{html.escape(link_rastreado)}'>Ver oferta</a></p><img src='{html.escape(pixel)}' width='1' height='1' alt='' style='display:block'>"
@@ -23125,6 +23271,7 @@ def _processar_crm_automacoes(limite=100):
                         c2=db().cursor(); c2.execute("""INSERT INTO ecommerce_notificacoes_consumidor
                             (consumidor_id,tipo,titulo,mensagem,imagem_url,url) VALUES(%s,'loja',%s,%s,%s,%s)""",
                             (cliente["id"],titulo,mensagem,automacao.get("imagem_url"),destino)); db().commit(); c2.close(); ok=True
+                        _web_push_enviar_consumidor(cliente["id"], titulo, mensagem, url=destino, imagem_url=automacao.get("imagem_url"))
                     elif canal == "email" and cliente.get("email"):
                         corpo=f"<p>{html.escape(mensagem)}</p><p><a class='btn' href='{html.escape(destino)}'>Ver no site</a></p>"
                         ok=bool(_send_email(cliente["email"],titulo,_email_html_wrapper(titulo,corpo)))
@@ -23596,6 +23743,8 @@ def _processar_notificacoes_reposicao(limit_consumidores=200):
                             consumidor_id, lembrete.get("titulo") or "Hora de repor?",
                             lembrete.get("mensagem") or "", f"/produto/{ean}"))
                         conn.commit(); cur_push.close(); ok = True
+                        _web_push_enviar_consumidor(consumidor_id, lembrete.get("titulo") or "Hora de repor?",
+                            lembrete.get("mensagem") or "", url=f"/produto/{ean}")
                     elif canal == "email":
                         ok = _send_email(
                             cliente["email"],

@@ -2735,10 +2735,18 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharDrawer
   <button onclick="lgpdAceitar()" style="background:var(--pq-red);color:#fff;border:0;border-radius:8px;padding:8px 18px;font-weight:900;cursor:pointer;white-space:nowrap">Aceitar</button>
 </div>
 
+<!-- ── BANNER DE NOTIFICAÇÕES PUSH ───────────────────────── -->
+<div id="push-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9998;background:#1a1a1a;color:#eee;padding:14px 20px;align-items:center;flex-wrap:wrap;gap:12px;font-size:.82rem;box-shadow:0 -2px 12px rgba(0,0,0,.3)">
+  <i class="fa fa-bell" style="color:var(--pq-yellow);font-size:1.1rem"></i>
+  <span style="flex:1;min-width:200px">Quer receber um aviso no navegador quando seu pedido mudar de status ou tiver uma promoção? Ative as notificações.</span>
+  <button onclick="pqPushAtivar()" style="background:var(--pq-yellow);color:#111;border:0;border-radius:8px;padding:8px 18px;font-weight:900;cursor:pointer;white-space:nowrap">Ativar</button>
+  <button onclick="pqPushDispensar()" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;white-space:nowrap">Agora não</button>
+</div>
+
 <script>
 /* ── SERVICE WORKER (PWA) ────────────────────────────── */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/static/sw.js?v=20260623-1')
+  navigator.serviceWorker.register('/static/sw.js?v=20260829-1')
     .then(reg => reg.update())
     .catch(() => {});
 }
@@ -2753,7 +2761,69 @@ function lgpdAceitar() {
   localStorage.setItem('pq_lgpd_ok', '1');
   const b = document.getElementById('lgpd-banner');
   if (b) b.style.display = 'none';
+  if (window.pqPushTalvezMostrarBanner) pqPushTalvezMostrarBanner();
 }
+
+/* ── NOTIFICAÇÕES PUSH NO NAVEGADOR ───────────────────── */
+(function() {
+  const VAPID_KEY = {{ VAPID_PUBLIC_KEY | tojson }};
+  const LOGADO = {{ (consumidor is not none) | tojson }};
+  if (!VAPID_KEY || !LOGADO) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+
+  function base64ParaUint8Array(base64) {
+    const padding = '='.repeat((4 - base64.length % 4) % 4);
+    const raw = window.atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function enviarInscricaoAoServidor(sub) {
+    fetch('/api/push/inscrever', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub.toJSON()),
+    }).catch(() => {});
+  }
+
+  function inscrever() {
+    navigator.serviceWorker.ready.then(reg => {
+      reg.pushManager
+        .subscribe({ userVisibleOnly: true, applicationServerKey: base64ParaUint8Array(VAPID_KEY) })
+        .then(enviarInscricaoAoServidor)
+        .catch(() => {});
+    });
+  }
+
+  window.pqPushAtivar = function() {
+    const b = document.getElementById('push-banner');
+    if (b) b.style.display = 'none';
+    Notification.requestPermission().then(perm => { if (perm === 'granted') inscrever(); });
+  };
+  window.pqPushDispensar = function() {
+    const b = document.getElementById('push-banner');
+    if (b) b.style.display = 'none';
+    localStorage.setItem('pq_push_dispensado', '1');
+  };
+
+  window.pqPushTalvezMostrarBanner = function() {
+    const b = document.getElementById('push-banner');
+    if (Notification.permission === 'granted') {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.pushManager.getSubscription().then(sub => {
+          if (sub) enviarInscricaoAoServidor(sub);
+          else inscrever();
+        });
+      });
+    } else if (Notification.permission === 'default' && b && !localStorage.getItem('pq_push_dispensado')) {
+      const lgpd = document.getElementById('lgpd-banner');
+      setTimeout(() => { if (!lgpd || lgpd.style.display === 'none') b.style.display = 'flex'; }, 2500);
+    }
+  };
+
+  if (localStorage.getItem('pq_lgpd_ok')) pqPushTalvezMostrarBanner();
+})();
 
 /* ── REENVIO VERIFICAÇÃO DE E-MAIL ──────────────────── */
 function reenviarVerificacao(btn) {
