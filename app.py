@@ -763,6 +763,39 @@ def inject_globals():
             consumidor_rec_abertas = 0
             consumidor_notif_nao_lidas = 0
             consumidor_encomendas_abertas = 0
+
+    # ── Contexto do painel da loja (navbar nova): so roda as queries
+    # quando ha sessao de loja ativa, e mantem tudo leve (contadores
+    # simples, indexados) ja que isso executa em TODA pagina do painel.
+    plano = None
+    loja_aberta = True
+    painel_stats = {"clientes": 0, "pedidos_hoje": 0, "usuarios": 1}
+    painel_notif_count = 0
+    if session.get("cnpjloja") and session.get("painel_ok"):
+        cnpj_painel = session["cnpjloja"]
+        try:
+            plano = _crm_plano_loja(cnpj_painel)
+            hoje_br = _data_hoje_br()
+            _fim_mes = (hoje_br.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            plano["renova_em_dias"] = max(0, (_fim_mes - hoje_br).days)
+        except Exception:
+            plano = {"nome": "Gratuito", "limite": None, "usados": 0, "restantes": None, "canais": set(), "crm_completo": False, "renova_em_dias": 0}
+        try:
+            loja_aberta = bool(_status_horario_entrega(cnpj_painel).get("aberta", True))
+        except Exception:
+            loja_aberta = True
+        try:
+            cur = db().cursor()
+            cur.execute("SELECT COUNT(DISTINCT consumidor_id) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND status<>'cancelado'", (cnpj_painel,))
+            painel_stats["clientes"] = (cur.fetchone() or {}).get("n", 0) or 0
+            cur.execute("SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND criado_em::date=CURRENT_DATE AND status<>'cancelado'", (cnpj_painel,))
+            painel_stats["pedidos_hoje"] = (cur.fetchone() or {}).get("n", 0) or 0
+            cur.execute("SELECT COUNT(*) AS n FROM ecommerce_reclamacoes WHERE cnpjloja=%s AND status NOT IN ('finalizada')", (cnpj_painel,))
+            painel_notif_count = (cur.fetchone() or {}).get("n", 0) or 0
+            cur.close()
+        except Exception:
+            pass
+
     return {
         "money": fmt_brl,
         "now": datetime.now(timezone.utc),
@@ -775,7 +808,18 @@ def inject_globals():
         "SUPABASE_ANON": SUPABASE_ANON,
         "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),
         "META_PIXEL_ID": os.getenv("META_PIXEL_ID", "1676450676965810"),
+        "plano": plano,
+        "loja_aberta": loja_aberta,
+        "stats": painel_stats,
+        "notif_count": painel_notif_count,
+        "som_ativo": True,
     }
+
+
+@app.template_filter("cnpj")
+def f_cnpj(v):
+    d = "".join(filter(str.isdigit, str(v or "")))
+    return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:14]}" if len(d) == 14 else (v or "")
 
 def _consumidor_from_session():
     cid = session.get("consumidor_id")
@@ -21442,6 +21486,25 @@ def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
     _ensure_notificacoes_schema()
     _ensure_assinatura_schema()
     _ensure_favoritos_schema()
+    if publico == "aniversariantes":
+        relacionados = _consumidores_notificacao_loja(cnpjloja, "todos")
+        if not relacionados:
+            return []
+        cur = db().cursor()
+        cur.execute("""SELECT id FROM ecommerce_consumidores WHERE id=ANY(%s::uuid[]) AND data_nascimento IS NOT NULL
+            AND EXTRACT(MONTH FROM data_nascimento)=EXTRACT(MONTH FROM NOW())
+            AND EXTRACT(DAY FROM data_nascimento)=EXTRACT(DAY FROM NOW())""", (relacionados,))
+        ids = [r["id"] for r in cur.fetchall()]; cur.close()
+        return ids
+    if publico == "inativos":
+        cur = db().cursor()
+        cur.execute("""SELECT DISTINCT consumidor_id FROM ecommerce_pedidos p1
+            WHERE p1.cnpjloja=%s AND p1.status<>'cancelado' AND p1.consumidor_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p2 WHERE p2.consumidor_id=p1.consumidor_id
+                AND p2.cnpjloja=%s AND p2.status<>'cancelado' AND p2.criado_em > NOW() - INTERVAL '90 days')""",
+            (cnpjloja, cnpjloja))
+        ids = [r["consumidor_id"] for r in cur.fetchall()]; cur.close()
+        return ids
     publico = publico if publico in {"todos", "relacionados", "compradores", "assinantes", "favoritos"} else "todos"
     conn = db()
     cur = conn.cursor()
@@ -21785,6 +21848,8 @@ def painel_notificacoes():
         "compradores": len(_consumidores_notificacao_loja(cnpjloja, "compradores")),
         "assinantes": len(_consumidores_notificacao_loja(cnpjloja, "assinantes")),
         "favoritos": len(_consumidores_notificacao_loja(cnpjloja, "favoritos")),
+        "aniversariantes": len(_consumidores_notificacao_loja(cnpjloja, "aniversariantes")),
+        "inativos": len(_consumidores_notificacao_loja(cnpjloja, "inativos")),
     }
     campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons = _crm_dados(cnpjloja)
     return render_template("painel_notificacoes.html", publico_counts=publico_counts,
@@ -21792,6 +21857,42 @@ def painel_notificacoes():
                            clientes=clientes, crm_plano=crm_plano, kpis=kpis,
                            aniversariantes=aniversariantes, templates=templates, cupons=cupons,
                            categorias_produto=["medicamento","infantil","dermocosmetico","perfumaria","nutricao","suplemento","varejo"])
+
+
+@app.get("/api/painel/crm/publico")
+@painel_required
+def api_painel_crm_publico():
+    """Recalcula o publico alcancado conforme segmento/filtros escolhidos na
+    tela de Novo disparo, em tempo real -- mesma logica usada de verdade no
+    envio (_consumidores_notificacao_loja / _consumidores_segmento_customizado),
+    pra o numero mostrado bater exatamente com quem vai receber."""
+    cnpjloja = session.get("cnpjloja")
+    segmento = (request.args.get("segmento") or "todos").strip()
+    if segmento == "personalizado":
+        ticket_min = _to_float_or_none(request.args.get("ticket_min"))
+        try:
+            dias_raw = (request.args.get("dias") or "").strip()
+            dias = int(dias_raw) if dias_raw else None
+        except Exception:
+            dias = None
+        cidade = (request.args.get("cidade_filtro") or "").strip() or None
+        categoria = (request.args.get("categoria_filtro") or "").strip() or None
+        ids = _consumidores_segmento_customizado(cnpjloja, ticket_min, dias, cidade, categoria)
+    elif segmento == "especificos":
+        return jsonify({"total": None, "email": None, "whats": None, "push": None})
+    else:
+        ids = _consumidores_notificacao_loja(cnpjloja, segmento)
+    if not ids:
+        return jsonify({"total": 0, "email": 0, "whats": 0, "push": 0})
+    cur = db().cursor()
+    cur.execute("""SELECT
+        COUNT(*) FILTER (WHERE COALESCE(email,'') <> '') AS email,
+        COUNT(*) FILTER (WHERE aceita_whatsapp_marketing=TRUE AND COALESCE(telefone,'') <> '') AS whats
+        FROM ecommerce_consumidores WHERE id=ANY(%s::uuid[])""", (ids,))
+    row = cur.fetchone() or {}
+    cur.close()
+    total = len(ids)
+    return jsonify({"total": total, "email": int(row.get("email") or 0), "whats": int(row.get("whats") or 0), "push": total})
 
 
 @app.post("/painel/notificacoes")

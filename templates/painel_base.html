@@ -28,143 +28,108 @@
     body { margin: 0; font-family: 'Montserrat', sans-serif; background: var(--pk-bg); color: var(--pk-txt); }
 
     /* ── TOPBAR ──────────────────────── */
-    .pk-topbar {
-      background: var(--pk-card);
-      border-bottom: 1px solid var(--pk-line);
-      height: 56px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 16px;
-      position: sticky;
-      top: 0;
-      z-index: 200;
-    }
-    .pk-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 900; font-size: 1.1rem; color: var(--pk-yellow); flex-shrink: 0; text-decoration: none; }
-    .pk-brand-logo { width: 30px; height: 30px; border-radius: 10px; background: #fff; object-fit: contain; flex: 0 0 auto; }
-    .pk-brand-text { color: var(--pk-yellow); }
-    .pk-brand-highlight { color: #fff; }
-    .pk-brand-panel { color: #fff; font-size:.65rem; opacity:.5; font-weight:400; }
+    .pk-top { background:#151922; border-bottom:1px solid #232a3d; height:60px; display:flex; align-items:center; gap:14px; padding:0 18px; position:sticky; top:0; z-index:300; }
+    .pk-brand { display:flex; align-items:center; gap:10px; flex-shrink:0; text-decoration:none; }
+    .pk-brand-mark { width:32px; height:32px; border-radius:9px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; }
+    .pk-brand-mark img { width:100%; height:100%; object-fit:contain; }
+    .pk-brand-name { font-weight:900; font-size:1rem; color:var(--pk-yellow); letter-spacing:-.01em; line-height:1.05; }
+    .pk-brand-name span { color:#fff; }
+    .pk-brand-sub { font-size:.6rem; color:#6b7590; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
+    .pk-div { width:1px; height:26px; background:#232a3d; flex-shrink:0; }
 
-    /* nav inline (desktop) */
-    .pk-nav {
-      display: flex;
-      align-items: center;
-      gap: 1px;
-      flex: 1;
-      justify-content: center;
-      /* Nunca deixa o menu vazar por cima do bloco do usuario -- se nao
-         couber (janela media ou zoom alto), rola na horizontal em vez de
-         sobrepor/ficar inclicavel. */
-      overflow-x: auto;
-      overflow-y: hidden;
-      min-width: 0;
-      scrollbar-width: thin;
-      scrollbar-color: var(--pk-line) transparent;
-    }
-    .pk-nav::-webkit-scrollbar { height: 4px; }
-    .pk-nav::-webkit-scrollbar-thumb { background: var(--pk-line); border-radius: 4px; }
-    .pk-nav > .dropdown, .pk-nav > a, .pk-nav-sep { flex-shrink: 0; }
-    .pk-nav a, .pk-nav-drop {
-      color: var(--pk-muted);
-      text-decoration: none;
-      padding: 6px 8px;
-      border-radius: 8px;
-      font-size: .78rem;
-      font-weight: 700;
-      transition: background .15s, color .15s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .pk-nav-drop {
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-family: inherit;
-      display: flex;
-      align-items: center;
-    }
-    .pk-nav a:hover, .pk-nav a.active,
-    .pk-nav-drop:hover, .pk-nav-drop.active { background: var(--pk-line); color: var(--pk-txt); }
-    .pk-nav-sep { width: 1px; height: 20px; background: var(--pk-line); margin: 0 3px; flex-shrink: 0; }
-    .dropdown-menu { min-width: 170px; }
-    .dropdown-item { font-size: .85rem; font-weight: 600; }
+    /* ── nav ── */
+    .pk-nav { display:flex; align-items:center; gap:2px; flex:1; min-width:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; scrollbar-color:var(--pk-line) transparent; }
+    .pk-nav::-webkit-scrollbar { height:4px; }
+    .pk-nav::-webkit-scrollbar-thumb { background:var(--pk-line); border-radius:4px; }
+    .pk-nav-group { position:relative; flex-shrink:0; }
+    .pk-nav-btn { display:flex; align-items:center; gap:7px; color:var(--pk-muted); background:transparent; border:none; padding:8px 11px; border-radius:8px; font-size:.8rem; font-weight:700; white-space:nowrap; cursor:pointer; font-family:inherit; }
+    .pk-nav-btn i.fa-chevron-down { font-size:.55rem; opacity:.55; }
+    .pk-nav-btn:hover { background:#1f2637; color:var(--pk-txt); }
+    .pk-nav-group.open .pk-nav-btn { background:#232a3d; color:var(--pk-txt); }
+    .pk-nav-btn.active { background:var(--pk-yellow); color:#111; font-weight:800; }
 
-    .pk-user { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--pk-muted); flex-shrink: 0; }
-    .pk-user strong { color: var(--pk-yellow); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pk-user-link, .pk-user-sair {
-      color: var(--pk-muted);
-      text-decoration: none;
-      width: 28px; height: 28px;
-      display: inline-flex; align-items: center; justify-content: center;
-      border-radius: 6px;
-      font-size: .9rem;
-      transition: background .15s, color .15s;
-      flex-shrink: 0;
-    }
-    .pk-user-link:hover { background: var(--pk-line); color: var(--pk-txt); }
-    .pk-user-sair:hover { background: #2a0810; color: #f08090; }
+    .pk-menu { position:absolute; top:calc(100% + 8px); left:0; min-width:238px; background:#1a1f2b; border:1px solid #2a3247; border-radius:12px; padding:7px; box-shadow:0 18px 44px rgba(0,0,0,.55); z-index:320; display:none; }
+    .pk-nav-group.open .pk-menu { display:block; }
+    .pk-menu a { display:flex; gap:10px; align-items:flex-start; padding:9px 10px; border-radius:8px; color:var(--pk-txt); text-decoration:none; }
+    .pk-menu a:hover { background:#232a3d; }
+    .pk-menu a i { color:var(--pk-muted); font-size:.8rem; width:15px; text-align:center; margin-top:2px; }
+    .pk-menu b { display:block; font-size:.8rem; font-weight:700; color:var(--pk-txt); }
+    .pk-menu small { display:block; font-size:.71rem; color:var(--pk-muted); margin-top:2px; line-height:1.35; }
 
-    /* hamburger — oculto no desktop */
-    .pk-hamburger {
-      display: none;
-      background: none;
-      border: 1px solid var(--pk-line);
-      border-radius: 8px;
-      color: var(--pk-txt);
-      font-size: 1rem;
-      cursor: pointer;
-      padding: 5px 9px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
+    /* ── ações à direita ── */
+    .pk-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+    .pk-icon-btn { width:34px; height:34px; border-radius:9px; border:1px solid #232a3d; background:transparent; color:var(--pk-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; font-family:inherit; text-decoration:none; }
+    .pk-icon-btn:hover { background:#1f2637; color:var(--pk-txt); }
+    .pk-icon-btn i { font-size:.85rem; }
+    .pk-dot { position:absolute; top:-3px; right:-3px; width:8px; height:8px; border-radius:999px; background:var(--pk-green); border:2px solid #151922; }
+    .pk-count { position:absolute; top:-6px; right:-6px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:var(--pk-red); color:#fff; font-size:.6rem; font-weight:900; display:flex; align-items:center; justify-content:center; border:2px solid #151922; }
+
+    /* ── chip da loja ── */
+    .pk-store { position:relative; flex-shrink:0; }
+    .pk-store-btn { display:flex; align-items:center; gap:9px; padding:5px 9px 5px 5px; border-radius:10px; border:1px solid #232a3d; background:transparent; cursor:pointer; font-family:inherit; }
+    .pk-store-btn:hover, .pk-store.open .pk-store-btn { background:#1f2637; border-color:#2a3247; }
+    .pk-avatar { width:30px; height:30px; border-radius:8px; background:var(--pk-red); color:#fff; font-size:.72rem; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .pk-store-text { line-height:1.15; text-align:left; max-width:132px; }
+    .pk-store-text b { display:block; font-size:.78rem; font-weight:800; color:var(--pk-txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pk-store-text small { display:flex; align-items:center; gap:5px; font-size:.66rem; color:var(--pk-muted); font-weight:700; }
+    .pk-status { width:6px; height:6px; border-radius:999px; background:var(--pk-green); }
+    .pk-status.off { background:#6b7590; }
+
+    .pk-panel { position:absolute; top:calc(100% + 9px); right:0; width:312px; background:#1a1f2b; border:1px solid #2a3247; border-radius:14px; box-shadow:0 22px 54px rgba(0,0,0,.6); overflow:hidden; z-index:320; display:none; }
+    .pk-store.open .pk-panel { display:block; }
+    .pk-panel-head { padding:15px; border-bottom:1px solid #232a3d; display:flex; gap:11px; align-items:center; }
+    .pk-panel-head .pk-avatar { width:44px; height:44px; border-radius:11px; font-size:.92rem; }
+    .pk-panel-head b { display:block; font-size:.88rem; font-weight:900; color:var(--pk-txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pk-panel-head small { display:block; font-size:.71rem; color:var(--pk-muted); margin-top:3px; }
+    .pk-tags { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; }
+    .pk-tag { font-size:.63rem; font-weight:800; border-radius:999px; padding:2px 8px; }
+    .pk-tag.plan { color:var(--pk-yellow); background:rgba(245,200,66,.12); border:1px solid rgba(245,200,66,.3); }
+    .pk-tag.open { color:#6ee79a; background:#0d2d1a; }
+    .pk-tag.closed { color:#f08090; background:#2a0810; }
+
+    .pk-stats { display:grid; grid-template-columns:1fr 1fr 1fr; border-bottom:1px solid #232a3d; }
+    .pk-stats div { padding:11px 8px; text-align:center; border-right:1px solid #232a3d; }
+    .pk-stats div:last-child { border-right:none; }
+    .pk-stats b { display:block; font-size:.95rem; font-weight:900; color:var(--pk-txt); }
+    .pk-stats b.hi { color:var(--pk-yellow); }
+    .pk-stats small { display:block; font-size:.63rem; color:var(--pk-muted); font-weight:700; margin-top:2px; }
+
+    .pk-panel-list { padding:7px; }
+    .pk-panel-list a { display:flex; align-items:center; gap:11px; padding:9px 10px; border-radius:8px; color:var(--pk-txt); text-decoration:none; }
+    .pk-panel-list a:hover { background:#232a3d; }
+    .pk-panel-list a i { color:var(--pk-muted); font-size:.82rem; width:16px; text-align:center; }
+    .pk-panel-list span { font-size:.81rem; font-weight:700; flex:1; }
+    .pk-panel-list .pk-tag { color:var(--pk-muted); background:#232a3d; }
+    .pk-logout { padding:7px; border-top:1px solid #232a3d; }
+    .pk-logout a { display:flex; align-items:center; gap:11px; padding:9px 10px; border-radius:8px; color:#f08090; text-decoration:none; font-size:.81rem; font-weight:800; }
+    .pk-logout a:hover { background:#2a0810; }
+    .pk-logout a i { width:16px; text-align:center; }
+
+    /* ── hambúrguer / drawer ── */
+    .pk-burger { display:none; position:relative; flex-shrink:0; }
+    .pk-drawer { position:absolute; top:calc(100% + 9px); left:0; width:280px; max-height:70vh; overflow:auto; background:#1a1f2b; border:1px solid #2a3247; border-radius:14px; padding:8px; box-shadow:0 22px 54px rgba(0,0,0,.6); z-index:320; display:none; }
+    .pk-burger.open .pk-drawer { display:block; }
+    .pk-drawer-group { padding:4px 2px; }
+    .pk-drawer-group > b { display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:8px; font-size:.82rem; font-weight:800; color:var(--pk-txt); }
+    .pk-drawer-group > b.active { background:var(--pk-yellow); color:#111; }
+    .pk-drawer-group a { display:flex; align-items:center; gap:10px; padding:8px 9px 8px 30px; border-radius:8px; color:#a8b2c8; text-decoration:none; font-size:.79rem; font-weight:700; }
+    .pk-drawer-group a:hover { background:#232a3d; color:var(--pk-txt); }
+    .pk-drawer-group a i { font-size:.75rem; color:var(--pk-muted); width:14px; text-align:center; }
+    .pk-drawer-group > a.direct { padding-left:9px; font-weight:800; color:var(--pk-txt); }
 
     /* ── RESPONSIVO ───────────────────── */
-    @media (max-width: 1300px) {
-      .pk-hamburger { display: inline-flex; align-items: center; }
-      .pk-nav {
-        display: none;
-        position: fixed;
-        top: 56px;
-        left: 0;
-        right: 0;
-        background: var(--pk-card);
-        border-bottom: 2px solid var(--pk-yellow);
-        flex-direction: column;
-        align-items: stretch;
-        padding: 8px 12px 12px;
-        z-index: 199;
-        max-height: calc(100vh - 56px);
-        overflow-y: auto;
-        gap: 2px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.5);
-      }
-      .pk-nav.pk-open { display: flex; }
-      .pk-nav a, .pk-nav-drop {
-        padding: 10px 14px;
-        font-size: .9rem;
-        border-radius: 8px;
-        width: 100%;
-        justify-content: flex-start;
-      }
-      .pk-nav-sep { width: 100%; height: 1px; margin: 4px 0; }
-      .pk-user strong { display: none; }
-      #pk-som-label { display: none; }
-      /* dropdowns dentro do menu mobile ficam abertos */
-      .pk-nav .dropdown-menu {
-        position: static !important;
-        transform: none !important;
-        background: #0d1016;
-        border-color: var(--pk-line);
-        margin: 4px 0 0 12px;
-        display: none;
-      }
-      .pk-nav .dropdown.show .dropdown-menu { display: block; }
+    @media (max-width:1240px) {
+      .pk-nav-btn span, .pk-nav-btn i.fa-chevron-down { display:none; }
+      .pk-nav-btn { padding:8px 10px; }
     }
-
-    @media (max-width: 480px) {
-      .pk-topbar { padding: 0 12px; }
-      .pk-brand-panel { display: none; }
+    @media (max-width:900px) {
+      .pk-nav { display:none; }
+      .pk-burger { display:block; }
+      .pk-brand-sub { display:none; }
+    }
+    @media (max-width:640px) {
+      .pk-top { padding:0 12px; gap:10px; }
+      .pk-store-text { display:none; }
     }
 
     /* â”€â”€ LAYOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -218,154 +183,188 @@
 </head>
 <body>
 
-<header class="pk-topbar">
+<header class="pk-top">
   <a class="pk-brand" href="{{ url_for('painel_pedidos') }}">
-    <img class="pk-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui">
-    <span class="pk-brand-text">Poupaqu<span class="pk-brand-highlight">i</span> <span class="pk-brand-panel">painel</span></span>
+    <span class="pk-brand-mark"><img src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt="Poupaqui"></span>
+    <span>
+      <span class="pk-brand-name">Poupaqu<span>i</span></span>
+      <span class="pk-brand-sub">Painel do lojista</span>
+    </span>
   </a>
-  <button class="pk-hamburger" id="pk-menu-btn" aria-label="Menu" aria-expanded="false" aria-controls="pk-nav-menu">
-    <i class="fa fa-bars" id="pk-menu-icon"></i>
-  </button>
-  <nav class="pk-nav" id="pk-nav-menu">
-    {% if session.painel_role not in ('motoboy', 'lojista') %}
-    <a href="{{ url_for('precificador') }}" {% if request.endpoint == 'precificador' %}class="active"{% endif %}>
-      <i class="fa fa-tags me-1"></i>Precificador
-    </a>
-    {% endif %}
-    <a href="{{ url_for('painel_pedidos') }}" {% if request.endpoint in ('painel_pedidos','painel_pedido_detalhe') %}class="active"{% endif %}>
-      <i class="fa fa-bag-shopping me-1"></i>Pedidos
-    </a>
-    {% if session.painel_role not in ('motoboy', 'lojista') %}
-    <a href="{{ url_for('painel_reclamacoes') }}" {% if request.endpoint in ('painel_reclamacoes','painel_reclamacao_detalhe') %}class="active"{% endif %} style="position:relative">
-      <i class="fa fa-triangle-exclamation me-1"></i>Reclamações
-    </a>
-    <a href="{{ url_for('painel_encomendas') }}" {% if request.endpoint in ('painel_encomendas','painel_encomenda_detalhe') %}class="active"{% endif %}>
-      <i class="fa fa-box-open me-1"></i>Encomendas
-    </a>
-    <a href="{{ url_for('painel_relatorios') }}" {% if request.endpoint in ('painel_relatorios',) %}class="active"{% endif %}>
-      <i class="fa fa-chart-line me-1"></i>Relatórios
-    </a>
 
-    <span class="pk-nav-sep"></span>
+  <span class="pk-div"></span>
 
-    <a href="{{ url_for('painel_notificacoes') }}" {% if request.endpoint in ('painel_notificacoes','painel_notificacoes_enviar','painel_crm_automacao_toggle') %}class="active"{% endif %}>
-      <i class="fa fa-bullhorn me-1"></i>CRM
-    </a>
+  {% set grupo_ativo = grupo_ativo|default('') %}
+  {% if session.painel_role not in ('motoboy', 'lojista') %}
+  {% set nav = [
+    {'id':'operacao','nome':'Operação','icon':'fa fa-bag-shopping','itens':[
+      {'nome':'Pedidos','desc':'Fila do dia, separação e entrega','icon':'fa fa-bag-shopping','href':url_for('painel_pedidos'),'endpoints':['painel_pedidos','painel_pedido_detalhe']},
+      {'nome':'Encomendas','desc':'Itens sob pedido e reservas','icon':'fa fa-box-open','href':url_for('painel_encomendas'),'endpoints':['painel_encomendas','painel_encomenda_detalhe']},
+      {'nome':'Reclamações','desc':'Abertas, em análise e resolvidas','icon':'fa fa-triangle-exclamation','href':url_for('painel_reclamacoes'),'endpoints':['painel_reclamacoes','painel_reclamacao_detalhe']},
+      {'nome':'Horário de funcionamento','desc':'Abertura, fechamento e feriados','icon':'fa fa-clock','href':url_for('painel_horario'),'endpoints':['painel_horario']},
+    ]},
+    {'id':'precificador','nome':'Precificador','icon':'fa fa-tags','href':url_for('precificador'),'itens':[],'endpoints':['precificador']},
+    {'id':'crm','nome':'CRM','icon':'fa fa-bullhorn','href':url_for('painel_notificacoes'),'itens':[],'endpoints':['painel_notificacoes','painel_notificacoes_enviar','painel_crm_automacao_toggle','painel_crm_automacao_cancelar','painel_crm_automacao_criar','painel_crm_template_salvar','painel_crm_template_excluir','painel_crm_cliente_detalhe','painel_crm_clientes_exportar']},
+    {'id':'relatorios','nome':'Relatórios','icon':'fa fa-chart-line','href':url_for('painel_relatorios'),'itens':[],'endpoints':['painel_relatorios']},
+    {'id':'extras','nome':'Extras','icon':'fa fa-puzzle-piece','itens':[
+      {'nome':'Banners da loja','desc':'Destaques na vitrine do app','icon':'fa fa-images','href':url_for('painel_banners'),'endpoints':['painel_banners']},
+      {'nome':'Popup promocional','desc':'Aviso ao abrir a loja','icon':'fa fa-window-restore','href':url_for('painel_popups'),'endpoints':['painel_popups','painel_popups_salvar','painel_popups_toggle','painel_popups_excluir']},
+      {'nome':'Mercado Livre','desc':'Integração de anúncios','icon':'fa fa-store','href':url_for('painel_ml'),'endpoints':['painel_ml']},
+      {'nome':'Motoboys','desc':'Cadastro e status da entrega','icon':'fa fa-motorcycle','href':url_for('painel_motoboys'),'endpoints':['painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha']},
+      {'nome':'Lojistas','desc':'Usuários com acesso ao painel','icon':'fa fa-user-tie','href':url_for('painel_lojistas'),'endpoints':['painel_lojistas','painel_lojistas_criar','painel_lojistas_status','painel_lojistas_senha']},
+    ]},
+  ] %}
+  {% if session.is_admin %}
+  {% set _ = nav.append({'id':'admin','nome':'Admin','icon':'fa fa-shield-halved','itens':[
+      {'nome':'Lojas','desc':'Cadastro e geocodificação','icon':'fa fa-store','href':url_for('admin_lojas'),'endpoints':['admin_lojas']},
+      {'nome':'Vitrine','desc':'Farmácias em destaque no app','icon':'fa fa-images','href':url_for('admin_lojas_vitrine'),'endpoints':['admin_lojas_vitrine','admin_lojas_vitrine_edit']},
+      {'nome':'Nomes Canônicos','desc':'Padronização de produtos','icon':'fa fa-tag','href':url_for('admin_produto_canon'),'endpoints':['admin_produto_canon']},
+      {'nome':'Assinaturas','desc':'Planos do clube de fidelidade','icon':'fa fa-star','href':url_for('admin_assinaturas'),'endpoints':['admin_assinaturas']},
+      {'nome':'Cupons e Descontos','desc':'Regras de desconto por loja','icon':'fa fa-ticket','href':url_for('admin_cupons'),'endpoints':['admin_cupons']},
+      {'nome':'Promoções','desc':'Ofertas por produto','icon':'fa fa-bolt','href':url_for('admin_promocoes'),'endpoints':['admin_promocoes']},
+      {'nome':'Config Mercado Pago','desc':'Credenciais de pagamento','icon':'fa fa-key','href':url_for('admin_config'),'endpoints':['admin_config']},
+      {'nome':'Financeiro (Repasses)','desc':'Acerto de contas com as lojas','icon':'fa fa-hand-holding-dollar','href':url_for('admin_repasses'),'endpoints':['admin_repasses']},
+      {'nome':'Sugestões de Região','desc':'Pedidos de expansão de cobertura','icon':'fa fa-bell','href':url_for('admin_sugestoes_regiao'),'endpoints':['admin_sugestoes_regiao']},
+  ]}) %}
+  {% endif %}
+  {% else %}
+  {% set nav = [
+    {'id':'operacao','nome':'Pedidos','icon':'fa fa-bag-shopping','href':url_for('painel_pedidos'),'itens':[],'endpoints':['painel_pedidos','painel_pedido_detalhe']},
+  ] %}
+  {% endif %}
 
-    <div class="dropdown">
-      <button type="button" class="pk-nav-drop {% if request.endpoint in ('painel_notificacoes','painel_notificacoes_enviar','painel_ml','painel_banners','painel_popups','painel_popups_salvar','painel_popups_toggle','painel_popups_excluir','painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha','painel_lojistas','painel_lojistas_criar','painel_lojistas_status','painel_lojistas_senha') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="fa fa-puzzle-piece me-1"></i>Extras <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
-      </button>
-      <ul class="dropdown-menu dropdown-menu-dark">
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'painel_banners' %}active{% endif %}" href="{{ url_for('painel_banners') }}">
-            <i class="fa fa-images me-2"></i>Banners
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint in ('painel_popups','painel_popups_salvar','painel_popups_toggle','painel_popups_excluir') %}active{% endif %}" href="{{ url_for('painel_popups') }}">
-            <i class="fa fa-window-restore me-2"></i>Popup promocional
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'painel_ml' %}active{% endif %}" href="{{ url_for('painel_ml') }}">
-            <svg width="13" height="13" viewBox="0 0 48 48" style="vertical-align:-1px;margin-right:8px"><rect width="48" height="48" rx="4" fill="#fff200"/><text x="24" y="33" text-anchor="middle" font-size="22" font-family="Arial" font-weight="900" fill="#111">ML</text></svg>Mercado Livre
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint in ('painel_motoboys','painel_motoboys_criar','painel_motoboys_status','painel_motoboys_senha') %}active{% endif %}" href="{{ url_for('painel_motoboys') }}">
-            <i class="fa fa-motorcycle me-2"></i>Motoboys
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint in ('painel_lojistas','painel_lojistas_criar','painel_lojistas_status','painel_lojistas_senha') %}active{% endif %}" href="{{ url_for('painel_lojistas') }}">
-            <i class="fa fa-user-tie me-2"></i>Lojistas
-          </a>
-        </li>
-      </ul>
+  <div class="pk-burger" data-pk-drop>
+    <button type="button" class="pk-icon-btn" data-pk-toggle aria-label="Menu"><i class="fa fa-bars"></i></button>
+    <div class="pk-drawer">
+      {% for g in nav %}
+      <div class="pk-drawer-group">
+        {% if g.itens %}
+          {% set g_endpoints = [] %}
+          {% for s in g.itens %}{% set _ = g_endpoints.extend(s.endpoints) %}{% endfor %}
+          {% set g_ativo = request.endpoint in g_endpoints %}
+          <b class="{{ 'active' if g_ativo }}"><i class="{{ g.icon }}"></i>{{ g.nome }}</b>
+          {% for s in g.itens %}
+          <a href="{{ s.href }}"><i class="{{ s.icon }}"></i>{{ s.nome }}</a>
+          {% endfor %}
+        {% else %}
+          <a class="direct" href="{{ g.href }}"><i class="{{ g.icon }}"></i>{{ g.nome }}</a>
+        {% endif %}
+      </div>
+      {% endfor %}
     </div>
+  </div>
 
-    <a href="{{ url_for('painel_config') }}" {% if request.endpoint == 'painel_config' %}class="active"{% endif %}>
-      <i class="fa fa-gear me-1"></i>Config
-    </a>
-    <a href="{{ url_for('painel_horario') }}" {% if request.endpoint == 'painel_horario' %}class="active"{% endif %}>
-      <i class="fa fa-clock me-1"></i>Horário
-    </a>
-
-    {% if session.is_admin %}
-    <span class="pk-nav-sep"></span>
-    <div class="dropdown">
-      <button type="button" class="pk-nav-drop {% if request.endpoint in ('admin_lojas','admin_lojas_vitrine','admin_lojas_vitrine_edit','admin_produto_canon','admin_sugestoes_regiao','admin_config','admin_assinaturas','admin_cupons','admin_repasses','admin_promocoes') %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="fa fa-shield-halved me-1"></i>Admin <i class="fa fa-chevron-down ms-1" style="font-size:.6rem;opacity:.6"></i>
-      </button>
-      <ul class="dropdown-menu dropdown-menu-dark">
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_lojas' %}active{% endif %}" href="{{ url_for('admin_lojas') }}">
-            <i class="fa fa-store me-2"></i>Lojas
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint in ('admin_lojas_vitrine','admin_lojas_vitrine_edit') %}active{% endif %}" href="{{ url_for('admin_lojas_vitrine') }}">
-            <i class="fa fa-images me-2"></i>Vitrine
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_produto_canon' %}active{% endif %}" href="{{ url_for('admin_produto_canon') }}">
-            <i class="fa fa-tag me-2"></i>Nomes Canônicos
-          </a>
-        </li>
-        <li><hr class="dropdown-divider"></li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_assinaturas' %}active{% endif %}" href="{{ url_for('admin_assinaturas') }}">
-            <i class="fa fa-star me-2"></i>Assinaturas
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_cupons' %}active{% endif %}" href="{{ url_for('admin_cupons') }}">
-            <i class="fa fa-ticket me-2"></i>Cupons e Descontos
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_promocoes' %}active{% endif %}" href="{{ url_for('admin_promocoes') }}">
-            <i class="fa fa-bolt me-2"></i>Promoções
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_config' %}active{% endif %}" href="{{ url_for('admin_config') }}">
-            <i class="fa fa-key me-2"></i>Config Mercado Pago
-          </a>
-        </li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_repasses' %}active{% endif %}" href="{{ url_for('admin_repasses') }}">
-            <i class="fa fa-hand-holding-dollar me-2"></i>Financeiro (Repasses)
-          </a>
-        </li>
-        <li><hr class="dropdown-divider"></li>
-        <li>
-          <a class="dropdown-item {% if request.endpoint == 'admin_sugestoes_regiao' %}active{% endif %}" href="{{ url_for('admin_sugestoes_regiao') }}">
-            <i class="fa fa-bell me-2"></i>Sugestões de Região
-          </a>
-        </li>
-      </ul>
-    </div>
-    {% endif %}
-    {% endif %}
+  <nav class="pk-nav">
+    {% for g in nav %}
+      {% if g.itens %}
+      {% set g_endpoints = [] %}
+      {% for s in g.itens %}{% set _ = g_endpoints.extend(s.endpoints) %}{% endfor %}
+      {% set g_ativo = request.endpoint in g_endpoints %}
+      <div class="pk-nav-group" data-pk-drop>
+        <button type="button" class="pk-nav-btn {{ 'active' if g_ativo }}" title="{{ g.nome }}" data-pk-toggle>
+          <i class="{{ g.icon }}"></i><span>{{ g.nome }}</span><i class="fa fa-chevron-down"></i>
+        </button>
+        <div class="pk-menu">
+          {% for s in g.itens %}
+          <a href="{{ s.href }}"><i class="{{ s.icon }}"></i><span><b>{{ s.nome }}</b><small>{{ s.desc }}</small></span></a>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="pk-nav-group">
+        <a class="pk-nav-btn {{ 'active' if request.endpoint in g.endpoints }}" href="{{ g.href }}" title="{{ g.nome }}" style="text-decoration:none">
+          <i class="{{ g.icon }}"></i><span>{{ g.nome }}</span>
+        </a>
+      </div>
+      {% endif %}
+    {% endfor %}
   </nav>
 
-  <div class="pk-user">
-    <button id="pk-som-btn" onclick="pkSomAtivar()" title="Ativar alertas sonoros"
-      style="background:none;border:1px solid var(--pk-line);border-radius:8px;padding:4px 10px;color:var(--pk-muted);font-family:inherit;font-size:.75rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .2s;flex-shrink:0">
-      <i class="fa fa-bell-slash"></i><span id="pk-som-label">Som</span>
+  <div class="pk-right">
+    <button type="button" class="pk-icon-btn" id="pk-som-btn" onclick="pkSomAtivar()" title="Ativar alertas sonoros">
+      <i class="fa fa-bell-slash"></i>
     </button>
-    <a href="{{ url_for('index') }}" target="_blank" class="pk-user-link" title="Ver site">
-      <i class="fa fa-globe"></i>
+
+    {% if session.painel_role not in ('motoboy', 'lojista') %}
+    <a class="pk-icon-btn" href="{{ url_for('painel_reclamacoes') }}" title="Reclamações em aberto">
+      <i class="fa fa-bell"></i>
+      {% if notif_count %}<span class="pk-count">{{ notif_count if notif_count < 100 else '99+' }}</span>{% endif %}
     </a>
-    <strong>{{ session.motoboy_nome or session.lojista_nome or session.razao or session.cnpjloja }}</strong>
-    <a href="{{ url_for('painel_logout') }}" class="pk-user-sair" title="Sair">
-      <i class="fa fa-right-from-bracket"></i>
-    </a>
+    {% endif %}
+
+    <span class="pk-div"></span>
+
+    <div class="pk-store" data-pk-drop>
+      <button type="button" class="pk-store-btn" data-pk-toggle>
+        <span class="pk-avatar">{{ (session.motoboy_nome or session.lojista_nome or session.razao or 'LO')[:2] | upper }}</span>
+        <span class="pk-store-text">
+          <b>{{ session.motoboy_nome or session.lojista_nome or session.razao or session.cnpjloja }}</b>
+          {% if plano %}
+          <small><span class="pk-status {{ '' if loja_aberta else 'off' }}"></span>{{ 'Aberta' if loja_aberta else 'Fechada' }} · Plano {{ plano.nome }}</small>
+          {% endif %}
+        </span>
+        <i class="fa fa-chevron-down" style="font-size:.6rem;color:var(--pk-muted)"></i>
+      </button>
+
+      <div class="pk-panel">
+        <div class="pk-panel-head">
+          <span class="pk-avatar">{{ (session.motoboy_nome or session.lojista_nome or session.razao or 'LO')[:2] | upper }}</span>
+          <span style="min-width:0">
+            <b>{{ session.motoboy_nome or session.lojista_nome or session.razao or 'Sua loja' }}</b>
+            {% if session.cnpjloja %}<small>CNPJ {{ session.cnpjloja | cnpj }}</small>{% endif %}
+            {% if plano %}
+            <span class="pk-tags">
+              <span class="pk-tag plan">PLANO {{ plano.nome | upper }}</span>
+              <span class="pk-tag {{ 'open' if loja_aberta else 'closed' }}">{{ 'LOJA ABERTA' if loja_aberta else 'LOJA FECHADA' }}</span>
+            </span>
+            {% endif %}
+          </span>
+        </div>
+
+        {% if stats %}
+        <div class="pk-stats">
+          <div><b>{{ stats.clientes }}</b><small>CLIENTES</small></div>
+          <div><b>{{ stats.pedidos_hoje }}</b><small>PEDIDOS HOJE</small></div>
+          <div><b class="hi">{{ plano.renova_em_dias if plano else 0 }}d</b><small>RENOVA EM</small></div>
+        </div>
+        {% endif %}
+
+        <div class="pk-panel-list">
+          <a href="{{ url_for('index') }}" target="_blank"><i class="fa fa-globe"></i><span>Ver site</span></a>
+          {% if session.painel_role not in ('motoboy', 'lojista') %}
+          <a href="{{ url_for('painel_config') }}"><i class="fa fa-gear"></i><span>Configurações do painel</span></a>
+          {% endif %}
+          <a href="{{ url_for('painel_suporte') }}"><i class="fa fa-circle-question"></i><span>Ajuda e suporte</span></a>
+          {% if session.is_admin %}
+          <a href="{{ url_for('admin_lojas') }}"><i class="fa fa-shield-halved"></i><span>Área administrativa</span></a>
+          {% endif %}
+        </div>
+
+        <div class="pk-logout">
+          <a href="{{ url_for('painel_logout') }}"><i class="fa fa-right-from-bracket"></i>Sair da conta</a>
+        </div>
+      </div>
+    </div>
   </div>
 </header>
+
+<script>
+(function () {
+  const drops = Array.from(document.querySelectorAll("[data-pk-drop]"));
+  drops.forEach(d => {
+    const btn = d.querySelector("[data-pk-toggle]");
+    if (!btn) return;
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const abrir = !d.classList.contains("open");
+      drops.forEach(o => o.classList.remove("open"));
+      d.classList.toggle("open", abrir);
+    });
+  });
+  document.addEventListener("click", () => drops.forEach(d => d.classList.remove("open")));
+  document.addEventListener("keydown", e => { if (e.key === "Escape") drops.forEach(d => d.classList.remove("open")); });
+})();
+</script>
 
 <div class="pk-main">
   {% with msgs = get_flashed_messages(with_categories=true) %}
