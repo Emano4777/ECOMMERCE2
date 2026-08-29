@@ -67,6 +67,15 @@
     Meus Cupons
   </div>
 
+  <a href="{{ url_for('consumidor_indicar') }}" style="display:flex;align-items:center;gap:12px;background:#fff;border:1.5px dashed #25d366;border-radius:14px;padding:14px 16px;margin-bottom:22px;text-decoration:none;color:inherit">
+    <i class="fa fa-gift" style="color:#25d366;font-size:1.4rem;flex-shrink:0"></i>
+    <span style="flex:1;min-width:0">
+      <span style="display:block;font-weight:900;font-size:.88rem;color:var(--pq-text)">Indique um amigo, ganhe cupom</span>
+      <span style="display:block;font-size:.78rem;color:var(--pq-muted)">Compartilhe seu link e ganhe desconto quando ele comprar</span>
+    </span>
+    <i class="fa fa-chevron-right" style="color:var(--pq-muted)"></i>
+  </a>
+
   {% if cupons_por_loja %}
     {% for grupo in cupons_por_loja %}
     <div class="loja-section">

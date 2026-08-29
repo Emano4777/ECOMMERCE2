@@ -1,0 +1,155 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Indique um amigo{% endblock %}
+
+{% block extra_style %}
+<style>
+.ind-wrap { max-width:680px; margin:0 auto; padding:28px 16px 70px; }
+.ind-title { font-size:1.4rem; font-weight:900; margin-bottom:20px; display:flex; align-items:center; gap:10px; }
+
+.ind-hero {
+  background:linear-gradient(135deg, var(--pq-red), #a10d24);
+  color:#fff; border-radius:18px; padding:26px 22px; margin-bottom:22px;
+  text-align:center; box-shadow:0 6px 20px rgba(200,16,46,.25);
+}
+.ind-hero i.ind-hero-icon { font-size:2.2rem; opacity:.9; margin-bottom:10px; display:block; }
+.ind-hero h1 { font-size:1.3rem; font-weight:900; margin:0 0 8px; }
+.ind-hero p { font-size:.88rem; opacity:.92; margin:0; line-height:1.5; }
+
+.ind-link-box {
+  background:#fff; border:1.5px dashed var(--pq-red); border-radius:14px;
+  padding:16px; margin-bottom:16px;
+}
+.ind-link-label { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--pq-muted); margin-bottom:8px; }
+.ind-link-row { display:flex; gap:8px; align-items:center; }
+.ind-link-input {
+  flex:1; min-width:0; border:1px solid var(--pq-border); border-radius:8px;
+  padding:10px 12px; font-size:.82rem; color:var(--pq-text); background:#faf9f7;
+  font-family:monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.ind-copy-btn {
+  flex-shrink:0; border:1.5px solid var(--pq-red); background:none; color:var(--pq-red);
+  border-radius:8px; padding:10px 14px; font-size:.8rem; font-weight:800;
+  cursor:pointer; font-family:inherit; transition:background .12s;
+}
+.ind-copy-btn:hover { background:#fff5f7; }
+.ind-copy-btn.copied { background:var(--pq-red); color:#fff; }
+
+.ind-wpp-btn {
+  display:flex; align-items:center; justify-content:center; gap:9px;
+  width:100%; margin-top:10px; background:#25d366; color:#fff; border:none;
+  border-radius:10px; padding:13px 18px; font-size:.9rem; font-weight:800;
+  cursor:pointer; font-family:inherit; text-decoration:none;
+}
+.ind-wpp-btn:hover { background:#20bd5a; color:#fff; }
+
+.ind-section-hd {
+  font-size:.78rem; font-weight:900; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--pq-muted); margin:24px 0 12px; padding-bottom:8px;
+  border-bottom:2px solid var(--pq-border);
+}
+.ind-list { display:flex; flex-direction:column; gap:8px; }
+.ind-card {
+  background:#fff; border:1px solid var(--pq-border); border-radius:12px;
+  padding:12px 14px; display:flex; align-items:center; gap:12px;
+  box-shadow:0 1px 4px rgba(0,0,0,.04);
+}
+.ind-card-avatar {
+  width:38px; height:38px; border-radius:10px; background:#f2e9df; color:var(--pq-red);
+  display:flex; align-items:center; justify-content:center; font-weight:900; font-size:.9rem;
+  flex-shrink:0;
+}
+.ind-card-info { flex:1; min-width:0; }
+.ind-card-nome { font-weight:800; font-size:.88rem; color:var(--pq-text); }
+.ind-card-data { font-size:.72rem; color:var(--pq-muted); margin-top:1px; }
+.ind-badge { font-size:.68rem; font-weight:800; border-radius:999px; padding:4px 10px; white-space:nowrap; }
+.ind-badge.aguardando { background:#fff3cd; color:#8a6d00; }
+.ind-badge.recompensado { background:#e6f7ea; color:#1a7a34; }
+
+.ind-empty {
+  text-align:center; padding:40px 20px; background:#fff; border:1px solid var(--pq-border);
+  border-radius:16px; color:var(--pq-muted); font-size:.85rem;
+}
+.ind-empty i { font-size:2.4rem; opacity:.15; display:block; margin-bottom:12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ind-wrap">
+  <div class="ind-title"><i class="fa fa-user-plus" style="color:var(--pq-red)"></i>Indique um amigo</div>
+
+  <div class="ind-hero">
+    <i class="fa fa-gift ind-hero-icon"></i>
+    <h1>Ganhe R$ {{ "%.0f"|format(valor_recompensa) }} por cada amigo</h1>
+    <p>Compartilhe seu link. Quando seu amigo fizer a primeira compra em qualquer farmácia Poupaqui, você recebe um cupom de R$ {{ "%.2f"|format(valor_recompensa) }} pra usar na loja onde ele comprou.</p>
+  </div>
+
+  {% if link %}
+  <div class="ind-link-box">
+    <div class="ind-link-label"><i class="fa fa-link me-1"></i>Seu link de indicação</div>
+    <div class="ind-link-row">
+      <input class="ind-link-input" id="ind-link-input" type="text" value="{{ link }}" readonly onclick="this.select()">
+      <button class="ind-copy-btn" id="ind-copy-btn" onclick="indCopiarLink()"><i class="fa fa-copy me-1"></i>Copiar</button>
+    </div>
+    <a class="ind-wpp-btn" href="#" id="ind-wpp-link" onclick="return indAbrirWhatsapp()">
+      <i class="fa-brands fa-whatsapp" style="font-size:1.1rem"></i>Compartilhar no WhatsApp
+    </a>
+  </div>
+  {% else %}
+  <div class="ind-empty">
+    <i class="fa fa-triangle-exclamation"></i>
+    Não foi possível gerar seu link agora. Tente novamente em instantes.
+  </div>
+  {% endif %}
+
+  <div class="ind-section-hd">Suas indicações</div>
+  {% if indicacoes %}
+  <div class="ind-list">
+    {% for i in indicacoes %}
+    <div class="ind-card">
+      <div class="ind-card-avatar">{{ (i.indicado_nome or '?')[:2] | upper }}</div>
+      <div class="ind-card-info">
+        <div class="ind-card-nome">{{ i.indicado_nome }}</div>
+        <div class="ind-card-data">Indicado em {{ i.criado_em.strftime('%d/%m/%Y') if i.criado_em else '-' }}</div>
+      </div>
+      {% if i.status == 'recompensado' %}
+      <span class="ind-badge recompensado"><i class="fa fa-circle-check me-1"></i>Cupom liberado</span>
+      {% else %}
+      <span class="ind-badge aguardando"><i class="fa fa-clock me-1"></i>Aguardando 1ª compra</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="ind-empty">
+    <i class="fa fa-users"></i>
+    Você ainda não indicou ninguém. Compartilhe seu link e comece a ganhar cupons!
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function indCopiarLink() {
+  const input = document.getElementById('ind-link-input');
+  const btn = document.getElementById('ind-copy-btn');
+  navigator.clipboard.writeText(input.value).then(() => {
+    btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.innerHTML = '<i class="fa fa-copy me-1"></i>Copiar';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    input.select();
+    prompt('Copie o link:', input.value);
+  });
+}
+function indAbrirWhatsapp() {
+  const link = document.getElementById('ind-link-input').value;
+  const texto = `Oi! Estou usando o Poupaqui pra comprar remédio com entrega rápida e achei bom. Se cadastrar por esse link a gente ganha desconto: ${link}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
+  return false;
+}
+</script>
+{% endblock %}

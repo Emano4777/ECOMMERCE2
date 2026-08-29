@@ -979,6 +979,128 @@ def _ensure_consumidor_profile_columns():
         _mark_migration_done(key)
 
 
+# ─── PROGRAMA DE INDICAÇÃO ("chame um amigo") ──────────────────────────────
+INDICACAO_DESCONTO_TIPO = "valor"
+INDICACAO_DESCONTO_VALOR = 15.0
+INDICACAO_VALIDADE_DIAS = 90
+
+
+def _ensure_indicacoes_schema():
+    key = "indicacoes_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS codigo_indicacao TEXT")
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_consumidores_codigo_indicacao
+            ON ecommerce_consumidores (codigo_indicacao) WHERE codigo_indicacao IS NOT NULL
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_indicacoes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                indicador_id UUID NOT NULL,
+                indicado_id UUID NOT NULL UNIQUE,
+                codigo TEXT NOT NULL,
+                pedido_id UUID,
+                cupom_id UUID,
+                status TEXT NOT NULL DEFAULT 'cadastrado',
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                recompensado_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_indicacoes_indicador ON ecommerce_indicacoes(indicador_id)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _gerar_codigo_indicacao(consumidor_id):
+    """Retorna o codigo de indicacao do consumidor, gerando um novo (curto,
+    facil de compartilhar por WhatsApp) na primeira vez que for preciso."""
+    _ensure_indicacoes_schema()
+    cur = db().cursor()
+    cur.execute("SELECT codigo_indicacao FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    row = cur.fetchone()
+    if row and row.get("codigo_indicacao"):
+        cur.close()
+        return row["codigo_indicacao"]
+    for _ in range(8):
+        codigo = secrets.token_hex(4).upper()  # 8 chars, ex: 4F2A9C1B
+        try:
+            cur.execute("UPDATE ecommerce_consumidores SET codigo_indicacao=%s WHERE id=%s AND codigo_indicacao IS NULL", (codigo, consumidor_id))
+            db().commit()
+            if cur.rowcount:
+                cur.close()
+                return codigo
+        except psycopg2.errors.UniqueViolation:
+            db().rollback()
+            continue
+    cur.close()
+    return None
+
+
+def _processar_recompensa_indicacao(consumidor_id, pedido_id, cnpjloja, conn):
+    """Se esse pedido for a primeira compra (nao cancelada) de um consumidor
+    que foi indicado por alguem, gera um cupom de recompensa pro indicador
+    -- valido so pra ele (publico='especifico'), na loja onde o amigo
+    comprou. Roda dentro do checkout, sempre em try/except no chamador: nunca
+    pode quebrar a finalizacao do pedido."""
+    if not consumidor_id:
+        return
+    _ensure_indicacoes_schema()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE consumidor_id=%s AND status<>'cancelado'", (consumidor_id,))
+    if ((cur.fetchone() or {}).get("n", 0) or 0) != 1:
+        cur.close()
+        return  # nao e a primeira compra desse consumidor
+    cur.execute("SELECT id, indicador_id FROM ecommerce_indicacoes WHERE indicado_id=%s AND status='cadastrado' LIMIT 1", (consumidor_id,))
+    indicacao = cur.fetchone()
+    if not indicacao:
+        cur.close()
+        return
+    indicador_id = indicacao["indicador_id"]
+    codigo_cupom = f"AMIGO{secrets.token_hex(3).upper()}"
+    valido_ate = datetime.now().date() + timedelta(days=INDICACAO_VALIDADE_DIAS)
+    cur.execute("""
+        INSERT INTO ecommerce_cupons (cnpjloja, codigo, desconto_tipo, desconto_valor, ativo, valido_ate, uso_maximo, publico, tipo_regra)
+        VALUES (NULL, %s, %s, %s, TRUE, %s, 1, 'especifico', 'codigo')
+        RETURNING id
+    """, (codigo_cupom, INDICACAO_DESCONTO_TIPO, INDICACAO_DESCONTO_VALOR, valido_ate))
+    cupom_id = str(cur.fetchone()["id"])
+    cur.execute(
+        "INSERT INTO ecommerce_cupons_lojas (cupom_id, cnpjloja, codigo_upper) VALUES (%s,%s,%s)",
+        (cupom_id, cnpjloja, codigo_cupom.upper()),
+    )
+    cur.execute(
+        "INSERT INTO ecommerce_cupons_clientes (cupom_id, consumidor_id) VALUES (%s,%s)",
+        (cupom_id, indicador_id),
+    )
+    cur.execute(
+        "UPDATE ecommerce_indicacoes SET status='recompensado', pedido_id=%s, cupom_id=%s, recompensado_em=NOW() WHERE id=%s",
+        (pedido_id, cupom_id, indicacao["id"]),
+    )
+    conn.commit()
+    cur.close()
+    valor_txt = f"R$ {INDICACAO_DESCONTO_VALOR:.2f}".replace(".", ",")
+    try:
+        _notificar_consumidor(
+            indicador_id, "indicacao", "Seu amigo comprou! 🎉",
+            f"Você ganhou um cupom de {valor_txt} de desconto por ter indicado um amigo. Confira em Meus Cupons.",
+            url=url_for("consumidor_cupons"), conn=conn,
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+
 def _ensure_notificacoes_schema():
     key = "consumidor_notificacoes_v2"
     if key in _schema_ready:
@@ -14845,6 +14967,25 @@ def admin_entrar_como_consumidor(consumidor_id):
     return redirect(url_for("meus_pedidos"))
 
 
+@app.get("/r/<codigo>")
+def indicacao_link(codigo):
+    """Link de indicacao (/indicar compartilha isso). So guarda o codigo na
+    sessao pra ser lido no cadastro -- nao mostra erro nem exige nada, so
+    segue pro site normalmente mesmo se o codigo for invalido."""
+    _ensure_indicacoes_schema()
+    codigo = (codigo or "").strip().upper()
+    if codigo and not session.get("consumidor_id"):
+        try:
+            cur = db().cursor()
+            cur.execute("SELECT 1 FROM ecommerce_consumidores WHERE upper(codigo_indicacao)=%s LIMIT 1", (codigo,))
+            if cur.fetchone():
+                session["ref_indicacao"] = codigo
+            cur.close()
+        except Exception:
+            pass
+    return redirect(url_for("index"))
+
+
 @app.get("/criar-conta")
 def consumidor_criar_conta():
     if session.get("consumidor_id"):
@@ -14862,6 +15003,7 @@ def consumidor_criar_conta():
 def consumidor_criar_conta_post():
     _ensure_consumidor_schema()
     _ensure_crm_schema()
+    _ensure_indicacoes_schema()
     nome = (request.form.get("nome") or "").strip()
     telefone = (request.form.get("telefone") or "").strip()
     documento = _digits(request.form.get("documento") or "")
@@ -14945,6 +15087,27 @@ def consumidor_criar_conta_post():
         _enviar_email_verificacao(str(user["id"]), user["email"])
     _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"])
     _enfileirar_aviso_loja_regiao(str(user["id"]), user["nome"], user.get("endereco_lat"), user.get("endereco_lng"))
+
+    # Programa de indicacao: se essa pessoa chegou via link de um amigo
+    # (sessao guardada em /r/<codigo>), registra o vinculo. A recompensa em
+    # si (cupom pro indicador) so acontece na primeira compra, no checkout.
+    try:
+        ref_codigo = (session.pop("ref_indicacao", "") or "").strip().upper()
+        if ref_codigo:
+            cur_ref = conn.cursor()
+            cur_ref.execute("SELECT id FROM ecommerce_consumidores WHERE upper(codigo_indicacao)=%s LIMIT 1", (ref_codigo,))
+            indicador = cur_ref.fetchone()
+            if indicador and str(indicador["id"]) != str(user["id"]):
+                cur_ref.execute(
+                    """INSERT INTO ecommerce_indicacoes (indicador_id, indicado_id, codigo)
+                       VALUES (%s, %s, %s) ON CONFLICT (indicado_id) DO NOTHING""",
+                    (indicador["id"], user["id"], ref_codigo),
+                )
+                conn.commit()
+            cur_ref.close()
+    except Exception:
+        pass
+
     return redirect(next_url)
 
 
@@ -16972,6 +17135,11 @@ def api_checkout():
         )
         conn.commit()
         _registrar_status_pedido(pedido_id, "pendente")
+
+        try:
+            _processar_recompensa_indicacao(session.get("consumidor_id"), pedido_id, cnpjloja, conn)
+        except Exception:
+            pass
 
         # Notifica loja via WhatsApp ao receber novo pedido
         try:
@@ -26992,6 +27160,29 @@ def api_cupons_disponiveis():
             "so_assinantes": bool(r.get("so_assinantes")),
         })
     return jsonify({"cupons": result})
+
+
+@app.get("/indicar")
+@_consumer_required
+def consumidor_indicar():
+    consumidor_id = session["consumidor_id"]
+    codigo = _gerar_codigo_indicacao(consumidor_id)
+    link = url_for("indicacao_link", codigo=codigo, _external=True) if codigo else None
+    cur = db().cursor()
+    cur.execute("""
+        SELECT i.status, i.criado_em, i.recompensado_em, c.nome AS indicado_nome
+        FROM ecommerce_indicacoes i
+        JOIN ecommerce_consumidores c ON c.id = i.indicado_id
+        WHERE i.indicador_id = %s
+        ORDER BY i.criado_em DESC
+    """, (consumidor_id,))
+    indicacoes = cur.fetchall()
+    cur.close()
+    return render_template(
+        "consumidor_indicar.html",
+        codigo=codigo, link=link, indicacoes=indicacoes,
+        valor_recompensa=INDICACAO_DESCONTO_VALOR,
+    )
 
 
 @app.get("/meus-cupons")
