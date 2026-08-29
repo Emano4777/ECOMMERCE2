@@ -279,7 +279,7 @@
       <div class="crm-title"><i class="fa fa-tower-broadcast"></i>3 · Canais de envio</div>
       <p class="crm-sub">Cada canal consome a cota do plano contratado no ciclo (renova em {{ crm_plano.renova_em_dias if crm_plano.renova_em_dias is defined else '—' }} dias).</p>
       <div class="crm-channels" id="crm-canais">
-        {% set canais_info = [('push','bell','Push do app','Notificação dentro da conta do cliente'),('email','envelope','E-mail','Resend · remetente verificado'),('whatsapp','whatsapp','WhatsApp','WaSender · mensagem direta')] %}
+        {% set canais_info = [('push','bell','Push do app','Notificação dentro da conta do cliente'),('email','envelope','E-mail','Chega direto na caixa de entrada do cliente'),('whatsapp','whatsapp','WhatsApp','Mensagem direta no WhatsApp do cliente')] %}
         {% for canal,icon,title,desc in canais_info %}
         {% set permitido = canal in crm_plano.canais %}
         <div class="crm-ch {{ 'on' if permitido and (canal=='push' or (crm_plano.crm_completo and canal=='email')) }} {{ 'locked' if not permitido }}" data-canal="{{ canal }}" data-permitido="{{ 1 if permitido else 0 }}">

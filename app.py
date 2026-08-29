@@ -21849,6 +21849,9 @@ def _crm_dados(cnpjloja):
 def painel_notificacoes():
     cnpjloja = session.get("cnpjloja")
     crm_plano = _crm_plano_loja(cnpjloja)
+    hoje_br = _data_hoje_br()
+    fim_mes = (hoje_br.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    crm_plano["renova_em_dias"] = max(0, (fim_mes - hoje_br).days)
     publico_counts = {
         "todos": len(_consumidores_notificacao_loja(cnpjloja, "todos")),
         "relacionados": len(_consumidores_notificacao_loja(cnpjloja, "relacionados")),
