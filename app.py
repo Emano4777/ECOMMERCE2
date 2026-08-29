@@ -771,6 +771,7 @@ def inject_globals():
     loja_aberta = True
     painel_stats = {"clientes": 0, "pedidos_hoje": 0, "usuarios": 1}
     painel_notif_count = 0
+    painel_pedidos_pendentes = 0
     if session.get("cnpjloja") and session.get("painel_ok"):
         cnpj_painel = session["cnpjloja"]
         try:
@@ -792,6 +793,11 @@ def inject_globals():
             painel_stats["pedidos_hoje"] = (cur.fetchone() or {}).get("n", 0) or 0
             cur.execute("SELECT COUNT(*) AS n FROM ecommerce_reclamacoes WHERE cnpjloja=%s AND status NOT IN ('finalizada')", (cnpj_painel,))
             painel_notif_count = (cur.fetchone() or {}).get("n", 0) or 0
+            sql_pendentes = "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND status='pendente'"
+            if _motoboy_logged():
+                sql_pendentes += " AND tipo_entrega='entrega'"
+            cur.execute(sql_pendentes, (cnpj_painel,))
+            painel_pedidos_pendentes = (cur.fetchone() or {}).get("n", 0) or 0
             cur.close()
         except Exception:
             pass
@@ -812,6 +818,7 @@ def inject_globals():
         "loja_aberta": loja_aberta,
         "stats": painel_stats,
         "notif_count": painel_notif_count,
+        "pedidos_pendentes_count": painel_pedidos_pendentes,
         "som_ativo": True,
     }
 

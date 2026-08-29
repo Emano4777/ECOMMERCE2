@@ -42,11 +42,12 @@
     .pk-nav::-webkit-scrollbar { height:4px; }
     .pk-nav::-webkit-scrollbar-thumb { background:var(--pk-line); border-radius:4px; }
     .pk-nav-group { position:relative; flex-shrink:0; }
-    .pk-nav-btn { display:flex; align-items:center; gap:7px; color:var(--pk-muted); background:transparent; border:none; padding:8px 11px; border-radius:8px; font-size:.8rem; font-weight:700; white-space:nowrap; cursor:pointer; font-family:inherit; }
+    .pk-nav-btn { position:relative; display:flex; align-items:center; gap:7px; color:var(--pk-muted); background:transparent; border:none; padding:8px 11px; border-radius:8px; font-size:.8rem; font-weight:700; white-space:nowrap; cursor:pointer; font-family:inherit; }
     .pk-nav-btn i.fa-chevron-down { font-size:.55rem; opacity:.55; }
     .pk-nav-btn:hover { background:#1f2637; color:var(--pk-txt); }
     .pk-nav-group.open .pk-nav-btn { background:#232a3d; color:var(--pk-txt); }
     .pk-nav-btn.active { background:var(--pk-yellow); color:#111; font-weight:800; }
+    .pk-nav-badge { position:absolute; top:1px; right:1px; min-width:15px; height:15px; padding:0 4px; border-radius:999px; background:var(--pk-red); color:#fff; font-size:.6rem; font-weight:900; display:flex; align-items:center; justify-content:center; border:2px solid #151922; line-height:1; }
 
     .pk-menu { position:fixed; top:0; left:0; min-width:238px; background:#1a1f2b; border:1px solid #2a3247; border-radius:12px; padding:7px; box-shadow:0 18px 44px rgba(0,0,0,.55); z-index:320; display:none; }
     .pk-nav-group.open .pk-menu { display:block; }
@@ -55,6 +56,7 @@
     .pk-menu a i { color:var(--pk-muted); font-size:.8rem; width:15px; text-align:center; margin-top:2px; }
     .pk-menu b { display:block; font-size:.8rem; font-weight:700; color:var(--pk-txt); }
     .pk-menu small { display:block; font-size:.71rem; color:var(--pk-muted); margin-top:2px; line-height:1.35; }
+    .pk-menu-item-badge { margin-left:auto; flex-shrink:0; min-width:19px; height:19px; padding:0 5px; border-radius:999px; background:var(--pk-red); color:#fff; font-size:.68rem; font-weight:900; display:flex; align-items:center; justify-content:center; margin-top:1px; }
 
     /* ── ações à direita ── */
     .pk-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
@@ -198,7 +200,7 @@
   {% if session.painel_role not in ('motoboy', 'lojista') %}
   {% set nav = [
     {'id':'operacao','nome':'Operação','icon':'fa fa-bag-shopping','itens':[
-      {'nome':'Pedidos','desc':'Fila do dia, separação e entrega','icon':'fa fa-bag-shopping','href':url_for('painel_pedidos'),'endpoints':['painel_pedidos','painel_pedido_detalhe']},
+      {'nome':'Pedidos','desc':'Fila do dia, separação e entrega','icon':'fa fa-bag-shopping','href':url_for('painel_pedidos'),'endpoints':['painel_pedidos','painel_pedido_detalhe'],'badge':pedidos_pendentes_count},
       {'nome':'Encomendas','desc':'Itens sob pedido e reservas','icon':'fa fa-box-open','href':url_for('painel_encomendas'),'endpoints':['painel_encomendas','painel_encomenda_detalhe']},
       {'nome':'Reclamações','desc':'Abertas, em análise e resolvidas','icon':'fa fa-triangle-exclamation','href':url_for('painel_reclamacoes'),'endpoints':['painel_reclamacoes','painel_reclamacao_detalhe']},
       {'nome':'Horário de funcionamento','desc':'Abertura, fechamento e feriados','icon':'fa fa-clock','href':url_for('painel_horario'),'endpoints':['painel_horario']},
@@ -229,7 +231,7 @@
   {% endif %}
   {% else %}
   {% set nav = [
-    {'id':'operacao','nome':'Pedidos','icon':'fa fa-bag-shopping','href':url_for('painel_pedidos'),'itens':[],'endpoints':['painel_pedidos','painel_pedido_detalhe']},
+    {'id':'operacao','nome':'Pedidos','icon':'fa fa-bag-shopping','href':url_for('painel_pedidos'),'itens':[],'endpoints':['painel_pedidos','painel_pedido_detalhe'],'badge':pedidos_pendentes_count},
   ] %}
   {% endif %}
 
@@ -242,12 +244,15 @@
           {% set g_endpoints = [] %}
           {% for s in g.itens %}{% set _ = g_endpoints.extend(s.endpoints) %}{% endfor %}
           {% set g_ativo = request.endpoint in g_endpoints %}
-          <b class="{{ 'active' if g_ativo }}"><i class="{{ g.icon }}"></i>{{ g.nome }}</b>
+          {% set g_badge_list = [] %}
+          {% for s in g.itens %}{% if s.badge %}{% set _ = g_badge_list.append(s.badge) %}{% endif %}{% endfor %}
+          {% set g_badge = g_badge_list | sum %}
+          <b class="{{ 'active' if g_ativo }}"><i class="{{ g.icon }}"></i>{{ g.nome }}{% if g_badge %}<span class="pk-menu-item-badge">{{ g_badge if g_badge < 100 else '99+' }}</span>{% endif %}</b>
           {% for s in g.itens %}
-          <a href="{{ s.href }}"><i class="{{ s.icon }}"></i>{{ s.nome }}</a>
+          <a href="{{ s.href }}"><i class="{{ s.icon }}"></i>{{ s.nome }}{% if s.badge %}<span class="pk-menu-item-badge">{{ s.badge if s.badge < 100 else '99+' }}</span>{% endif %}</a>
           {% endfor %}
         {% else %}
-          <a class="direct" href="{{ g.href }}"><i class="{{ g.icon }}"></i>{{ g.nome }}</a>
+          <a class="direct" href="{{ g.href }}"><i class="{{ g.icon }}"></i>{{ g.nome }}{% if g.badge %}<span class="pk-menu-item-badge">{{ g.badge if g.badge < 100 else '99+' }}</span>{% endif %}</a>
         {% endif %}
       </div>
       {% endfor %}
@@ -260,13 +265,17 @@
       {% set g_endpoints = [] %}
       {% for s in g.itens %}{% set _ = g_endpoints.extend(s.endpoints) %}{% endfor %}
       {% set g_ativo = request.endpoint in g_endpoints %}
+      {% set g_badge_list = [] %}
+      {% for s in g.itens %}{% if s.badge %}{% set _ = g_badge_list.append(s.badge) %}{% endif %}{% endfor %}
+      {% set g_badge = g_badge_list | sum %}
       <div class="pk-nav-group" data-pk-drop>
         <button type="button" class="pk-nav-btn {{ 'active' if g_ativo }}" title="{{ g.nome }}" data-pk-toggle>
           <i class="{{ g.icon }}"></i><span>{{ g.nome }}</span><i class="fa fa-chevron-down"></i>
+          {% if g_badge %}<span class="pk-nav-badge">{{ g_badge if g_badge < 100 else '99+' }}</span>{% endif %}
         </button>
         <div class="pk-menu">
           {% for s in g.itens %}
-          <a href="{{ s.href }}"><i class="{{ s.icon }}"></i><span><b>{{ s.nome }}</b><small>{{ s.desc }}</small></span></a>
+          <a href="{{ s.href }}"><i class="{{ s.icon }}"></i><span><b>{{ s.nome }}</b><small>{{ s.desc }}</small></span>{% if s.badge %}<span class="pk-menu-item-badge">{{ s.badge if s.badge < 100 else '99+' }}</span>{% endif %}</a>
           {% endfor %}
         </div>
       </div>
@@ -274,6 +283,7 @@
       <div class="pk-nav-group">
         <a class="pk-nav-btn {{ 'active' if request.endpoint in g.endpoints }}" href="{{ g.href }}" title="{{ g.nome }}" style="text-decoration:none">
           <i class="{{ g.icon }}"></i><span>{{ g.nome }}</span>
+          {% if g.badge %}<span class="pk-nav-badge">{{ g.badge if g.badge < 100 else '99+' }}</span>{% endif %}
         </a>
       </div>
       {% endif %}
