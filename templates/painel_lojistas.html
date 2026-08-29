@@ -55,6 +55,7 @@
 
   <div class="pk-card" style="padding:0;overflow:hidden">
     {% if lojistas %}
+    <div style="overflow-x:auto">
     <table class="loj-table">
       <thead>
         <tr>
@@ -96,6 +97,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="loj-empty">
       <i class="fa fa-user-tie"></i>

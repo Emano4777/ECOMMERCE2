@@ -37,6 +37,7 @@
 
 {% if encomendas %}
 <div class="pk-card" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto">
   <table class="enc-table">
     <thead>
       <tr>
@@ -71,6 +72,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% else %}
 <div class="pk-card" style="text-align:center;padding:48px 24px">

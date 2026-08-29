@@ -101,6 +101,7 @@
 
 {% if rows %}
 <div class="pk-card" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto">
   <table class="av-table">
     <thead>
       <tr>
@@ -222,6 +223,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 {% if rows|length == 500 %}
