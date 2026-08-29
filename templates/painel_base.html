@@ -111,7 +111,7 @@
 
     /* ── hambúrguer / drawer ── */
     .pk-burger { display:none; position:relative; flex-shrink:0; }
-    .pk-drawer { position:absolute; top:calc(100% + 9px); left:0; width:280px; max-height:70vh; overflow:auto; background:#1a1f2b; border:1px solid #2a3247; border-radius:14px; padding:8px; box-shadow:0 22px 54px rgba(0,0,0,.6); z-index:320; display:none; }
+    .pk-drawer { position:fixed; top:0; left:0; width:280px; max-width:calc(100vw - 20px); max-height:70vh; overflow:auto; background:#1a1f2b; border:1px solid #2a3247; border-radius:14px; padding:8px; box-shadow:0 22px 54px rgba(0,0,0,.6); z-index:320; display:none; }
     .pk-burger.open .pk-drawer { display:block; }
     .pk-drawer-group { padding:4px 2px; }
     .pk-drawer-group > b { display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:8px; font-size:.82rem; font-weight:800; color:var(--pk-txt); }
@@ -364,7 +364,7 @@
 (function () {
   const drops = Array.from(document.querySelectorAll("[data-pk-drop]"));
   function posicionarMenu(d, btn) {
-    const menu = d.querySelector(".pk-menu");
+    const menu = d.querySelector(".pk-menu, .pk-drawer");
     if (!menu) return;
     const r = btn.getBoundingClientRect();
     let left = r.left;
