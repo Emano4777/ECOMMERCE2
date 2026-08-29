@@ -48,7 +48,7 @@
     .pk-nav-group.open .pk-nav-btn { background:#232a3d; color:var(--pk-txt); }
     .pk-nav-btn.active { background:var(--pk-yellow); color:#111; font-weight:800; }
 
-    .pk-menu { position:absolute; top:calc(100% + 8px); left:0; min-width:238px; background:#1a1f2b; border:1px solid #2a3247; border-radius:12px; padding:7px; box-shadow:0 18px 44px rgba(0,0,0,.55); z-index:320; display:none; }
+    .pk-menu { position:fixed; top:0; left:0; min-width:238px; background:#1a1f2b; border:1px solid #2a3247; border-radius:12px; padding:7px; box-shadow:0 18px 44px rgba(0,0,0,.55); z-index:320; display:none; }
     .pk-nav-group.open .pk-menu { display:block; }
     .pk-menu a { display:flex; gap:10px; align-items:flex-start; padding:9px 10px; border-radius:8px; color:var(--pk-txt); text-decoration:none; }
     .pk-menu a:hover { background:#232a3d; }
@@ -282,7 +282,7 @@
 
   <div class="pk-right">
     <button type="button" class="pk-icon-btn" id="pk-som-btn" onclick="pkSomAtivar()" title="Ativar alertas sonoros">
-      <i class="fa fa-bell-slash"></i>
+      <i class="fa fa-volume-xmark"></i>
     </button>
 
     {% if session.painel_role not in ('motoboy', 'lojista') %}
@@ -351,6 +351,16 @@
 <script>
 (function () {
   const drops = Array.from(document.querySelectorAll("[data-pk-drop]"));
+  function posicionarMenu(d, btn) {
+    const menu = d.querySelector(".pk-menu");
+    if (!menu) return;
+    const r = btn.getBoundingClientRect();
+    let left = r.left;
+    const maxLeft = window.innerWidth - menu.offsetWidth - 10;
+    if (left > maxLeft) left = Math.max(10, maxLeft);
+    menu.style.top = (r.bottom + 8) + "px";
+    menu.style.left = left + "px";
+  }
   drops.forEach(d => {
     const btn = d.querySelector("[data-pk-toggle]");
     if (!btn) return;
@@ -359,10 +369,14 @@
       const abrir = !d.classList.contains("open");
       drops.forEach(o => o.classList.remove("open"));
       d.classList.toggle("open", abrir);
+      if (abrir) posicionarMenu(d, btn);
     });
   });
   document.addEventListener("click", () => drops.forEach(d => d.classList.remove("open")));
   document.addEventListener("keydown", e => { if (e.key === "Escape") drops.forEach(d => d.classList.remove("open")); });
+  window.addEventListener("resize", () => drops.forEach(d => d.classList.remove("open")));
+  const navEl = document.querySelector(".pk-nav");
+  if (navEl) navEl.addEventListener("scroll", () => drops.forEach(d => d.classList.remove("open")));
 })();
 </script>
 
@@ -485,20 +499,19 @@
   let audioCtx = null;
 
   /* ── Botão de ativar/desativar ── */
-  const btn   = document.getElementById("pk-som-btn");
-  const label = document.getElementById("pk-som-label");
+  const btn = document.getElementById("pk-som-btn");
 
   function atualizarBotao() {
     if (somAtivo) {
       btn.style.borderColor = "var(--pk-yellow)";
       btn.style.color       = "var(--pk-yellow)";
-      btn.querySelector("i").className = "fa fa-bell";
-      label.textContent = "Som ativo";
+      btn.querySelector("i").className = "fa fa-volume-high";
+      btn.title = "Alertas sonoros ativados";
     } else {
       btn.style.borderColor = "var(--pk-line)";
       btn.style.color       = "var(--pk-muted)";
-      btn.querySelector("i").className = "fa fa-bell-slash";
-      label.textContent = "Som";
+      btn.querySelector("i").className = "fa fa-volume-xmark";
+      btn.title = "Ativar alertas sonoros";
     }
   }
 
