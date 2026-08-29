@@ -783,6 +783,7 @@ def inject_globals():
     painel_stats = {"clientes": 0, "pedidos_hoje": 0, "usuarios": 1}
     painel_notif_count = 0
     painel_pedidos_pendentes = 0
+    painel_logo_url = None
     if session.get("cnpjloja") and session.get("painel_ok"):
         cnpj_painel = session["cnpjloja"]
         try:
@@ -809,6 +810,9 @@ def inject_globals():
                 sql_pendentes += " AND tipo_entrega='entrega'"
             cur.execute(sql_pendentes, (cnpj_painel,))
             painel_pedidos_pendentes = (cur.fetchone() or {}).get("n", 0) or 0
+            _ensure_logo_url_column()
+            cur.execute("SELECT logo_url FROM ecommerce_config_loja WHERE cnpjloja=%s", (cnpj_painel,))
+            painel_logo_url = (cur.fetchone() or {}).get("logo_url") or None
             cur.close()
         except Exception:
             pass
@@ -831,6 +835,7 @@ def inject_globals():
         "stats": painel_stats,
         "notif_count": painel_notif_count,
         "pedidos_pendentes_count": painel_pedidos_pendentes,
+        "loja_logo_url": painel_logo_url,
         "som_ativo": True,
     }
 

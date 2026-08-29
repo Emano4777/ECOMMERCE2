@@ -70,7 +70,9 @@
     .pk-store { position:relative; flex-shrink:0; }
     .pk-store-btn { display:flex; align-items:center; gap:9px; padding:5px 9px 5px 5px; border-radius:10px; border:1px solid #232a3d; background:transparent; cursor:pointer; font-family:inherit; }
     .pk-store-btn:hover, .pk-store.open .pk-store-btn { background:#1f2637; border-color:#2a3247; }
-    .pk-avatar { width:30px; height:30px; border-radius:8px; background:var(--pk-red); color:#fff; font-size:.72rem; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .pk-avatar { width:30px; height:30px; border-radius:8px; background:var(--pk-red); color:#fff; font-size:.72rem; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0; overflow:hidden; }
+    .pk-avatar.has-logo { background:#fff; }
+    .pk-avatar img { width:100%; height:100%; object-fit:contain; }
     .pk-store-text { line-height:1.15; text-align:left; max-width:132px; }
     .pk-store-text b { display:block; font-size:.78rem; font-weight:800; color:var(--pk-txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .pk-store-text small { display:flex; align-items:center; gap:5px; font-size:.66rem; color:var(--pk-muted); font-weight:700; }
@@ -306,7 +308,7 @@
 
     <div class="pk-store" data-pk-drop>
       <button type="button" class="pk-store-btn" data-pk-toggle>
-        <span class="pk-avatar">{{ (session.motoboy_nome or session.lojista_nome or session.razao or 'LO')[:2] | upper }}</span>
+        <span class="pk-avatar {{ 'has-logo' if loja_logo_url }}">{% if loja_logo_url %}<img src="{{ loja_logo_url }}" alt="">{% else %}{{ (session.motoboy_nome or session.lojista_nome or session.razao or 'LO')[:2] | upper }}{% endif %}</span>
         <span class="pk-store-text">
           <b>{{ session.motoboy_nome or session.lojista_nome or session.razao or session.cnpjloja }}</b>
           {% if plano %}
@@ -318,7 +320,7 @@
 
       <div class="pk-panel">
         <div class="pk-panel-head">
-          <span class="pk-avatar">{{ (session.motoboy_nome or session.lojista_nome or session.razao or 'LO')[:2] | upper }}</span>
+          <span class="pk-avatar {{ 'has-logo' if loja_logo_url }}">{% if loja_logo_url %}<img src="{{ loja_logo_url }}" alt="">{% else %}{{ (session.motoboy_nome or session.lojista_nome or session.razao or 'LO')[:2] | upper }}{% endif %}</span>
           <span style="min-width:0">
             <b>{{ session.motoboy_nome or session.lojista_nome or session.razao or 'Sua loja' }}</b>
             {% if session.cnpjloja %}<small>CNPJ {{ session.cnpjloja | cnpj }}</small>{% endif %}
