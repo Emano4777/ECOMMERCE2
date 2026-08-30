@@ -1218,6 +1218,7 @@
         <a class="pq-user-item" href="{{ url_for('minhas_encomendas') }}"><i class="fa fa-box-open"></i><span>Minhas encomendas<small>Produtos solicitados</small></span><b class="pq-user-item-arrow">›</b></a>
         {% endif %}
         <a class="pq-user-item" href="{{ url_for('consumidor_cupons') }}"><i class="fa fa-ticket"></i><span>Meus cupons<small>Descontos disponíveis</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('consumidor_lista_presentes') }}"><i class="fa fa-gift"></i><span>Lista de presentes<small>Compartilhe pra ganhar de alguém</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_indicar') }}"><i class="fa fa-user-plus" style="color:#25d366"></i><span>Indique um amigo<small>Ganhe cupom a cada indicação</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
@@ -1297,6 +1298,9 @@
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_cupons') }}" onclick="fecharDrawer()">
       <i class="fa fa-ticket"></i>Meus cupons
+    </a>
+    <a class="pq-drawer-item" href="{{ url_for('consumidor_lista_presentes') }}" onclick="fecharDrawer()">
+      <i class="fa fa-gift"></i>Lista de presentes
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_indicar') }}" onclick="fecharDrawer()">
       <i class="fa fa-user-plus" style="color:#25d366"></i>Indique um amigo

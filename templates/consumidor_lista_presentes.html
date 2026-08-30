@@ -1,0 +1,115 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Lista de presentes{% endblock %}
+
+{% block extra_style %}
+<style>
+.pres-wrap { max-width:960px; margin:0 auto; padding:28px 16px 70px; }
+.pres-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+.pres-head h1 { margin:0; font-size:1.45rem; font-weight:900; display:flex; align-items:center; gap:10px; }
+.pres-sub { color:var(--pq-muted); font-size:.88rem; margin-top:4px; }
+.pres-head a { color:var(--pq-red); font-weight:900; text-decoration:none; font-size:.86rem; }
+
+.pres-share { display:flex; align-items:center; gap:12px; background:#fff; border:1.5px dashed var(--pq-red); border-radius:14px; padding:14px 16px; margin:18px 0; flex-wrap:wrap; }
+.pres-share i.fa-share-nodes { color:var(--pq-red); font-size:1.3rem; flex-shrink:0; }
+.pres-share-copy { flex:1; min-width:180px; }
+.pres-share-copy b { display:block; font-weight:900; font-size:.86rem; }
+.pres-share-copy span { display:block; font-size:.76rem; color:var(--pq-muted); margin-top:2px; }
+.pres-share-btn { flex-shrink:0; border:1.5px solid var(--pq-red); background:none; color:var(--pq-red); border-radius:9px; padding:9px 14px; font-size:.8rem; font-weight:900; cursor:pointer; font-family:inherit; }
+.pres-share-btn.copied { background:var(--pq-red); color:#fff; }
+
+.pres-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+.pres-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; }
+.pres-img { height:150px; background:#f7f7f7; display:flex; align-items:center; justify-content:center; }
+.pres-img img { max-width:88%; max-height:132px; object-fit:contain; }
+.pres-body { padding:13px; display:flex; flex-direction:column; gap:7px; flex:1; }
+.pres-name { font-weight:900; line-height:1.3; font-size:.9rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.35em; }
+.pres-store { color:var(--pq-muted); font-size:.76rem; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pres-price { color:var(--pq-red); font-weight:900; font-size:1.15rem; margin-top:auto; }
+.pres-actions { display:flex; gap:8px; margin-top:10px; }
+.pres-actions a,.pres-actions button { flex:1; border-radius:9px; padding:9px 10px; font-family:inherit; font-size:.8rem; font-weight:900; cursor:pointer; text-align:center; text-decoration:none; }
+.pres-view { background:var(--pq-red); color:#fff; border:0; }
+.pres-remove { background:#fff; color:var(--pq-red); border:1.5px solid #ffd0d8; }
+.pres-empty { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); text-align:center; padding:56px 20px; color:var(--pq-muted); }
+.pres-empty i { font-size:3rem; opacity:.24; margin-bottom:14px; display:block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pres-wrap">
+  <div class="pres-head">
+    <div>
+      <h1><i class="fa fa-gift" style="color:var(--pq-red)"></i>Lista de presentes</h1>
+      <div class="pres-sub">O que você colocar aqui fica visível pra quem receber o seu link — diferente dos favoritos, que são só seus.</div>
+    </div>
+    <a href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart me-1"></i>Ver favoritos</a>
+  </div>
+
+  {% if link_presente %}
+  <div class="pres-share">
+    <i class="fa fa-share-nodes"></i>
+    <div class="pres-share-copy">
+      <b>Manda essa lista pra alguém te presentear</b>
+      <span>Quem abrir o link vê só o que está aqui e pode comprar direto, sem precisar de conta.</span>
+    </div>
+    <button class="pres-share-btn" id="pres-share-btn" onclick="presCopiarLista()"><i class="fa fa-copy me-1"></i>Copiar link</button>
+  </div>
+  {% endif %}
+
+  {% if itens %}
+  <div class="pres-grid">
+    {% for it in itens %}
+    <div class="pres-card" id="pres-{{ loop.index }}">
+      <div class="pres-img">
+        {% if it.imagem %}
+        <img src="{{ it.imagem }}" alt="{{ it.nome }}" onerror="this.outerHTML='<i class=\'fa fa-pills\' style=\'font-size:2.6rem;color:#ccc\'></i>'">
+        {% else %}
+        <i class="fa fa-pills" style="font-size:2.6rem;color:#ccc"></i>
+        {% endif %}
+      </div>
+      <div class="pres-body">
+        <div class="pres-name">{{ it.nome }}</div>
+        <div class="pres-store">
+          {% if it.logo_url %}<img src="{{ it.logo_url }}" alt="" style="width:14px;height:14px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>{% else %}<i class="fa fa-store me-1"></i>{% endif %}{{ it.razao or 'Farmácia Poupaqui' }}
+        </div>
+        {% if it.preco %}<div class="pres-price">{{ money(it.preco) }}</div>{% endif %}
+        <div class="pres-actions">
+          <a class="pres-view" href="{{ url_for('produto_detalhe', ean=it.ean, cnpj=it.cnpjloja, nome=it.nome) }}"><i class="fa fa-eye me-1"></i>Ver</a>
+          <button class="pres-remove" onclick="removerDaLista('{{ it.ean }}','{{ it.cnpjloja }}','pres-{{ loop.index }}')"><i class="fa fa-trash me-1"></i>Remover</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pres-empty">
+    <i class="fa fa-gift"></i>
+    <h5>Sua lista de presentes está vazia</h5>
+    <p>Nas páginas de produto, use o botão de presente pra adicionar algo aqui.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function presCopiarLista() {
+  const link = {{ link_presente | tojson }};
+  const btn = document.getElementById('pres-share-btn');
+  navigator.clipboard.writeText(link).then(() => {
+    btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = '<i class="fa fa-copy me-1"></i>Copiar link'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => prompt('Copie o link da sua lista:', link));
+}
+function removerDaLista(ean, cnpjloja, id) {
+  fetch('/api/lista-presentes', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ean, cnpjloja})
+  }).then(()=> {
+    document.getElementById(id)?.remove();
+    showCartToast('Removido da lista de presentes.');
+  });
+}
+</script>
+{% endblock %}

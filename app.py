@@ -15534,17 +15534,44 @@ def consumidor_favoritos():
     )
     favoritos = [dict(r) for r in cur.fetchall()]
     cur.close()
-    token = _gerar_token_lista_presente(consumidor_id) if favoritos else None
+    return render_template("consumidor_favoritos.html", favoritos=favoritos)
+
+
+@app.get("/lista-presentes")
+@_consumer_required
+def consumidor_lista_presentes():
+    """Lista de presentes -- separada dos favoritos de proposito: favoritos
+    e uso pessoal (alerta de preco/estoque), lista de presentes so tem o
+    que o cliente escolheu deixar visivel pra quem for comprar pra ele."""
+    _ensure_lista_presente_schema()
+    consumidor_id = session["consumidor_id"]
+    _ensure_logo_url_column()
+    cur = db().cursor()
+    cur.execute(
+        """
+        SELECT i.*, c.logo_url
+        FROM ecommerce_lista_presente_itens i
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = i.cnpjloja
+        WHERE i.consumidor_id=%s
+        ORDER BY i.criado_em DESC
+        LIMIT 200
+        """,
+        (consumidor_id,),
+    )
+    itens = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    token = _gerar_token_lista_presente(consumidor_id) if itens else None
     link_presente = url_for("lista_presente_publica", token=token, _external=True) if token else None
-    return render_template("consumidor_favoritos.html", favoritos=favoritos, link_presente=link_presente)
+    return render_template("consumidor_lista_presentes.html", itens=itens, link_presente=link_presente)
 
 
 @app.get("/presente/<token>")
 def lista_presente_publica(token):
-    """Lista de presentes publica -- visitante ve os favoritos de um
-    consumidor (sem precisar de login) e pode ir comprar cada item. So
-    leitura: nao expoe nenhum dado do consumidor alem do primeiro nome."""
-    _ensure_favoritos_schema()
+    """Lista de presentes publica -- visitante ve a lista que o consumidor
+    escolheu deixar visivel (sem precisar de login) e pode ir comprar cada
+    item. So leitura: nao expoe nenhum dado do consumidor alem do primeiro
+    nome, e nao mostra os favoritos pessoais dele."""
+    _ensure_lista_presente_schema()
     cur = db().cursor()
     cur.execute("SELECT id, nome FROM ecommerce_consumidores WHERE lista_presente_token=%s", (token,))
     dono = cur.fetchone()
@@ -15555,11 +15582,11 @@ def lista_presente_publica(token):
     _ensure_logo_url_column()
     cur.execute(
         """
-        SELECT f.ean, f.cnpjloja, f.nome, f.preco, f.imagem, f.razao, c.logo_url
-        FROM ecommerce_favoritos f
-        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = f.cnpjloja
-        WHERE f.consumidor_id=%s
-        ORDER BY f.atualizado_em DESC
+        SELECT i.ean, i.cnpjloja, i.nome, i.preco, i.imagem, i.razao, c.logo_url
+        FROM ecommerce_lista_presente_itens i
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = i.cnpjloja
+        WHERE i.consumidor_id=%s
+        ORDER BY i.criado_em DESC
         LIMIT 200
         """,
         (dono["id"],),
@@ -15568,6 +15595,54 @@ def lista_presente_publica(token):
     cur.close()
     primeiro_nome = (dono.get("nome") or "Alguém").strip().split()[0]
     return render_template("lista_presente_publica.html", itens=itens, primeiro_nome=primeiro_nome)
+
+
+@app.get("/api/lista-presentes")
+def api_lista_presentes_listar():
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"itens": []})
+    _ensure_lista_presente_schema()
+    cur = db().cursor()
+    cur.execute("SELECT ean, cnpjloja FROM ecommerce_lista_presente_itens WHERE consumidor_id=%s", (consumidor_id,))
+    rows = cur.fetchall()
+    cur.close()
+    return jsonify({"itens": [{"ean": r["ean"], "cnpjloja": r["cnpjloja"]} for r in rows]})
+
+
+@app.post("/api/lista-presentes")
+@_consumer_required
+def api_lista_presentes_toggle():
+    _ensure_lista_presente_schema()
+    data = request.get_json(silent=True) or {}
+    consumidor_id = session["consumidor_id"]
+    ean = (data.get("ean") or "").strip()
+    cnpjloja = (data.get("cnpjloja") or "").strip()
+    if not ean or not cnpjloja:
+        return jsonify({"ok": False, "erro": "Produto inválido."}), 400
+    cur = db().cursor()
+    cur.execute(
+        "SELECT id FROM ecommerce_lista_presente_itens WHERE consumidor_id=%s AND ean=%s AND cnpjloja=%s LIMIT 1",
+        (consumidor_id, ean, cnpjloja),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.execute("DELETE FROM ecommerce_lista_presente_itens WHERE id=%s", (row["id"],))
+        db().commit()
+        cur.close()
+        return jsonify({"ok": True, "na_lista": False})
+    nome = (data.get("nome") or "Produto Poupaqui").strip()[:300]
+    preco = _to_float_or_none(data.get("preco"))
+    imagem = (data.get("imagem") or "").strip()[:800] or None
+    razao = (data.get("razao") or "").strip()[:250] or None
+    cur.execute(
+        """INSERT INTO ecommerce_lista_presente_itens (consumidor_id, ean, cnpjloja, nome, preco, imagem, razao)
+           VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (consumidor_id, ean, cnpjloja) DO NOTHING""",
+        (consumidor_id, ean, cnpjloja, nome, preco, imagem, razao),
+    )
+    db().commit()
+    cur.close()
+    return jsonify({"ok": True, "na_lista": True})
 
 
 @app.get("/api/favoritos")
@@ -26838,6 +26913,41 @@ def _ensure_favoritos_schema():
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_preco BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_estoque BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS preco_referencia NUMERIC(10,2)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add("favoritos")
+
+
+def _ensure_lista_presente_schema():
+    """Lista de presentes -- de proposito uma tabela separada dos favoritos:
+    favoritos e uso pessoal (alerta de preco/estoque, pode ter item que a
+    pessoa nao quer que apareca numa lista pra alguem comprar de presente).
+    A lista de presentes so tem o que o cliente escolheu colocar nela."""
+    key = "lista_presente_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_lista_presente_itens (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                ean TEXT NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                nome TEXT NOT NULL,
+                preco NUMERIC(10,2),
+                imagem TEXT,
+                razao TEXT,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, ean, cnpjloja)
+            )
+        """)
         cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS lista_presente_token TEXT")
         cur.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_consumidores_lista_presente_token
@@ -26845,13 +26955,14 @@ def _ensure_favoritos_schema():
         """)
         conn.commit()
         cur.close()
-        _schema_ready.add("favoritos")
+        _schema_ready.add(key)
+        _mark_migration_done(key)
 
 
 def _gerar_token_lista_presente(consumidor_id):
     """Retorna o token da lista de presentes publica do consumidor, gerando
     um novo (curto, facil de compartilhar) na primeira vez que for preciso."""
-    _ensure_favoritos_schema()
+    _ensure_lista_presente_schema()
     cur = db().cursor()
     cur.execute("SELECT lista_presente_token FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
     row = cur.fetchone()

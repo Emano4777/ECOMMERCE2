@@ -67,6 +67,8 @@
 }
 .pd-fav-btn:hover { transform:scale(1.08); }
 .pd-fav-btn.active { color:var(--pq-red); border-color:#ffd0d8; }
+.pd-gift-btn { top:58px; }
+.pd-gift-btn.active { color:var(--pq-red); border-color:#ffd0d8; }
 
 /* INFO SIDE */
 .pd-info-side { padding:32px 28px; display:flex; flex-direction:column; gap:12px; }
@@ -479,6 +481,9 @@
       {% if consumidor %}
       <button type="button" class="pd-fav-btn" id="pd-fav-btn" title="Favoritar e ativar alertas" onclick="pdToggleFavorito(event)">
         <i class="fa-regular fa-heart"></i>
+      </button>
+      <button type="button" class="pd-fav-btn pd-gift-btn" id="pd-gift-btn" title="Colocar na lista de presentes" onclick="pdToggleListaPresentes(event)">
+        <i class="fa fa-gift"></i>
       </button>
       {% endif %}
       {% if imagem %}
@@ -1137,6 +1142,34 @@ function pdToggleFavorito(ev) {
     btn.classList.toggle('active', !!d.favorito);
     btn.innerHTML = `<i class="fa-${d.favorito ? 'solid' : 'regular'} fa-heart"></i>`;
     pdToast(d.favorito ? 'Favorito salvo com alertas ativos.' : 'Removido dos favoritos.');
+  }).finally(() => { btn.disabled = false; });
+}
+
+// ── Lista de presentes (separada dos favoritos) ─────────────────────────────
+{% if consumidor %}
+(async () => {
+  const btn = document.getElementById('pd-gift-btn');
+  if (!btn || !_pdEan || !_pdCnpj) return;
+  try {
+    const r = await fetch('/api/lista-presentes');
+    const d = await r.json();
+    const ativo = (d.itens || []).some(it => it.ean === _pdEan && it.cnpjloja === _pdCnpj);
+    if (ativo) btn.classList.add('active');
+  } catch {}
+})();
+{% endif %}
+function pdToggleListaPresentes(ev) {
+  if (ev) ev.stopPropagation();
+  const btn = document.getElementById('pd-gift-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  fetch('/api/lista-presentes', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ean:_pdEan, cnpjloja:_pdCnpj, nome:_pdNome, preco:_pdPreco, imagem:_pdImg, razao:_pdRazao})
+  }).then(r => r.json()).then(d => {
+    btn.classList.toggle('active', !!d.na_lista);
+    pdToast(d.na_lista ? 'Adicionado à sua lista de presentes.' : 'Removido da lista de presentes.');
   }).finally(() => { btn.disabled = false; });
 }
 
