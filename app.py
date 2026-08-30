@@ -708,6 +708,37 @@ def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
                 pass
 
 
+# ─── NIVEIS DO PROGRAMA DE PONTOS (visual/gamificacao) ──────────────────────
+# A cada N pontos (1 ponto = 1 compra concluida) o cliente sobe de nivel.
+# So exibicao por enquanto -- nao muda nenhuma regra de preco/desconto.
+_NIVEIS_PONTOS = [
+    {"nome": "Cliente Poupaqui",         "icone": "seedling"},
+    {"nome": "Caçador de Ofertas",       "icone": "magnifying-glass-dollar"},
+    {"nome": "Economista de Plantão",    "icone": "briefcase-medical"},
+    {"nome": "Mestre da Economia",       "icone": "trophy"},
+    {"nome": "Lenda Poupaqui",           "icone": "crown"},
+    {"nome": "Ícone Poupaqui",           "icone": "star"},
+]
+
+
+def _nivel_pontos(pontos, meta=5):
+    """Retorna nivel atual (indice 0-based), nome/icone do nivel atual e nome
+    do proximo nivel, a partir da pontuacao. Depois do ultimo nivel nomeado,
+    continua contando (numeral II, III...) em vez de travar no topo."""
+    idx = max(0, pontos) // meta
+
+    def _nome_icone(i):
+        if i < len(_NIVEIS_PONTOS):
+            return _NIVEIS_PONTOS[i]["nome"], _NIVEIS_PONTOS[i]["icone"]
+        extra = i - len(_NIVEIS_PONTOS) + 2  # II, III, IV... alem do ultimo nomeado
+        base = _NIVEIS_PONTOS[-1]
+        return f"{base['nome']} {extra}", base["icone"]
+
+    nome, icone = _nome_icone(idx)
+    proximo_nome, _ = _nome_icone(idx + 1)
+    return {"indice": idx, "nome": nome, "icone": icone, "proximo_nome": proximo_nome}
+
+
 def fmt_brl(val):
     try:
         v = float(val or 0)
@@ -839,6 +870,7 @@ def inject_globals():
         "consumidor_tem_assinatura": consumidor_tem_assinatura,
         "consumidor_pontos_compras": consumidor_pontos_compras,
         "consumidor_pontos_meta": 5,
+        "consumidor_nivel": _nivel_pontos(consumidor_pontos_compras, 5),
         "SUPABASE_URL": SUPABASE_URL,
         "SUPABASE_ANON": SUPABASE_ANON,
         "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),

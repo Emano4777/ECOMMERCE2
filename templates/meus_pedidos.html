@@ -375,13 +375,14 @@
   {% set _pontos_falta_p = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
   {% set _pontos_falta_p = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta_p %}
   <div class="pq-pontos-box" style="margin:0 0 16px;padding:16px 18px">
+    <div class="pq-pontos-nivel" style="font-size:.84rem"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}</div>
     <div class="pq-pontos-top">
       <span style="font-size:.95rem"><i class="fa fa-star"></i> Você tem {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
       <span class="pq-pontos-msg" style="font-size:.78rem">
-        {% if consumidor_pontos_compras == 0 %}Faça sua primeira compra e comece a pontuar
-        {% elif _pontos_falta_p == 0 %}Recompensa desbloqueada! 🎉
-        {% elif _pontos_falta_p == 1 %}Você está quase lá — falta 1 compra pra sua recompensa!
-        {% else %}Faltam {{ _pontos_falta_p }} compras pra sua próxima recompensa
+        {% if consumidor_pontos_compras == 0 %}Faça sua primeira compra e comece a subir de nível
+        {% elif _pontos_falta_p == 0 %}Nível desbloqueado! 🎉
+        {% elif _pontos_falta_p == 1 %}Você está quase lá — falta 1 compra pra virar {{ consumidor_nivel.proximo_nome }}!
+        {% else %}Faltam {{ _pontos_falta_p }} compras pra virar {{ consumidor_nivel.proximo_nome }}
         {% endif %}
       </span>
     </div>
