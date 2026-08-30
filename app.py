@@ -13759,19 +13759,28 @@ def produto_detalhe(ean):
             # continua vindo do match exato quando existir.
             _first_word = _chave_anvisa.split(" ", 1)[0]
             cur.execute(
-                "SELECT chave, tarja, receita_retida, exibir_imagem_publica "
+                "SELECT chave, nome_anvisa, tarja, tarja_ia, receita_retida, exibir_imagem_publica "
                 "FROM anvisa_cache WHERE SPLIT_PART(chave, ' ', 1) = %s AND encontrado = TRUE",
                 (_first_word,),
             )
             _candidatos = [dict(r) for r in cur.fetchall()]
             if _row_anv:
                 _candidatos.append(_row_anv)
+            # Mesma logica de forma farmaceutica do _marcar_tarja_batch: se o
+            # produto sendo exibido tem forma claramente NAO injetavel, um
+            # candidato injetavel/ampola da familia nao deveria conseguir
+            # bloquear a imagem dele.
+            _alvo_injetavel = _forma_injetavel(nome_busca or "")
+            if _alvo_injetavel is False:
+                _candidatos = [c for c in _candidatos if _forma_injetavel(c.get("nome_anvisa") or c.get("chave") or "") is not True]
 
             def _restritividade(row):
+                # tarja_ia (validada pela IA) tem prioridade sobre a bruta --
+                # ver mesmo tratamento em _marcar_tarja_batch.
                 if row.get("exibir_imagem_publica") is False:
                     return 2
                 if (row.get("exibir_imagem_publica") is None
-                        and (row.get("tarja") or "").strip().lower() in ("preta", "vermelha")):
+                        and (_detectar_tarja(row) or "") in ("preta", "vermelha")):
                     return 1
                 return 0
 
@@ -25462,6 +25471,41 @@ _CHAVES_OTC_ISENTO = frozenset({
 })
 
 
+# Forma farmacêutica injetável/parenteral: quase sempre é a apresentação que
+# puxa a tarja mais restritiva de um princípio ativo (ex.: dipirona injetável
+# é controlada, dipirona comprimido não é). A comparação "família" (mesmo
+# princípio ativo, todos os fabricantes/formas cadastrados na ANVISA) usava
+# essa apresentação isolada pra bloquear TODO o resto da família, incluindo
+# comprimido/xarope/gotas do mesmo princípio ativo — daí muito genérico/
+# similar de venda livre ficava com a imagem bloqueada sem necessidade.
+_FORMA_INJETAVEL_RE = re.compile(
+    r"injet[aá]vel|\bampola\b|frasco[\s-]?ampola|\biv\b|\bim\b|\bsc\b"
+    r"|intramuscular|intravenoso|endovenoso|\bparenteral\b|infus[aã]o",
+    re.IGNORECASE,
+)
+_FORMA_NAO_INJETAVEL_RE = re.compile(
+    r"comprimido|c[aá]psula|dr[aá]gea|xarope|suspens[aã]o\s+oral|solu[cç][aã]o\s+oral"
+    r"|\bgotas?\b|\bcreme\b|\bpomada\b|\bgel\b|lo[cç][aã]o|\bpasta\b|\bspray\b"
+    r"|col[ií]rio|pastilha|sublingual|efervescente|p[oó]\s+oral|granulado|supositorio"
+    r"|sach[eê]s?|envelope|blister|adesivo|\btira\b|goma|bala|mastig[aá]vel"
+    r"|orodispersivel|orodisp\b|shampoo|xampu|sabonete|talco|elixir",
+    re.IGNORECASE,
+)
+
+
+def _forma_injetavel(texto):
+    """True = forma claramente injetável/parenteral. False = forma claramente
+    NÃO injetável (oral, tópica etc.). None = indeterminado a partir do texto
+    — nesse caso o chamador deve continuar tratando como possível risco
+    (comportamento conservador de antes, sem alteração)."""
+    t = texto or ""
+    if _FORMA_INJETAVEL_RE.search(t):
+        return True
+    if _FORMA_NAO_INJETAVEL_RE.search(t):
+        return False
+    return None
+
+
 def _anvisa_chave(nome):
     """Retorna chave de lookup no anvisa_cache: INN se nome comercial mapeado, senão 2 primeiras palavras significativas."""
     tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
@@ -25653,7 +25697,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
+            "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, tarja_ia, "
             "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, "
             "dizeres_imagem, override_manual "
             "FROM anvisa_cache WHERE chave = ANY(%s) AND encontrado = TRUE",
@@ -25706,10 +25750,14 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                     produtos[idx]["imagem_bloqueada_anvisa"] = True
 
         def _restritividade(row):
+            # Usa _detectar_tarja (tarja_ia validada pela IA tem prioridade
+            # sobre a tarja bruta) -- senao um candidato da familia ja
+            # corrigido pela IA como "sem_tarja" continuava contando como
+            # tarja vermelha/preta so porque a coluna bruta nunca mudou.
             if row.get("exibir_imagem_publica") is False:
                 return 2
             if (row.get("exibir_imagem_publica") is None
-                    and (row.get("tarja") or "").strip().lower() in ("preta", "vermelha")):
+                    and (_detectar_tarja(row) or "") in ("preta", "vermelha")):
                 return 1
             return 0
 
@@ -25723,27 +25771,22 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
         # fabricante especifico cadastrado — Ayerst, Cimed, Sigma... — e
         # tarja vermelha confirmada).
         first_words = sorted({ch.split(" ", 1)[0] for ch in chaves_map if ch})
-        prefix_by_word: dict[str, dict] = {}
+        candidatos_by_word: dict[str, list] = {}
         if first_words:
             try:
                 cur.execute(
                     "SELECT SPLIT_PART(chave, ' ', 1) AS first_word, "
-                    "chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, "
+                    "chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, tarja_ia, "
                     "receita_retida, venda_online_permitida, "
                     "exibir_imagem_publica, dizeres_receita, dizeres_imagem "
                     "FROM anvisa_cache "
                     "WHERE SPLIT_PART(chave, ' ', 1) = ANY(%s) AND encontrado = TRUE",
                     (first_words,),
                 )
-                candidatos_by_word: dict[str, list] = {}
                 for r in cur.fetchall():
                     candidatos_by_word.setdefault(r["first_word"], []).append(r)
-                prefix_by_word = {
-                    word: max(candidatos, key=_restritividade)
-                    for word, candidatos in candidatos_by_word.items()
-                }
             except Exception:
-                prefix_by_word = {}
+                candidatos_by_word = {}
 
         for ch, indices in chaves_map.items():
             exato = rows_by_chave.get(ch)
@@ -25753,15 +25796,33 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             # resultado de busca generica na ANVISA) e tratado como nao
             # confiavel e perde pro sinal mais restritivo da familia.
             if exato is not None and exato.get("override_manual"):
-                escolhido = exato
-            else:
-                familia = prefix_by_word.get(ch.split(" ", 1)[0])
+                for idx in indices:
+                    _aplicar(idx, exato)
+                continue
+            candidatos_familia = candidatos_by_word.get(ch.split(" ", 1)[0]) or []
+            for idx in indices:
+                # A familia (mesmo principio ativo, 1a palavra da chave) inclui
+                # qualquer forma farmaceutica cadastrada na ANVISA -- inclusive
+                # injetavel/ampola, que e quase sempre a apresentacao mais
+                # restrita. Se o PRODUTO REAL (nome completo, nao a chave) tem
+                # forma claramente NAO injetavel (comprimido, xarope, gotas...),
+                # os candidatos injetaveis da familia sao descartados da
+                # comparacao -- eles nao dizem respeito a essa apresentacao.
+                # Quando a forma do produto e desconhecida ou ela propria e
+                # injetavel, nada muda (mesma comparacao conservadora de antes).
+                alvo_injetavel = _forma_injetavel(produtos[idx].get("nome") or "")
+                candidatos_validos = candidatos_familia
+                if alvo_injetavel is False and candidatos_familia:
+                    candidatos_validos = [
+                        c for c in candidatos_familia
+                        if _forma_injetavel(c.get("nome_anvisa") or c.get("chave") or "") is not True
+                    ]
+                familia = max(candidatos_validos, key=_restritividade) if candidatos_validos else None
                 if exato is not None and familia is not None:
                     escolhido = familia if _restritividade(familia) > _restritividade(exato) else exato
                 else:
                     escolhido = exato if exato is not None else familia
-            if escolhido is not None:
-                for idx in indices:
+                if escolhido is not None:
                     _aplicar(idx, escolhido)
 
     except Exception:
