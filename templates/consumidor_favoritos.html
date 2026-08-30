@@ -23,6 +23,13 @@
 .fav-remove { background:#fff; color:var(--pq-red); border:1.5px solid #ffd0d8; }
 .fav-empty { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); text-align:center; padding:56px 20px; color:var(--pq-muted); }
 .fav-empty i { font-size:3rem; opacity:.24; margin-bottom:14px; display:block; }
+.fav-share { display:flex; align-items:center; gap:12px; background:#fff; border:1.5px dashed var(--pq-red); border-radius:14px; padding:14px 16px; margin-bottom:18px; flex-wrap:wrap; }
+.fav-share i.fa-gift { color:var(--pq-red); font-size:1.3rem; flex-shrink:0; }
+.fav-share-copy { flex:1; min-width:180px; }
+.fav-share-copy b { display:block; font-weight:900; font-size:.86rem; }
+.fav-share-copy span { display:block; font-size:.76rem; color:var(--pq-muted); margin-top:2px; }
+.fav-share-btn { flex-shrink:0; border:1.5px solid var(--pq-red); background:none; color:var(--pq-red); border-radius:9px; padding:9px 14px; font-size:.8rem; font-weight:900; cursor:pointer; font-family:inherit; }
+.fav-share-btn.copied { background:var(--pq-red); color:#fff; }
 </style>
 {% endblock %}
 
@@ -35,6 +42,17 @@
     </div>
     <a href="{{ url_for('catalogo_publico') }}" style="color:var(--pq-red);font-weight:900;text-decoration:none">Continuar comprando</a>
   </div>
+
+  {% if link_presente %}
+  <div class="fav-share">
+    <i class="fa fa-gift"></i>
+    <div class="fav-share-copy">
+      <b>Manda essa lista pra alguém te presentear</b>
+      <span>Quem abrir o link vê seus favoritos e pode comprar direto, sem precisar de conta.</span>
+    </div>
+    <button class="fav-share-btn" id="fav-share-btn" onclick="favCopiarLista()"><i class="fa fa-copy me-1"></i>Copiar link</button>
+  </div>
+  {% endif %}
 
   {% if favoritos %}
   <div class="fav-grid">
@@ -83,6 +101,15 @@ function salvarAlerta(ean, cnpjloja, campo, valor) {
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ean, cnpjloja, campo, valor})
   }).then(()=>showCartToast('Preferência de alerta salva.'));
+}
+function favCopiarLista() {
+  const link = {{ link_presente | tojson }};
+  const btn = document.getElementById('fav-share-btn');
+  navigator.clipboard.writeText(link).then(() => {
+    btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = '<i class="fa fa-copy me-1"></i>Copiar link'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => prompt('Copie o link da sua lista:', link));
 }
 function removerFavorito(ean, cnpjloja, id) {
   fetch('/api/favoritos', {

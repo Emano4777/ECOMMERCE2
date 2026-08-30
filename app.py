@@ -723,6 +723,7 @@ def inject_globals():
     consumidor_notif_nao_lidas = 0
     consumidor_encomendas_abertas = 0
     consumidor_tem_assinatura = False
+    consumidor_pontos_compras = 0
     if session.get("consumidor_id"):
         consumidor = {
             "id": session.get("consumidor_id"),
@@ -769,6 +770,17 @@ def inject_globals():
                 consumidor_tem_assinatura = cur.fetchone() is not None
             except Exception:
                 consumidor_tem_assinatura = False
+            try:
+                # Contador de pontos (visual, cada compra concluida = 1 ponto,
+                # recompensa a cada 5 -- sem nenhuma regra de desconto real
+                # ainda, so o acompanhamento pro cliente ver a pontuacao subir).
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE consumidor_id=%s AND status<>'cancelado'",
+                    (session["consumidor_id"],),
+                )
+                consumidor_pontos_compras = (cur.fetchone() or {}).get("n", 0) or 0
+            except Exception:
+                consumidor_pontos_compras = 0
             cur.close()
         except Exception:
             consumidor_rec_abertas = 0
@@ -825,6 +837,8 @@ def inject_globals():
         "consumidor_notif_nao_lidas": consumidor_notif_nao_lidas,
         "consumidor_encomendas_abertas": consumidor_encomendas_abertas,
         "consumidor_tem_assinatura": consumidor_tem_assinatura,
+        "consumidor_pontos_compras": consumidor_pontos_compras,
+        "consumidor_pontos_meta": 5,
         "SUPABASE_URL": SUPABASE_URL,
         "SUPABASE_ANON": SUPABASE_ANON,
         "GOOGLE_MAPS_KEY": os.getenv("GOOGLE_MAPS_KEY", ""),
@@ -1991,6 +2005,57 @@ def _ensure_previsao_entrega_em_column():
         cur.close()
         _schema_ready.add(key)
         _mark_migration_done(key)
+
+
+def _ensure_rastreio_token_column():
+    key = "pedido_rastreio_token_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS rastreio_token TEXT")
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_rastreio_token
+            ON ecommerce_pedidos (rastreio_token) WHERE rastreio_token IS NOT NULL
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _gerar_token_rastreio(pedido_id):
+    """Token publico de rastreio do pedido -- gerado sob demanda, na 1a vez
+    que o cliente pede pra compartilhar (nao existe pra todo pedido)."""
+    _ensure_rastreio_token_column()
+    cur = db().cursor()
+    cur.execute("SELECT rastreio_token FROM ecommerce_pedidos WHERE id=%s", (pedido_id,))
+    row = cur.fetchone()
+    if row and row.get("rastreio_token"):
+        cur.close()
+        return row["rastreio_token"]
+    for _ in range(8):
+        token = secrets.token_hex(6)  # 12 chars
+        try:
+            cur.execute(
+                "UPDATE ecommerce_pedidos SET rastreio_token=%s WHERE id=%s AND rastreio_token IS NULL",
+                (token, pedido_id),
+            )
+            db().commit()
+            if cur.rowcount:
+                cur.close()
+                return token
+        except psycopg2.errors.UniqueViolation:
+            db().rollback()
+            continue
+    cur.close()
+    return None
 
 
 def _ensure_pedidos_status_historico_schema():
@@ -15469,7 +15534,40 @@ def consumidor_favoritos():
     )
     favoritos = [dict(r) for r in cur.fetchall()]
     cur.close()
-    return render_template("consumidor_favoritos.html", favoritos=favoritos)
+    token = _gerar_token_lista_presente(consumidor_id) if favoritos else None
+    link_presente = url_for("lista_presente_publica", token=token, _external=True) if token else None
+    return render_template("consumidor_favoritos.html", favoritos=favoritos, link_presente=link_presente)
+
+
+@app.get("/presente/<token>")
+def lista_presente_publica(token):
+    """Lista de presentes publica -- visitante ve os favoritos de um
+    consumidor (sem precisar de login) e pode ir comprar cada item. So
+    leitura: nao expoe nenhum dado do consumidor alem do primeiro nome."""
+    _ensure_favoritos_schema()
+    cur = db().cursor()
+    cur.execute("SELECT id, nome FROM ecommerce_consumidores WHERE lista_presente_token=%s", (token,))
+    dono = cur.fetchone()
+    if not dono:
+        cur.close()
+        flash("Essa lista de presentes não existe ou não está mais disponível.", "error")
+        return redirect(url_for("index"))
+    _ensure_logo_url_column()
+    cur.execute(
+        """
+        SELECT f.ean, f.cnpjloja, f.nome, f.preco, f.imagem, f.razao, c.logo_url
+        FROM ecommerce_favoritos f
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = f.cnpjloja
+        WHERE f.consumidor_id=%s
+        ORDER BY f.atualizado_em DESC
+        LIMIT 200
+        """,
+        (dono["id"],),
+    )
+    itens = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    primeiro_nome = (dono.get("nome") or "Alguém").strip().split()[0]
+    return render_template("lista_presente_publica.html", itens=itens, primeiro_nome=primeiro_nome)
 
 
 @app.get("/api/favoritos")
@@ -15823,6 +15921,12 @@ def meu_pedido_detalhe(pedido_id):
     if previsao_em:
         pedido["previsao_entrega_em_label"] = previsao_em.strftime("%d/%m às %H:%M")
 
+    link_rastreio = None
+    if (pedido.get("status") or "").lower() not in ("entregue", "cancelado"):
+        _token_rastreio = _gerar_token_rastreio(pedido_id)
+        if _token_rastreio:
+            link_rastreio = url_for("rastreio_publico", token=_token_rastreio, _external=True)
+
     return render_template(
         "meu_pedido_detalhe.html",
         pedido=pedido,
@@ -15832,7 +15936,44 @@ def meu_pedido_detalhe(pedido_id):
         motivos=_MOTIVOS_RECLAMACAO,
         avaliacao_feita=dict(avaliacao_feita) if avaliacao_feita else None,
         timeline=timeline,
+        link_rastreio=link_rastreio,
     )
+
+
+@app.get("/rastreio/<token>")
+def rastreio_publico(token):
+    """Rastreio publico do pedido, sem precisar logar -- pra quem vai
+    receber a entrega por outra pessoa. So mostra status/timeline enquanto
+    o pedido ainda esta em andamento (o link para de funcionar depois que
+    a entrega/retirada e concluida, por desenho: o token so foi gerado
+    nesse periodo, e aqui a gente confere de novo pra nao expor detalhe de
+    um pedido ja finalizado pra sempre pra quem guardou o link)."""
+    _ensure_rastreio_token_column()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT p.id, p.status, p.pagamento_status, p.tipo_entrega, p.criado_em, p.codigo_retirada,
+               p.previsao_entrega_em, u.razao, u.endereco AS loja_endereco, u.telefone AS loja_telefone
+        FROM ecommerce_pedidos p
+        JOIN users u ON u.cnpjloja = p.cnpjloja
+        WHERE p.rastreio_token = %s
+        LIMIT 1
+        """,
+        (token,),
+    )
+    pedido = cur.fetchone()
+    cur.close()
+    if not pedido:
+        flash("Link de rastreio inválido ou expirado.", "error")
+        return redirect(url_for("index"))
+    pedido = dict(pedido)
+    pedido["razao"] = _public_store_name(pedido)
+    finalizado = (pedido.get("status") or "").lower() in ("entregue", "cancelado")
+    timeline = None if finalizado else _montar_timeline_pedido(pedido)
+    if pedido.get("previsao_entrega_em"):
+        pedido["previsao_entrega_em_label"] = pedido["previsao_entrega_em"].strftime("%d/%m às %H:%M")
+    return render_template("rastreio_publico.html", pedido=pedido, timeline=timeline, finalizado=finalizado)
 
 
 def _alpha_nota_xml_por_pedido(pedido_id):
@@ -26697,9 +26838,42 @@ def _ensure_favoritos_schema():
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_preco BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_estoque BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS preco_referencia NUMERIC(10,2)")
+        cur.execute("ALTER TABLE ecommerce_consumidores ADD COLUMN IF NOT EXISTS lista_presente_token TEXT")
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_consumidores_lista_presente_token
+            ON ecommerce_consumidores (lista_presente_token) WHERE lista_presente_token IS NOT NULL
+        """)
         conn.commit()
         cur.close()
         _schema_ready.add("favoritos")
+
+
+def _gerar_token_lista_presente(consumidor_id):
+    """Retorna o token da lista de presentes publica do consumidor, gerando
+    um novo (curto, facil de compartilhar) na primeira vez que for preciso."""
+    _ensure_favoritos_schema()
+    cur = db().cursor()
+    cur.execute("SELECT lista_presente_token FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    row = cur.fetchone()
+    if row and row.get("lista_presente_token"):
+        cur.close()
+        return row["lista_presente_token"]
+    for _ in range(8):
+        token = secrets.token_hex(5)  # 10 chars
+        try:
+            cur.execute(
+                "UPDATE ecommerce_consumidores SET lista_presente_token=%s WHERE id=%s AND lista_presente_token IS NULL",
+                (token, consumidor_id),
+            )
+            db().commit()
+            if cur.rowcount:
+                cur.close()
+                return token
+        except psycopg2.errors.UniqueViolation:
+            db().rollback()
+            continue
+    cur.close()
+    return None
 
 
 @app.get("/painel/admin/cupons")

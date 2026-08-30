@@ -1,0 +1,100 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Rastreio do pedido{% endblock %}
+
+{% block extra_style %}
+<style>
+.rp-wrap { max-width:560px; margin:0 auto; padding:28px 16px 70px; }
+.rp-banner { border-radius:16px; padding:20px 22px; margin-bottom:18px; display:flex; align-items:center; gap:16px; color:#fff; background:linear-gradient(135deg,#c8102e,#e8354a); }
+.rp-banner.retirada { background:linear-gradient(135deg,#1d4ed8,#2563eb); }
+.rp-banner-icon { width:52px; height:52px; border-radius:14px; background:rgba(255,255,255,.22); display:flex; align-items:center; justify-content:center; font-size:1.4rem; flex-shrink:0; }
+.rp-banner-kicker { font-size:.72rem; font-weight:900; text-transform:uppercase; letter-spacing:.06em; opacity:.85; margin-bottom:2px; }
+.rp-banner-title { font-size:1.1rem; font-weight:900; line-height:1.25; }
+.rp-banner-sub { font-size:.84rem; opacity:.92; margin-top:2px; }
+
+.rp-card { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); overflow:hidden; margin-bottom:14px; }
+.rp-card-head { padding:14px 18px; background:#fafafa; border-bottom:1px solid var(--pq-border); font-weight:900; }
+
+.rp-vtimeline { padding:20px 20px 6px; }
+.rpvt-step { display:flex; gap:14px; position:relative; padding-bottom:22px; }
+.rpvt-step:last-child { padding-bottom:6px; }
+.rpvt-line-wrap { display:flex; flex-direction:column; align-items:center; flex-shrink:0; }
+.rpvt-dot { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.82rem; background:#f3f4f6; color:#9ca3af; z-index:1; }
+.rpvt-line { width:2px; flex:1; background:#e5e7eb; margin-top:2px; }
+.rpvt-step.done .rpvt-dot { background:#22c55e; color:#fff; }
+.rpvt-step.done .rpvt-line { background:#22c55e; }
+.rpvt-step.atual .rpvt-dot { background:var(--pq-red); color:#fff; }
+.rpvt-body { flex:1; min-width:0; padding-top:3px; }
+.rpvt-label-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.rpvt-label { font-weight:900; font-size:.92rem; color:#9ca3af; }
+.rpvt-step.done .rpvt-label, .rpvt-step.atual .rpvt-label { color:#111827; }
+.rpvt-now-tag { background:#fee2e2; color:var(--pq-red); font-size:.66rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:999px; }
+.rpvt-time { font-size:.78rem; color:var(--pq-muted); margin-top:2px; font-weight:700; }
+
+.rp-info { padding:14px 18px; font-size:.86rem; color:#444; line-height:1.5; }
+.rp-info b { display:block; color:#111; margin-bottom:2px; }
+
+.rp-done-box { text-align:center; padding:48px 24px; color:var(--pq-muted); }
+.rp-done-box i { font-size:2.6rem; opacity:.25; display:block; margin-bottom:14px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rp-wrap">
+  {% if finalizado %}
+  <div class="rp-card">
+    <div class="rp-done-box">
+      <i class="fa fa-circle-check"></i>
+      <h5 style="margin:0 0 6px;color:#111;font-weight:900">Esse pedido já foi concluído</h5>
+      <p style="margin:0">O rastreio fica disponível só enquanto {{ 'a retirada' if pedido.tipo_entrega == 'retirada' else 'a entrega' }} ainda está em andamento.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="rp-banner {{ 'retirada' if pedido.tipo_entrega == 'retirada' }}">
+    <div class="rp-banner-icon"><i class="fa fa-{{ 'store' if pedido.tipo_entrega == 'retirada' else 'truck' }}"></i></div>
+    <div>
+      <div class="rp-banner-kicker">Rastreio do pedido</div>
+      <div class="rp-banner-title">{{ pedido.razao }}</div>
+      <div class="rp-banner-sub">
+        {% if pedido.tipo_entrega == 'retirada' %}Acompanhe abaixo até a retirada na loja.
+        {% else %}Acompanhe abaixo até a entrega chegar.{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="rp-card">
+    <div class="rp-card-head"><i class="fa fa-timeline me-2" style="color:var(--pq-red)"></i>Status</div>
+    <div class="rp-vtimeline">
+      {% for passo in timeline %}
+      <div class="rpvt-step {% if passo.done %}done{% endif %} {% if passo.atual %}atual{% endif %}">
+        <div class="rpvt-line-wrap">
+          <div class="rpvt-dot"><i class="fa fa-{{ 'check' if passo.done and not passo.atual else ('circle-dot' if passo.atual else 'circle') }}"></i></div>
+          {% if not loop.last %}<div class="rpvt-line"></div>{% endif %}
+        </div>
+        <div class="rpvt-body">
+          <div class="rpvt-label-row">
+            <span class="rpvt-label">{{ passo.label }}</span>
+            {% if passo.atual %}<span class="rpvt-now-tag">Agora</span>{% endif %}
+          </div>
+          {% if passo.timestamp_label %}
+          <div class="rpvt-time">{{ passo.timestamp_label }}</div>
+          {% elif not passo.done and not loop.first and timeline[loop.index0 - 1].atual and pedido.previsao_entrega_em_label %}
+          <div class="rpvt-time">Previsto {{ pedido.previsao_entrega_em_label }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if pedido.tipo_entrega == 'retirada' %}
+  <div class="rp-card">
+    <div class="rp-info">
+      <b><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>Onde retirar</b>
+      {{ pedido.loja_endereco or 'Endereço com a loja.' }}
+      {% if pedido.loja_telefone %}<br>Telefone: {{ pedido.loja_telefone }}{% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

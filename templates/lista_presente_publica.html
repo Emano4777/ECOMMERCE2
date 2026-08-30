@@ -1,0 +1,63 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Lista de presentes{% endblock %}
+
+{% block extra_style %}
+<style>
+.pres-wrap { max-width:960px; margin:0 auto; padding:28px 16px 70px; }
+.pres-head { text-align:center; margin-bottom:24px; }
+.pres-head i { font-size:2.4rem; color:var(--pq-red); display:block; margin-bottom:10px; }
+.pres-head h1 { margin:0 0 6px; font-size:1.35rem; font-weight:900; }
+.pres-head p { color:var(--pq-muted); font-size:.88rem; margin:0; }
+.pres-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+.pres-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; box-shadow:var(--pq-shadow); overflow:hidden; display:flex; flex-direction:column; }
+.pres-img { height:150px; background:#f7f7f7; display:flex; align-items:center; justify-content:center; }
+.pres-img img { max-width:88%; max-height:132px; object-fit:contain; }
+.pres-body { padding:13px; display:flex; flex-direction:column; gap:7px; flex:1; }
+.pres-name { font-weight:900; line-height:1.3; font-size:.9rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.35em; }
+.pres-store { color:var(--pq-muted); font-size:.76rem; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pres-price { color:var(--pq-red); font-weight:900; font-size:1.15rem; margin-top:auto; }
+.pres-view { display:block; margin-top:8px; border-radius:9px; padding:10px; font-family:inherit; font-size:.82rem; font-weight:900; text-align:center; text-decoration:none; background:var(--pq-red); color:#fff; }
+.pres-empty { background:#fff; border:1px solid var(--pq-border); border-radius:16px; box-shadow:var(--pq-shadow); text-align:center; padding:56px 20px; color:var(--pq-muted); }
+.pres-empty i { font-size:3rem; opacity:.24; margin-bottom:14px; display:block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pres-wrap">
+  <div class="pres-head">
+    <i class="fa fa-gift"></i>
+    <h1>Lista de presentes de {{ primeiro_nome }}</h1>
+    <p>Esses são os produtos que {{ primeiro_nome }} salvou. Escolha um e compre pra presentear.</p>
+  </div>
+
+  {% if itens %}
+  <div class="pres-grid">
+    {% for f in itens %}
+    <div class="pres-card">
+      <div class="pres-img">
+        {% if f.imagem %}
+        <img src="{{ f.imagem }}" alt="{{ f.nome }}" onerror="this.outerHTML='<i class=\'fa fa-pills\' style=\'font-size:2.6rem;color:#ccc\'></i>'">
+        {% else %}
+        <i class="fa fa-pills" style="font-size:2.6rem;color:#ccc"></i>
+        {% endif %}
+      </div>
+      <div class="pres-body">
+        <div class="pres-name">{{ f.nome }}</div>
+        <div class="pres-store">
+          {% if f.logo_url %}<img src="{{ f.logo_url }}" alt="" style="width:14px;height:14px;border-radius:4px;object-fit:cover;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><i class="fa fa-store me-1" style="display:none"></i>{% else %}<i class="fa fa-store me-1"></i>{% endif %}{{ f.razao or 'Farmácia Poupaqui' }}
+        </div>
+        {% if f.preco %}<div class="pres-price">{{ money(f.preco) }}</div>{% endif %}
+        <a class="pres-view" href="{{ url_for('produto_detalhe', ean=f.ean, cnpj=f.cnpjloja, nome=f.nome) }}"><i class="fa fa-bag-shopping me-1"></i>Ver e comprar</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pres-empty">
+    <i class="fa fa-gift"></i>
+    <h5>Lista vazia por enquanto</h5>
+    <p>{{ primeiro_nome }} ainda não salvou nenhum produto.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

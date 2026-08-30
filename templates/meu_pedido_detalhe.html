@@ -289,6 +289,14 @@
     </div>
     {% endif %}
 
+    {% if link_rastreio %}
+    <div style="display:flex;align-items:center;gap:10px;background:#f7f7f7;border:1px dashed var(--pq-border);border-radius:12px;padding:11px 14px;margin:0 0 16px;flex-wrap:wrap">
+      <i class="fa fa-share-nodes" style="color:var(--pq-red)"></i>
+      <span style="flex:1;min-width:180px;font-size:.8rem;color:#444"><b>Alguém vai receber por você?</b> Compartilhe o rastreio sem precisar dar acesso à sua conta.</span>
+      <button type="button" onclick="pdCopiarRastreio(this)" style="border:1.5px solid var(--pq-red);background:none;color:var(--pq-red);border-radius:8px;padding:8px 13px;font-size:.78rem;font-weight:900;cursor:pointer;font-family:inherit"><i class="fa fa-copy me-1"></i>Copiar link de rastreio</button>
+    </div>
+    {% endif %}
+
     <div class="status-box">
       <div style="grid-column:1 / -1">
         <div class="info-chips">
@@ -757,6 +765,18 @@
 
 {% block extra_js %}
 <script>window.PQ_SUPORTE_PEDIDO_ID = "{{ pedido.id }}";</script>
+{% if link_rastreio %}
+<script>
+function pdCopiarRastreio(btn) {
+  const link = {{ link_rastreio | tojson }};
+  navigator.clipboard.writeText(link).then(() => {
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado!';
+    setTimeout(() => { btn.innerHTML = original; }, 2000);
+  }).catch(() => prompt('Copie o link de rastreio:', link));
+}
+</script>
+{% endif %}
 <script>
 function abrirAjudaPedido() {
   // O formulario de reclamacao (#form-reclamacao) so existe na pagina pra

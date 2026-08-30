@@ -372,6 +372,22 @@
     <div class="orders-summary-card"><span>Economia total</span><strong>{{ money(economia_total) }}</strong></div>
   </div>
 
+  {% set _pontos_falta_p = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
+  {% set _pontos_falta_p = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta_p %}
+  <div class="pq-pontos-box" style="margin:0 0 16px;padding:16px 18px">
+    <div class="pq-pontos-top">
+      <span style="font-size:.95rem"><i class="fa fa-star"></i> Você tem {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
+      <span class="pq-pontos-msg" style="font-size:.78rem">
+        {% if consumidor_pontos_compras == 0 %}Faça sua primeira compra e comece a pontuar
+        {% elif _pontos_falta_p == 0 %}Recompensa desbloqueada! 🎉
+        {% elif _pontos_falta_p == 1 %}Você está quase lá — falta 1 compra pra sua recompensa!
+        {% else %}Faltam {{ _pontos_falta_p }} compras pra sua próxima recompensa
+        {% endif %}
+      </span>
+    </div>
+    <div class="pq-pontos-bar" style="height:8px"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta_p != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
+  </div>
+
   <div class="orders-tools" aria-label="Filtros de pedidos">
     <label class="orders-search">
       <i class="fa fa-magnifying-glass"></i>

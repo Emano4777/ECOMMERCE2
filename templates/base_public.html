@@ -363,6 +363,13 @@
     }
     .pq-user-quick small { display:block; color:var(--pq-muted); font-size:.67rem; font-weight:800; margin-top:2px; line-height:1.35; }
     .pq-user-quick a span { min-width:0; word-break:break-word; }
+    .pq-pontos-box { margin:0 10px 4px; padding:12px 13px; border-radius:12px; background:linear-gradient(135deg,#fff8e6,#fff1d1); border:1px solid #f5deA0; }
+    .pq-pontos-top { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:7px; }
+    .pq-pontos-top > span:first-child { font-weight:900; font-size:.85rem; color:#8a6300; display:flex; align-items:center; gap:6px; }
+    .pq-pontos-top > span:first-child i { color:#e0a020; }
+    .pq-pontos-msg { font-size:.72rem; font-weight:800; color:#a17a00; }
+    .pq-pontos-bar { height:6px; border-radius:999px; background:#f0e0b0; overflow:hidden; }
+    .pq-pontos-bar > div { height:100%; background:#e0a020; border-radius:999px; transition:width .3s; }
     .pq-user-list { padding:8px 10px 10px; }
     .pq-user-section-title {
       color:var(--pq-muted);
@@ -1177,6 +1184,21 @@
           <a href="{{ url_for('consumidor_notificacoes') }}"><i class="fa fa-bell"></i><span>Notificacoes<small>Alertas e novidades</small></span>{% if consumidor_notif_nao_lidas > 0 %}<small style="color:#c8102e;font-weight:900">{{ consumidor_notif_nao_lidas }}</small>{% endif %}</a>
           <a href="{{ url_for('consumidor_favoritos') }}"><i class="fa fa-heart"></i><span>Favoritos<small>Produtos salvos</small></span></a>
         </div>
+        {% set _pontos_falta = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
+        {% set _pontos_falta = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta %}
+        <div class="pq-pontos-box">
+          <div class="pq-pontos-top">
+            <span><i class="fa fa-star"></i> {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
+            <span class="pq-pontos-msg">
+              {% if consumidor_pontos_compras == 0 %}Compre e comece a pontuar
+              {% elif _pontos_falta == 0 %}Recompensa desbloqueada! 🎉
+              {% elif _pontos_falta == 1 %}Falta 1 compra pra sua recompensa!
+              {% else %}Faltam {{ _pontos_falta }} compras pra sua recompensa
+              {% endif %}
+            </span>
+          </div>
+          <div class="pq-pontos-bar"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
+        </div>
         <div class="pq-user-list">
         <div class="pq-user-section-title">Atalhos da conta</div>
         {% if consumidor_rec_abertas > 0 %}
@@ -1235,6 +1257,21 @@
       <strong>{{ consumidor.nome }}</strong>
       <span>{{ consumidor.email }}</span>
     </div>
+  </div>
+  {% set _pontos_falta_d = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
+  {% set _pontos_falta_d = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta_d %}
+  <div class="pq-pontos-box" style="margin:8px 12px">
+    <div class="pq-pontos-top">
+      <span><i class="fa fa-star"></i> {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
+      <span class="pq-pontos-msg">
+        {% if consumidor_pontos_compras == 0 %}Compre e comece a pontuar
+        {% elif _pontos_falta_d == 0 %}Recompensa desbloqueada! 🎉
+        {% elif _pontos_falta_d == 1 %}Falta 1 compra pra sua recompensa!
+        {% else %}Faltam {{ _pontos_falta_d }} compras pra sua recompensa
+        {% endif %}
+      </span>
+    </div>
+    <div class="pq-pontos-bar"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta_d != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
   </div>
   <div style="padding:4px 0">
     <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
