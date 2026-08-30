@@ -5606,7 +5606,14 @@ def _ocr_image_text(image_url):
             },
             method="POST",
         )
-        timeout = float(os.getenv("OCR_SPACE_TIMEOUT", "2"))
+        # 2s de timeout falhava silenciosamente com frequencia (a chamada real
+        # pra API do OCR.space costuma levar 1.5-3s) -- e como falha de OCR
+        # e tratada como "sem texto encontrado" (fail-open, nao fail-closed),
+        # isso deixava passar imagem com logo de farmacia concorrente que
+        # nunca chegava a ser lida. 8s da margem real sem travar por muito
+        # tempo; o resultado fica em cache em memoria por URL, entao so paga
+        # esse custo 1x por imagem nova.
+        timeout = float(os.getenv("OCR_SPACE_TIMEOUT", "8"))
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8", "ignore"))
         text = " ".join(
@@ -5635,6 +5642,13 @@ def _is_untrusted_scraped_image(image_url):
         "/pedidoeletronico/google_auto/" in image_url
         or "/google_auto/" in image_url
         or "/medicamentos-auto-ean/" in image_url
+        # Bucket real onde _preencher_imagem_produto salva o que busca na web
+        # (Serper/Google Images, codigo de barras) -- faltava aqui, entao a
+        # rede de seguranca de OCR nunca rodava pra essas imagens no catalogo
+        # em lote, so no momento da busca (e la o timeout curto do OCR falhava
+        # calado, deixando passar imagem com logo de farmacia concorrente).
+        or "/produto-imagens/auto-ean/" in image_url
+        or "/auto-ean/" in image_url
     )
 
 
