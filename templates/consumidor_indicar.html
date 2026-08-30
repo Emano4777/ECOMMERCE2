@@ -34,13 +34,20 @@
 .ind-copy-btn:hover { background:#fff5f7; }
 .ind-copy-btn.copied { background:var(--pq-red); color:#fff; }
 
-.ind-wpp-btn {
-  display:flex; align-items:center; justify-content:center; gap:9px;
-  width:100%; margin-top:10px; background:#25d366; color:#fff; border:none;
-  border-radius:10px; padding:13px 18px; font-size:.9rem; font-weight:800;
-  cursor:pointer; font-family:inherit; text-decoration:none;
+.ind-share-row { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; margin-top:10px; }
+.ind-share-btn {
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  border:none; border-radius:10px; padding:12px 14px; font-size:.84rem; font-weight:800;
+  cursor:pointer; font-family:inherit; text-decoration:none; color:#fff;
 }
-.ind-wpp-btn:hover { background:#20bd5a; color:#fff; }
+.ind-share-btn.wa { background:#25d366; }
+.ind-share-btn.wa:hover { background:#20bd5a; color:#fff; }
+.ind-share-btn.ig { background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7); }
+.ind-share-btn.ig:hover { opacity:.9; color:#fff; }
+.ind-share-btn.fb { background:#1877f2; }
+.ind-share-btn.fb:hover { background:#1465d0; color:#fff; }
+.ind-share-btn.tg { background:#29a9eb; }
+.ind-share-btn.tg:hover { background:#2493cc; color:#fff; }
 
 .ind-section-hd {
   font-size:.78rem; font-weight:900; text-transform:uppercase; letter-spacing:.5px;
@@ -90,9 +97,12 @@
       <input class="ind-link-input" id="ind-link-input" type="text" value="{{ link }}" readonly onclick="this.select()">
       <button class="ind-copy-btn" id="ind-copy-btn" onclick="indCopiarLink()"><i class="fa fa-copy me-1"></i>Copiar</button>
     </div>
-    <a class="ind-wpp-btn" href="#" id="ind-wpp-link" onclick="return indAbrirWhatsapp()">
-      <i class="fa-brands fa-whatsapp" style="font-size:1.1rem"></i>Compartilhar no WhatsApp
-    </a>
+    <div class="ind-share-row">
+      <button type="button" class="ind-share-btn wa" onclick="indCompartilhar('whatsapp')"><i class="fa-brands fa-whatsapp"></i>WhatsApp</button>
+      <button type="button" class="ind-share-btn ig" onclick="indCompartilhar('instagram')"><i class="fa-brands fa-instagram"></i>Instagram</button>
+      <button type="button" class="ind-share-btn fb" onclick="indCompartilhar('facebook')"><i class="fa-brands fa-facebook"></i>Facebook</button>
+      <button type="button" class="ind-share-btn tg" onclick="indCompartilhar('telegram')"><i class="fa-brands fa-telegram"></i>Telegram</button>
+    </div>
   </div>
   {% else %}
   <div class="ind-empty">
@@ -145,11 +155,23 @@ function indCopiarLink() {
     prompt('Copie o link:', input.value);
   });
 }
-function indAbrirWhatsapp() {
+async function indCompartilhar(canal) {
   const link = document.getElementById('ind-link-input').value;
   const texto = `Oi! Estou usando o Poupaqui pra comprar remédio com entrega rápida e achei bom. Se cadastrar por esse link a gente ganha desconto: ${link}`;
-  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
-  return false;
+  if (canal === 'whatsapp') {
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
+  } else if (canal === 'facebook') {
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`, '_blank', 'noopener');
+  } else if (canal === 'telegram') {
+    window.open(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
+  } else if (canal === 'instagram') {
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch (e) {
+      prompt('Copie o texto pra colar no Instagram:', texto);
+    }
+    window.open('https://www.instagram.com/', '_blank', 'noopener');
+  }
 }
 </script>
 {% endblock %}

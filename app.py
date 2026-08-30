@@ -981,7 +981,7 @@ def _ensure_consumidor_profile_columns():
 
 # ─── PROGRAMA DE INDICAÇÃO ("chame um amigo") ──────────────────────────────
 INDICACAO_DESCONTO_TIPO = "valor"
-INDICACAO_DESCONTO_VALOR = 5.0
+INDICACAO_DESCONTO_VALOR = 10.0
 INDICACAO_VALIDADE_DIAS = 90
 
 
