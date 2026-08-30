@@ -5578,7 +5578,16 @@ def _ocr_space_api_key():
     return os.getenv("OCR_SPACE_API_KEY", "").strip()
 
 
-def _ocr_image_text(image_url):
+def _ocr_image_text(image_url, _tentativas=2):
+    """Le o texto de uma imagem via OCR.space. Retorna "" quando o OCR rodou
+    de verdade e nao achou texto nenhum, e None quando NAO foi possivel
+    verificar (timeout, erro de rede, HTTP 429 de rate limit etc) -- os dois
+    casos sao bem diferentes: "" e um resultado confiavel, None e "nao sei".
+    Callers que decidem se uma imagem pode ser salva/exibida devem tratar
+    None como "nao confirmado, na duvida nao usa" (fail-closed), nao como
+    "sem texto = liberado" -- foi exatamente a falha anterior (timeout de 2s
+    tratado como "sem texto" fail-open) que deixou passar logo de farmacia
+    concorrente sem nunca ter sido lida de verdade."""
     image_url = (image_url or "").strip()
     if not image_url:
         return ""
@@ -5587,52 +5596,56 @@ def _ocr_image_text(image_url):
         return cached
     api_key = _ocr_space_api_key()
     if not api_key:
-        _OCR_TEXT_CACHE[image_url] = ""
-        return ""
-    try:
-        payload = urllib.parse.urlencode({
-            "apikey": api_key,
-            "url": image_url,
-            "language": "por",
-            "scale": "true",
-            "OCREngine": "2",
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            "https://api.ocr.space/parse/image",
-            data=payload,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "PoupaquiEcommerce/1.0 (image-ocr)",
-            },
-            method="POST",
-        )
-        # 2s de timeout falhava silenciosamente com frequencia (a chamada real
-        # pra API do OCR.space costuma levar 1.5-3s) -- e como falha de OCR
-        # e tratada como "sem texto encontrado" (fail-open, nao fail-closed),
-        # isso deixava passar imagem com logo de farmacia concorrente que
-        # nunca chegava a ser lida. 8s da margem real sem travar por muito
-        # tempo; o resultado fica em cache em memoria por URL, entao so paga
-        # esse custo 1x por imagem nova.
-        timeout = float(os.getenv("OCR_SPACE_TIMEOUT", "8"))
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read().decode("utf-8", "ignore"))
-        text = " ".join(
-            (item.get("ParsedText") or "")
-            for item in (data.get("ParsedResults") or [])
-            if isinstance(item, dict)
-        )
-    except Exception:
-        text = ""
-    _OCR_TEXT_CACHE[image_url] = text
-    return text
+        return None  # sem chave configurada, nunca da pra confirmar nada
+    timeout = float(os.getenv("OCR_SPACE_TIMEOUT", "8"))
+    for tentativa in range(_tentativas):
+        try:
+            payload = urllib.parse.urlencode({
+                "apikey": api_key,
+                "url": image_url,
+                "language": "por",
+                "scale": "true",
+                "OCREngine": "2",
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.ocr.space/parse/image",
+                data=payload,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": "PoupaquiEcommerce/1.0 (image-ocr)",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+            text = " ".join(
+                (item.get("ParsedText") or "")
+                for item in (data.get("ParsedResults") or [])
+                if isinstance(item, dict)
+            )
+            _OCR_TEXT_CACHE[image_url] = text
+            return text
+        except urllib.error.HTTPError as e:
+            # 429 (rate limit) e 5xx costumam ser transitorios -- vale
+            # tentar de novo com uma pequena pausa antes de desistir.
+            if e.code in (429, 500, 502, 503, 504) and tentativa + 1 < _tentativas:
+                time.sleep(2.5)
+                continue
+            break
+        except Exception:
+            if tentativa + 1 < _tentativas:
+                time.sleep(1.5)
+                continue
+            break
+    return None  # nao guarda None no cache -- proxima chamada tenta de novo
 
 
 def _image_has_other_pharmacy_text(image_url):
-    return _looks_like_other_pharmacy_brand(_ocr_image_text(image_url))
+    return bool(_looks_like_other_pharmacy_brand(_ocr_image_text(image_url) or ""))
 
 
 def _image_looks_non_product(image_url):
-    text = _ocr_image_text(image_url)
+    text = _ocr_image_text(image_url) or ""
     return bool(_NON_PRODUCT_IMAGE_RE.search(text or ""))
 
 
@@ -5877,11 +5890,19 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
                 if not source_url or source_url in seen_sources:
                     continue
                 seen_sources.add(source_url)
-                if (
-                    _looks_like_other_pharmacy_brand(source_url)
-                    or _image_has_other_pharmacy_text(source_url)
-                    or _image_looks_non_product(source_url)
-                ):
+                if _looks_like_other_pharmacy_brand(source_url):
+                    continue
+                # Antes de salvar uma imagem nova, confirma via OCR que ela
+                # nao traz logo de farmacia concorrente nem cara de banner/
+                # propaganda. Se o OCR nao conseguir verificar (timeout, API
+                # fora do ar, rate limit apos as tentativas) o candidato e
+                # descartado tambem -- na duvida, nao guarda imagem que nao
+                # deu pra conferir (fail-closed; ao contrario do fail-open
+                # de antes, que foi o que deixou passar o caso relatado).
+                _ocr_texto = _ocr_image_text(source_url)
+                if _ocr_texto is None:
+                    continue
+                if _looks_like_other_pharmacy_brand(_ocr_texto) or _NON_PRODUCT_IMAGE_RE.search(_ocr_texto):
                     continue
                 raw, ext, content_type = _download_image_for_storage(source_url)
                 if raw:
