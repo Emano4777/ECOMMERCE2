@@ -712,12 +712,18 @@ def _alpha_catalog_sync_if_needed(cur=None, cnpjloja=None, force=False):
 # A cada N pontos (1 ponto = 1 compra concluida) o cliente sobe de nivel.
 # So exibicao por enquanto -- nao muda nenhuma regra de preco/desconto.
 _NIVEIS_PONTOS = [
-    {"nome": "Cliente Poupaqui",         "icone": "seedling"},
-    {"nome": "Caçador de Ofertas",       "icone": "magnifying-glass-dollar"},
-    {"nome": "Economista de Plantão",    "icone": "briefcase-medical"},
-    {"nome": "Mestre da Economia",       "icone": "trophy"},
-    {"nome": "Lenda Poupaqui",           "icone": "crown"},
-    {"nome": "Ícone Poupaqui",           "icone": "star"},
+    {"nome": "Cliente Poupaqui", "icone": "seedling",
+     "desc": "Você deu o primeiro passo! Continue comprando pra começar a desbloquear vantagens."},
+    {"nome": "Caçador de Ofertas", "icone": "magnifying-glass-dollar",
+     "desc": "Acesso antecipado às promoções relâmpago da sua farmácia, antes de todo mundo."},
+    {"nome": "Economista de Plantão", "icone": "briefcase-medical",
+     "desc": "Cupons de desconto exclusivos, maiores que os cupons padrão da loja."},
+    {"nome": "Mestre da Economia", "icone": "trophy",
+     "desc": "Frete grátis em pedidos selecionados, além de tudo dos níveis anteriores."},
+    {"nome": "Lenda Poupaqui", "icone": "crown",
+     "desc": "Atendimento prioritário e presentes surpresa em datas especiais."},
+    {"nome": "Ícone Poupaqui", "icone": "star",
+     "desc": "O topo do Poupaqui: os melhores benefícios da plataforma, liberados pra sempre."},
 ]
 
 
@@ -30124,6 +30130,30 @@ def api_verificar_email_existe():
 @app.get("/baixar-app")
 def baixar_app():
     return render_template("baixar_app.html")
+
+
+@app.get("/niveis")
+def consumidor_niveis():
+    """Explica o que cada nivel do programa de pontos significa. Publica --
+    da pra ver os niveis sem estar logado -- mas destaca o nivel atual pra
+    quem esta logado."""
+    pontos = 0
+    if session.get("consumidor_id"):
+        cur = db().cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE consumidor_id=%s AND status<>'cancelado'",
+            (session["consumidor_id"],),
+        )
+        pontos = (cur.fetchone() or {}).get("n", 0) or 0
+        cur.close()
+    atual = _nivel_pontos(pontos, 5)
+    niveis = []
+    for i, n in enumerate(_NIVEIS_PONTOS):
+        niveis.append({
+            "indice": i, "nome": n["nome"], "icone": n["icone"], "desc": n["desc"],
+            "pontos_min": i * 5,
+        })
+    return render_template("consumidor_niveis.html", niveis=niveis, pontos=pontos, atual=atual)
 
 
 # ─── LGPD — POLÍTICA DE PRIVACIDADE ──────────────────────────────────────────

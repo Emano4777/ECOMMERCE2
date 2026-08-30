@@ -1,0 +1,85 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Níveis e prêmios{% endblock %}
+
+{% block extra_style %}
+<style>
+.niv-wrap { max-width:720px; margin:0 auto; padding:32px 16px 76px; }
+.niv-hero { text-align:center; margin-bottom:6px; }
+.niv-hero i.niv-hero-ico { font-size:2.2rem; color:var(--pq-red); display:block; margin-bottom:10px; }
+.niv-hero h1 { margin:0 0 8px; font-size:1.5rem; font-weight:900; }
+.niv-hero p { color:var(--pq-muted); font-size:.9rem; max-width:480px; margin:0 auto; line-height:1.5; }
+
+.niv-em-breve { display:flex; align-items:center; gap:9px; justify-content:center; background:#eef5ff; border:1px solid #bfd9ff; color:#1d4ed8; border-radius:10px; padding:9px 14px; font-size:.76rem; font-weight:800; margin:18px 0 30px; }
+
+.niv-atual-card { background:linear-gradient(135deg,#fff8e6,#fff1d1); border:1px solid #f5deA0; border-radius:16px; padding:20px; margin-bottom:32px; text-align:center; }
+.niv-atual-card i { font-size:2rem; color:var(--pq-red); display:block; margin-bottom:8px; }
+.niv-atual-card .lbl { font-size:.7rem; font-weight:900; text-transform:uppercase; letter-spacing:.05em; color:#a17a00; }
+.niv-atual-card h2 { margin:4px 0 6px; font-size:1.25rem; font-weight:900; color:#222; }
+.niv-atual-card .pts { font-size:.82rem; color:#7a4a00; font-weight:800; }
+
+.niv-linha { position:relative; padding-left:44px; }
+.niv-linha::before { content:''; position:absolute; left:19px; top:8px; bottom:8px; width:2px; background:var(--pq-border); }
+.niv-item { position:relative; padding-bottom:30px; }
+.niv-item:last-child { padding-bottom:0; }
+.niv-item-dot { position:absolute; left:-44px; top:0; width:40px; height:40px; border-radius:50%; background:#f0f0f0; color:#999; display:flex; align-items:center; justify-content:center; font-size:1.05rem; border:3px solid #fff; box-shadow:0 0 0 2px var(--pq-border); }
+.niv-item.atual .niv-item-dot { background:var(--pq-red); color:var(--pq-yellow); box-shadow:0 0 0 3px var(--pq-red), 0 0 18px rgba(200,16,46,.35); }
+.niv-item.passado .niv-item-dot { background:#ffe8d0; color:#c8862a; box-shadow:0 0 0 2px #f0c98a; }
+.niv-card { background:#fff; border:1px solid var(--pq-border); border-radius:14px; padding:16px 18px; box-shadow:var(--pq-shadow); }
+.niv-item.atual .niv-card { border-color:var(--pq-red); box-shadow:0 4px 18px rgba(200,16,46,.14); }
+.niv-card-top { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.niv-card-top h3 { margin:0; font-size:1rem; font-weight:900; }
+.niv-tag { font-size:.66rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; padding:3px 9px; border-radius:999px; }
+.niv-tag.atual { background:var(--pq-red); color:#fff; }
+.niv-tag.pts { background:#f2f2f2; color:#777; }
+.niv-card p { margin:0; color:var(--pq-muted); font-size:.85rem; line-height:1.5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="niv-wrap">
+  <div class="niv-hero">
+    <i class="fa fa-ranking-star niv-hero-ico"></i>
+    <h1>Níveis e prêmios Poupaqui</h1>
+    <p>A cada 5 compras você sobe de nível. Quanto mais alto o nível, maior o prêmio dentro do site.</p>
+  </div>
+
+  <div class="niv-em-breve"><i class="fa fa-hourglass-half"></i>Os prêmios de cada nível estão a caminho — aqui você já pode acompanhar sua evolução.</div>
+
+  {% if consumidor %}
+  <div class="niv-atual-card">
+    <i class="fa fa-{{ atual.icone }}"></i>
+    <div class="lbl">Você está no nível</div>
+    <h2>{{ atual.indice + 1 }} · {{ atual.nome }}</h2>
+    <div class="pts">{{ pontos }} ponto{{ 's' if pontos != 1 }} · faltam {{ 5 - (pontos % 5) if pontos % 5 != 0 else 0 }} pra virar {{ atual.proximo_nome }}</div>
+  </div>
+  {% endif %}
+
+  <div class="niv-linha">
+    {% for n in niveis %}
+    <div class="niv-item {{ 'atual' if consumidor and atual.indice == n.indice else ('passado' if consumidor and atual.indice > n.indice else '') }}">
+      <div class="niv-item-dot"><i class="fa fa-{{ n.icone }}"></i></div>
+      <div class="niv-card">
+        <div class="niv-card-top">
+          <h3>Nível {{ n.indice + 1 }} · {{ n.nome }}</h3>
+          <div style="display:flex;gap:6px">
+            {% if consumidor and atual.indice == n.indice %}<span class="niv-tag atual">Você está aqui</span>{% endif %}
+            <span class="niv-tag pts">{{ n.pontos_min }}+ pontos</span>
+          </div>
+        </div>
+        <p>{{ n.desc }}</p>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="niv-item {{ 'atual' if consumidor and atual.indice >= niveis|length else '' }}">
+      <div class="niv-item-dot"><i class="fa fa-infinity"></i></div>
+      <div class="niv-card">
+        <div class="niv-card-top">
+          <h3>Daí em diante...</h3>
+          {% if consumidor and atual.indice >= niveis|length %}<span class="niv-tag atual">Você está aqui</span>{% endif %}
+        </div>
+        <p>Depois do nível {{ niveis|length }}, sua pontuação continua subindo e o seu status de {{ niveis[-1].nome }} permanece — sempre com os melhores benefícios do Poupaqui.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -363,7 +363,8 @@
     }
     .pq-user-quick small { display:block; color:var(--pq-muted); font-size:.67rem; font-weight:800; margin-top:2px; line-height:1.35; }
     .pq-user-quick a span { min-width:0; word-break:break-word; }
-    .pq-pontos-box { margin:0 10px 4px; padding:12px 13px; border-radius:12px; background:linear-gradient(135deg,#fff8e6,#fff1d1); border:1px solid #f5deA0; }
+    .pq-pontos-box { display:block; text-decoration:none; color:inherit; margin:0 10px 4px; padding:12px 13px; border-radius:12px; background:linear-gradient(135deg,#fff8e6,#fff1d1); border:1px solid #f5deA0; transition:box-shadow .15s; }
+    a.pq-pontos-box:hover { box-shadow:0 4px 14px rgba(224,160,32,.25); }
     .pq-pontos-nivel { display:flex; align-items:center; gap:7px; font-weight:900; font-size:.78rem; color:#7a4a00; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed #e8cf8a; }
     .pq-pontos-nivel i { color:var(--pq-red); font-size:.85rem; }
     .pq-pontos-top { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:7px; }
@@ -1188,8 +1189,8 @@
         </div>
         {% set _pontos_falta = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
         {% set _pontos_falta = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta %}
-        <div class="pq-pontos-box">
-          <div class="pq-pontos-nivel"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}</div>
+        <a class="pq-pontos-box" href="{{ url_for('consumidor_niveis') }}">
+          <div class="pq-pontos-nivel"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}<i class="fa fa-chevron-right" style="margin-left:auto;font-size:.62rem;opacity:.6"></i></div>
           <div class="pq-pontos-top">
             <span><i class="fa fa-star"></i> {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
             <span class="pq-pontos-msg">
@@ -1201,7 +1202,7 @@
             </span>
           </div>
           <div class="pq-pontos-bar"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
-        </div>
+        </a>
         <div class="pq-user-list">
         <div class="pq-user-section-title">Atalhos da conta</div>
         {% if consumidor_rec_abertas > 0 %}
@@ -1224,7 +1225,7 @@
         <a class="pq-user-item" href="{{ url_for('consumidor_lista_presentes') }}"><i class="fa fa-gift"></i><span>Lista de presentes<small>Compartilhe pra ganhar de alguém</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_indicar') }}"><i class="fa fa-user-plus" style="color:#25d366"></i><span>Indique um amigo<small>Ganhe cupom a cada indicação</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
-        <a class="pq-user-item" href="{{ url_for('baixar_app') }}"><i class="fa fa-mobile-screen-button"></i><span>Baixar app<small>Instale no seu celular</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item js-baixar-app-link" href="{{ url_for('baixar_app') }}"><i class="fa fa-mobile-screen-button"></i><span>Baixar app<small>Instale no seu celular</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i><span>Sair</span></a>
         </div>
@@ -1265,8 +1266,8 @@
   </div>
   {% set _pontos_falta_d = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
   {% set _pontos_falta_d = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta_d %}
-  <div class="pq-pontos-box" style="margin:8px 12px">
-    <div class="pq-pontos-nivel"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}</div>
+  <a class="pq-pontos-box" style="margin:8px 12px" href="{{ url_for('consumidor_niveis') }}" onclick="fecharDrawer()">
+    <div class="pq-pontos-nivel"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}<i class="fa fa-chevron-right" style="margin-left:auto;font-size:.62rem;opacity:.6"></i></div>
     <div class="pq-pontos-top">
       <span><i class="fa fa-star"></i> {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
       <span class="pq-pontos-msg">
@@ -1278,7 +1279,7 @@
       </span>
     </div>
     <div class="pq-pontos-bar"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta_d != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
-  </div>
+  </a>
   <div style="padding:4px 0">
     <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
       <i class="fa fa-receipt"></i>Meus pedidos
@@ -1313,7 +1314,7 @@
     <a class="pq-drawer-item" href="{{ url_for('minhas_assinaturas') }}" onclick="fecharDrawer()">
       <i class="fa fa-star"></i>Minhas assinaturas
     </a>
-    <a class="pq-drawer-item" href="{{ url_for('baixar_app') }}" onclick="fecharDrawer()">
+    <a class="pq-drawer-item js-baixar-app-link" href="{{ url_for('baixar_app') }}" onclick="fecharDrawer()">
       <i class="fa fa-mobile-screen-button"></i>Baixar app
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_favoritos') }}" onclick="fecharDrawer()">
@@ -1537,7 +1538,7 @@
       <a class="pq-footer-link" href="{{ url_for('receita_medica') }}">Busca rápida com Receita</a>
       <a class="pq-footer-link" href="{{ url_for('vitnatu_page') }}">VITNATU</a>
       <a class="pq-footer-link" href="{{ url_for('catalogo_publico', ofertas='1') }}">Ofertas Relâmpago</a>
-      <a class="pq-footer-link" href="{{ url_for('baixar_app') }}">Baixar app</a>
+      <a class="pq-footer-link js-baixar-app-link" href="{{ url_for('baixar_app') }}">Baixar app</a>
     </div>
 
     <div>
@@ -2804,6 +2805,42 @@ if ('serviceWorker' in navigator) {
     .then(reg => reg.update())
     .catch(() => {});
 }
+
+/* ── DETECTA APP JA INSTALADO (esconde "Baixar app") ──── */
+/* So da pra saber com certeza quando o site abre DENTRO do app instalado
+   (display-mode:standalone / navigator.standalone no iPhone) -- nao tem
+   API pra perguntar "esse aparelho tem o app instalado?" de dentro de uma
+   aba normal do navegador. Por isso: guarda um sinal no localStorage na
+   primeira vez que detectar o modo instalado (ou quando o navegador avisa
+   que a instalacao aconteceu, via "appinstalled"), e usa esse sinal nas
+   proximas visitas em aba normal pra esconder o convite pra instalar.
+   No Android costuma persistir bem (mesmo perfil do Chrome); no iPhone o
+   Safari as vezes usa um armazenamento separado pro app instalado, entao
+   pode nao pegar 100% dos casos -- mas nunca esconde à toa pra quem ainda
+   nao instalou. */
+(function() {
+  function estaInstalado() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+  function esconderConvites() {
+    document.querySelectorAll('.js-baixar-app-link').forEach(el => { el.style.display = 'none'; });
+    document.body.classList.add('pq-app-ja-instalado');
+  }
+  let jaSabeQueTemApp = false;
+  try {
+    if (estaInstalado()) {
+      localStorage.setItem('pq_app_instalado', '1');
+      jaSabeQueTemApp = true;
+    } else {
+      jaSabeQueTemApp = localStorage.getItem('pq_app_instalado') === '1';
+    }
+  } catch (e) {}
+  if (jaSabeQueTemApp) esconderConvites();
+  window.addEventListener('appinstalled', function() {
+    try { localStorage.setItem('pq_app_instalado', '1'); } catch (e) {}
+    esconderConvites();
+  });
+})();
 
 /* ── LGPD ────────────────────────────────────────────── */
 (function() {

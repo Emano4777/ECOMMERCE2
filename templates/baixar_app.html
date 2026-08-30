@@ -121,6 +121,13 @@
 
 {% block content %}
 <div class="bapp-wrap">
+  <div id="bapp-ja-instalado" style="display:none;background:#f0faf0;border:1px solid #bfe6bf;border-radius:14px;padding:16px 18px;align-items:center;gap:12px;margin-bottom:24px">
+    <i class="fa fa-circle-check" style="font-size:1.4rem;color:#1f9d3f"></i>
+    <div>
+      <b style="display:block;font-size:.9rem;color:#1f6b2b">Este aparelho já tem o Poupaqui instalado! 🎉</b>
+      <span style="font-size:.8rem;color:#4a7a4a">Se quiser instalar em outro celular, o passo a passo abaixo continua valendo.</span>
+    </div>
+  </div>
   <div class="bapp-hero">
     <i class="fa fa-mobile-screen-button bapp-hero-ico"></i>
     <h1>Instale o Poupaqui no seu celular</h1>
@@ -418,6 +425,18 @@ function bappTrocar(sistema) {
   if (salvo === 'android' || salvo === 'iphone') { bappTrocar(salvo); return; }
   const ua = navigator.userAgent || '';
   if (/iphone|ipad|ipod/i.test(ua)) bappTrocar('iphone');
+})();
+(function () {
+  const instalado = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  let jaTem = instalado;
+  try {
+    if (instalado) localStorage.setItem('pq_app_instalado', '1');
+    else jaTem = localStorage.getItem('pq_app_instalado') === '1';
+  } catch (e) {}
+  if (jaTem) {
+    const aviso = document.getElementById('bapp-ja-instalado');
+    if (aviso) aviso.style.display = 'flex';
+  }
 })();
 </script>
 {% endblock %}

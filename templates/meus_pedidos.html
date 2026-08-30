@@ -374,8 +374,8 @@
 
   {% set _pontos_falta_p = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
   {% set _pontos_falta_p = 0 if consumidor_pontos_compras > 0 and consumidor_pontos_compras % consumidor_pontos_meta == 0 else _pontos_falta_p %}
-  <div class="pq-pontos-box" style="margin:0 0 16px;padding:16px 18px">
-    <div class="pq-pontos-nivel" style="font-size:.84rem"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}</div>
+  <a class="pq-pontos-box" style="margin:0 0 16px;padding:16px 18px" href="{{ url_for('consumidor_niveis') }}">
+    <div class="pq-pontos-nivel" style="font-size:.84rem"><i class="fa fa-{{ consumidor_nivel.icone }}"></i>Nível {{ consumidor_nivel.indice + 1 }} · {{ consumidor_nivel.nome }}<i class="fa fa-chevron-right" style="margin-left:auto;font-size:.65rem;opacity:.6"></i></div>
     <div class="pq-pontos-top">
       <span style="font-size:.95rem"><i class="fa fa-star"></i> Você tem {{ consumidor_pontos_compras }} ponto{{ 's' if consumidor_pontos_compras != 1 }}</span>
       <span class="pq-pontos-msg" style="font-size:.78rem">
@@ -387,7 +387,7 @@
       </span>
     </div>
     <div class="pq-pontos-bar" style="height:8px"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta_p != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
-  </div>
+  </a>
 
   <div class="orders-tools" aria-label="Filtros de pedidos">
     <label class="orders-search">
