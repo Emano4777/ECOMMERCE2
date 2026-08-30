@@ -20094,7 +20094,39 @@ _SUPORTE_SISTEMA_PROMPT = (
     'abrir uma reclamação em Meus Pedidos > o pedido > "Tive um problema com este pedido" '
     "(disponível depois que o pedido é pago/enviado/entregue) — isso abre um chat direto com a farmácia.\n"
     "- Pagamento: cartão de débito (sem juros) ou crédito (pode ter juros conforme parcelamento), "
-    "e Pix (sem taxas).\n\n"
+    "e Pix (sem taxas).\n"
+    f"- Indique um amigo: em /indicar (também no menu da conta) o cliente pega um link pessoal pra "
+    f"compartilhar. Quando quem recebeu o link faz a primeira compra em qualquer farmácia da rede "
+    f"Poupaqui, quem indicou ganha um cupom de R$ {INDICACAO_DESCONTO_VALOR:.2f} pra usar na loja "
+    f"onde o amigo comprou (cupom pessoal, só pra quem indicou, aparece em Meus Cupons). É uma "
+    f"oferta por tempo limitado, o valor pode mudar. Se o cliente perguntar como funciona, explique "
+    f"esse fluxo; se perguntar se já ganhou o cupom, oriente a conferir Meus Cupons ou a tela /indicar "
+    f"(lista quem foi indicado e se já virou recompensa) — você não tem ferramenta pra consultar isso "
+    f"na hora.\n"
+    "- Pontos e níveis: cada compra concluída (em qualquer farmácia da rede) vale 1 ponto. A cada 5 "
+    "pontos o cliente sobe de nível. Os níveis, em ordem, são: "
+    + ", ".join(f'"{n["nome"]}"' for n in _NIVEIS_PONTOS) +
+    " (depois do último, continua subindo com o mesmo nome numerado). Dá pra acompanhar em /niveis "
+    "(também no menu da conta e em Meus Pedidos) — hoje é só acompanhamento visual, os prêmios de "
+    "cada nível ainda estão a caminho, então nunca prometa um benefício específico e concreto por "
+    "nível, só explique que quanto mais alto o nível, maior vai ser o prêmio quando estiver "
+    "disponível.\n"
+    "- Lista de presentes: em /lista-presentes (menu da conta) o cliente monta uma lista de produtos "
+    "e gera um link público pra mandar pra alguém comprar de presente pra ele, sem precisar de "
+    "conta. É separada dos favoritos — favoritos é uso pessoal (alerta de preço/estoque), lista de "
+    "presentes é só o que ele escolheu deixar visível pra quem for presentear.\n"
+    "- Rastreio de pedido sem login: na tela do pedido (Meus Pedidos > o pedido), enquanto ele ainda "
+    "não foi entregue/cancelado, tem um botão pra copiar um link de rastreio público — útil pra "
+    "mandar pra quem vai receber a entrega. O link para de mostrar o status assim que o pedido é "
+    "concluído.\n"
+    "- Notificações no navegador: o cliente pode ativar avisos de status de pedido e promoções "
+    "direto no navegador (aparece um banner discreto perguntando, depois de aceitar os cookies). "
+    "Não tem como ativar por fora disso, ele precisa aceitar quando o banner aparecer.\n"
+    "- Baixar o app: em /baixar-app (rodapé do site e menu da conta) tem um tutorial ilustrado "
+    "passo a passo, separado por Android (pelo Chrome, menu de três pontinhos > Instalar aplicativo) "
+    "e iPhone (pelo Safari — não funciona no Chrome do iPhone —, ícone de compartilhar > Adicionar à "
+    "Tela de Início). Se o cliente perguntar como baixa o app, ou disser que quer o app, mande ele "
+    "pra essa página em vez de tentar explicar o passo a passo você mesma no chat.\n\n"
     "Não existe mais botão de \"falar com atendente\" na tela — encaminhar pra um humano é "
     "decisão sua, através da ferramenta escalar_atendimento. Escale quando: o cliente pedir "
     "explicitamente; você tentar ajudar e não conseguir resolver depois de 1-2 tentativas "
@@ -20203,6 +20235,33 @@ _SUPORTE_TOPICOS = [
         re.compile(r"\bpagamento|\bpagar\b|cart[aã]o|pix|parcel", re.IGNORECASE),
         "Você pode pagar com cartão de débito (sem juros), cartão de crédito (pode ter juros "
         "conforme o parcelamento) ou Pix (sem taxas).",
+    ),
+    (
+        re.compile(r"indic(ar|a[cç][aã]o)|convid(ar|e).{0,15}amigo|chame.{0,10}amigo", re.IGNORECASE),
+        f"É bem simples! Vá em Indique um amigo (menu da sua conta) e copie seu link pessoal. "
+        f"Quando quem recebeu o link fizer a primeira compra em qualquer farmácia da nossa rede, "
+        f"você ganha um cupom de R$ {INDICACAO_DESCONTO_VALOR:.2f} pra usar na loja onde seu amigo "
+        f"comprou. É uma oferta por tempo limitado. Você acompanha se já rendeu recompensa direto na "
+        f"tela de Indique um amigo.",
+    ),
+    (
+        re.compile(r"\bn[ií]vel|meus pontos|pontos poupaqui|programa de pontos|subir de n[ií]vel", re.IGNORECASE),
+        "Cada compra concluída (em qualquer farmácia da nossa rede) vale 1 ponto, e a cada 5 pontos "
+        "você sobe de nível. Dá pra ver seu nível atual e o que cada um representa na página Níveis "
+        "(no menu da sua conta ou em Meus Pedidos). Por enquanto é acompanhamento — os prêmios de "
+        "cada nível estão a caminho.",
+    ),
+    (
+        re.compile(r"baixar (o )?app|instalar (o )?app|como (baixo|instalo).{0,10}app|aplicativo do poupaqui|tem app\b", re.IGNORECASE),
+        "Temos, sim! O Poupaqui funciona como app direto do navegador, sem precisar de loja de "
+        "aplicativos. Acesse Baixar app (rodapé do site ou menu da sua conta) que tem um passo a "
+        "passo ilustrado, separado pra Android e iPhone.",
+    ),
+    (
+        re.compile(r"lista de presente", re.IGNORECASE),
+        "Em Lista de presentes (menu da sua conta) você monta uma lista de produtos e gera um link "
+        "pra mandar pra alguém comprar de presente pra você, sem precisar de conta. É separada dos "
+        "favoritos — só entra na lista o que você escolher colocar lá.",
     ),
 ]
 
