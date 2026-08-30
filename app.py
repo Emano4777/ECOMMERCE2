@@ -15766,7 +15766,12 @@ def api_lancamento_rio_preto_interesse():
     """Guarda contatos de moradores do raio do futuro lancamento em Rio Preto."""
     data = request.get_json(silent=True) or {}
     nome = re.sub(r"\s+", " ", str(data.get("nome") or "")).strip()[:120]
-    telefone = re.sub(r"\D", "", str(data.get("telefone") or ""))[:13]
+    # _normalize_phone_br ja tira o "55" do pais e valida DDD/formato de
+    # celular -- sem isso, a mesma pessoa mandando o telefone com e sem o
+    # codigo do pais virava 2 cadastros diferentes (a trava de duplicidade
+    # e pelo numero exato salvo, e os dois formatos nao batem).
+    telefone_fmt = _normalize_phone_br(data.get("telefone"))
+    telefone = _digits(telefone_fmt) if telefone_fmt else ""
     email = str(data.get("email") or "").strip().lower()[:180] or None
     lat = _to_float_or_none(data.get("lat"))
     lng = _to_float_or_none(data.get("lng"))
@@ -15774,7 +15779,7 @@ def api_lancamento_rio_preto_interesse():
     label = str(data.get("localizacao_label") or "").strip()[:240] or None
     if len(nome) < 2:
         return jsonify({"ok": False, "erro": "Informe seu nome."}), 400
-    if len(telefone) < 10:
+    if not telefone:
         return jsonify({"ok": False, "erro": "Informe um WhatsApp válido com DDD."}), 400
     if email and not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         return jsonify({"ok": False, "erro": "Informe um e-mail válido."}), 400
