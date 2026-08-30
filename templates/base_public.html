@@ -1224,6 +1224,7 @@
         <a class="pq-user-item" href="{{ url_for('consumidor_lista_presentes') }}"><i class="fa fa-gift"></i><span>Lista de presentes<small>Compartilhe pra ganhar de alguém</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_indicar') }}"><i class="fa fa-user-plus" style="color:#25d366"></i><span>Indique um amigo<small>Ganhe cupom a cada indicação</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('baixar_app') }}"><i class="fa fa-mobile-screen-button"></i><span>Baixar app<small>Instale no seu celular</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item danger" href="{{ url_for('consumidor_logout') }}"><i class="fa fa-right-from-bracket"></i><span>Sair</span></a>
         </div>
@@ -1311,6 +1312,9 @@
     </a>
     <a class="pq-drawer-item" href="{{ url_for('minhas_assinaturas') }}" onclick="fecharDrawer()">
       <i class="fa fa-star"></i>Minhas assinaturas
+    </a>
+    <a class="pq-drawer-item" href="{{ url_for('baixar_app') }}" onclick="fecharDrawer()">
+      <i class="fa fa-mobile-screen-button"></i>Baixar app
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_favoritos') }}" onclick="fecharDrawer()">
       <i class="fa fa-heart"></i>Favoritos
@@ -1533,6 +1537,7 @@
       <a class="pq-footer-link" href="{{ url_for('receita_medica') }}">Busca rápida com Receita</a>
       <a class="pq-footer-link" href="{{ url_for('vitnatu_page') }}">VITNATU</a>
       <a class="pq-footer-link" href="{{ url_for('catalogo_publico', ofertas='1') }}">Ofertas Relâmpago</a>
+      <a class="pq-footer-link" href="{{ url_for('baixar_app') }}">Baixar app</a>
     </div>
 
     <div>

@@ -1,0 +1,423 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Baixar o app{% endblock %}
+
+{% block extra_style %}
+<style>
+.bapp-wrap { max-width:920px; margin:0 auto; padding:32px 16px 76px; }
+.bapp-hero { text-align:center; margin-bottom:8px; }
+.bapp-hero i.bapp-hero-ico { font-size:2.4rem; color:var(--pq-red); display:block; margin-bottom:10px; }
+.bapp-hero h1 { margin:0 0 8px; font-size:1.55rem; font-weight:900; }
+.bapp-hero p { color:var(--pq-muted); font-size:.92rem; max-width:520px; margin:0 auto; line-height:1.5; }
+
+.bapp-perks { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin:22px 0 30px; }
+.bapp-perk { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--pq-border); border-radius:999px; padding:9px 16px; font-size:.8rem; font-weight:800; color:#333; box-shadow:var(--pq-shadow); }
+.bapp-perk i { color:var(--pq-red); }
+
+/* ── Toggle de sistema ── */
+.bapp-toggle { display:flex; justify-content:center; gap:8px; margin-bottom:34px; }
+.bapp-toggle-btn { display:flex; align-items:center; gap:9px; border:2px solid var(--pq-border); background:#fff; border-radius:14px; padding:12px 22px; font-family:inherit; font-size:.92rem; font-weight:900; color:#555; cursor:pointer; transition:all .15s; }
+.bapp-toggle-btn i { font-size:1.15rem; }
+.bapp-toggle-btn.active { border-color:var(--pq-red); background:#fff5f6; color:var(--pq-red); }
+
+.bapp-panel { display:none; }
+.bapp-panel.active { display:block; }
+
+/* ── Passos ── */
+.bapp-step { display:grid; grid-template-columns:260px 1fr; gap:28px; align-items:center; padding:30px 0; border-bottom:1px solid var(--pq-border); }
+.bapp-step:last-child { border-bottom:none; }
+.bapp-step-copy { order:2; }
+.bapp-step-phone-col { order:1; display:flex; justify-content:center; }
+.bapp-step-badge { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%; background:var(--pq-red); color:#fff; font-weight:900; font-size:.86rem; margin-bottom:10px; }
+.bapp-step-copy h3 { margin:0 0 8px; font-size:1.1rem; font-weight:900; }
+.bapp-step-copy p { margin:0; color:var(--pq-muted); font-size:.88rem; line-height:1.55; }
+.bapp-step-copy .bapp-note { display:inline-flex; align-items:center; gap:6px; margin-top:10px; background:#fff3f4; color:var(--pq-red); font-size:.74rem; font-weight:800; padding:6px 11px; border-radius:8px; }
+
+@media (min-width:640px) {
+  .bapp-step:nth-child(even) .bapp-step-copy { order:1; }
+  .bapp-step:nth-child(even) .bapp-step-phone-col { order:2; }
+}
+@media (max-width:639px) {
+  .bapp-step { grid-template-columns:1fr; text-align:center; }
+  .bapp-step-copy { order:2 !important; }
+  .bapp-step-phone-col { order:1 !important; }
+}
+
+/* ── Mockup de celular ── */
+.tut-phone { width:220px; height:440px; background:#161616; border-radius:34px; padding:9px; box-shadow:0 22px 46px rgba(0,0,0,.22); position:relative; flex-shrink:0; }
+.tut-phone-notch { position:absolute; top:9px; left:50%; transform:translateX(-50%); width:86px; height:16px; background:#161616; border-radius:0 0 12px 12px; z-index:6; }
+.tut-screen { width:100%; height:100%; background:#f4f4f4; border-radius:24px; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+
+/* Conteudo generico "site" atras do browser chrome */
+.tut-page { flex:1; background:#fff; padding:14px 12px; overflow:hidden; }
+.tut-page-header { height:34px; background:var(--pq-red); border-radius:8px; margin-bottom:10px; display:flex; align-items:center; padding:0 10px; gap:6px; }
+.tut-page-header .dot { width:16px; height:16px; border-radius:5px; background:var(--pq-yellow); flex-shrink:0; }
+.tut-page-header .bar { height:7px; background:rgba(255,255,255,.65); border-radius:4px; flex:1; }
+.tut-page-block { height:64px; background:#eee; border-radius:8px; margin-bottom:8px; }
+.tut-page-line { height:8px; background:#e6e6e6; border-radius:4px; margin-bottom:6px; }
+.tut-page-line.w60 { width:60%; }
+.tut-page-line.w40 { width:40%; }
+
+/* Barra do navegador (topo estilo Chrome Android) */
+.tut-browser-top { height:38px; background:#e9e9e9; display:flex; align-items:center; gap:8px; padding:0 10px; font-size:.62rem; color:#555; font-weight:700; border-bottom:1px solid #ddd; position:relative; }
+.tut-browser-top i.fa-lock { font-size:.6rem; color:#666; }
+.tut-browser-top span.url { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tut-menu-dot { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#444; position:relative; }
+
+/* Barra do navegador (rodape estilo Safari iOS) */
+.tut-browser-bottom { height:44px; background:#f7f7f7; border-top:1px solid #ddd; display:flex; align-items:center; justify-content:space-around; padding:0 6px; color:#888; font-size:.85rem; }
+.tut-browser-bottom .center-url { position:absolute; top:0; left:0; right:0; height:32px; background:#eee; display:flex; align-items:center; justify-content:center; gap:5px; font-size:.6rem; color:#555; font-weight:700; }
+
+/* Indicador de toque (anel pulsante + dedo) */
+.tut-target { position:relative; }
+.tut-ring { position:absolute; inset:-9px; border:2.5px solid var(--pq-red); border-radius:50%; animation:tutPulse 1.5s ease-out infinite; pointer-events:none; }
+@keyframes tutPulse { 0%{transform:scale(.55);opacity:1} 70%{transform:scale(1.9);opacity:0} 100%{opacity:0} }
+.tut-finger { position:absolute; color:#2b2b2b; font-size:1.1rem; animation:tutBounce 1.1s ease-in-out infinite; filter:drop-shadow(0 2px 2px rgba(0,0,0,.25)); z-index:8; }
+@keyframes tutBounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+
+/* Menu suspenso (dropdown do chrome) */
+.tut-dropdown { position:absolute; top:36px; right:8px; width:150px; background:#fff; border-radius:10px; box-shadow:0 8px 22px rgba(0,0,0,.25); padding:5px; z-index:5; }
+.tut-dropdown-item { display:flex; align-items:center; gap:7px; padding:6px 8px; border-radius:6px; font-size:.6rem; color:#555; font-weight:700; }
+.tut-dropdown-item.hl { background:#fff3d0; color:#7a4a00; position:relative; }
+.tut-dropdown-item i { width:12px; text-align:center; font-size:.62rem; }
+
+/* Sheet de compartilhar (iOS) */
+.tut-sheet { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:16px 16px 0 0; box-shadow:0 -8px 22px rgba(0,0,0,.2); padding:10px 8px; z-index:5; }
+.tut-sheet-apps { display:flex; gap:8px; padding:4px 4px 10px; }
+.tut-sheet-apps span { width:26px; height:26px; border-radius:8px; background:#eee; flex-shrink:0; }
+.tut-sheet-item { display:flex; align-items:center; gap:8px; padding:7px 6px; border-radius:7px; font-size:.6rem; color:#555; font-weight:700; border-top:1px solid #f0f0f0; }
+.tut-sheet-item.hl { background:#fff3d0; color:#7a4a00; position:relative; }
+.tut-sheet-item i { width:13px; text-align:center; font-size:.68rem; }
+
+/* Dialogo de confirmar instalacao */
+.tut-dialog-wrap { position:absolute; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:6; }
+.tut-dialog { width:170px; background:#fff; border-radius:12px; padding:14px 12px; box-shadow:0 12px 26px rgba(0,0,0,.3); text-align:center; }
+.tut-dialog-icon { width:38px; height:38px; border-radius:10px; background:var(--pq-red); color:var(--pq-yellow); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:.85rem; margin:0 auto 8px; }
+.tut-dialog h4 { margin:0 0 3px; font-size:.72rem; font-weight:900; color:#222; }
+.tut-dialog p { margin:0 0 10px; font-size:.6rem; color:#888; }
+.tut-dialog-btns { display:flex; gap:6px; }
+.tut-dialog-btns button { flex:1; border:0; border-radius:6px; padding:6px; font-size:.62rem; font-weight:800; font-family:inherit; }
+.tut-btn-cancel { background:#eee; color:#666; }
+.tut-btn-ok { background:var(--pq-red); color:#fff; position:relative; }
+
+/* Dialogo "Adicionar" (iOS) */
+.tut-ios-dialog { position:absolute; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:6; }
+.tut-ios-card { width:180px; background:#fff; border-radius:14px; overflow:hidden; box-shadow:0 12px 26px rgba(0,0,0,.3); }
+.tut-ios-card-top { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; font-size:.62rem; font-weight:800; border-bottom:1px solid #eee; }
+.tut-ios-card-top span.cancel { color:#888; font-weight:700; }
+.tut-ios-card-top span.add { color:#2c7be5; font-weight:900; position:relative; }
+.tut-ios-card-body { display:flex; flex-direction:column; align-items:center; padding:14px 10px; }
+.tut-ios-card-body .ic { width:44px; height:44px; border-radius:11px; background:var(--pq-red); color:var(--pq-yellow); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:.9rem; margin-bottom:8px; }
+.tut-ios-card-body input { border:1px solid #ddd; border-radius:7px; padding:5px 8px; font-size:.66rem; font-weight:800; text-align:center; color:#222; width:90%; }
+.tut-ios-card-body span.url2 { font-size:.58rem; color:#999; margin-top:5px; }
+
+/* Tela inicial com o icone instalado */
+.tut-home { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; padding:22px 14px; }
+.tut-home-icon { width:100%; aspect-ratio:1; border-radius:13px; background:#dcdcdc; }
+.tut-home-icon.pq { background:var(--pq-red); display:flex; align-items:center; justify-content:center; position:relative; box-shadow:0 0 0 3px var(--pq-yellow), 0 6px 16px rgba(200,16,46,.4); }
+.tut-home-icon.pq span { color:var(--pq-yellow); font-weight:900; font-size:1rem; }
+.tut-done-msg { position:absolute; bottom:14px; left:0; right:0; text-align:center; font-size:.72rem; font-weight:900; color:var(--pq-red); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bapp-wrap">
+  <div class="bapp-hero">
+    <i class="fa fa-mobile-screen-button bapp-hero-ico"></i>
+    <h1>Instale o Poupaqui no seu celular</h1>
+    <p>Em menos de 1 minuto o Poupaqui vira um app de verdade na sua tela inicial — sem ocupar espaço de loja de aplicativos.</p>
+  </div>
+
+  <div class="bapp-perks">
+    <div class="bapp-perk"><i class="fa fa-bolt"></i>Abre mais rápido</div>
+    <div class="bapp-perk"><i class="fa fa-bell"></i>Avisos de pedido e ofertas</div>
+    <div class="bapp-perk"><i class="fa fa-database"></i>Não ocupa quase espaço</div>
+  </div>
+
+  <div class="bapp-toggle">
+    <button type="button" class="bapp-toggle-btn active" id="btn-android" onclick="bappTrocar('android')">
+      <i class="fa-brands fa-android"></i>Android
+    </button>
+    <button type="button" class="bapp-toggle-btn" id="btn-iphone" onclick="bappTrocar('iphone')">
+      <i class="fa-brands fa-apple"></i>iPhone
+    </button>
+  </div>
+
+  <!-- ══════════════ ANDROID ══════════════ -->
+  <div class="bapp-panel active" id="panel-android">
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen">
+            <div class="tut-browser-top"><i class="fa fa-lock"></i><span class="url">poupaqui.com.br</span><span class="tut-menu-dot"><i class="fa fa-ellipsis-vertical"></i></span></div>
+            <div class="tut-page">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+              <div class="tut-page-line w60"></div>
+              <div class="tut-page-line w40"></div>
+              <div class="tut-page-block"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">1</div>
+        <h3>Abra o Poupaqui pelo Chrome</h3>
+        <p>Acesse <strong>www.drogariaspoupaqui.com.br</strong> normalmente, pelo navegador Google Chrome do seu Android.</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen">
+            <div class="tut-browser-top">
+              <i class="fa fa-lock"></i><span class="url">poupaqui.com.br</span>
+              <span class="tut-menu-dot tut-target"><i class="fa fa-ellipsis-vertical"></i><span class="tut-ring"></span></span>
+              <i class="fa fa-hand-pointer tut-finger" style="top:34px;right:4px"></i>
+            </div>
+            <div class="tut-page">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+              <div class="tut-page-line w60"></div>
+              <div class="tut-page-line w40"></div>
+              <div class="tut-page-block"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">2</div>
+        <h3>Toque no menu (⋮)</h3>
+        <p>No canto superior direito do Chrome, toque nos três pontinhos verticais.</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen">
+            <div class="tut-browser-top" style="position:relative">
+              <i class="fa fa-lock"></i><span class="url">poupaqui.com.br</span><span class="tut-menu-dot"><i class="fa fa-ellipsis-vertical"></i></span>
+              <div class="tut-dropdown">
+                <div class="tut-dropdown-item"><i class="fa fa-plus"></i>Nova guia</div>
+                <div class="tut-dropdown-item"><i class="fa fa-star"></i>Favoritos</div>
+                <div class="tut-dropdown-item"><i class="fa fa-clock-rotate-left"></i>Histórico</div>
+                <div class="tut-dropdown-item hl tut-target"><i class="fa fa-arrow-down-to-square"></i>Instalar aplicativo<span class="tut-ring" style="inset:-4px;border-radius:6px"></span></div>
+                <div class="tut-dropdown-item"><i class="fa fa-gear"></i>Configurações</div>
+                <i class="fa fa-hand-pointer tut-finger" style="top:64px;right:10px"></i>
+              </div>
+            </div>
+            <div class="tut-page">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">3</div>
+        <h3>Toque em "Instalar aplicativo"</h3>
+        <p>No menu que abrir, procure a opção <strong>"Instalar aplicativo"</strong> (em alguns Android aparece como "Adicionar à tela inicial").</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen">
+            <div class="tut-page" style="position:relative">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+              <div class="tut-dialog-wrap">
+                <div class="tut-dialog">
+                  <div class="tut-dialog-icon">PQ</div>
+                  <h4>Instalar aplicativo?</h4>
+                  <p>poupaqui.com.br</p>
+                  <div class="tut-dialog-btns">
+                    <button class="tut-btn-cancel">Cancelar</button>
+                    <button class="tut-btn-ok tut-target">Instalar<span class="tut-ring" style="inset:-3px;border-radius:6px"></span></button>
+                  </div>
+                </div>
+                <i class="fa fa-hand-pointer tut-finger" style="bottom:172px;right:56px;color:#fff"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">4</div>
+        <h3>Confirme a instalação</h3>
+        <p>Vai aparecer uma caixinha confirmando. Toque em <strong>"Instalar"</strong>.</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen" style="background:#2b2b2b;position:relative">
+            <div class="tut-home">
+              <div class="tut-home-icon"></div><div class="tut-home-icon"></div><div class="tut-home-icon"></div>
+              <div class="tut-home-icon pq"><span>PQ</span></div>
+              <div class="tut-home-icon"></div><div class="tut-home-icon"></div><div class="tut-home-icon"></div><div class="tut-home-icon"></div>
+            </div>
+            <div class="tut-done-msg">🎉 Pronto! Poupaqui na tela inicial</div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge"><i class="fa fa-check" style="font-size:.8rem"></i></div>
+        <h3>Pronto!</h3>
+        <p>O ícone do Poupaqui aparece na sua tela inicial, abre em tela cheia e funciona igual a um aplicativo de verdade.</p>
+        <div class="bapp-note"><i class="fa fa-lightbulb"></i>O menu pode variar um pouco conforme a versão do Chrome.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════ IPHONE ══════════════ -->
+  <div class="bapp-panel" id="panel-iphone">
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen">
+            <div class="tut-browser-top" style="justify-content:center"><i class="fa fa-lock"></i><span class="url" style="flex:0">poupaqui.com.br</span></div>
+            <div class="tut-page">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+              <div class="tut-page-line w60"></div>
+              <div class="tut-page-line w40"></div>
+              <div class="tut-page-block"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">1</div>
+        <h3>Abra o Poupaqui pelo Safari</h3>
+        <p>Acesse <strong>www.drogariaspoupaqui.com.br</strong> pelo navegador Safari.</p>
+        <div class="bapp-note"><i class="fa fa-triangle-exclamation"></i>Precisa ser o Safari — no Chrome do iPhone essa opção não aparece.</div>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen" style="position:relative">
+            <div class="tut-browser-top" style="justify-content:center"><i class="fa fa-lock"></i><span class="url" style="flex:0">poupaqui.com.br</span></div>
+            <div class="tut-page">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+              <div class="tut-page-line w60"></div>
+            </div>
+            <div class="tut-browser-bottom">
+              <i class="fa fa-chevron-left"></i>
+              <i class="fa fa-chevron-right"></i>
+              <span class="tut-target"><i class="fa fa-arrow-up-from-bracket"></i><span class="tut-ring"></span></span>
+              <i class="fa fa-book"></i>
+              <i class="fa fa-clone"></i>
+              <i class="fa fa-hand-pointer tut-finger" style="bottom:38px;left:50%;transform:translateX(-50%)"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">2</div>
+        <h3>Toque em compartilhar</h3>
+        <p>Na barra de baixo do Safari, toque no ícone de compartilhar — o quadrado com uma seta apontando pra cima.</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen" style="position:relative">
+            <div class="tut-page">
+              <div class="tut-page-header"><div class="dot"></div><div class="bar"></div></div>
+              <div class="tut-page-block"></div>
+            </div>
+            <div class="tut-sheet">
+              <div class="tut-sheet-apps"><span></span><span></span><span></span><span></span></div>
+              <div class="tut-sheet-item"><i class="fa fa-copy"></i>Copiar</div>
+              <div class="tut-sheet-item"><i class="fa fa-star"></i>Adicionar aos Favoritos</div>
+              <div class="tut-sheet-item hl tut-target"><i class="fa fa-square-plus"></i>Adicionar à Tela de Início<span class="tut-ring" style="inset:-4px;border-radius:6px"></span></div>
+              <div class="tut-sheet-item"><i class="fa fa-print"></i>Imprimir</div>
+              <i class="fa fa-hand-pointer tut-finger" style="bottom:64px;right:14px"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">3</div>
+        <h3>Adicionar à Tela de Início</h3>
+        <p>Deslize a lista de opções e toque em <strong>"Adicionar à Tela de Início"</strong>.</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen">
+            <div class="tut-ios-dialog">
+              <div class="tut-ios-card">
+                <div class="tut-ios-card-top"><span class="cancel">Cancelar</span><span class="add tut-target">Adicionar<span class="tut-ring" style="inset:-4px;border-radius:6px"></span></span></div>
+                <div class="tut-ios-card-body">
+                  <div class="ic">PQ</div>
+                  <input value="Poupaqui" readonly>
+                  <span class="url2">poupaqui.com.br</span>
+                </div>
+              </div>
+              <i class="fa fa-hand-pointer tut-finger" style="top:60px;right:44px"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge">4</div>
+        <h3>Toque em "Adicionar"</h3>
+        <p>Pode deixar o nome como está. Toque em <strong>"Adicionar"</strong>, no canto superior direito.</p>
+      </div>
+    </div>
+
+    <div class="bapp-step">
+      <div class="bapp-step-phone-col">
+        <div class="tut-phone"><div class="tut-phone-notch"></div>
+          <div class="tut-screen" style="background:#2b2b2b;position:relative">
+            <div class="tut-home">
+              <div class="tut-home-icon"></div><div class="tut-home-icon"></div><div class="tut-home-icon"></div>
+              <div class="tut-home-icon pq"><span>PQ</span></div>
+              <div class="tut-home-icon"></div><div class="tut-home-icon"></div><div class="tut-home-icon"></div><div class="tut-home-icon"></div>
+            </div>
+            <div class="tut-done-msg">🎉 Pronto! Poupaqui na tela inicial</div>
+          </div>
+        </div>
+      </div>
+      <div class="bapp-step-copy">
+        <div class="bapp-step-badge"><i class="fa fa-check" style="font-size:.8rem"></i></div>
+        <h3>Pronto!</h3>
+        <p>O ícone do Poupaqui aparece na sua tela inicial, abre em tela cheia e funciona igual a um aplicativo de verdade.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function bappTrocar(sistema) {
+  document.getElementById('panel-android').classList.toggle('active', sistema === 'android');
+  document.getElementById('panel-iphone').classList.toggle('active', sistema === 'iphone');
+  document.getElementById('btn-android').classList.toggle('active', sistema === 'android');
+  document.getElementById('btn-iphone').classList.toggle('active', sistema === 'iphone');
+  try { localStorage.setItem('pq_baixarapp_sistema', sistema); } catch (e) {}
+}
+(function () {
+  const salvo = (() => { try { return localStorage.getItem('pq_baixarapp_sistema'); } catch (e) { return null; } })();
+  if (salvo === 'android' || salvo === 'iphone') { bappTrocar(salvo); return; }
+  const ua = navigator.userAgent || '';
+  if (/iphone|ipad|ipod/i.test(ua)) bappTrocar('iphone');
+})();
+</script>
+{% endblock %}

@@ -30121,6 +30121,11 @@ def api_verificar_email_existe():
     return jsonify({"existe": existe})
 
 
+@app.get("/baixar-app")
+def baixar_app():
+    return render_template("baixar_app.html")
+
+
 # ─── LGPD — POLÍTICA DE PRIVACIDADE ──────────────────────────────────────────
 
 @app.get("/politica-de-privacidade")
