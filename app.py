@@ -25194,6 +25194,7 @@ _TIPO_PERFUMARIA = re.compile(
     r"desodorante|antitranspirante|fralda|fraldas|absorvente|lenco.umedecido|lenco.umid\w*|toalha.umed\w*|toalha.umid\w*|toalha.beb|pano.umed\w*|protetor.diario|"
     r"algodao|cotonete|hastes.flexiveis|papel.higienico|papel.hig|papel.sanitario|preservativo|lubrificante.intimo|"
     r"talco|creme.assadura|oleo.corporal|creme.pes|lixa.pes|cuidado.pes|"
+    r"creme.hidratante|creme.pentear|creme.tratamento|creme.dental|locao.hidratante|"
     r"espuma.barba|creme.barba|gel.barba|barbear|pos.barba|"
     r"alcool.gel|alcool.70|higienizante|antisseptico.de.maos|gel.hig|"
     r"protetor.labial|lipgel|carmed|labello|"
@@ -25283,27 +25284,79 @@ _TIPO_ALIAS = {
 }
 
 
+# Abreviacoes de estoque de farmacia pra forma cosmetica, reconhecidas SO
+# no inicio do nome -- e assim que o estoque real abrevia (ex: "CR NIVEA
+# FAC NUTRITIVO 100G" = "Creme Nivea Facial Nutritivo"). Mesmo vocabulario
+# ja usado em _gerar_descricao_canon_ia pra expandir nome de produto. Fora
+# do inicio a mesma sigla de 2-4 letras vira ambigua demais (falso positivo).
+_ABREV_INICIO_RE = re.compile(r"^(cr|sab|sh|cond|des|loc|hidr|prot|esm|dent|depil|dep|pent|trat|pos.?barb)\b\.?", re.IGNORECASE)
+_ABREV_INICIO_MAP = {
+    "cr": "creme", "sab": "sabonete", "sh": "shampoo", "cond": "condicionador",
+    "des": "desodorante", "loc": "locao", "hidr": "hidratante", "prot": "protetor",
+    "esm": "esmalte", "dent": "dental", "dep": "depilatorio", "depil": "depilatorio",
+    "pent": "pentear", "trat": "tratamento", "pos barb": "pos barba", "posbarb": "pos barba",
+}
+
+# Marcas vendidas exclusivamente como cosmetico/dermocosmetico -- nunca
+# aparecem como nome de medicamento, entao a marca sozinha ja classifica
+# mesmo quando o resto do nome vem abreviado/incompleto.
+_MARCAS_COSMETICO_RE = re.compile(
+    r"\b(nivea|vichy|neutrogena|bepantol|bioderma|av[eè]ne|garnier|payot|nuxe|"
+    r"cetaphil|eucerin|la\s*roche.?posay|elseve|tresemm[eé]|pantene|seda\b|"
+    r"gillette|rexona|skala|salon\s*line|monange|granado|niely)\b",
+    re.IGNORECASE,
+)
+
+
+def _expandir_abreviacao_inicio(nome: str) -> str:
+    """Troca a(s) abreviacao(oes) no inicio do nome pela palavra completa
+    (ex: 'CR DENT COLGATE...' -> 'creme dental COLGATE...'), pra que os
+    regex de categoria abaixo (que exigem a palavra por extenso, tipo
+    'creme dental') consigam reconhecer produto cosmetico cujo nome de
+    estoque veio abreviado -- em cadeia, ja que e comum vir mais de uma
+    abreviacao seguida ('CR HIDR...' = creme + hidratante)."""
+    expandidas = []
+    resto = nome or ""
+    for _ in range(2):  # no maximo 2 abreviacoes em cadeia, suficiente pros casos reais
+        m = _ABREV_INICIO_RE.match(resto)
+        if not m:
+            break
+        completo = _ABREV_INICIO_MAP.get(m.group(1).lower())
+        if not completo:
+            break
+        expandidas.append(completo)
+        resto = resto[m.end():].lstrip()
+    if not expandidas:
+        return nome
+    return " ".join(expandidas) + " " + resto
+
+
 def _classificar_produto(nome: str) -> str:
     """Retorna categoria do produto pelo nome (fallback regex; prefira tipo_ia do banco)."""
     if not nome:
         return ""
+    nome_exp = _expandir_abreviacao_inicio(nome)
     # Medicamento (mesmo formulado pra crianca, ex: "PARACETAMOL GOTAS
     # INFANTIL 200MG/ML") tem prioridade sobre "infantil" — o universo
     # infantil e pra itens de higiene/cuidado do bebe, nao pra remedio
     # pediatrico.
-    if _TIPO_MEDICAMENTO.search(nome):
+    if _TIPO_MEDICAMENTO.search(nome_exp):
         return "medicamento"
-    if _TIPO_INFANTIL.search(nome) or _eh_fralda_infantil(nome):
+    if _TIPO_INFANTIL.search(nome_exp) or _eh_fralda_infantil(nome_exp):
         return "infantil"
-    if _TIPO_VAREJO.search(nome):
+    if _TIPO_VAREJO.search(nome_exp):
         return "varejo"
-    if _TIPO_NUTRICAO.search(nome):
+    if _TIPO_NUTRICAO.search(nome_exp):
         return "nutricao"
-    if _TIPO_SUPLEMENTO.search(nome):
+    if _TIPO_SUPLEMENTO.search(nome_exp):
         return "suplemento"
-    if _TIPO_DERMOCOSMETICO.search(nome):
+    if _TIPO_DERMOCOSMETICO.search(nome_exp):
         return "dermocosmetico"
-    if _TIPO_PERFUMARIA.search(nome):
+    if _TIPO_PERFUMARIA.search(nome_exp):
+        return "perfumaria"
+    # Marca exclusivamente cosmetica: mesmo sem nenhuma palavra de forma
+    # reconhecida (ex: nome de estoque truncado), a marca sozinha basta.
+    if _MARCAS_COSMETICO_RE.search(nome_exp):
         return "perfumaria"
     return ""
 
