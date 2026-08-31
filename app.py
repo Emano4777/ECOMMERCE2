@@ -5649,6 +5649,73 @@ def _image_looks_non_product(image_url):
     return bool(_NON_PRODUCT_IMAGE_RE.search(text or ""))
 
 
+def _image_verificada_por_visao(image_url, nome):
+    """Segunda camada de verificacao (Claude vision) alem do OCR, pra imagens
+    achadas por busca ao vivo antes de salvar no catalogo.
+
+    Existe porque o OCR sozinho ja deixou passar casos reais: logo de
+    concorrente estilizada (fundo escuro, fonte customizada) que o OCR.space
+    simplesmente nao consegue ler (retorna texto vazio -- nao da timeout/erro,
+    so nao acha o texto que esta la). Nesses casos o OCR responde "confirmado
+    sem texto" (fail-closed nao ajuda, pois nao e uma falha de rede/cota, e
+    erro de leitura) e a imagem passava. A visao olha a imagem de verdade.
+
+    Retorna True (ok pra salvar), False (rejeitar) ou None (nao deu pra
+    verificar -- trata como fail-closed no call-site, ou seja, resultado
+    equivalente a False).
+    """
+    api_key = _anthropic_api_key()
+    if not api_key or not nome:
+        return None
+    prompt = (
+        "Voce esta verificando uma foto candidata pra um catalogo de farmacia (Poupaqui) "
+        f'antes de salvar. O produto deveria ser: "{nome}".\n'
+        "Responda SOMENTE um JSON, sem markdown:\n"
+        '{"bate_produto": true/false, "mao_segurando_produto": true/false, '
+        '"texto_lojas_marcas_visiveis": "...", "e_placeholder_ou_banner": true/false}\n'
+        "- bate_produto: a imagem realmente mostra esse produto (ou claramente compativel)?\n"
+        "- mao_segurando_produto: aparece mao humana segurando/exibindo o produto?\n"
+        "- texto_lojas_marcas_visiveis: transcreva nome de loja/rede/site/marca-d'agua visivel "
+        "(fora da propria embalagem do produto). NAO inclua marca do FABRICANTE impressa na "
+        "propria embalagem (isso e normal). Deixe vazio se nao houver.\n"
+        "- e_placeholder_ou_banner: parece placeholder generico, banner ou screenshot de site?"
+    )
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": [
+            {"type": "image", "source": {"type": "url", "url": image_url}},
+            {"type": "text", "text": prompt},
+        ]}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        text = (data.get("content") or [{}])[0].get("text", "").strip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text.strip())
+        resultado = json.loads(text)
+    except Exception as e:
+        app.logger.warning(f"_image_verificada_por_visao: {e}")
+        return None
+    if resultado.get("mao_segurando_produto"):
+        return False
+    if resultado.get("e_placeholder_ou_banner"):
+        return False
+    if _looks_like_other_pharmacy_brand(resultado.get("texto_lojas_marcas_visiveis") or ""):
+        return False
+    if not resultado.get("bate_produto", True):
+        return False
+    return True
+
+
 def _is_untrusted_scraped_image(image_url):
     image_url = image_url or ""
     return (
@@ -5853,6 +5920,12 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
         )
         cached = cur.fetchone()
         cached_url = _first_valid_url(cached["imagem_url"] if cached else None)
+        # Reaproveitar imagem ja salva pra esse EAN em outra loja normalmente e
+        # seguro (ja foi vetada quando foi salva) -- mas cobre o caso de linha
+        # antiga (anterior as verificacoes de OCR/visao) ainda no banco: barato
+        # de checar (so olha a URL, sem chamada externa), entao vale a pena.
+        if cached_url and _looks_like_other_pharmacy_brand(cached_url):
+            cached_url = None
         # Ignorar placeholder de medicamento salvo para produto não-medicamento
         if cached_url in (GENERIC_TARJA_VERMELHA_IMG, GENERIC_TARJA_PRETA_IMG):
             _tipo_fill = _TIPO_ALIAS.get(_classificar_produto(nome or ""), _classificar_produto(nome or ""))
@@ -5903,6 +5976,13 @@ def _fill_one_catalog_image(cnpjloja, ean, nome=None):
                 if _ocr_texto is None:
                     continue
                 if _looks_like_other_pharmacy_brand(_ocr_texto) or _NON_PRODUCT_IMAGE_RE.search(_ocr_texto):
+                    continue
+                # Segunda camada (Claude vision) alem do OCR: o OCR ja deixou
+                # passar logo de concorrente com fonte estilizada/fundo escuro
+                # que ele simplesmente nao le (nao e falha de rede -- retorna
+                # texto vazio de verdade, e nem toda logo tem texto legivel).
+                # Fail-closed igual ao OCR: sem confirmar visualmente, descarta.
+                if _image_verificada_por_visao(source_url, nome) is not True:
                     continue
                 raw, ext, content_type = _download_image_for_storage(source_url)
                 if raw:
