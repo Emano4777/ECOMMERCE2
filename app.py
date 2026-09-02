@@ -22675,9 +22675,10 @@ def painel_notificacoes():
         "inativos": len(_consumidores_notificacao_loja(cnpjloja, "inativos")),
     }
     campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons = _crm_dados(cnpjloja)
+    agendadas = [c for c in campanhas if c["status"] == "agendado"]
     return render_template("painel_notificacoes.html", publico_counts=publico_counts,
                            historico=campanhas, automacoes=automacoes, consumo=consumo,
-                           clientes=clientes, crm_plano=crm_plano, kpis=kpis,
+                           clientes=clientes, crm_plano=crm_plano, kpis=kpis, agendadas=agendadas,
                            aniversariantes=aniversariantes, templates=templates, cupons=cupons,
                            categorias_produto=["medicamento","infantil","dermocosmetico","perfumaria","nutricao","suplemento","varejo"])
 
@@ -22912,6 +22913,22 @@ def api_cron_crm_campanhas_agendadas():
     if not _cron_authorized():
         return jsonify({"ok": False, "erro": "unauthorized"}), 401
     return jsonify({"ok": True, **_processar_campanhas_agendadas()})
+
+
+@app.post("/painel/crm/campanha/<campanha_id>/cancelar")
+@painel_required
+def painel_crm_campanha_cancelar(campanha_id):
+    """Cancela uma campanha ainda agendada (nao disparada). Disponivel em
+    qualquer plano, ja que agendar tambem esta -- so 'Historico' (analise)
+    fica atras do plano completo."""
+    cur = db().cursor()
+    cur.execute("""UPDATE ecommerce_crm_campanhas SET status='cancelado'
+        WHERE id=%s AND cnpjloja=%s AND status='agendado' RETURNING id""",
+        (campanha_id, session.get("cnpjloja")))
+    cancelada = bool(cur.fetchone()); db().commit(); cur.close()
+    flash("Agendamento cancelado." if cancelada else "Essa campanha já não está mais agendada.",
+          "success" if cancelada else "error")
+    return redirect(url_for("painel_notificacoes"))
 
 
 @app.post("/painel/crm/automacoes/<codigo>/toggle")

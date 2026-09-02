@@ -198,6 +198,24 @@
 
 <!-- ══════════ NOVO DISPARO ══════════ -->
 <section class="crm-panel active" id="crm-panel-novo">
+{% if agendadas %}
+<div class="crm-card" style="margin-bottom:16px">
+  <div class="crm-title" style="margin-bottom:10px"><i class="fa fa-clock"></i>Agendamentos pendentes</div>
+  <div class="crm-list">
+    {% for a in agendadas %}
+    <div class="crm-item" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <strong>{{ a.titulo }}</strong>
+        <div class="crm-help">{{ a.canais|join(', ') }} · dispara em {{ a.agendado_para.strftime('%d/%m/%Y às %H:%M') if a.agendado_para else '—' }}</div>
+      </div>
+      <form method="post" action="{{ url_for('painel_crm_campanha_cancelar', campanha_id=a.id) }}" onsubmit="return confirm('Cancelar o agendamento de \'{{ a.titulo|e }}\'?')">
+        <button type="submit" class="btn-pk-ghost" style="color:#f08090;border-color:#6b1f2d"><i class="fa fa-ban"></i> Cancelar</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 <form id="crm-form" method="post" action="{{ url_for('painel_notificacoes_enviar') }}" enctype="multipart/form-data">
 <div class="crm-grid">
   <div class="crm-col">
@@ -597,7 +615,9 @@
   <tbody>
   {% for n in historico %}
   <tr>
-    <td>{{ n.titulo }}<br><span class="crm-help">{{ n.tipo }} · {{ n.status }}{% if n.agendado_para %} · agendada p/ {{ n.agendado_para.strftime('%d/%m %H:%M') }}{% endif %}</span></td>
+    <td>{{ n.titulo }}<br><span class="crm-help">{{ n.tipo }} · {{ n.status }}{% if n.agendado_para %} · agendada p/ {{ n.agendado_para.strftime('%d/%m %H:%M') }}{% endif %}
+      {% if n.status == 'agendado' %}· <form method="post" style="display:inline" action="{{ url_for('painel_crm_campanha_cancelar', campanha_id=n.id) }}" onsubmit="return confirm('Cancelar o agendamento de \'{{ n.titulo|e }}\'?')"><button type="submit" style="background:none;border:none;padding:0;color:#f08090;text-decoration:underline;cursor:pointer;font-size:inherit">cancelar</button></form>{% endif %}
+    </span></td>
     <td>{{ n.canais|join(', ') }}</td><td>{{ n.enviados }}/{{ n.total_envios }}</td>
     <td>{{ n.visualizados }}{% if n.enviados %} ({{ ((n.visualizados * 100 / n.enviados)|round)|int }}%){% endif %}</td>
     <td>{{ n.clicados }}<br><span class="crm-help">{{ n.total_cliques }} clique(s)</span></td>
