@@ -15289,6 +15289,15 @@ def consumidor_criar_conta_post():
     if not telefone:
         flash("Informe um WhatsApp válido com DDD (celular com 9 dígitos).", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
+    cur_dup_tel = db().cursor()
+    cur_dup_tel.execute(
+        "SELECT id FROM ecommerce_consumidores WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(regexp_replace(%s,'\\D','','g'),11) LIMIT 1",
+        (telefone,),
+    )
+    ja_cadastrado = cur_dup_tel.fetchone(); cur_dup_tel.close()
+    if ja_cadastrado:
+        flash("Este número de WhatsApp já tem uma conta cadastrada. Faça login ou clique em \"Esqueci minha senha\".", "error")
+        return redirect(url_for("consumidor_criar_conta", next=next_url))
     if not _valid_documento(documento):
         flash("Informe CPF ou CNPJ válido.", "error")
         return redirect(url_for("consumidor_criar_conta", next=next_url))
@@ -16945,6 +16954,15 @@ def consumidor_perfil_post():
     telefone = _normalize_phone_br(telefone)
     if not telefone:
         flash("Informe um WhatsApp válido com DDD (celular com 9 dígitos).", "error")
+        return redirect(url_for("consumidor_perfil"))
+    cur_dup_tel = db().cursor()
+    cur_dup_tel.execute(
+        "SELECT id FROM ecommerce_consumidores WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(regexp_replace(%s,'\\D','','g'),11) AND id<>%s LIMIT 1",
+        (telefone, session["consumidor_id"]),
+    )
+    ja_cadastrado = cur_dup_tel.fetchone(); cur_dup_tel.close()
+    if ja_cadastrado:
+        flash("Este número de WhatsApp já está em uso por outra conta.", "error")
         return redirect(url_for("consumidor_perfil"))
     if not _valid_documento(documento):
         flash("Informe CPF ou CNPJ válido.", "error")
