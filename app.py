@@ -1751,14 +1751,26 @@ def _notificar_todos_consumidores(titulo, mensagem="", url=None, tipo="sistema",
 
 # ─── WA SENDER (notificações WhatsApp para a loja) ───────────────────────────
 
-def _wa_send(numero: str, msg: str, imagem_url: str = None, retornar_dados: bool = False):
-    """Envia mensagem WhatsApp via WA Sender API. Normaliza número para +55DD9XXXXXXXX."""
+def _wa_send(numero: str, msg: str, imagem_url: str = None, retornar_dados: bool = False, propagar_erro: bool = False, _tentativa: int = 0):
+    """Envia mensagem WhatsApp via WA Sender API. Normaliza número para +55DD9XXXXXXXX.
+    Por padrão, qualquer falha vira False (compatível com quem só faz `if _wa_send(...)`).
+    Com propagar_erro=True, uma falha levanta RuntimeError com o motivo real, em vez de
+    engolir tudo em False -- usado onde o motivo precisa aparecer pro usuário (ex.: log
+    de envio do CRM), já que só logar em app.logger não ajuda quem tá vendo o painel.
+    A conta WA Sender tem "Account Protection" ligado (1 mensagem a cada 5s) -- ao
+    tomar 429, espera o retry_after informado e tenta de novo uma vez, senão todo
+    disparo em massa (2+ destinatarios em sequencia rapida) falha silenciosamente
+    a partir da segunda mensagem."""
     if not WASENDER_API_KEY or not numero:
         app.logger.warning("wa_send: WASENDER_API_KEY vazia ou numero vazio (key=%r, num=%r)", bool(WASENDER_API_KEY), numero)
+        if propagar_erro:
+            raise RuntimeError("Configuração do WhatsApp (WA Sender) ausente ou número do cliente vazio.")
         return False
     d = re.sub(r'\D', '', numero)
     if not d or len(d) < 8:
         app.logger.warning("wa_send: numero invalido apos normalizar: %r", numero)
+        if propagar_erro:
+            raise RuntimeError(f"Número de WhatsApp inválido: {numero!r}")
         return False
     to = ('+55' + d) if not d.startswith('55') else ('+' + d)
     try:
@@ -1786,10 +1798,23 @@ def _wa_send(numero: str, msg: str, imagem_url: str = None, retornar_dados: bool
             return resposta if retornar_dados else True
     except urllib.error.HTTPError as e:
         body = e.read(300).decode(errors='replace')
+        if e.code == 429 and _tentativa < 2:
+            try:
+                espera = float(json.loads(body).get('retry_after') or 5) + 0.5
+            except Exception:
+                espera = 5.5
+            espera = min(espera, 20)
+            app.logger.warning("wa_send 429 to=%s: aguardando %.1fs e tentando de novo (tentativa %d)", to, espera, _tentativa + 1)
+            time.sleep(espera)
+            return _wa_send(numero, msg, imagem_url, retornar_dados, propagar_erro, _tentativa + 1)
         app.logger.warning("wa_send HTTPError %s to=%s: %s", e.code, to, body)
+        if propagar_erro:
+            raise RuntimeError(f"WA Sender respondeu {e.code}: {body[:200]}")
         return False
     except Exception as exc:
         app.logger.warning("wa_send error to=%s: %s", to, exc)
+        if propagar_erro:
+            raise RuntimeError(f"Falha ao enviar WhatsApp: {exc}")
         return False
 
 
@@ -22393,10 +22418,16 @@ def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, 
                     permitido, motivo, token = _crm_whatsapp_permissao(cliente['id'])
                     if permitido:
                         sair = url_for('crm_whatsapp_sair', token=token, _external=True)
-                        resposta_wa = _wa_send(cliente['telefone'], f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}\n\nParar mensagens: {sair}", imagem_url, True)
-                        ok = bool(resposta_wa)
-                        dados_wa = (resposta_wa or {}).get('data') or {}
-                        external_id = str(dados_wa.get('id') or dados_wa.get('msgId') or (dados_wa.get('key') or {}).get('id') or '') or None
+                        try:
+                            # Pausa curta entre envios pro provedor WA nao bloquear/
+                            # descartar silenciosamente quando manda varias mensagens
+                            # em sequencia muito rapida (observado com 2+ destinatarios).
+                            resposta_wa = _wa_send(cliente['telefone'], f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}\n\nParar mensagens: {sair}", imagem_url, True, propagar_erro=True)
+                            ok = bool(resposta_wa)
+                            dados_wa = (resposta_wa or {}).get('data') or {}
+                            external_id = str(dados_wa.get('id') or dados_wa.get('msgId') or (dados_wa.get('key') or {}).get('id') or '') or None
+                        finally:
+                            time.sleep(0.8)
                     else:
                         erro = motivo
                 else:
