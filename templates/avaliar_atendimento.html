@@ -1,0 +1,65 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Avaliar atendimento{% endblock %}
+{% block content %}
+<style>
+.av-wrap{max-width:480px;margin:40px auto;padding:0 16px}
+.av-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px 22px;box-shadow:0 8px 22px rgba(0,0,0,.06);text-align:center}
+.av-card h1{font-size:1.25rem;font-weight:900;margin:0 0 8px;color:#111827}
+.av-card p{font-size:.9rem;color:#6b7280;margin:0 0 20px;line-height:1.4}
+.av-stars{display:flex;justify-content:center;gap:8px;margin-bottom:18px}
+.av-star{background:none;border:0;font-size:2.1rem;color:#e5e7eb;cursor:pointer;line-height:1;padding:2px;transition:color .15s}
+.av-star.on,.av-star:hover,.av-star:hover ~ .av-star{color:#f5c842}
+.av-stars:hover .av-star{color:#e5e7eb}
+.av-stars .av-star:hover,.av-stars .av-star:hover ~ .av-star{color:#e5e7eb}
+/* hover visual e feito via JS (mais confiavel que seletor ~ com RTL/flex) */
+.av-msg{font-size:.86rem;font-weight:700;margin-top:6px}
+.av-msg.ok{color:#16a34a}
+.av-msg.err{color:#dc2626}
+@media(max-width:480px){.av-star{font-size:1.9rem}}
+</style>
+<div class="av-wrap">
+  <div class="av-card">
+    {% if chat.nota %}
+      <h1><i class="fa fa-circle-check" style="color:#16a34a"></i> Obrigado!</h1>
+      <p>Você já avaliou esse atendimento com nota {{ chat.nota }}/5.</p>
+    {% elif chat.status != 'resolvida' %}
+      <h1>Atendimento ainda em andamento</h1>
+      <p>Assim que seu atendimento for concluído, você poderá avaliá-lo aqui.</p>
+    {% else %}
+      <h1>Como foi seu atendimento?</h1>
+      <p>Sua avaliação ajuda a farmácia a melhorar o suporte.</p>
+      <div class="av-stars" id="av-stars">
+        {% for i in range(1,6) %}
+        <button type="button" class="av-star" data-nota="{{ i }}" onclick="avVotar({{ i }})" onmouseenter="avPreview({{ i }})" onmouseleave="avPreview(0)"><i class="fa fa-star"></i></button>
+        {% endfor %}
+      </div>
+      <div id="av-resultado" class="av-msg"></div>
+    {% endif %}
+  </div>
+</div>
+{% if not chat.nota and chat.status == 'resolvida' %}
+<script>
+function avPreview(n){
+  document.querySelectorAll('#av-stars .av-star').forEach(b => {
+    b.classList.toggle('on', Number(b.dataset.nota) <= n);
+  });
+}
+function avVotar(nota){
+  fetch('{{ url_for("api_suporte_avaliar", chat_id=chat.id) }}', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nota})
+  }).then(r => r.json()).then(d => {
+    const resultado = document.getElementById('av-resultado');
+    document.querySelectorAll('#av-stars .av-star').forEach(b => {
+      b.classList.toggle('on', Number(b.dataset.nota) <= nota);
+      b.disabled = true;
+    });
+    if (d.ok) { resultado.textContent = 'Obrigado pela sua avaliação!'; resultado.className = 'av-msg ok'; }
+    else { resultado.textContent = 'Não foi possível registrar sua avaliação.'; resultado.className = 'av-msg err'; }
+  }).catch(() => {
+    document.getElementById('av-resultado').textContent = 'Erro de conexão. Tente novamente.';
+    document.getElementById('av-resultado').className = 'av-msg err';
+  });
+}
+</script>
+{% endif %}
+{% endblock %}

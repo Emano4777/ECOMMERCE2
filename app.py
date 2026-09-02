@@ -20317,10 +20317,10 @@ _SUPORTE_SISTEMA_PROMPT = (
 
 
 def _ensure_suporte_schema():
-    if "suporte" in _schema_ready:
+    if "suporte_v2" in _schema_ready:
         return
     with _schema_lock:
-        if "suporte" in _schema_ready:
+        if "suporte_v2" in _schema_ready:
             return
         conn = db()
         cur = conn.cursor()
@@ -20362,6 +20362,11 @@ def _ensure_suporte_schema():
         # 'sem_resposta', 'acao_humana') — usada pro painel destacar chats onde
         # a IA nao conseguiu ajudar sozinha, sem depender de parsear texto livre.
         cur.execute("ALTER TABLE ecommerce_suporte_chats ADD COLUMN IF NOT EXISTS motivo_categoria TEXT")
+        # CSAT pos-atendimento: nota de 1 a 5 que o cliente da depois que o chat
+        # e resolvido (loja ou admin encerram). avaliado_em fica NULL ate a
+        # pessoa efetivamente avaliar (nem todo mundo avalia).
+        cur.execute("ALTER TABLE ecommerce_suporte_chats ADD COLUMN IF NOT EXISTS nota SMALLINT")
+        cur.execute("ALTER TABLE ecommerce_suporte_chats ADD COLUMN IF NOT EXISTS avaliado_em TIMESTAMPTZ")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_suporte_msgs (
                 id SERIAL PRIMARY KEY,
@@ -20375,8 +20380,8 @@ def _ensure_suporte_schema():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_suporte_msgs_chat ON ecommerce_suporte_msgs(chat_id, enviada_em)")
         conn.commit()
         cur.close()
-        _schema_ready.add("suporte")
-        _mark_migration_done("suporte")
+        _schema_ready.add("suporte_v2")
+        _mark_migration_done("suporte_v2")
 
 
 _SUPORTE_TOPICOS = [
@@ -21232,6 +21237,49 @@ def api_suporte_mensagem():
     return jsonify({"ok": True, "resposta": resposta, "escalado": escalou})
 
 
+@app.get("/avaliar-atendimento/<chat_id>")
+@_consumer_required
+def avaliar_atendimento(chat_id):
+    """Pagina simples de avaliacao (CSAT) mostrada depois que um chat de
+    suporte e resolvido -- linkada na notificacao que a loja/admin dispara
+    ao encerrar o atendimento."""
+    _ensure_suporte_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT id, status, nota FROM ecommerce_suporte_chats WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (chat_id, session["consumidor_id"]),
+    )
+    chat = cur.fetchone()
+    cur.close()
+    if not chat:
+        flash("Atendimento não encontrado.", "error")
+        return redirect(url_for("index"))
+    return render_template("avaliar_atendimento.html", chat=dict(chat))
+
+
+@app.post("/api/suporte/<chat_id>/avaliar")
+@_consumer_required
+def api_suporte_avaliar(chat_id):
+    _ensure_suporte_schema()
+    data = request.get_json(silent=True) or {}
+    try:
+        nota = int(data.get("nota"))
+    except (TypeError, ValueError):
+        nota = 0
+    if nota < 1 or nota > 5:
+        return jsonify({"ok": False, "erro": "Nota inválida."}), 400
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """UPDATE ecommerce_suporte_chats SET nota=%s, avaliado_em=NOW()
+           WHERE id=%s AND consumidor_id=%s AND status='resolvida' AND nota IS NULL
+           RETURNING id""",
+        (nota, chat_id, session["consumidor_id"]),
+    )
+    salvo = bool(cur.fetchone())
+    conn.commit(); cur.close()
+    return jsonify({"ok": salvo})
+
+
 @app.get("/painel/suporte")
 @painel_required
 def painel_suporte():
@@ -21310,10 +21358,17 @@ def painel_suporte_mensagem(chat_id):
         cur.execute("UPDATE ecommerce_suporte_chats SET ultima_atividade_em=NOW() WHERE id=%s", (chat_id,))
     conn.commit()
     cur.close()
-    _notificar_consumidor(
-        chat["consumidor_id"], "suporte", "Resposta da farmácia no suporte", mensagem[:200],
-        url="/minhas-reclamacoes",
-    )
+    if encerrar:
+        _notificar_consumidor(
+            chat["consumidor_id"], "suporte", "Atendimento concluído — avalie",
+            "Como foi sua experiência com o suporte? Leva 5 segundos.",
+            url=f"/avaliar-atendimento/{chat_id}",
+        )
+    else:
+        _notificar_consumidor(
+            chat["consumidor_id"], "suporte", "Resposta da farmácia no suporte", mensagem[:200],
+            url="/minhas-reclamacoes",
+        )
     return redirect(url_for("painel_suporte_detalhe", chat_id=chat_id))
 
 
@@ -21387,10 +21442,17 @@ def admin_suporte_mensagem(chat_id):
         cur.execute("UPDATE ecommerce_suporte_chats SET ultima_atividade_em=NOW() WHERE id=%s", (chat_id,))
     conn.commit()
     cur.close()
-    _notificar_consumidor(
-        chat["consumidor_id"], "suporte", "Resposta da equipe Poupaqui no suporte", mensagem[:200],
-        url="/minhas-reclamacoes",
-    )
+    if encerrar:
+        _notificar_consumidor(
+            chat["consumidor_id"], "suporte", "Atendimento concluído — avalie",
+            "Como foi sua experiência com o suporte? Leva 5 segundos.",
+            url=f"/avaliar-atendimento/{chat_id}",
+        )
+    else:
+        _notificar_consumidor(
+            chat["consumidor_id"], "suporte", "Resposta da equipe Poupaqui no suporte", mensagem[:200],
+            url="/minhas-reclamacoes",
+        )
     return redirect(url_for("admin_suporte_detalhe", chat_id=chat_id))
 
 
@@ -21941,6 +22003,26 @@ def painel_relatorios():
         except Exception:
             interesses_regiao = []
     relatorio["interesses_regiao"] = interesses_regiao
+
+    try:
+        _ensure_suporte_schema()
+        cur4 = db().cursor()
+        cur4.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE nota IS NOT NULL) AS total_avaliados,
+                ROUND(AVG(nota) FILTER (WHERE nota IS NOT NULL), 2) AS nota_media,
+                COUNT(*) FILTER (WHERE nota IS NOT NULL AND nota <= 2) AS insatisfeitos,
+                COUNT(*) FILTER (WHERE status = 'resolvida') AS total_resolvidos
+            FROM ecommerce_suporte_chats
+            WHERE cnpjloja = %s AND finalizada_em >= %s AND finalizada_em < %s
+            """,
+            (cnpjloja, inicio_dt, fim_dt),
+        )
+        relatorio["csat"] = dict(cur4.fetchone())
+        cur4.close()
+    except Exception:
+        relatorio["csat"] = {"total_avaliados": 0, "nota_media": None, "insatisfeitos": 0, "total_resolvidos": 0}
 
     return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros,
                            vitrine_stats=vitrine_stats,

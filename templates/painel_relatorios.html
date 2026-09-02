@@ -333,6 +333,33 @@
   </div>
 </div>
 
+<div class="rel-panel" style="margin-bottom:18px">
+  <div class="rel-panel-title">
+    <span><i class="fa fa-face-smile me-2"></i>Satisfação do suporte (CSAT)</span>
+    <span class="rel-pill">{{ relatorio.csat.total_avaliados|int }} avaliação(ões) no período</span>
+  </div>
+  <div class="rel-opp-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+    <div class="rel-kpi">
+      <div class="ico"><i class="fa fa-star"></i></div>
+      <div class="val">{{ '%.1f'|format(relatorio.csat.nota_media) if relatorio.csat.nota_media is not none else '—' }}<span style="font-size:.8rem;color:var(--pk-muted)"> / 5</span></div>
+      <div class="lbl">nota média dos atendimentos avaliados</div>
+    </div>
+    <div class="rel-kpi">
+      <div class="ico"><i class="fa fa-headset"></i></div>
+      <div class="val">{{ relatorio.csat.total_resolvidos|int }}</div>
+      <div class="lbl">atendimentos concluídos no período</div>
+    </div>
+    <div class="rel-kpi {{ 'clickable' if relatorio.csat.insatisfeitos else '' }}">
+      <div class="ico"><i class="fa fa-face-frown"></i></div>
+      <div class="val">{{ relatorio.csat.insatisfeitos|int }}</div>
+      <div class="lbl">avaliações baixas (nota 1 ou 2)</div>
+    </div>
+  </div>
+  {% if relatorio.csat.total_resolvidos and not relatorio.csat.total_avaliados %}
+  <p class="rel-empty" style="margin-top:12px">Nenhum cliente avaliou o atendimento ainda neste período.</p>
+  {% endif %}
+</div>
+
 <div class="rel-grid-2">
   <div class="rel-panel" id="tbl-baixo-giro">
     <div class="rel-panel-title">
