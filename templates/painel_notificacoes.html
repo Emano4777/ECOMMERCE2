@@ -492,7 +492,7 @@
     <input class="pk-input" type="search" id="crm-clientes-busca" placeholder="Buscar por nome, e-mail ou WhatsApp">
     <select class="pk-input" id="crm-clientes-seg" style="flex:0 0 auto">
       <option value="">Todos os segmentos</option>
-      <option value="vip">VIP</option><option value="fiel">Cliente fiel</option><option value="novo">Novo</option>
+      <option value="vip">VIP</option><option value="fiel">Cliente fiel</option><option value="novo">Primeira compra</option>
       <option value="em_risco">Em risco</option><option value="nunca_comprou">Nunca comprou</option>
     </select>
     <a class="btn-pk-ghost" href="{{ url_for('painel_crm_clientes_exportar') }}"><i class="fa fa-file-csv"></i> Exportar CSV</a>
@@ -513,7 +513,7 @@
       <th data-sort="pedidos">Pedidos</th><th data-sort="total_gasto">Total</th><th data-sort="ultima_compra">Última compra</th><th>Ação</th>
     </tr></thead>
     <tbody>
-      {% set seg_labels = {'vip':'VIP','fiel':'Cliente fiel','novo':'Novo','em_risco':'Em risco','nunca_comprou':'Nunca comprou'} %}
+      {% set seg_labels = {'vip':'VIP','fiel':'Cliente fiel','novo':'Primeira compra','em_risco':'Em risco','nunca_comprou':'Nunca comprou'} %}
       {% set seg_badge = {'vip':'vip','fiel':'ok','novo':'novo','em_risco':'err','nunca_comprou':'muted'} %}
       {% for c in clientes %}
       <tr data-id="{{ c.id }}" data-search="{{ (c.nome ~ ' ' ~ c.email ~ ' ' ~ c.telefone)|lower }}" data-segmento="{{ c.segmento }}"
