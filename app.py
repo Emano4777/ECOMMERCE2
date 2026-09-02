@@ -24011,9 +24011,23 @@ def _processar_crm_automacoes(limite=100):
     automacoes = cur.fetchall(); processados = 0; enviados = 0
     _razao_cache = {}
     _cupom_cache = {}
+    _plano_cache = {}
+    # Aniversario e carrinho abandonado usam so canal de e-mail, que ja nao
+    # esta disponivel no plano gratuito -- mas em vez de deixar isso como
+    # efeito colateral silencioso do bloqueio por canal, essas 2 automacoes
+    # padrao simplesmente nao disparam pra loja gratuita, mesmo continuando
+    # "Ativa" na tela (fica pronta pra funcionar assim que a loja fizer
+    # upgrade, sem precisar reativar nada).
+    _CODIGOS_SO_PLANO_PAGO = {"aniversario", "carrinho"}
     for automacao in automacoes:
         if processados >= limite:
             break
+        if automacao.get("codigo") in _CODIGOS_SO_PLANO_PAGO and not automacao.get("personalizada"):
+            cnpj_check = automacao["cnpjloja"]
+            if cnpj_check not in _plano_cache:
+                _plano_cache[cnpj_check] = _crm_plano_loja(cnpj_check)["crm_completo"]
+            if not _plano_cache[cnpj_check]:
+                continue
         espera = int(automacao.get("espera_horas") or 0)
         gatilho = automacao.get("gatilho")
         args = [automacao["cnpjloja"]]
