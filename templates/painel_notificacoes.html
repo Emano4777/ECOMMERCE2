@@ -403,6 +403,7 @@
             <div style="min-width:0"><div style="font-size:.68rem;color:var(--pk-muted);font-weight:700;margin-bottom:3px">POUPAQUI · agora</div>
               <div style="font-size:.82rem;font-weight:800;color:var(--pk-txt)" class="crm-prev-t">—</div>
               <div style="font-size:.78rem;color:#a8b2c8;line-height:1.45;margin-top:3px" class="crm-prev-m">—</div>
+              <img id="crm-push-img" style="display:none;width:100%;border-radius:8px;margin-top:8px;object-fit:cover;max-height:120px">
             </div>
           </div>
         </div>
@@ -411,7 +412,7 @@
       <div class="crm-prev" id="prev-email">
         <div style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--pk-line)">
           <div style="background:var(--pk-red);padding:12px 14px;color:#fff;font-weight:900;font-size:.85rem">{{ session.razao or 'Sua loja' }}</div>
-          <div class="crm-ph" id="crm-email-img" style="height:104px;background:repeating-linear-gradient(135deg,#eceff5,#eceff5 8px,#e2e6ee 8px,#e2e6ee 16px);color:#8a95b0;display:none"></div>
+          <div class="crm-ph" id="crm-email-img" style="height:104px;background:repeating-linear-gradient(135deg,#eceff5,#eceff5 8px,#e2e6ee 8px,#e2e6ee 16px);background-size:cover;background-position:center;color:#8a95b0;display:none"></div>
           <div style="padding:14px">
             <div style="font-size:.95rem;font-weight:900;color:#111827;margin-bottom:7px" class="crm-prev-t">—</div>
             <div style="font-size:.82rem;color:#374151;line-height:1.55;white-space:pre-wrap" class="crm-prev-m">—</div>
@@ -424,6 +425,7 @@
       <div class="crm-prev" id="prev-whatsapp">
         <div style="background:#0b141a;border:1px solid var(--pk-line);border-radius:12px;padding:14px">
           <div style="background:#005c4b;border-radius:10px;border-top-right-radius:2px;padding:11px 13px;margin-left:28px">
+            <img id="crm-whatsapp-img" style="display:none;width:100%;border-radius:6px;margin-bottom:7px;object-fit:cover;max-height:160px">
             <div style="font-size:.82rem;font-weight:800;color:#e9edef;margin-bottom:5px" class="crm-prev-t">—</div>
             <div style="font-size:.8rem;color:#d7dee1;line-height:1.5;white-space:pre-wrap" class="crm-prev-m">—</div>
             <div style="text-align:right;font-size:.66rem;color:#8fada4;margin-top:6px">agora ✓✓</div>
@@ -839,6 +841,27 @@ function crmAtualizarPreview(){
 }
 $('#crm-titulo').addEventListener('input', crmAtualizarPreview);
 $('#crm-msg').addEventListener('input', crmAtualizarPreview);
+
+function crmAtualizarImagemPreview(dataUrl){
+  const emailImg = $('#crm-email-img'), pushImg = $('#crm-push-img'), waImg = $('#crm-whatsapp-img');
+  if (dataUrl) {
+    emailImg.style.backgroundImage = `url('${dataUrl}')`;
+    emailImg.style.display = 'block';
+    pushImg.src = dataUrl; pushImg.style.display = 'block';
+    waImg.src = dataUrl; waImg.style.display = 'block';
+  } else {
+    emailImg.style.backgroundImage = ''; emailImg.style.display = 'none';
+    pushImg.removeAttribute('src'); pushImg.style.display = 'none';
+    waImg.removeAttribute('src'); waImg.style.display = 'none';
+  }
+}
+$('#crm-file')?.addEventListener('change', function(){
+  const file = this.files && this.files[0];
+  if (!file) { crmAtualizarImagemPreview(null); return; }
+  const leitor = new FileReader();
+  leitor.onload = ev => crmAtualizarImagemPreview(ev.target.result);
+  leitor.readAsDataURL(file);
+});
 
 $('#crm-salvar-tpl-check')?.addEventListener('change', function(){
   $('#crm-tpl-nome').style.display = this.checked ? 'block' : 'none';

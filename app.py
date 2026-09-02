@@ -1488,8 +1488,8 @@ def _crm_whatsapp_permissao(consumidor_id):
     cur = db().cursor()
     cur.execute("SELECT aceita_whatsapp_marketing,whatsapp_optout_token FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
     cliente = cur.fetchone() or {}
-    cur.execute("""SELECT COUNT(*) FILTER (WHERE criado_em>=NOW()-INTERVAL '24 hours') AS dia,
-        COUNT(*) FILTER (WHERE criado_em>=NOW()-INTERVAL '30 days') AS mes
+    cur.execute("""SELECT COUNT(*) FILTER (WHERE criada_em>=NOW()-INTERVAL '24 hours') AS dia,
+        COUNT(*) FILTER (WHERE criada_em>=NOW()-INTERVAL '30 days') AS mes
         FROM ecommerce_crm_envios WHERE consumidor_id=%s AND canal='whatsapp' AND status='enviado'""", (consumidor_id,))
     freq = cur.fetchone() or {}; cur.close()
     if not cliente.get("aceita_whatsapp_marketing"):
