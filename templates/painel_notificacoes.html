@@ -854,7 +854,13 @@ function crmResumo(){
 }
 $('#crm-form').addEventListener('submit', e => {
   const msg = $('#crm-agenda').value === 'agora' ? 'Confirma o disparo desta campanha?' : 'Confirma o agendamento desta campanha?';
-  if (!confirm(msg)) e.preventDefault();
+  if (!confirm(msg)) { e.preventDefault(); return; }
+  $$('#crm-form input[name="canais"]').forEach(el => el.remove());
+  crmCanaisAtivos().forEach(canal => {
+    const input = document.createElement('input');
+    input.type = 'hidden'; input.name = 'canais'; input.value = canal;
+    $('#crm-form').appendChild(input);
+  });
 });
 
 /* ── automacoes ── */
