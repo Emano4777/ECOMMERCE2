@@ -24653,6 +24653,70 @@ def api_cron_enviar_aviso_promo_fralda():
     return jsonify({"ok": ok_email or ok_wa, "email_cliente": ok_email, "whatsapp_cliente": ok_wa})
 
 
+@app.post("/api/cron/enviar-lembrete-carrinho")
+def api_cron_enviar_lembrete_carrinho():
+    """Dispara por e-mail um lembrete de carrinho abandonado, listando os
+    itens reais que o cliente deixou parados. So dispara se o cliente aceitou
+    marketing por e-mail (aceita_marketing) — respeita o mesmo consentimento
+    que a automacao de CRM usaria. Disparo manual, mesmo padrao das outras
+    rotas de cron (curl + CRON_SECRET)."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    consumidor_id = (data.get("consumidor_id") or "").strip()
+    if not consumidor_id:
+        return jsonify({"ok": False, "erro": "consumidor_id_obrigatorio"}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT nome, email, aceita_marketing FROM ecommerce_consumidores WHERE id=%s",
+        (consumidor_id,),
+    )
+    consumidor = cur.fetchone()
+    if not consumidor:
+        cur.close()
+        return jsonify({"ok": False, "erro": "consumidor_nao_encontrado"}), 404
+    if not consumidor.get("aceita_marketing"):
+        cur.close()
+        return jsonify({"ok": False, "erro": "cliente_nao_aceita_marketing_por_email"}), 403
+    if not (consumidor.get("email") or "").strip():
+        cur.close()
+        return jsonify({"ok": False, "erro": "consumidor_sem_email"}), 404
+
+    cur.execute(
+        "SELECT nome, qty, preco FROM ecommerce_carrinho WHERE consumidor_id=%s ORDER BY atualizado_em",
+        (consumidor_id,),
+    )
+    itens = cur.fetchall()
+    cur.close()
+    if not itens:
+        return jsonify({"ok": False, "erro": "carrinho_vazio"}), 404
+
+    nome_curto = (consumidor["nome"] or "").split()[0] if consumidor["nome"] else ""
+    total = sum(float(i.get("preco") or 0) * int(i.get("qty") or 1) for i in itens)
+    linhas_itens = "".join(
+        f"<div style='padding:6px 0;border-bottom:1px solid #eee'>{int(i['qty'])}x {html.escape(i['nome'] or '')}</div>"
+        for i in itens
+    )
+
+    corpo = (
+        f"<p>Oi, {html.escape(nome_curto)}! Tudo bem?</p>"
+        f"<p>Reparamos que você deixou uns itens separados no carrinho e ainda não finalizou o pedido:</p>"
+        f"<div class='info-box'>{linhas_itens}"
+        f"<div style='padding-top:10px;font-weight:bold'>Total: {fmt_brl(total)}</div>"
+        f"</div>"
+        f"<p style='text-align:center'><a class='btn' href='https://drogariaspoupaqui.com.br/carrinho'>Voltar pro carrinho</a></p>"
+        f"<p>Se precisar de qualquer ajuda pra finalizar, é só chamar a gente pelo chat do site!</p>"
+    )
+    ok_email = _send_email(
+        consumidor["email"],
+        "🛒 Você esqueceu uns itens no carrinho — Poupaqui",
+        _email_html_wrapper("Ainda dá tempo de levar", corpo),
+    )
+    return jsonify({"ok": ok_email, "email_cliente": ok_email, "itens": len(itens), "total": total})
+
+
 @app.post("/api/cron/wa-aviso-loja-regiao-mark-sent")
 def api_cron_wa_aviso_loja_regiao_mark_sent():
     """Marca aviso de cliente-novo-na-regiao como enviado. Chamado pelo cron
