@@ -1279,7 +1279,7 @@ def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, im
 
 def _ensure_crm_schema():
     """Estrutura unica de auditoria para disparos manuais e automaticos."""
-    key = "crm_v7"
+    key = "crm_v8"
     _load_db_migrations()
     if key in _schema_ready:
         return
@@ -1346,6 +1346,8 @@ def _ensure_crm_schema():
         cur.execute("""CREATE TABLE IF NOT EXISTS ecommerce_crm_templates (
             id BIGSERIAL PRIMARY KEY, cnpjloja TEXT NOT NULL, nome TEXT NOT NULL,
             titulo TEXT NOT NULL, mensagem TEXT NOT NULL, criado_em TIMESTAMPTZ DEFAULT NOW())""")
+        cur.execute("ALTER TABLE ecommerce_crm_templates ADD COLUMN IF NOT EXISTS imagem_url TEXT")
+        cur.execute("ALTER TABLE ecommerce_crm_templates ADD COLUMN IF NOT EXISTS url TEXT")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_templates_loja ON ecommerce_crm_templates(cnpjloja, criado_em DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_campanhas_agendadas ON ecommerce_crm_campanhas(agendado_para) WHERE status='agendado'")
         cur.execute("""INSERT INTO ecommerce_crm_planos_loja(cnpjloja,plano)
@@ -22412,17 +22414,18 @@ def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, 
                     _web_push_enviar_consumidor(cliente['id'], titulo_cliente, mensagem_cliente, url=link_rastreado, imagem_url=imagem_url)
                 elif canal == 'email' and cliente.get('email'):
                     pixel = url_for('crm_registrar_abertura', envio_id=envio_id, _external=True)
-                    corpo = f"<p>{html.escape(mensagem_cliente)}</p><p style='text-align:center'><a class='btn' href='{html.escape(link_rastreado)}'>Ver oferta</a></p><img src='{html.escape(pixel)}' width='1' height='1' alt='' style='display:block'>"
+                    img_html = f"<img src='{html.escape(imagem_url)}' alt='' style='display:block;width:100%;max-width:536px;border-radius:8px;margin-bottom:14px'>" if imagem_url else ""
+                    corpo = f"{img_html}<p>{html.escape(mensagem_cliente)}</p><p style='text-align:center'><a class='btn' href='{html.escape(link_rastreado)}'>Ver oferta</a></p><img src='{html.escape(pixel)}' width='1' height='1' alt='' style='display:block'>"
                     ok = bool(_send_email(cliente['email'], titulo_cliente[:160], _email_html_wrapper(titulo_cliente[:160], corpo)))
                 elif canal == 'whatsapp' and cliente.get('telefone'):
                     permitido, motivo, token = _crm_whatsapp_permissao(cliente['id'])
                     if permitido:
-                        sair = url_for('crm_whatsapp_sair', token=token, _external=True)
+                        sair = url_for('crm_whatsapp_sair_envio', envio_id=envio_id, _external=True)
                         try:
                             # Pausa curta entre envios pro provedor WA nao bloquear/
                             # descartar silenciosamente quando manda varias mensagens
                             # em sequencia muito rapida (observado com 2+ destinatarios).
-                            resposta_wa = _wa_send(cliente['telefone'], f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}\n\nParar mensagens: {sair}", imagem_url, True, propagar_erro=True)
+                            resposta_wa = _wa_send(cliente['telefone'], f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}\n\n_Não quer mais receber? Cancelar: {sair}_", imagem_url, True, propagar_erro=True)
                             ok = bool(resposta_wa)
                             dados_wa = (resposta_wa or {}).get('data') or {}
                             external_id = str(dados_wa.get('id') or dados_wa.get('msgId') or (dados_wa.get('key') or {}).get('id') or '') or None
@@ -22629,7 +22632,7 @@ def _crm_dados(cnpjloja):
         ORDER BY EXTRACT(DAY FROM data_nascimento)""", (ids_relacionados,))
     aniversariantes = cur.fetchall()
 
-    cur.execute("SELECT id,nome,titulo,mensagem FROM ecommerce_crm_templates WHERE cnpjloja=%s ORDER BY criado_em DESC", (cnpjloja,))
+    cur.execute("SELECT id,nome,titulo,mensagem,imagem_url,url FROM ecommerce_crm_templates WHERE cnpjloja=%s ORDER BY criado_em DESC", (cnpjloja,))
     templates = cur.fetchall()
     cur.close()
     cupons = _crm_cupons_disponiveis(cnpjloja)
@@ -22714,7 +22717,7 @@ def painel_notificacoes_enviar():
         flash(f"Canal não disponível no plano {plano['nome']}. Consulte Ver planos para liberar e-mail e WhatsApp.", "error")
         return redirect(url_for("painel_notificacoes"))
     url = (request.form.get("url") or "").strip() or url_for("catalogo_loja", cnpjloja=cnpjloja)
-    imagem_url = None
+    imagem_url = (request.form.get("imagem_url_existente") or "").strip() or None
     imagem = request.files.get("imagem")
     if imagem and imagem.filename:
         raw = imagem.read(3 * 1024 * 1024 + 1)
@@ -22772,8 +22775,9 @@ def painel_notificacoes_enviar():
 
     if (request.form.get("salvar_template") == "1") and (request.form.get("template_nome") or "").strip():
         cur = db().cursor()
-        cur.execute("INSERT INTO ecommerce_crm_templates (cnpjloja,nome,titulo,mensagem) VALUES (%s,%s,%s,%s)",
-            (cnpjloja, request.form.get("template_nome").strip()[:120], titulo[:160], mensagem[:600]))
+        cur.execute("INSERT INTO ecommerce_crm_templates (cnpjloja,nome,titulo,mensagem,imagem_url,url) VALUES (%s,%s,%s,%s,%s,%s)",
+            (cnpjloja, request.form.get("template_nome").strip()[:120], titulo[:160], mensagem[:600], imagem_url,
+             (request.form.get("url") or "").strip() or None))
         db().commit(); cur.close()
 
     cupom_id = (request.form.get("cupom_id") or "").strip() or None
@@ -22980,6 +22984,18 @@ def crm_registrar_clique(envio_id):
 def crm_whatsapp_sair(token):
     _ensure_crm_schema(); cur=db().cursor()
     cur.execute("UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE WHERE whatsapp_optout_token=%s RETURNING id", (token,))
+    alterado=bool(cur.fetchone()); db().commit(); cur.close()
+    return "Você não receberá mais promoções pelo WhatsApp." if alterado else "Este link não é válido.", 200 if alterado else 404
+
+
+@app.get("/crm/sair/<int:envio_id>")
+def crm_whatsapp_sair_envio(envio_id):
+    """Versao curta do link de opt-out (usa o id do envio em vez do token de
+    48 caracteres), pra nao competir visualmente com o link da campanha na
+    mensagem do WhatsApp."""
+    _ensure_crm_schema(); cur=db().cursor()
+    cur.execute("""UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE
+        WHERE id=(SELECT consumidor_id FROM ecommerce_crm_envios WHERE id=%s) RETURNING id""", (envio_id,))
     alterado=bool(cur.fetchone()); db().commit(); cur.close()
     return "Você não receberá mais promoções pelo WhatsApp." if alterado else "Este link não é válido.", 200 if alterado else 404
 

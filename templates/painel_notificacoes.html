@@ -334,11 +334,13 @@
         <div>
           <label class="crm-label">Imagem opcional</label>
           <input class="pk-input" id="crm-file" type="file" name="imagem" accept="image/png,image/jpeg,image/webp,image/gif">
+          <input type="hidden" name="imagem_url_existente" id="crm-imagem-existente">
+          <div class="crm-help" id="crm-imagem-tpl-aviso" style="display:none">Usando a imagem do modelo. Escolha outro arquivo pra trocar.</div>
           <div class="crm-help">JPG, PNG, WEBP ou GIF · até 3 MB.</div>
         </div>
         <div>
           <label class="crm-label">Link ao abrir</label>
-          <input class="pk-input" name="url" placeholder="Opcional. Se vazio, abre a página da sua loja.">
+          <input class="pk-input" name="url" id="crm-url" placeholder="Opcional. Se vazio, abre a página da sua loja.">
         </div>
       </div>
 
@@ -621,10 +623,11 @@
   <div class="crm-tpl-grid">
     {% for t in templates %}
     <div class="crm-tpl-card">
+      {% if t.imagem_url %}<img src="{{ t.imagem_url }}" alt="" style="width:100%;border-radius:8px;margin-bottom:8px;max-height:110px;object-fit:cover">{% endif %}
       <strong>{{ t.nome }}</strong>
       <p><b style="color:var(--pk-txt)">{{ t.titulo }}</b><br>{{ t.mensagem }}</p>
       <div class="row">
-        <button type="button" class="btn-pk-ghost" onclick="crmUsarTemplate('{{ t.titulo|e }}','{{ t.mensagem|e }}')"><i class="fa fa-paper-plane"></i> Usar</button>
+        <button type="button" class="btn-pk-ghost" onclick="crmUsarTemplate('{{ t.titulo|e }}','{{ t.mensagem|e }}','{{ (t.imagem_url or '')|e }}','{{ (t.url or '')|e }}')"><i class="fa fa-paper-plane"></i> Usar</button>
         <form method="post" action="{{ url_for('painel_crm_template_excluir', template_id=t.id) }}" onsubmit="return confirm('Excluir o modelo {{ t.nome }}?')"><button type="submit" class="btn-pk-ghost" style="color:#f08090;border-color:#6b1f2d"><i class="fa fa-trash"></i></button></form>
       </div>
     </div>
@@ -800,12 +803,25 @@ $$('.crm-chip[data-titulo]').forEach(chip => chip.addEventListener('click', () =
   $('#crm-titulo').value = chip.dataset.titulo; $('#crm-msg').value = chip.dataset.mensagem;
   crmAtualizarPreview();
 }));
-window.crmUsarTemplate = function(titulo, mensagem){
+window.crmUsarTemplate = function(titulo, mensagem, imagemUrl, url){
   crmAbrirAba('novo');
   $('#crm-titulo').value = titulo; $('#crm-msg').value = mensagem;
+  $('#crm-url').value = url || '';
+  $('#crm-file').value = '';
+  $('#crm-imagem-existente').value = imagemUrl || '';
+  $('#crm-imagem-tpl-aviso').style.display = imagemUrl ? 'block' : 'none';
+  crmAtualizarImagemPreview(imagemUrl || null);
   crmAtualizarPreview();
   $('#crm-titulo').scrollIntoView({behavior:'smooth', block:'center'});
 };
+// se o usuario escolher um arquivo novo depois de usar um modelo com imagem,
+// o arquivo novo tem prioridade -- limpa a referencia da imagem do modelo.
+$('#crm-file')?.addEventListener('change', function(){
+  if (this.files && this.files[0]) {
+    $('#crm-imagem-existente').value = '';
+    $('#crm-imagem-tpl-aviso').style.display = 'none';
+  }
+});
 
 const crmCupomSelect = $('#crm-cupom');
 function crmAlternarDica(select, dica){ if (select && dica) dica.classList.toggle('show', !!select.value); }
