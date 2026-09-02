@@ -22400,6 +22400,19 @@ def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
             (cnpjloja, cnpjloja))
         ids = [r["consumidor_id"] for r in cur.fetchall()]; cur.close()
         return ids
+    if publico == "cupom_vencendo":
+        # cupons especificos (atribuidos a um cliente) que vencem nos proximos
+        # 30 dias e o cliente ainda nao usou em nenhum pedido.
+        cur = db().cursor()
+        cur.execute("""SELECT DISTINCT cc.consumidor_id FROM ecommerce_cupons_clientes cc
+            JOIN ecommerce_cupons cu ON cu.id=cc.cupom_id
+            WHERE cu.cnpjloja=%s AND cu.ativo=TRUE AND cu.valido_ate IS NOT NULL
+              AND cu.valido_ate >= CURRENT_DATE AND cu.valido_ate <= CURRENT_DATE + INTERVAL '30 days'
+              AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p
+                WHERE p.consumidor_id=cc.consumidor_id AND p.cupom_id=cc.cupom_id AND p.status<>'cancelado')""",
+            (cnpjloja,))
+        ids = [r["consumidor_id"] for r in cur.fetchall()]; cur.close()
+        return ids
     publico = publico if publico in {"todos", "relacionados", "compradores", "assinantes", "favoritos"} else "todos"
     conn = db()
     cur = conn.cursor()
@@ -22759,6 +22772,7 @@ def painel_notificacoes():
         "favoritos": len(_consumidores_notificacao_loja(cnpjloja, "favoritos")),
         "aniversariantes": len(_consumidores_notificacao_loja(cnpjloja, "aniversariantes")),
         "inativos": len(_consumidores_notificacao_loja(cnpjloja, "inativos")),
+        "cupom_vencendo": len(_consumidores_notificacao_loja(cnpjloja, "cupom_vencendo")),
     }
     campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons = _crm_dados(cnpjloja)
     agendadas = [c for c in campanhas if c["status"] == "agendado"]
@@ -23083,7 +23097,7 @@ def painel_crm_automacao_criar():
         espera_horas = max(0, min(int(request.form.get("espera_horas") or 0), 24 * 365))
     except Exception:
         espera_horas = 0
-    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro"}
+    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro", "cupom_vencendo"}
     if not nome or gatilho not in gatilhos_validos or not titulo or not mensagem or not canais:
         flash("Preencha nome, gatilho, canais, assunto e mensagem da automação.", "error")
         return redirect(url_for("painel_notificacoes", aba="automacoes"))
@@ -24029,6 +24043,23 @@ def _processar_crm_automacoes(limite=100):
                 'carrinho:'||MAX(x.atualizado_em)::text AS referencia FROM ecommerce_consumidores c
                 JOIN ecommerce_carrinho x ON x.consumidor_id=c.id WHERE x.cnpjloja=%s
                 GROUP BY c.id HAVING MAX(x.atualizado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
+        elif gatilho == "cupom_vencendo":
+            # espera_horas aqui e reaproveitado como "avisa faltando ate X horas
+            # pro vencimento" (em vez de "espera X horas depois do evento",
+            # como nos outros gatilhos) -- so cupons especificos (atribuidos a
+            # um cliente) que ele ainda nao usou em nenhum pedido.
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,cu.valido_ate::timestamptz AS evento,
+                'cupom_vencendo:'||cc.cupom_id::text AS referencia
+                FROM ecommerce_cupons_clientes cc
+                JOIN ecommerce_cupons cu ON cu.id=cc.cupom_id
+                JOIN ecommerce_consumidores c ON c.id=cc.consumidor_id
+                WHERE cu.cnpjloja=%s AND cu.ativo=TRUE AND cu.valido_ate IS NOT NULL
+                  AND cu.valido_ate >= CURRENT_DATE
+                  AND cu.valido_ate <= (CURRENT_DATE + ((%s::numeric/24)||' days')::interval)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ecommerce_pedidos p
+                    WHERE p.consumidor_id=cc.consumidor_id AND p.cupom_id=cc.cupom_id AND p.status<>'cancelado'
+                  )"""; args.append(espera)
         else:
             continue
         cur.execute(f"""SELECT q.* FROM ({origem}) q WHERE NOT EXISTS (
@@ -24049,14 +24080,25 @@ def _processar_crm_automacoes(limite=100):
                 _row_razao = cur.fetchone()
                 _razao_cache[cnpj_automacao] = (_row_razao or {}).get("razao") or ""
             nome_loja = _razao_cache[cnpj_automacao]
-            if automacao["id"] not in _cupom_cache:
-                _cupom_cache[automacao["id"]] = _crm_cupom_da_loja(cnpj_automacao, automacao.get("cupom_id"))
-            cupom_automacao = _cupom_cache[automacao["id"]]
             cupom_texto = ""
-            if cupom_automacao:
-                elegivel = _crm_cupom_elegiveis(cupom_automacao, cnpj_automacao, [cliente["id"]])
-                if str(cliente["id"]) in elegivel:
-                    cupom_texto = _crm_texto_cupom(cupom_automacao)
+            if gatilho == "cupom_vencendo" and (cliente.get("referencia") or "").startswith("cupom_vencendo:"):
+                # aqui o cupom relevante nao e um fixo configurado na automacao --
+                # e o cupom especifico desse cliente que esta vencendo (extraido
+                # da referencia que a propria query do gatilho gerou).
+                cupom_id_cliente = cliente["referencia"].split(":", 1)[1]
+                cur_cx = db().cursor()
+                cur_cx.execute("SELECT id, codigo, desconto_tipo, desconto_valor FROM ecommerce_cupons WHERE id=%s", (cupom_id_cliente,))
+                cupom_especifico = cur_cx.fetchone(); cur_cx.close()
+                if cupom_especifico:
+                    cupom_texto = _crm_texto_cupom(cupom_especifico)
+            else:
+                if automacao["id"] not in _cupom_cache:
+                    _cupom_cache[automacao["id"]] = _crm_cupom_da_loja(cnpj_automacao, automacao.get("cupom_id"))
+                cupom_automacao = _cupom_cache[automacao["id"]]
+                if cupom_automacao:
+                    elegivel = _crm_cupom_elegiveis(cupom_automacao, cnpj_automacao, [cliente["id"]])
+                    if str(cliente["id"]) in elegivel:
+                        cupom_texto = _crm_texto_cupom(cupom_automacao)
             titulo = _crm_personalizar(automacao.get("titulo"), cliente, nome_loja, cupom_texto)
             mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja, cupom_texto)
             destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
