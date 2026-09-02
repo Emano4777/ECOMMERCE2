@@ -23940,7 +23940,7 @@ def _processar_crm_automacoes(limite=100):
             mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja, cupom_texto)
             destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
             for canal in (automacao.get("canais") or []):
-                ok = False
+                ok = False; erro = None
                 permitido_plano, motivo_plano = _crm_pode_enviar(automacao["cnpjloja"], canal)
                 if not permitido_plano:
                     _crm_registrar_envio(automacao["cnpjloja"], cliente["id"], canal,
@@ -23953,17 +23953,24 @@ def _processar_crm_automacoes(limite=100):
                             (cliente["id"],titulo,mensagem,automacao.get("imagem_url"),destino)); db().commit(); c2.close(); ok=True
                         _web_push_enviar_consumidor(cliente["id"], titulo, mensagem, url=destino, imagem_url=automacao.get("imagem_url"))
                     elif canal == "email" and cliente.get("email"):
-                        corpo=f"<p>{html.escape(mensagem)}</p><p><a class='btn' href='{html.escape(destino)}'>Ver no site</a></p>"
+                        img_html = f"<img src='{html.escape(automacao.get('imagem_url'))}' alt='' style='display:block;width:100%;max-width:536px;border-radius:8px;margin-bottom:14px'>" if automacao.get("imagem_url") else ""
+                        corpo=f"{img_html}<p>{html.escape(mensagem)}</p><p><a class='btn' href='{html.escape(destino)}'>Ver no site</a></p>"
                         ok=bool(_send_email(cliente["email"],titulo,_email_html_wrapper(titulo,corpo)))
                     elif canal == "whatsapp" and cliente.get("telefone"):
                         permitido,motivo,token=_crm_whatsapp_permissao(cliente["id"])
                         if permitido:
                             sair=url_for("crm_whatsapp_sair",token=token,_external=True)
-                            ok=bool(_wa_send(cliente["telefone"],f"{titulo}\n\n{mensagem}\n\n{destino}\n\nParar mensagens: {sair}",automacao.get("imagem_url")))
+                            try:
+                                ok=bool(_wa_send(cliente["telefone"],f"{titulo}\n\n{mensagem}\n\n{destino}\n\n_Não quer mais receber? Cancelar: {sair}_",automacao.get("imagem_url"),propagar_erro=True))
+                            finally:
+                                time.sleep(0.8)
+                        else:
+                            erro = motivo
                 except Exception as exc:
+                    erro = str(exc)
                     app.logger.warning("crm automacao %s canal %s: %s", automacao["id"], canal, exc)
                 _crm_registrar_envio(automacao["cnpjloja"],cliente["id"],canal,
-                    f"automacao:{automacao['codigo']}","enviado" if ok else "falhou",titulo,mensagem)
+                    f"automacao:{automacao['codigo']}","enviado" if ok else "falhou",titulo,mensagem,erro=erro)
                 enviados += int(ok)
     cur.close()
     return {"automacoes": len(automacoes), "processados": processados, "envios": enviados}
