@@ -23015,7 +23015,13 @@ def crm_registrar_clique(envio_id):
     if destino.startswith("//") or not destino.startswith(("/", "https://drogariaspoupaqui.com.br/", "https://www.drogariaspoupaqui.com.br/")):
         destino = url_for("index")
     cur = db().cursor()
-    cur.execute("UPDATE ecommerce_crm_envios SET clicado_em=COALESCE(clicado_em,NOW()),total_cliques=total_cliques+1 WHERE id=%s", (envio_id,))
+    # clique so acontece depois de a pessoa ver a mensagem -- garante
+    # visualizado_em aqui tambem, em vez de depender so do webhook de leitura
+    # (que pra whatsapp e best-effort e pode nunca confirmar, deixando
+    # "clicou" sem "visualizou" no historico, o que nao faz sentido).
+    cur.execute("""UPDATE ecommerce_crm_envios SET
+        clicado_em=COALESCE(clicado_em,NOW()), visualizado_em=COALESCE(visualizado_em,NOW()),
+        total_cliques=total_cliques+1 WHERE id=%s""", (envio_id,))
     db().commit(); cur.close()
     return redirect(destino)
 
