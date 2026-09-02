@@ -22919,6 +22919,13 @@ def api_cron_crm_campanhas_agendadas():
     return jsonify({"ok": True, **_processar_campanhas_agendadas()})
 
 
+@app.post("/api/cron/favoritos-alertas")
+def api_cron_favoritos_alertas():
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    return jsonify({"ok": True, **_processar_alertas_favoritos()})
+
+
 @app.post("/painel/crm/campanha/<campanha_id>/cancelar")
 @painel_required
 def painel_crm_campanha_cancelar(campanha_id):
@@ -27256,10 +27263,10 @@ def _sync_cupom_lojas(cur, cupom_id, cnpjlojas, codigo_upper=""):
 
 def _ensure_favoritos_schema():
     _load_db_migrations()
-    if "favoritos" in _schema_ready:
+    if "favoritos_v2" in _schema_ready:
         return
     with _schema_lock:
-        if "favoritos" in _schema_ready:
+        if "favoritos_v2" in _schema_ready:
             return
         conn = db()
         cur = conn.cursor()
@@ -27286,9 +27293,116 @@ def _ensure_favoritos_schema():
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_preco BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS alerta_estoque BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS preco_referencia NUMERIC(10,2)")
+        # estado usado pelo cron de alertas (preco caiu / voltou ao estoque) --
+        # estoque_zerado rastreia a transicao (so avisa quando sai de 0 pra >0,
+        # nao toda vez que checa), preco_alertado guarda o menor preco ja
+        # avisado (so avisa de novo se cair AINDA mais, evita spam).
+        cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS estoque_zerado BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_favoritos ADD COLUMN IF NOT EXISTS preco_alertado NUMERIC(10,2)")
         conn.commit()
         cur.close()
-        _schema_ready.add("favoritos")
+        _schema_ready.add("favoritos_v2")
+
+
+def _enviar_alerta_favorito(fav, tipo, preco_atual, preco_referencia=None):
+    """Manda push (+ inbox in-app) e e-mail (se a conta aceita marketing por
+    e-mail) avisando que um favorito baixou de preco ou voltou ao estoque.
+    fav e uma linha com consumidor_id/ean/cnpjloja/nome/imagem/consumidor_nome/
+    email/telefone/aceita_marketing (ver _processar_alertas_favoritos)."""
+    link = url_for("produto_detalhe", ean=fav["ean"], _external=True)
+    link_interno = url_for("produto_detalhe", ean=fav["ean"])
+    nome_prod = fav["nome"]
+    if tipo == "preco":
+        titulo = "Baixou de preço! 💸"
+        preco_fmt = f"R$ {preco_atual:.2f}".replace(".", ",")
+        de_fmt = f"R$ {float(preco_referencia):.2f}".replace(".", ",") if preco_referencia else None
+        mensagem = f"{nome_prod} agora está por {preco_fmt}" + (f" (era {de_fmt})" if de_fmt else "") + ". Você favoritou esse item -- aproveita antes que suba de novo!"
+    else:
+        titulo = "Voltou ao estoque! 📦"
+        mensagem = f"{nome_prod}, que você favoritou, está disponível de novo."
+    try:
+        c = db().cursor()
+        c.execute("""INSERT INTO ecommerce_notificacoes_consumidor
+            (consumidor_id,tipo,titulo,mensagem,imagem_url,url) VALUES(%s,'favorito',%s,%s,%s,%s)""",
+            (fav["consumidor_id"], titulo, mensagem, fav.get("imagem"), link_interno))
+        db().commit(); c.close()
+    except Exception as exc:
+        app.logger.warning("alerta favorito: falha ao registrar notificacao in-app: %s", exc)
+    try:
+        _web_push_enviar_consumidor(fav["consumidor_id"], titulo, mensagem, url=link_interno, imagem_url=fav.get("imagem"))
+    except Exception as exc:
+        app.logger.warning("alerta favorito: falha no web push: %s", exc)
+    if fav.get("email") and fav.get("aceita_marketing", True):
+        try:
+            corpo = f"<p>{html.escape(mensagem)}</p><p style='text-align:center'><a class='btn' href='{html.escape(link)}'>Ver produto</a></p>"
+            _send_email(fav["email"], titulo, _email_html_wrapper(titulo, corpo))
+        except Exception as exc:
+            app.logger.warning("alerta favorito: falha no e-mail: %s", exc)
+
+
+def _processar_alertas_favoritos(limite=300):
+    """Cron: varre favoritos com alerta ligado, compara preco/estoque atual
+    (via ecommerce_alpha_produtos, unica fonte de catalogo em tempo real
+    hoje) contra o que foi registrado no favorito, e avisa quando: (a) preco
+    caiu abaixo do preco_referencia (e abaixo do menor ja avisado, pra nao
+    repetir aviso da mesma queda); (b) estoque saiu de zero pra disponivel de
+    novo (nao avisa so por estar em estoque -- so na transicao)."""
+    _ensure_favoritos_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT f.id, f.consumidor_id, f.ean, f.cnpjloja, f.nome, f.imagem,
+               f.preco_referencia, f.alerta_preco, f.alerta_estoque,
+               f.estoque_zerado, f.preco_alertado,
+               ap.preco_venda, ap.preco_atual AS ap_preco_atual, ap.preco_promocional,
+               ap.promo_inicio, ap.promo_fim, ap.estoque,
+               c.email, c.aceita_marketing
+        FROM ecommerce_favoritos f
+        JOIN ecommerce_alpha_produtos ap ON ap.cnpjloja = f.cnpjloja AND ap.ean = f.ean
+            AND COALESCE(ap.inativo, false) = false
+        JOIN ecommerce_consumidores c ON c.id = f.consumidor_id
+        WHERE f.alerta_preco = TRUE OR f.alerta_estoque = TRUE
+        ORDER BY f.atualizado_em ASC
+        LIMIT %s
+    """, (limite,))
+    rows = cur.fetchall()
+    avisos_preco = 0
+    avisos_estoque = 0
+    for r in rows:
+        item = {
+            "fonte_estoque": "alpha_a7",
+            "preco": float(r["preco_venda"] or r["ap_preco_atual"] or 0),
+            "preco_promocional": r["preco_promocional"],
+            "promo_inicio": r["promo_inicio"],
+            "promo_fim": r["promo_fim"],
+        }
+        _apply_alpha_realtime_promo([item])
+        preco_atual = item["preco"]
+        estoque_atual = int(r["estoque"] or 0)
+
+        if r["alerta_estoque"]:
+            estava_zerado = bool(r["estoque_zerado"])
+            if estoque_atual <= 0 and not estava_zerado:
+                cur2 = db().cursor()
+                cur2.execute("UPDATE ecommerce_favoritos SET estoque_zerado=TRUE WHERE id=%s", (r["id"],))
+                db().commit(); cur2.close()
+            elif estoque_atual > 0 and estava_zerado:
+                _enviar_alerta_favorito(r, "estoque", preco_atual)
+                cur2 = db().cursor()
+                cur2.execute("UPDATE ecommerce_favoritos SET estoque_zerado=FALSE WHERE id=%s", (r["id"],))
+                db().commit(); cur2.close()
+                avisos_estoque += 1
+
+        if r["alerta_preco"] and r["preco_referencia"] and preco_atual and preco_atual > 0:
+            referencia = float(r["preco_referencia"])
+            ja_alertado = float(r["preco_alertado"]) if r["preco_alertado"] is not None else None
+            if preco_atual < referencia and (ja_alertado is None or preco_atual < ja_alertado):
+                _enviar_alerta_favorito(r, "preco", preco_atual, referencia)
+                cur2 = db().cursor()
+                cur2.execute("UPDATE ecommerce_favoritos SET preco_alertado=%s WHERE id=%s", (preco_atual, r["id"]))
+                db().commit(); cur2.close()
+                avisos_preco += 1
+    cur.close()
+    return {"verificados": len(rows), "avisos_preco": avisos_preco, "avisos_estoque": avisos_estoque}
 
 
 def _ensure_lista_presente_schema():
