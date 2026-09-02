@@ -190,6 +190,12 @@
               <input id="senha" name="senha" type="password" autocomplete="new-password" minlength="6" placeholder="Deixe em branco para manter">
               <div class="pq-hint" data-hint-for="senha"></div>
             </div>
+            <div class="pq-field full">
+              <label class="pq-auth-check pq-whatsapp-consent" style="margin-top:0">
+                <input type="checkbox" name="aceita_whatsapp_marketing" {% if user.aceita_whatsapp_marketing %}checked{% endif %}>
+                <span><strong>Promoções pelo WhatsApp</strong>Quero receber promoções e novidades da minha região pelo WhatsApp. Posso cancelar quando quiser.</span>
+              </label>
+            </div>
           </div>
 
           <div class="pq-actions">

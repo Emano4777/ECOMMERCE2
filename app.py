@@ -16929,7 +16929,7 @@ def consumidor_perfil():
     _ensure_consumidor_schema()
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT nome, telefone, documento, email, endereco, endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
+    cur.execute("SELECT nome, telefone, documento, email, endereco, endereco_lat, endereco_lng, aceita_whatsapp_marketing FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
     user = cur.fetchone()
     cur.close()
     return render_template("consumidor_perfil.html", user=user)
@@ -16947,6 +16947,7 @@ def consumidor_perfil_post():
     endereco = (request.form.get("endereco") or "").strip()
     endereco_lat = _to_float_or_none(request.form.get("endereco_lat"))
     endereco_lng = _to_float_or_none(request.form.get("endereco_lng"))
+    aceita_whatsapp_marketing = bool(request.form.get("aceita_whatsapp_marketing"))
 
     if not _valid_nome(nome):
         flash("Informe nome e sobrenome reais.", "error")
@@ -16984,19 +16985,19 @@ def consumidor_perfil_post():
             cur.execute(
                 """
                 UPDATE ecommerce_consumidores
-                SET nome=%s, telefone=%s, documento=%s, email=%s, senha_hash=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
+                SET nome=%s, telefone=%s, documento=%s, email=%s, senha_hash=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, aceita_whatsapp_marketing=%s, atualizado_em=NOW()
                 WHERE id=%s
                 """,
-                (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, session["consumidor_id"]),
+                (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, aceita_whatsapp_marketing, session["consumidor_id"]),
             )
         else:
             cur.execute(
                 """
                 UPDATE ecommerce_consumidores
-                SET nome=%s, telefone=%s, documento=%s, email=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, atualizado_em=NOW()
+                SET nome=%s, telefone=%s, documento=%s, email=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, aceita_whatsapp_marketing=%s, atualizado_em=NOW()
                 WHERE id=%s
                 """,
-                (nome, telefone, documento, email, endereco or None, endereco_lat, endereco_lng, session["consumidor_id"]),
+                (nome, telefone, documento, email, endereco or None, endereco_lat, endereco_lng, aceita_whatsapp_marketing, session["consumidor_id"]),
             )
         conn.commit()
     except psycopg2.errors.UniqueViolation:
@@ -22438,12 +22439,15 @@ def _crm_enviar_para_lista(campanha_id, cnpjloja, titulo, mensagem, imagem_url, 
                 elif canal == 'whatsapp' and cliente.get('telefone'):
                     permitido, motivo, token = _crm_whatsapp_permissao(cliente['id'])
                     if permitido:
-                        sair = url_for('crm_whatsapp_sair_envio', envio_id=envio_id, _external=True)
                         try:
                             # Pausa curta entre envios pro provedor WA nao bloquear/
                             # descartar silenciosamente quando manda varias mensagens
                             # em sequencia muito rapida (observado com 2+ destinatarios).
-                            resposta_wa = _wa_send(cliente['telefone'], f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}\n\n_Não quer mais receber? Cancelar: {sair}_", imagem_url, True, propagar_erro=True)
+                            # Sem link de opt-out no corpo da mensagem (poluia a mensagem
+                            # promocional) -- quem nao quer mais receber desmarca a opcao
+                            # no editar perfil, ou responde "parar"/"sair" (o webhook da
+                            # WA Sender ja trata isso automaticamente).
+                            resposta_wa = _wa_send(cliente['telefone'], f"{titulo_cliente}\n\n{mensagem_cliente}\n\n{link_rastreado}", imagem_url, True, propagar_erro=True)
                             ok = bool(resposta_wa)
                             dados_wa = (resposta_wa or {}).get('data') or {}
                             external_id = str(dados_wa.get('id') or dados_wa.get('msgId') or (dados_wa.get('key') or {}).get('id') or '') or None
@@ -23987,9 +23991,8 @@ def _processar_crm_automacoes(limite=100):
                     elif canal == "whatsapp" and cliente.get("telefone"):
                         permitido,motivo,token=_crm_whatsapp_permissao(cliente["id"])
                         if permitido:
-                            sair=url_for("crm_whatsapp_sair",token=token,_external=True)
                             try:
-                                ok=bool(_wa_send(cliente["telefone"],f"{titulo}\n\n{mensagem}\n\n{destino}\n\n_Não quer mais receber? Cancelar: {sair}_",automacao.get("imagem_url"),propagar_erro=True))
+                                ok=bool(_wa_send(cliente["telefone"],f"{titulo}\n\n{mensagem}\n\n{destino}",automacao.get("imagem_url"),propagar_erro=True))
                             finally:
                                 time.sleep(0.8)
                         else:
