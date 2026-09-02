@@ -584,7 +584,7 @@
 
   <div class="crm-list" style="margin-top:14px">
   {% for a in automacoes %}
-  {% if crm_plano.crm_completo or not a.personalizada %}
+  {% if crm_plano.crm_completo or (not a.personalizada and a.codigo not in ('aniversario', 'carrinho')) %}
   <div class="crm-auto">
     <div><b>{{ a.nome }}</b><span>{{ a.canais|join(' + ') }}{% if a.gatilho == 'cupom_vencendo' %} · até {{ a.espera_horas }} hora(s) antes de vencer{% elif a.gatilho %} · {{ a.espera_horas }} hora(s) depois{% endif %}</span></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
