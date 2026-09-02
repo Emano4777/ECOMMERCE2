@@ -22803,8 +22803,13 @@ def painel_notificacoes_enviar():
     cupom_id = cupom["id"] if cupom else None  # ignora se nao pertence a loja/inativo
 
     agendado_para = None
+    # so considera a data se o botao "Agendar" era o selecionado no envio --
+    # senao, um usuario que preencheu a data, mudou de ideia e voltou pra
+    # "Enviar agora" acaba disparando agendado, ja que o campo de data fica
+    # so escondido (nao limpo) quando alterna de volta pra "agora".
+    agenda_modo = (request.form.get("_agenda") or "agora").strip()
     agendado_raw = (request.form.get("agendado_para") or "").strip()
-    if agendado_raw:
+    if agenda_modo == "agendar" and agendado_raw:
         try:
             agendado_para = datetime.strptime(agendado_raw, "%Y-%m-%dT%H:%M").replace(tzinfo=timezone(timedelta(hours=-3)))
         except Exception:

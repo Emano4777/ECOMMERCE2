@@ -685,8 +685,13 @@ $$('[data-radio]').forEach(grp => {
     opt.classList.add('on');
     campo.value = opt.dataset.value;
     if (grp.dataset.radio === 'agenda') {
-      crmData.style.display = opt.dataset.value === 'agendar' ? '' : 'none';
-      crmEnviar.innerHTML = '<i class="fa fa-rocket me-1"></i>' + (opt.dataset.value === 'agora' ? 'Disparar campanha' : 'Agendar campanha');
+      const ehAgendar = opt.dataset.value === 'agendar';
+      crmData.style.display = ehAgendar ? '' : 'none';
+      // limpa a data ao voltar pra "Enviar agora" -- senao o campo (so
+      // escondido, nao removido do form) continua indo no envio e o
+      // back-end acaba agendando mesmo com "Enviar agora" selecionado.
+      if (!ehAgendar) $('#crm-agendado-para').value = '';
+      crmEnviar.innerHTML = '<i class="fa fa-rocket me-1"></i>' + (ehAgendar ? 'Agendar campanha' : 'Disparar campanha');
     }
     crmResumo();
   }));
