@@ -22648,22 +22648,44 @@ def _jsonificar_cliente_detalhe(detalhe):
 
 def _processar_campanhas_agendadas(limite=20):
     _ensure_crm_schema()
-    cur = db().cursor()
-    cur.execute("""SELECT * FROM ecommerce_crm_campanhas
-        WHERE status='agendado' AND agendado_para IS NOT NULL AND agendado_para <= NOW()
-        ORDER BY agendado_para LIMIT %s""", (limite,))
-    campanhas = cur.fetchall(); cur.close()
+    conn = db(); cur = conn.cursor()
+    # UPDATE...RETURNING com FOR UPDATE SKIP LOCKED no subselect: reclama as
+    # campanhas atomicamente (status vira 'processando' na hora), pra duas
+    # execucoes concorrentes do cron (ex.: fica lento e a proxima ja dispara
+    # antes da primeira terminar) nunca pegarem a mesma campanha e mandarem
+    # a mensagem em duplicidade -- ja aconteceu de verdade (2 envios de
+    # WhatsApp ~350ms um do outro, mesma campanha, mesmo destinatario).
+    cur.execute("""UPDATE ecommerce_crm_campanhas SET status='processando'
+        WHERE id IN (
+            SELECT id FROM ecommerce_crm_campanhas
+            WHERE status='agendado' AND agendado_para IS NOT NULL AND agendado_para <= NOW()
+            ORDER BY agendado_para LIMIT %s
+            FOR UPDATE SKIP LOCKED
+        ) RETURNING *""", (limite,))
+    campanhas = cur.fetchall(); conn.commit(); cur.close()
     processadas = 0; enviados_total = 0
     for camp in campanhas:
-        destinatarios_ids = [str(x) for x in (camp.get("destinatarios_ids") or [])]
-        canais = camp.get("canais") or []
-        destino = camp.get("url") or url_for("catalogo_loja", cnpjloja=camp["cnpjloja"], _external=True)
-        cupom = _crm_cupom_da_loja(camp["cnpjloja"], camp.get("cupom_id"))
-        enviados, _stats = _crm_enviar_para_lista(
-            camp["id"], camp["cnpjloja"], camp.get("titulo") or "", camp.get("mensagem") or "",
-            camp.get("imagem_url"), destino, canais, destinatarios_ids, cupom,
-        )
-        processadas += 1; enviados_total += enviados
+        try:
+            destinatarios_ids = [str(x) for x in (camp.get("destinatarios_ids") or [])]
+            canais = camp.get("canais") or []
+            destino = camp.get("url") or url_for("catalogo_loja", cnpjloja=camp["cnpjloja"], _external=True)
+            cupom = _crm_cupom_da_loja(camp["cnpjloja"], camp.get("cupom_id"))
+            enviados, _stats = _crm_enviar_para_lista(
+                camp["id"], camp["cnpjloja"], camp.get("titulo") or "", camp.get("mensagem") or "",
+                camp.get("imagem_url"), destino, canais, destinatarios_ids, cupom,
+            )
+            processadas += 1; enviados_total += enviados
+        except Exception as exc:
+            # Se travar no meio do envio, devolve pra 'agendado' em vez de
+            # deixar presa em 'processando' pra sempre (sem isso, um erro
+            # aqui tiraria a campanha do radar do cron de vez).
+            app.logger.warning("_processar_campanhas_agendadas: falhou campanha %s: %s", camp.get("id"), exc)
+            try:
+                c2 = db().cursor()
+                c2.execute("UPDATE ecommerce_crm_campanhas SET status='agendado' WHERE id=%s", (camp["id"],))
+                db().commit(); c2.close()
+            except Exception:
+                pass
     return {"campanhas": processadas, "envios": enviados_total}
 
 
