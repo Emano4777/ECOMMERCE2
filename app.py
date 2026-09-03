@@ -22413,6 +22413,26 @@ def _consumidores_notificacao_loja(cnpjloja: str, publico: str = "todos"):
             (cnpjloja,))
         ids = [r["consumidor_id"] for r in cur.fetchall()]; cur.close()
         return ids
+    if publico == "em_risco":
+        # mesma classificacao usada na tabela de clientes: ja comprou pelo
+        # menos 1 vez mas sumiu ha 60+ dias.
+        cur = db().cursor()
+        cur.execute("""SELECT consumidor_id FROM ecommerce_pedidos
+            WHERE cnpjloja=%s AND status<>'cancelado' AND consumidor_id IS NOT NULL
+            GROUP BY consumidor_id HAVING MAX(criado_em) <= NOW() - INTERVAL '60 days'""", (cnpjloja,))
+        ids = [r["consumidor_id"] for r in cur.fetchall()]; cur.close()
+        return ids
+    if publico == "pagamento_pendente":
+        # pedido gerado (pix ou cartao) que ficou sem confirmar pagamento --
+        # cobre tanto pix nunca escaneado quanto cartao rejeitado. Janela de
+        # 7 dias pra nao ressurgir tentativa de pagamento muito antiga.
+        cur = db().cursor()
+        cur.execute("""SELECT DISTINCT consumidor_id FROM ecommerce_pedidos
+            WHERE cnpjloja=%s AND status='pendente' AND consumidor_id IS NOT NULL
+              AND COALESCE(pagamento_status,'') NOT IN ('approved','pago')
+              AND criado_em >= NOW() - INTERVAL '7 days'""", (cnpjloja,))
+        ids = [r["consumidor_id"] for r in cur.fetchall()]; cur.close()
+        return ids
     publico = publico if publico in {"todos", "relacionados", "compradores", "assinantes", "favoritos"} else "todos"
     conn = db()
     cur = conn.cursor()
@@ -22773,6 +22793,8 @@ def painel_notificacoes():
         "aniversariantes": len(_consumidores_notificacao_loja(cnpjloja, "aniversariantes")),
         "inativos": len(_consumidores_notificacao_loja(cnpjloja, "inativos")),
         "cupom_vencendo": len(_consumidores_notificacao_loja(cnpjloja, "cupom_vencendo")),
+        "em_risco": len(_consumidores_notificacao_loja(cnpjloja, "em_risco")),
+        "pagamento_pendente": len(_consumidores_notificacao_loja(cnpjloja, "pagamento_pendente")),
     }
     campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons = _crm_dados(cnpjloja)
     agendadas = [c for c in campanhas if c["status"] == "agendado"]
@@ -23097,7 +23119,7 @@ def painel_crm_automacao_criar():
         espera_horas = max(0, min(int(request.form.get("espera_horas") or 0), 24 * 365))
     except Exception:
         espera_horas = 0
-    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro", "cupom_vencendo"}
+    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro", "cupom_vencendo", "pagamento_pendente"}
     if not nome or gatilho not in gatilhos_validos or not titulo or not mensagem or not canais:
         flash("Preencha nome, gatilho, canais, assunto e mensagem da automação.", "error")
         return redirect(url_for("painel_notificacoes", aba="automacoes"))
@@ -24074,6 +24096,15 @@ def _processar_crm_automacoes(limite=100):
                     SELECT 1 FROM ecommerce_pedidos p
                     WHERE p.consumidor_id=cc.consumidor_id AND p.cupom_id=cc.cupom_id AND p.status<>'cancelado'
                   )"""; args.append(espera)
+        elif gatilho == "pagamento_pendente":
+            # pedido gerado (pix ou cartao) sem confirmar pagamento -- cobre
+            # tanto pix nunca escaneado quanto cartao rejeitado.
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,p.criado_em AS evento,
+                'pagamento_pendente:'||p.id::text AS referencia
+                FROM ecommerce_pedidos p JOIN ecommerce_consumidores c ON c.id=p.consumidor_id
+                WHERE p.cnpjloja=%s AND p.status='pendente'
+                  AND COALESCE(p.pagamento_status,'') NOT IN ('approved','pago')
+                  AND p.criado_em <= NOW()-(%s||' hours')::interval"""; args.append(espera)
         else:
             continue
         cur.execute(f"""SELECT q.* FROM ({origem}) q WHERE NOT EXISTS (

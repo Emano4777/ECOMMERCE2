@@ -245,6 +245,8 @@
         <option value="aniversariantes">Aniversariantes do período ({{ publico_counts.aniversariantes }})</option>
         <option value="inativos">Inativos há mais de 90 dias ({{ publico_counts.inativos }})</option>
         <option value="cupom_vencendo">Com cupom perto de vencer ({{ publico_counts.cupom_vencendo }})</option>
+        <option value="em_risco">Em risco (comprou antes, sumiu há 60+ dias) ({{ publico_counts.em_risco }})</option>
+        <option value="pagamento_pendente">Pedido com pagamento pendente/recusado ({{ publico_counts.pagamento_pendente }})</option>
         <option value="personalizado">Segmento personalizado (filtros)</option>
         <option value="especificos">Clientes específicos</option>
         {% else %}
@@ -554,6 +556,7 @@
           <option value="sem_comprar">Cliente está há um tempo sem comprar</option><option value="carrinho">Deixou produtos no carrinho</option>
           <option value="cadastro">Depois de criar a conta</option>
           <option value="cupom_vencendo">Cupom do cliente perto de vencer</option>
+          <option value="pagamento_pendente">Pedido com pagamento pendente/recusado</option>
         </select>
       </div>
       <div><label class="crm-label" id="crm-auto-espera-label">Esperar quantas horas?</label><input class="pk-input" name="espera_horas" type="number" min="0" max="8760" value="24"></div>
