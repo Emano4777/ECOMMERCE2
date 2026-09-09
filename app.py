@@ -13952,24 +13952,40 @@ def produto_detalhe(ean):
     cur  = conn.cursor()
 
     if not cnpjloja:
-        # Sem ?cnpj= na URL (ex.: link de feed do Google Shopping, link
-        # compartilhado sem loja definida, robo de busca sem localizacao
-        # salva), o preco/disponibilidade nunca era buscado -- a pagina
-        # ficava sem preco nenhum pra quem chegasse assim. Cai numa loja
-        # que realmente tem o produto em estoque, em vez de ficar em
-        # branco (o restante da pagina ja deixa trocar de loja via
-        # localizacao normalmente).
+        # Sem ?cnpj= na URL (ex.: link de feed do Google Shopping, link de
+        # produto de influencer, link compartilhado sem loja definida, robo
+        # de busca sem localizacao), o preco/disponibilidade nunca era
+        # buscado -- a pagina ficava sem preco nenhum pra quem chegasse
+        # assim. Cai numa loja que realmente tem o produto em estoque, em
+        # vez de ficar em branco.
+        #
+        # Se o visitante estiver logado e ja tiver endereco salvo, a sessao
+        # ja carrega lat/lng do perfil (setados no login/cadastro) -- usa
+        # direto pra escolher a loja MAIS PERTO entre as que tem estoque,
+        # sem chamar geocoding de novo. Isso deixa isso pronto pra quando
+        # tiver mais de uma loja (ex.: SJRP): hoje com 1 loja so nao muda
+        # o resultado, mas evita mostrar a loja errada mais pra frente.
         try:
             cur.execute(
-                """SELECT cnpjloja FROM ecommerce_alpha_produtos
-                   WHERE LTRIM(COALESCE(ean,''),'0')=LTRIM(%s,'0')
-                     AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
-                   ORDER BY estoque DESC LIMIT 1""",
+                """SELECT ap.cnpjloja, g.lat, g.lng
+                   FROM ecommerce_alpha_produtos ap
+                   LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = ap.cnpjloja
+                   WHERE LTRIM(COALESCE(ap.ean,''),'0')=LTRIM(%s,'0')
+                     AND COALESCE(ap.inativo,false)=false AND COALESCE(ap.estoque,0)>0
+                   ORDER BY ap.estoque DESC""",
                 (ean,),
             )
-            _row_fallback = cur.fetchone()
-            if _row_fallback:
-                cnpjloja = _row_fallback["cnpjloja"]
+            candidatos = cur.fetchall()
+            if candidatos:
+                lat_sessao = session.get("consumidor_lat")
+                lng_sessao = session.get("consumidor_lng")
+                if lat_sessao is not None and lng_sessao is not None:
+                    def _dist_candidato(c):
+                        if c["lat"] is None or c["lng"] is None:
+                            return float("inf")
+                        return haversine(float(lat_sessao), float(lng_sessao), float(c["lat"]), float(c["lng"]))
+                    candidatos = sorted(candidatos, key=_dist_candidato)
+                cnpjloja = candidatos[0]["cnpjloja"]
         except Exception as exc:
             app.logger.warning("produto_detalhe: fallback de loja sem cnpj falhou: %s", exc)
 
