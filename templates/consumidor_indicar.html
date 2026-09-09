@@ -132,6 +132,22 @@
   </div>
   {% endif %}
 
+  {% if eh_influencer and link %}
+  <div class="ind-link-box">
+    <div class="ind-link-label"><i class="fa fa-bullseye me-1"></i>Divulgar um produto específico</div>
+    <p style="font-size:.8rem;color:var(--pq-muted);margin:0 0 10px">Busque um produto e gere um link que leva direto pra ele — quem clicar continua contando como indicação sua.</p>
+    <input class="ind-link-input" id="ind-prod-busca" type="text" placeholder="Buscar produto (ex.: dipirona, protetor solar...)" style="width:100%;box-sizing:border-box" oninput="indBuscarProduto(this.value)">
+    <div id="ind-prod-resultados" style="display:none;margin-top:8px;max-height:260px;overflow-y:auto;border:1px solid var(--pq-border);border-radius:10px"></div>
+    <div id="ind-prod-link-box" style="display:none;margin-top:12px">
+      <div class="ind-link-label"><i class="fa fa-link me-1"></i>Link do produto escolhido</div>
+      <div class="ind-link-row">
+        <input class="ind-link-input" id="ind-prod-link-input" type="text" readonly onclick="this.select()">
+        <button class="ind-copy-btn" id="ind-prod-copy-btn" onclick="indCopiarLinkProduto()"><i class="fa fa-copy me-1"></i>Copiar</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="ind-section-hd">Suas indicações</div>
   {% if indicacoes %}
   <div class="ind-list">
@@ -167,6 +183,52 @@
 
 {% block extra_js %}
 <script>
+{% if eh_influencer and link %}
+let _indProdBuscaTimer = null;
+function indBuscarProduto(termo) {
+  clearTimeout(_indProdBuscaTimer);
+  const box = document.getElementById('ind-prod-resultados');
+  termo = (termo || '').trim();
+  if (termo.length < 3) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  _indProdBuscaTimer = setTimeout(() => {
+    fetch(`/api/produtos-proximos?lat=-22.5483&lng=-47.9139&q=${encodeURIComponent(termo)}`)
+      .then(r => r.json())
+      .then(d => {
+        const produtos = (d.produtos || []).slice(0, 8);
+        if (!produtos.length) {
+          box.innerHTML = '<div style="padding:12px;font-size:.8rem;color:var(--pq-muted)">Nenhum produto encontrado.</div>';
+          box.style.display = 'block';
+          return;
+        }
+        box.innerHTML = produtos.map(p => `
+          <div onclick='indEscolherProduto(${JSON.stringify(p.ean)}, ${JSON.stringify(p.nome)})' style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--pq-border);cursor:pointer" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background=''">
+            <img src="${p.imagem || ''}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:#f2ede6;flex-shrink:0">
+            <div style="min-width:0"><div style="font-size:.82rem;font-weight:700;color:var(--pq-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome || ''}</div>
+            <div style="font-size:.74rem;color:var(--pq-muted)">R$ ${(parseFloat(p.preco)||0).toFixed(2).replace('.', ',')}</div></div>
+          </div>`).join('');
+        box.style.display = 'block';
+      })
+      .catch(() => { box.style.display = 'none'; });
+  }, 350);
+}
+function indEscolherProduto(ean, nome) {
+  const base = document.getElementById('ind-link-input').value;
+  const linkProduto = base + (base.includes('?') ? '&' : '?') + 'p=' + encodeURIComponent(ean);
+  document.getElementById('ind-prod-link-input').value = linkProduto;
+  document.getElementById('ind-prod-link-box').style.display = 'block';
+  document.getElementById('ind-prod-resultados').style.display = 'none';
+  document.getElementById('ind-prod-busca').value = nome;
+}
+function indCopiarLinkProduto() {
+  const input = document.getElementById('ind-prod-link-input');
+  const btn = document.getElementById('ind-prod-copy-btn');
+  navigator.clipboard.writeText(input.value).then(() => {
+    btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = '<i class="fa fa-copy me-1"></i>Copiar'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => { input.select(); prompt('Copie o link:', input.value); });
+}
+{% endif %}
 function indCopiarLink() {
   const input = document.getElementById('ind-link-input');
   const btn = document.getElementById('ind-copy-btn');

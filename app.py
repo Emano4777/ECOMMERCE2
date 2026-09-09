@@ -15355,7 +15355,9 @@ def admin_entrar_como_consumidor(consumidor_id):
 def indicacao_link(codigo):
     """Link de indicacao (/indicar compartilha isso). So guarda o codigo na
     sessao pra ser lido no cadastro -- nao mostra erro nem exige nada, so
-    segue pro site normalmente mesmo se o codigo for invalido."""
+    segue pro site normalmente mesmo se o codigo for invalido.
+    Aceita ?p=<ean> opcional -- usado pelas influencers pra divulgar um
+    produto especifico em vez de sempre cair na home (ex.: /r/nathatia?p=EAN)."""
     _ensure_indicacoes_schema()
     codigo = (codigo or "").strip().upper()
     if codigo and not session.get("consumidor_id"):
@@ -15367,6 +15369,9 @@ def indicacao_link(codigo):
             cur.close()
         except Exception:
             pass
+    ean_destino = re.sub(r"\D", "", request.args.get("p") or "")
+    if ean_destino:
+        return redirect(url_for("produto_detalhe", ean=ean_destino))
     return redirect(url_for("index"))
 
 
