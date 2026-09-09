@@ -1161,7 +1161,7 @@ def _processar_recompensa_indicacao(consumidor_id, pedido_id, cnpjloja, conn):
 # espirito do ecommerce_repasses_admin ja existente pra lojas.
 
 def _ensure_influencers_schema():
-    key = "influencers_v1"
+    key = "influencers_v2"
     if key in _schema_ready:
         return
     _load_db_migrations()
@@ -1196,6 +1196,23 @@ def _ensure_influencers_schema():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_repasses_influencer_indicador ON ecommerce_repasses_influencer(indicador_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_repasses_influencer_pago ON ecommerce_repasses_influencer(pago)")
+        # produtos que a influencer ja escolheu pra divulgar -- fica salvo
+        # pra ela nao precisar buscar de novo toda vez que quiser pegar o
+        # link/compartilhar de novo; "editar" troca o produto do mesmo
+        # slot (UPDATE), "excluir" remove a linha.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_influencer_produtos_salvos (
+                id SERIAL PRIMARY KEY,
+                consumidor_id UUID NOT NULL,
+                ean TEXT NOT NULL,
+                nome TEXT,
+                imagem TEXT,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(consumidor_id, ean)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_influencer_produtos_salvos_consumidor ON ecommerce_influencer_produtos_salvos(consumidor_id)")
         conn.commit()
         cur.close()
         _schema_ready.add(key)
@@ -28417,12 +28434,15 @@ def consumidor_indicar():
         total_pendente = float(cur.fetchone()["total"] or 0)
         cur.execute("SELECT COALESCE(SUM(valor),0) AS total FROM ecommerce_repasses_influencer WHERE indicador_id=%s", (consumidor_id,))
         total_gerado = float(cur.fetchone()["total"] or 0)
+        cur.execute("SELECT id, ean, nome, imagem FROM ecommerce_influencer_produtos_salvos WHERE consumidor_id=%s ORDER BY atualizado_em DESC", (consumidor_id,))
+        produtos_salvos = cur.fetchall()
         cur.close()
         return render_template(
             "consumidor_indicar.html",
             codigo=codigo, link=link, indicacoes=indicacoes,
             eh_influencer=True, comissao_pct=float(influencer["comissao_pct"]),
             total_pendente=total_pendente, total_gerado=total_gerado,
+            produtos_salvos=produtos_salvos,
         )
     cur.execute("""
         SELECT i.status, i.criado_em, i.recompensado_em, c.nome AS indicado_nome
@@ -28438,6 +28458,89 @@ def consumidor_indicar():
         codigo=codigo, link=link, indicacoes=indicacoes,
         valor_recompensa=INDICACAO_DESCONTO_VALOR, eh_influencer=False,
     )
+
+
+def _eh_influencer_ativa(consumidor_id):
+    _ensure_influencers_schema()
+    cur = db().cursor()
+    cur.execute("SELECT 1 FROM ecommerce_influencers WHERE consumidor_id=%s AND ativo=TRUE", (consumidor_id,))
+    ok = bool(cur.fetchone())
+    cur.close()
+    return ok
+
+
+@app.post("/api/indicar/produtos-salvos")
+@_consumer_required
+def api_indicar_produto_salvar():
+    """Salva (ou atualiza, se ja tinha esse EAN) um produto na lista da
+    influencer, pra ela nao precisar buscar de novo toda vez que quiser
+    pegar o link/compartilhar."""
+    consumidor_id = session["consumidor_id"]
+    if not _eh_influencer_ativa(consumidor_id):
+        return jsonify({"ok": False, "erro": "Recurso disponível só para influencers."}), 403
+    data = request.get_json(silent=True) or {}
+    ean = re.sub(r"\D", "", data.get("ean") or "")
+    nome = (data.get("nome") or "").strip()[:300]
+    imagem = (data.get("imagem") or "").strip()[:800] or None
+    if not ean:
+        return jsonify({"ok": False, "erro": "EAN inválido."}), 400
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO ecommerce_influencer_produtos_salvos (consumidor_id, ean, nome, imagem)
+           VALUES (%s,%s,%s,%s)
+           ON CONFLICT (consumidor_id, ean) DO UPDATE
+             SET nome=EXCLUDED.nome, imagem=EXCLUDED.imagem, atualizado_em=NOW()
+           RETURNING id""",
+        (consumidor_id, ean, nome, imagem),
+    )
+    salvo_id = cur.fetchone()["id"]
+    conn.commit(); cur.close()
+    return jsonify({"ok": True, "id": salvo_id})
+
+
+@app.post("/api/indicar/produtos-salvos/<int:salvo_id>/trocar")
+@_consumer_required
+def api_indicar_produto_trocar(salvo_id):
+    """'Editar': troca o produto de um slot ja salvo, em vez de criar uma
+    linha nova -- mantem a posicao/id do item na lista dela."""
+    consumidor_id = session["consumidor_id"]
+    if not _eh_influencer_ativa(consumidor_id):
+        return jsonify({"ok": False, "erro": "Recurso disponível só para influencers."}), 403
+    data = request.get_json(silent=True) or {}
+    ean = re.sub(r"\D", "", data.get("ean") or "")
+    nome = (data.get("nome") or "").strip()[:300]
+    imagem = (data.get("imagem") or "").strip()[:800] or None
+    if not ean:
+        return jsonify({"ok": False, "erro": "EAN inválido."}), 400
+    conn = db(); cur = conn.cursor()
+    try:
+        cur.execute(
+            """UPDATE ecommerce_influencer_produtos_salvos
+               SET ean=%s, nome=%s, imagem=%s, atualizado_em=NOW()
+               WHERE id=%s AND consumidor_id=%s RETURNING id""",
+            (ean, nome, imagem, salvo_id, consumidor_id),
+        )
+        trocado = bool(cur.fetchone())
+        conn.commit()
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return jsonify({"ok": False, "erro": "Você já tem esse produto salvo."}), 400
+    cur.close()
+    return jsonify({"ok": trocado})
+
+
+@app.post("/api/indicar/produtos-salvos/<int:salvo_id>/excluir")
+@_consumer_required
+def api_indicar_produto_excluir(salvo_id):
+    consumidor_id = session["consumidor_id"]
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM ecommerce_influencer_produtos_salvos WHERE id=%s AND consumidor_id=%s RETURNING id",
+        (salvo_id, consumidor_id),
+    )
+    excluido = bool(cur.fetchone())
+    conn.commit(); cur.close()
+    return jsonify({"ok": excluido})
 
 
 @app.get("/meus-cupons")
