@@ -15366,6 +15366,13 @@ def indicacao_link(codigo):
             cur.execute("SELECT 1 FROM ecommerce_consumidores WHERE upper(codigo_indicacao)=%s LIMIT 1", (codigo,))
             if cur.fetchone():
                 session["ref_indicacao"] = codigo
+                # sem isso, o vinculo so sobrevivia enquanto o navegador
+                # ficasse aberto (cookie de sessao comum) -- alguem que
+                # clica no link e so cria conta dias depois perdia a
+                # indicacao. session.permanent usa o padrao do Flask (31
+                # dias) ja que o app nao sobrescreve PERMANENT_SESSION_LIFETIME,
+                # o mesmo prazo ja usado pro "lembrar-me" do login.
+                session.permanent = True
             cur.close()
         except Exception:
             pass
