@@ -23228,6 +23228,66 @@ def crm_wasender_webhook():
     return jsonify({"ok": True})
 
 
+# ─── WHATSAPP OFICIAL (META CLOUD API) ───────────────────────────────────────
+# Token de verificacao do handshake do webhook (o mesmo valor vai no painel
+# de developers da Meta, campo "Verificar token"). Pode ser sobrescrito por
+# env var sem precisar mexer no codigo.
+_META_WA_VERIFY_TOKEN = os.getenv("META_WA_VERIFY_TOKEN") or "poupaqui-meta-verify-9f3k2x"
+
+
+@app.get("/api/webhooks/meta-whatsapp")
+def meta_whatsapp_webhook_verify():
+    """Handshake de verificacao exigido pela Meta ao salvar a URL de callback
+    no painel de developers -- GET com hub.mode/hub.verify_token/hub.challenge,
+    precisa devolver o challenge de volta se o token bater."""
+    modo = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if modo == "subscribe" and token and secrets.compare_digest(str(token), str(_META_WA_VERIFY_TOKEN)):
+        return challenge or "", 200
+    return "forbidden", 403
+
+
+@app.post("/api/webhooks/meta-whatsapp")
+def meta_whatsapp_webhook_receive():
+    """Recebe status de entrega/leitura e mensagens recebidas da API oficial
+    (Meta Cloud API) -- formato bem diferente do webhook da WA Sender.
+    TODO: quando tivermos o App Secret, validar a assinatura
+    X-Hub-Signature-256 pra garantir que a requisicao e mesmo da Meta."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        for entry in payload.get("entry") or []:
+            for change in entry.get("changes") or []:
+                valor = change.get("value") or {}
+                for status in valor.get("statuses") or []:
+                    external_id = status.get("id")
+                    status_wa = status.get("status")  # sent/delivered/read/failed
+                    erro = None
+                    if status_wa == "failed":
+                        erros = status.get("errors") or []
+                        erro = ("; ".join(str(e.get("title") or e.get("message") or "") for e in erros)[:500]) or "falhou (meta)"
+                    if external_id:
+                        cur = db().cursor()
+                        cur.execute("""UPDATE ecommerce_crm_envios SET
+                            status = CASE WHEN %s='delivered' THEN 'entregue' WHEN %s='failed' THEN 'falhou' ELSE status END,
+                            erro = CASE WHEN %s='failed' THEN %s ELSE erro END,
+                            visualizado_em = CASE WHEN %s='read' THEN COALESCE(visualizado_em, NOW()) ELSE visualizado_em END
+                            WHERE external_id=%s""",
+                            (status_wa, status_wa, status_wa, erro, status_wa, external_id))
+                        db().commit(); cur.close()
+                for msg in valor.get("messages") or []:
+                    texto = ((msg.get("text") or {}).get("body") or "").strip()
+                    numero = re.sub(r"\D", "", msg.get("from") or "")
+                    if _sem_acento(texto).strip().lower() in {"parar", "sair", "stop", "cancelar"} and numero:
+                        cur = db().cursor()
+                        cur.execute("""UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE
+                            WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(%s,11)""", (numero,))
+                        db().commit(); cur.close()
+    except Exception as exc:
+        app.logger.warning("meta_whatsapp_webhook_receive error: %s", exc)
+    return jsonify({"ok": True})
+
+
 @app.get("/crm/abertura/<int:envio_id>.gif")
 def crm_registrar_abertura(envio_id):
     cur = db().cursor()
