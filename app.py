@@ -25094,6 +25094,30 @@ def api_cron_enviar_email_cupom():
     return jsonify({"ok": ok_cliente, "email_cliente": ok_cliente, "email_admin": ok_admin})
 
 
+@app.post("/api/cron/enviar-whatsapp-teste")
+def api_cron_enviar_whatsapp_teste():
+    """Envia uma mensagem de WhatsApp livre (titulo+mensagem) pra um numero
+    qualquer -- uso administrativo pontual (ex.: mostrar pra alguem como
+    fica uma mensagem de automacao/campanha antes de ativar de verdade
+    pra clientes), nao passa por consumidor/loja nenhum. Roda no Vercel
+    pelo mesmo motivo dos outros /api/cron/enviar-*: so la o WA Sender
+    nao e bloqueado pelo Cloudflare."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    telefone = (data.get("telefone") or "").strip()
+    titulo = (data.get("titulo") or "").strip()
+    mensagem = (data.get("mensagem") or "").strip()
+    if not telefone or not (titulo or mensagem):
+        return jsonify({"ok": False, "erro": "Informe telefone e titulo/mensagem."}), 400
+    texto = f"{titulo}\n\n{mensagem}".strip() if titulo else mensagem
+    try:
+        resposta = _wa_send(telefone, texto, (data.get("imagem_url") or "").strip() or None, True, propagar_erro=True)
+        return jsonify({"ok": True, "resposta": resposta})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": str(exc)}), 500
+
+
 @app.post("/api/cron/enviar-whatsapp-cupom")
 def api_cron_enviar_whatsapp_cupom():
     """Envia por WhatsApp um cupom especifico pra um consumidor. Roda no
