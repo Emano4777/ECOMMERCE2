@@ -1153,6 +1153,118 @@ def _processar_recompensa_indicacao(consumidor_id, pedido_id, cnpjloja, conn):
         pass
 
 
+# ─── INFLUENCERS (indicação com comissão recorrente) ─────────────────────────
+# Programa a parte do "indique um amigo" padrao (cupom unico na 1a compra):
+# aqui o indicador e um influencer cadastrado pelo admin, com uma % de
+# comissao sobre TODA compra (nao so a primeira) de quem ele indicou,
+# acumulada num extrato pra pagamento manual (Pix/transferencia), no mesmo
+# espirito do ecommerce_repasses_admin ja existente pra lojas.
+
+def _ensure_influencers_schema():
+    key = "influencers_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_influencers (
+                consumidor_id UUID PRIMARY KEY,
+                comissao_pct NUMERIC(5,2) NOT NULL DEFAULT 5.00,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                criado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_repasses_influencer (
+                id SERIAL PRIMARY KEY,
+                indicador_id UUID NOT NULL,
+                indicado_id UUID NOT NULL,
+                pedido_id UUID,
+                cnpjloja TEXT,
+                valor NUMERIC(10,2) NOT NULL,
+                descricao TEXT,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                pago BOOLEAN DEFAULT FALSE,
+                pago_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_repasses_influencer_indicador ON ecommerce_repasses_influencer(indicador_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_repasses_influencer_pago ON ecommerce_repasses_influencer(pago)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _gerar_codigo_influencer(nome):
+    """Codigo de indicacao 'bonito' baseado no primeiro nome (ex.: NATHALIA),
+    em vez do hex aleatorio usado pro publico geral -- link fica
+    /r/nathalia em vez de /r/4F2A9C1B. Acrescenta numero se o nome ja
+    estiver em uso por outra pessoa."""
+    base = _sem_acento((nome or "").strip().split(" ")[0] or "").upper()
+    base = re.sub(r"[^A-Z0-9]", "", base) or "INFLUENCER"
+    cur = db().cursor()
+    candidato = base
+    for tentativa in range(1, 50):
+        cur.execute("SELECT 1 FROM ecommerce_consumidores WHERE upper(codigo_indicacao)=%s LIMIT 1", (candidato,))
+        if not cur.fetchone():
+            cur.close()
+            return candidato
+        candidato = f"{base}{tentativa+1}"
+    cur.close()
+    return f"{base}{secrets.token_hex(2).upper()}"
+
+
+def _processar_comissao_influencer(consumidor_id, pedido_id, cnpjloja, total, conn):
+    """Roda em TODA compra (nao so a primeira, diferente da recompensa de
+    indicacao padrao) de quem foi indicado por um influencer -- gera um
+    lancamento de comissao (% do valor do pedido) no extrato do influencer.
+    Chamado dentro do checkout, sempre em try/except: nunca pode quebrar a
+    finalizacao do pedido."""
+    if not consumidor_id or not total:
+        return
+    _ensure_influencers_schema()
+    cur = conn.cursor()
+    cur.execute("SELECT indicador_id FROM ecommerce_indicacoes WHERE indicado_id=%s LIMIT 1", (consumidor_id,))
+    indicacao = cur.fetchone()
+    if not indicacao:
+        cur.close()
+        return
+    cur.execute("SELECT comissao_pct FROM ecommerce_influencers WHERE consumidor_id=%s AND ativo=TRUE", (indicacao["indicador_id"],))
+    influencer = cur.fetchone()
+    if not influencer:
+        cur.close()
+        return
+    valor_comissao = round(float(total) * float(influencer["comissao_pct"]) / 100, 2)
+    if valor_comissao <= 0:
+        cur.close()
+        return
+    cur.execute(
+        """INSERT INTO ecommerce_repasses_influencer (indicador_id, indicado_id, pedido_id, cnpjloja, valor, descricao)
+           VALUES (%s,%s,%s,%s,%s,%s)""",
+        (indicacao["indicador_id"], consumidor_id, pedido_id, cnpjloja, valor_comissao,
+         f"{influencer['comissao_pct']:.0f}% sobre pedido #{str(pedido_id)[:8].upper()} (R$ {float(total):.2f})"),
+    )
+    conn.commit()
+    cur.close()
+    try:
+        valor_txt = f"R$ {valor_comissao:.2f}".replace(".", ",")
+        _notificar_consumidor(
+            indicacao["indicador_id"], "indicacao", "Nova comissão de indicação! 💰",
+            f"Alguém que você indicou fez uma compra — você ganhou {valor_txt} de comissão. Confira em Indicar amigo.",
+            url=url_for("consumidor_indicar"), conn=conn,
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+
 def _ensure_notificacoes_schema():
     key = "consumidor_notificacoes_v2"
     if key in _schema_ready:
@@ -17587,6 +17699,10 @@ def api_checkout():
             _processar_recompensa_indicacao(session.get("consumidor_id"), pedido_id, cnpjloja, conn)
         except Exception:
             pass
+        try:
+            _processar_comissao_influencer(session.get("consumidor_id"), pedido_id, cnpjloja, total, conn)
+        except Exception:
+            pass
 
         # Notifica loja via WhatsApp ao receber novo pedido
         try:
@@ -28270,7 +28386,32 @@ def consumidor_indicar():
     consumidor_id = session["consumidor_id"]
     codigo = _gerar_codigo_indicacao(consumidor_id)
     link = url_for("indicacao_link", codigo=codigo, _external=True) if codigo else None
+    _ensure_influencers_schema()
     cur = db().cursor()
+    cur.execute("SELECT comissao_pct FROM ecommerce_influencers WHERE consumidor_id=%s AND ativo=TRUE", (consumidor_id,))
+    influencer = cur.fetchone()
+    if influencer:
+        cur.execute("""
+            SELECT c.nome AS indicado_nome, i.criado_em,
+                COALESCE((SELECT COUNT(*) FROM ecommerce_repasses_influencer r WHERE r.indicado_id=i.indicado_id),0) AS qtd_comissoes,
+                COALESCE((SELECT SUM(r.valor) FROM ecommerce_repasses_influencer r WHERE r.indicado_id=i.indicado_id),0) AS total_comissoes
+            FROM ecommerce_indicacoes i
+            JOIN ecommerce_consumidores c ON c.id = i.indicado_id
+            WHERE i.indicador_id = %s
+            ORDER BY i.criado_em DESC
+        """, (consumidor_id,))
+        indicacoes = cur.fetchall()
+        cur.execute("SELECT COALESCE(SUM(valor),0) AS total FROM ecommerce_repasses_influencer WHERE indicador_id=%s AND pago=FALSE", (consumidor_id,))
+        total_pendente = float(cur.fetchone()["total"] or 0)
+        cur.execute("SELECT COALESCE(SUM(valor),0) AS total FROM ecommerce_repasses_influencer WHERE indicador_id=%s", (consumidor_id,))
+        total_gerado = float(cur.fetchone()["total"] or 0)
+        cur.close()
+        return render_template(
+            "consumidor_indicar.html",
+            codigo=codigo, link=link, indicacoes=indicacoes,
+            eh_influencer=True, comissao_pct=float(influencer["comissao_pct"]),
+            total_pendente=total_pendente, total_gerado=total_gerado,
+        )
     cur.execute("""
         SELECT i.status, i.criado_em, i.recompensado_em, c.nome AS indicado_nome
         FROM ecommerce_indicacoes i
@@ -28283,7 +28424,7 @@ def consumidor_indicar():
     return render_template(
         "consumidor_indicar.html",
         codigo=codigo, link=link, indicacoes=indicacoes,
-        valor_recompensa=INDICACAO_DESCONTO_VALOR,
+        valor_recompensa=INDICACAO_DESCONTO_VALOR, eh_influencer=False,
     )
 
 
@@ -31315,6 +31456,178 @@ def admin_repasses_marcar_pago_loja(cnpjloja):
     cur.close()
     flash(f"{qtd} repasse(s) da loja marcados como pago.", "success")
     return redirect(url_for("admin_repasses"))
+
+
+# repasse de comissao pra influencers (indicacao com % recorrente, diferente
+# do "indique um amigo" padrao que da cupom unico na 1a compra do indicado).
+
+@app.get("/painel/admin/influencers")
+@admin_required
+def admin_influencers():
+    _ensure_influencers_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT c.id, c.nome, c.telefone, c.email, c.codigo_indicacao, i.comissao_pct, i.ativo, i.criado_em,
+            (SELECT COUNT(*) FROM ecommerce_indicacoes WHERE indicador_id=c.id) AS total_indicados,
+            (SELECT COALESCE(SUM(valor),0) FROM ecommerce_repasses_influencer WHERE indicador_id=c.id AND pago=FALSE) AS pendente,
+            (SELECT COALESCE(SUM(valor),0) FROM ecommerce_repasses_influencer WHERE indicador_id=c.id) AS total_gerado
+        FROM ecommerce_influencers i
+        JOIN ecommerce_consumidores c ON c.id = i.consumidor_id
+        ORDER BY i.criado_em DESC
+    """)
+    influencers = cur.fetchall()
+    cur.close()
+    return render_template("admin_influencers.html", influencers=influencers)
+
+
+@app.post("/painel/admin/influencers/criar")
+@admin_required
+def admin_influencers_criar():
+    _ensure_influencers_schema()
+    _ensure_consumidor_schema()
+    _ensure_indicacoes_schema()
+    nome = (request.form.get("nome") or "").strip()
+    telefone_raw = (request.form.get("telefone") or "").strip()
+    email = _norm_email(request.form.get("email"))
+    documento = _digits(request.form.get("documento") or "")
+    data_nascimento_raw = (request.form.get("data_nascimento") or "").strip()
+    endereco = (request.form.get("endereco") or "").strip()
+    try:
+        comissao_pct = float(request.form.get("comissao_pct") or 5)
+    except (TypeError, ValueError):
+        comissao_pct = 5.0
+    comissao_pct = max(0.5, min(comissao_pct, 50))
+
+    if not _valid_nome(nome):
+        flash("Informe nome e sobrenome reais.", "error")
+        return redirect(url_for("admin_influencers"))
+    telefone = _normalize_phone_br(telefone_raw)
+    if not telefone:
+        flash("Informe um WhatsApp válido com DDD.", "error")
+        return redirect(url_for("admin_influencers"))
+    if not _valid_email(email):
+        flash("Informe um e-mail válido.", "error")
+        return redirect(url_for("admin_influencers"))
+    try:
+        data_nascimento = datetime.strptime(data_nascimento_raw, "%Y-%m-%d").date()
+    except Exception:
+        flash("Informe uma data de nascimento válida.", "error")
+        return redirect(url_for("admin_influencers"))
+
+    conn = db(); cur = conn.cursor()
+    senha_temp = secrets.token_urlsafe(18)
+    try:
+        cur.execute(
+            """INSERT INTO ecommerce_consumidores
+               (nome, telefone, documento, email, senha_hash, endereco, endereco_lat, endereco_lng, email_verificado, data_nascimento, aceita_whatsapp_marketing, whatsapp_optout_token)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s,TRUE,encode(gen_random_bytes(24),'hex'))
+               RETURNING id""",
+            (nome, telefone, documento or None, email, generate_password_hash(senha_temp),
+             endereco or "São Pedro, São Pedro - SP", -22.5483, -47.9139, data_nascimento),
+        )
+        consumidor_id = str(cur.fetchone()["id"])
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        flash("Já existe uma conta com esse e-mail ou WhatsApp.", "error")
+        cur.close()
+        return redirect(url_for("admin_influencers"))
+    codigo = _gerar_codigo_influencer(nome)
+    cur.execute("UPDATE ecommerce_consumidores SET codigo_indicacao=%s WHERE id=%s", (codigo, consumidor_id))
+    cur.execute(
+        "INSERT INTO ecommerce_influencers (consumidor_id, comissao_pct) VALUES (%s,%s)",
+        (consumidor_id, comissao_pct),
+    )
+    conn.commit()
+    cur.close()
+    flash(f"Influencer {nome} cadastrada com sucesso — link: /r/{codigo.lower()}. Ela precisa usar \"Esqueci minha senha\" com o e-mail {email} pra definir a própria senha.", "success")
+    return redirect(url_for("admin_influencers"))
+
+
+@app.post("/painel/admin/influencers/<consumidor_id>/toggle")
+@admin_required
+def admin_influencers_toggle(consumidor_id):
+    _ensure_influencers_schema()
+    cur = db().cursor()
+    cur.execute("UPDATE ecommerce_influencers SET ativo=NOT ativo WHERE consumidor_id=%s", (consumidor_id,))
+    db().commit(); cur.close()
+    return redirect(url_for("admin_influencers"))
+
+
+@app.get("/painel/admin/repasses-influencer")
+@admin_required
+def admin_repasses_influencer():
+    _ensure_influencers_schema()
+    status = (request.args.get("status") or "pendente").strip()
+    conn = db(); cur = conn.cursor()
+    where = []
+    if status == "pendente":
+        where.append("r.pago = FALSE")
+    elif status == "pago":
+        where.append("r.pago = TRUE")
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    cur.execute(
+        f"""
+        SELECT r.*, ci.nome AS influencer_nome, cd.nome AS indicado_nome, p.status AS pedido_status
+        FROM ecommerce_repasses_influencer r
+        LEFT JOIN ecommerce_consumidores ci ON ci.id = r.indicador_id
+        LEFT JOIN ecommerce_consumidores cd ON cd.id = r.indicado_id
+        LEFT JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+        {where_sql}
+        ORDER BY r.criado_em DESC
+        LIMIT 500
+        """
+    )
+    repasses = cur.fetchall()
+    cur.execute("""
+        SELECT r.indicador_id, ci.nome AS influencer_nome, COUNT(*) AS qtd, SUM(r.valor) AS total
+        FROM ecommerce_repasses_influencer r
+        LEFT JOIN ecommerce_consumidores ci ON ci.id = r.indicador_id
+        LEFT JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+        WHERE r.pago = FALSE AND COALESCE(p.status, '') <> 'cancelado'
+        GROUP BY r.indicador_id, ci.nome
+        ORDER BY total DESC
+    """)
+    pendentes_por_influencer = cur.fetchall()
+    cur.execute("""
+        SELECT COALESCE(SUM(r.valor),0) AS total FROM ecommerce_repasses_influencer r
+        LEFT JOIN ecommerce_pedidos p ON p.id = r.pedido_id
+        WHERE r.pago = FALSE AND COALESCE(p.status, '') <> 'cancelado'
+    """)
+    total_pendente = float(cur.fetchone()["total"] or 0)
+    cur.close()
+    return render_template(
+        "admin_repasses_influencer.html",
+        repasses=repasses, pendentes_por_influencer=pendentes_por_influencer,
+        total_pendente=total_pendente, status=status,
+    )
+
+
+@app.post("/painel/admin/repasses-influencer/<int:repasse_id>/marcar-pago")
+@admin_required
+def admin_repasses_influencer_marcar_pago(repasse_id):
+    _ensure_influencers_schema()
+    cur = db().cursor()
+    cur.execute("UPDATE ecommerce_repasses_influencer SET pago=TRUE, pago_em=NOW() WHERE id=%s AND pago=FALSE", (repasse_id,))
+    db().commit(); cur.close()
+    flash("Repasse marcado como pago.", "success")
+    return redirect(url_for("admin_repasses_influencer"))
+
+
+@app.post("/painel/admin/repasses-influencer/<indicador_id>/marcar-pago")
+@admin_required
+def admin_repasses_influencer_marcar_pago_influencer(indicador_id):
+    _ensure_influencers_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """UPDATE ecommerce_repasses_influencer r SET pago=TRUE, pago_em=NOW()
+           WHERE r.indicador_id=%s AND r.pago=FALSE
+             AND COALESCE((SELECT p.status FROM ecommerce_pedidos p WHERE p.id = r.pedido_id), '') <> 'cancelado'""",
+        (indicador_id,),
+    )
+    qtd = cur.rowcount
+    conn.commit(); cur.close()
+    flash(f"{qtd} repasse(s) da influencer marcados como pago.", "success")
+    return redirect(url_for("admin_repasses_influencer"))
 
 
 @app.get("/seja-assinante")

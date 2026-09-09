@@ -85,12 +85,31 @@
 <div class="ind-wrap">
   <div class="ind-title"><i class="fa fa-user-plus" style="color:var(--pq-red)"></i>Indique um amigo</div>
 
+  {% if eh_influencer %}
+  <div class="ind-hero">
+    <span class="ind-hero-tag"><i class="fa fa-star"></i>Parceria de indicação</span>
+    <i class="fa fa-sack-dollar ind-hero-icon"></i>
+    <h1>Ganhe {{ comissao_pct|round(1) }}% de comissão em toda compra</h1>
+    <p>Compartilhe seu link. Toda vez que alguém que você indicou comprar — não só na primeira vez, em todas as compras — você ganha {{ comissao_pct|round(1) }}% do valor em comissão, acumulada pra receber via Pix/transferência.</p>
+  </div>
+  <div class="ind-stats-row" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:150px;background:#fff;border:1px solid var(--pq-border);border-radius:12px;padding:14px 16px">
+      <div style="font-size:.72rem;color:var(--pq-muted);font-weight:800;text-transform:uppercase">Comissão pendente</div>
+      <div style="font-size:1.35rem;font-weight:900;color:var(--pq-red)">R$ {{ "%.2f"|format(total_pendente) }}</div>
+    </div>
+    <div style="flex:1;min-width:150px;background:#fff;border:1px solid var(--pq-border);border-radius:12px;padding:14px 16px">
+      <div style="font-size:.72rem;color:var(--pq-muted);font-weight:800;text-transform:uppercase">Total já gerado</div>
+      <div style="font-size:1.35rem;font-weight:900;color:var(--pq-text)">R$ {{ "%.2f"|format(total_gerado) }}</div>
+    </div>
+  </div>
+  {% else %}
   <div class="ind-hero">
     <span class="ind-hero-tag"><i class="fa fa-clock"></i>Oferta por tempo limitado</span>
     <i class="fa fa-gift ind-hero-icon"></i>
     <h1>Ganhe R$ {{ "%.0f"|format(valor_recompensa) }} por cada amigo</h1>
     <p>Compartilhe seu link. Quando seu amigo fizer a primeira compra em qualquer farmácia Poupaqui, você recebe um cupom de R$ {{ "%.2f"|format(valor_recompensa) }} pra usar na loja onde ele comprou.</p>
   </div>
+  {% endif %}
 
   {% if link %}
   <div class="ind-link-box">
@@ -123,7 +142,13 @@
         <div class="ind-card-nome">{{ i.indicado_nome }}</div>
         <div class="ind-card-data">Indicado em {{ i.criado_em.strftime('%d/%m/%Y') if i.criado_em else '-' }}</div>
       </div>
-      {% if i.status == 'recompensado' %}
+      {% if eh_influencer %}
+        {% if i.qtd_comissoes %}
+        <span class="ind-badge recompensado"><i class="fa fa-sack-dollar me-1"></i>R$ {{ "%.2f"|format(i.total_comissoes) }} ({{ i.qtd_comissoes }} compra{{ 's' if i.qtd_comissoes != 1 else '' }})</span>
+        {% else %}
+        <span class="ind-badge aguardando"><i class="fa fa-clock me-1"></i>Ainda não comprou</span>
+        {% endif %}
+      {% elif i.status == 'recompensado' %}
       <span class="ind-badge recompensado"><i class="fa fa-circle-check me-1"></i>Cupom liberado</span>
       {% else %}
       <span class="ind-badge aguardando"><i class="fa fa-clock me-1"></i>Aguardando 1ª compra</span>

@@ -1,0 +1,87 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Influencers{% endblock %}
+
+{% block extra_style %}
+<style>
+.inf-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.inf-table thead tr { background: #0d1016; }
+.inf-table th { padding: 9px 12px; text-align: left; color: var(--pk-muted); font-weight: 700; font-size: .78rem; text-transform: uppercase; border-bottom: 1px solid var(--pk-line); }
+.inf-table td { padding: 9px 12px; border-bottom: 1px solid var(--pk-line); vertical-align: middle; }
+.inf-table tr:hover td { background: rgba(255,255,255,.02); }
+.inf-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:3px 9px; font-size:.72rem; font-weight:800; }
+.inf-badge.on { color:#6ee79a; border:1px solid rgba(34,197,94,.35); background:#0d2d1a; }
+.inf-badge.off { color:#f0b429; border:1px solid rgba(240,180,41,.35); background:#2a1c08; }
+.inf-link { font-family:monospace; font-size:.78rem; color:var(--pk-yellow); }
+.inf-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.inf-btn { border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted); border-radius:8px; padding:5px 10px; font-size:.76rem; font-weight:700; cursor:pointer; font-family:inherit; }
+.inf-btn:hover { background:#0d2d1a; color:#6ee79a; border-color:#22c55e55; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:8px">
+  <i class="fa fa-star me-2" style="color:var(--pk-yellow)"></i>Influencers
+</div>
+<p style="color:var(--pk-muted);font-size:.85rem;margin-bottom:20px">
+  Cadastro de indicadores com comissão recorrente (% sobre toda compra de quem eles indicaram, não só a primeira —
+  diferente do "Indique um amigo" padrão, que dá um cupom único). O link de indicação usa o primeiro nome em vez de
+  um código aleatório. A senha é definida pela própria influencer via "Esqueci minha senha".
+</p>
+
+<div class="pk-card" style="margin-bottom:20px">
+  <div class="pk-card-title"><i class="fa fa-user-plus"></i>Nova influencer</div>
+  <form method="post" action="{{ url_for('admin_influencers_criar') }}">
+    <div class="inf-form">
+      <div><label class="crm-label">Nome completo</label><input class="pk-input" name="nome" required></div>
+      <div><label class="crm-label">WhatsApp com DDD</label><input class="pk-input" name="telefone" placeholder="(19) 99999-9999" required></div>
+      <div><label class="crm-label">E-mail</label><input class="pk-input" type="email" name="email" required></div>
+      <div><label class="crm-label">CPF</label><input class="pk-input" name="documento"></div>
+      <div><label class="crm-label">Data de nascimento</label><input class="pk-input" type="date" name="data_nascimento" required></div>
+      <div><label class="crm-label">Comissão (%)</label><input class="pk-input" type="number" name="comissao_pct" step="0.5" min="0.5" max="50" value="5"></div>
+      <div style="grid-column:1/-1"><label class="crm-label">Endereço (opcional, genérico — ela pode ajustar depois)</label><input class="pk-input" name="endereco" placeholder="São Pedro - SP"></div>
+    </div>
+    <div style="margin-top:14px"><button type="submit" class="btn-pk-yellow"><i class="fa fa-check me-1"></i>Cadastrar influencer</button></div>
+  </form>
+</div>
+
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto">
+  <table class="inf-table">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Contato</th>
+        <th>Link</th>
+        <th>Comissão</th>
+        <th>Indicados</th>
+        <th>Pendente</th>
+        <th>Total gerado</th>
+        <th>Status</th>
+        <th style="width:100px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in influencers %}
+      <tr>
+        <td><strong>{{ i.nome }}</strong></td>
+        <td style="font-size:.78rem;color:var(--pk-muted)">{{ i.telefone }}<br>{{ i.email }}</td>
+        <td class="inf-link">/r/{{ (i.codigo_indicacao or '')|lower }}</td>
+        <td>{{ i.comissao_pct|float|round(1) }}%</td>
+        <td>{{ i.total_indicados }}</td>
+        <td style="color:#f0b429;font-weight:800">R$ {{ '%.2f'|format(i.pendente|float) }}</td>
+        <td style="color:var(--pk-muted)">R$ {{ '%.2f'|format(i.total_gerado|float) }}</td>
+        <td>{% if i.ativo %}<span class="inf-badge on"><i class="fa fa-check"></i>Ativa</span>{% else %}<span class="inf-badge off"><i class="fa fa-pause"></i>Pausada</span>{% endif %}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_influencers_toggle', consumidor_id=i.id) }}">
+            <button type="submit" class="inf-btn">{{ 'Pausar' if i.ativo else 'Ativar' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" style="text-align:center;color:var(--pk-muted);padding:20px">Nenhuma influencer cadastrada ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}
