@@ -669,8 +669,15 @@
 <div class="crm-card">
   <div class="crm-title"><i class="fa fa-crown"></i>Planos do CRM</div>
   <p class="crm-sub">Valores são definidos no contrato. Aqui você compara apenas os recursos disponíveis.</p>
-  <div class="crm-2col">
-    {% for cod,nome,itens in [('gratuito','Gratuito',['Notificações na conta do cliente','Públicos que já interagiram com a loja','Automações oferecidas pela plataforma']),('pro','Pro',['Até 500 envios por mês no total','Notificação, e-mail e WhatsApp','Base de clientes, automações e histórico completo']),('master','Master',['Até 1.000 envios por mês no total','Todos os recursos do Pro','Mais capacidade para campanhas']),('poupaqui','Poupaqui exclusivo',['Envios ilimitados','Todos os canais e automações','Base e histórico completos'])] %}
+  <div class="crm-2col" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+    {% for cod,nome,itens in [
+      ('gratuito','Gratuito',['Notificações na conta do cliente','Públicos que já interagiram com a loja','Automações oferecidas pela plataforma']),
+      ('basico','Básico',['Até 100 envios por mês no total','Notificação, e-mail e WhatsApp (via WA Sender)','Base de clientes, automações e histórico completo']),
+      ('inicial','Inicial',['Até 500 envios por mês no total','Notificação, e-mail e WhatsApp (via API oficial do WhatsApp)','Base de clientes, automações e histórico completo']),
+      ('profissional','Profissional',['Até 1.000 envios por mês no total','Todos os recursos do Inicial','Mais capacidade para campanhas']),
+      ('avancado','Avançado',['Até 2.000 envios por mês no total','Todos os recursos do Profissional','Ideal para base grande de clientes']),
+      ('rede','Rede',['Até 5.000 envios por mês no total','Acima disso, ampliação sob consulta','Todos os canais e automações'])
+    ] %}
     <div class="crm-card" style="{{ 'border-color:var(--pk-yellow)' if crm_plano.codigo==cod }}"><h3 style="font-size:.9rem;margin:0 0 10px">{{ nome }}</h3><ul style="padding-left:17px;color:var(--pk-muted);font-size:.76rem;line-height:1.9;margin:0">{% for it in itens %}<li>{{ it }}</li>{% endfor %}</ul></div>
     {% endfor %}
   </div>

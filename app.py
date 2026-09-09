@@ -1279,7 +1279,7 @@ def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, im
 
 def _ensure_crm_schema():
     """Estrutura unica de auditoria para disparos manuais e automaticos."""
-    key = "crm_v8"
+    key = "crm_v9"
     _load_db_migrations()
     if key in _schema_ready:
         return
@@ -1351,17 +1351,35 @@ def _ensure_crm_schema():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_templates_loja ON ecommerce_crm_templates(cnpjloja, criado_em DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_campanhas_agendadas ON ecommerce_crm_campanhas(agendado_para) WHERE status='agendado'")
         cur.execute("""INSERT INTO ecommerce_crm_planos_loja(cnpjloja,plano)
-            VALUES('54185432000143','pro') ON CONFLICT(cnpjloja) DO NOTHING""")
+            VALUES('54185432000143','inicial') ON CONFLICT(cnpjloja) DO NOTHING""")
+        # migra lojas que ja estavam nos codigos antigos (pro/master/poupaqui)
+        # pro equivalente mais proximo na escada nova -- os 3 mapeamentos tem
+        # o mesmo limite numerico do lado antigo pro novo, exceto poupaqui
+        # (que era "ilimitado" de verdade; na escada nova nao existe mais
+        # ilimitado, o teto mais alto e 'rede', com upgrade sob consulta acima disso).
+        cur.execute("UPDATE ecommerce_crm_planos_loja SET plano='inicial' WHERE plano='pro'")
+        cur.execute("UPDATE ecommerce_crm_planos_loja SET plano='profissional' WHERE plano='master'")
+        cur.execute("UPDATE ecommerce_crm_planos_loja SET plano='rede' WHERE plano='poupaqui'")
         conn.commit(); cur.close()
         _schema_ready.add(key); _mark_migration_done(key)
 
 
 _CRM_CUSTO_CANAL = {"push": 0.0, "email": 0.004, "whatsapp": 0.08}
+# Escada de planos (2026-09): abaixo do antigo "Pro" ganhou um degrau mais
+# barato usando WA Sender (ate 100 envios); os planos de cima passam a usar
+# a API oficial do WhatsApp (Meta) em vez da WA Sender -- ver
+# project_meta_whatsapp_integracao na memoria. Preco fica fora do codigo,
+# acertado direto com a empresa responsavel; aqui so regra de acesso.
+# provedor_whatsapp e so uma marcacao de intencao por enquanto -- o envio de
+# verdade (_wa_send) ainda usa WA Sender pra todo mundo ate a integracao com
+# a API oficial da Meta estar pronta (numero de producao + templates aprovados).
 _CRM_PLANOS = {
-    "gratuito": {"nome": "Gratuito", "limite": None, "canais": {"push"}, "crm_completo": False},
-    "pro": {"nome": "Pro", "limite": 500, "canais": {"push", "email", "whatsapp"}, "crm_completo": True},
-    "master": {"nome": "Master", "limite": 1000, "canais": {"push", "email", "whatsapp"}, "crm_completo": True},
-    "poupaqui": {"nome": "Poupaqui exclusivo", "limite": None, "canais": {"push", "email", "whatsapp"}, "crm_completo": True},
+    "gratuito": {"nome": "Gratuito", "limite": None, "canais": {"push"}, "crm_completo": False, "provedor_whatsapp": None},
+    "basico": {"nome": "Básico", "limite": 100, "canais": {"push", "email", "whatsapp"}, "crm_completo": True, "provedor_whatsapp": "wa_sender"},
+    "inicial": {"nome": "Inicial", "limite": 500, "canais": {"push", "email", "whatsapp"}, "crm_completo": True, "provedor_whatsapp": "meta"},
+    "profissional": {"nome": "Profissional", "limite": 1000, "canais": {"push", "email", "whatsapp"}, "crm_completo": True, "provedor_whatsapp": "meta"},
+    "avancado": {"nome": "Avançado", "limite": 2000, "canais": {"push", "email", "whatsapp"}, "crm_completo": True, "provedor_whatsapp": "meta"},
+    "rede": {"nome": "Rede", "limite": 5000, "canais": {"push", "email", "whatsapp"}, "crm_completo": True, "provedor_whatsapp": "meta"},
 }
 
 
