@@ -144,6 +144,12 @@
         <input class="ind-link-input" id="ind-prod-link-input" type="text" readonly onclick="this.select()">
         <button class="ind-copy-btn" id="ind-prod-copy-btn" onclick="indCopiarLinkProduto()"><i class="fa fa-copy me-1"></i>Copiar</button>
       </div>
+      <div class="ind-share-row">
+        <button type="button" class="ind-share-btn wa" onclick="indCompartilhar('whatsapp','ind-prod-link-input','Oi! Vi esse produto no Poupaqui e lembrei de você:')"><i class="fa-brands fa-whatsapp"></i>WhatsApp</button>
+        <button type="button" class="ind-share-btn ig" onclick="indCompartilhar('instagram','ind-prod-link-input','Oi! Vi esse produto no Poupaqui e lembrei de você:')"><i class="fa-brands fa-instagram"></i>Instagram</button>
+        <button type="button" class="ind-share-btn fb" onclick="indCompartilhar('facebook','ind-prod-link-input','Oi! Vi esse produto no Poupaqui e lembrei de você:')"><i class="fa-brands fa-facebook"></i>Facebook</button>
+        <button type="button" class="ind-share-btn tg" onclick="indCompartilhar('telegram','ind-prod-link-input','Oi! Vi esse produto no Poupaqui e lembrei de você:')"><i class="fa-brands fa-telegram"></i>Telegram</button>
+      </div>
     </div>
   </div>
   {% endif %}
@@ -244,9 +250,9 @@ function indCopiarLink() {
     prompt('Copie o link:', input.value);
   });
 }
-async function indCompartilhar(canal) {
-  const link = document.getElementById('ind-link-input').value;
-  const texto = `Oi! Estou usando o Poupaqui pra comprar remédio com entrega rápida e achei bom. Se cadastrar por esse link a gente ganha desconto: ${link}`;
+async function indCompartilhar(canal, inputId, mensagemBase) {
+  const link = document.getElementById(inputId || 'ind-link-input').value;
+  const texto = `${mensagemBase || 'Oi! Estou usando o Poupaqui pra comprar remédio com entrega rápida e achei bom. Se cadastrar por esse link a gente ganha desconto:'} ${link}`;
   if (canal === 'whatsapp') {
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
   } else if (canal === 'facebook') {
