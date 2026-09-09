@@ -1119,6 +1119,21 @@ def _processar_recompensa_indicacao(consumidor_id, pedido_id, cnpjloja, conn):
         cur.close()
         return
     indicador_id = indicacao["indicador_id"]
+    # Influencer cadastrado (comissao_pct por venda, ver _processar_comissao_influencer)
+    # tem a propria regra de recompensa -- nao acumula tambem o cupom fixo
+    # padrao do "indique um amigo", senao ganha nas duas pontas pela mesma
+    # indicacao. So marca como recompensado (sem gerar cupom) pra nao ficar
+    # reprocessando a cada pedido.
+    _ensure_influencers_schema()
+    cur.execute("SELECT 1 FROM ecommerce_influencers WHERE consumidor_id=%s AND ativo=TRUE", (indicador_id,))
+    if cur.fetchone():
+        cur.execute(
+            "UPDATE ecommerce_indicacoes SET status='recompensado', pedido_id=%s, recompensado_em=NOW() WHERE id=%s",
+            (pedido_id, indicacao["id"]),
+        )
+        conn.commit()
+        cur.close()
+        return
     codigo_cupom = f"AMIGO{secrets.token_hex(3).upper()}"
     valido_ate = datetime.now().date() + timedelta(days=INDICACAO_VALIDADE_DIAS)
     cur.execute("""
