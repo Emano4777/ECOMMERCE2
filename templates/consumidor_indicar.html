@@ -151,12 +151,12 @@
         <button type="button" class="ind-share-btn tg" onclick="indCompartilhar('telegram','ind-prod-link-input','Oi! Vi esse produto no Poupaqui e lembrei de você:')"><i class="fa-brands fa-telegram"></i>Telegram</button>
       </div>
     </div>
-    {% if produtos_salvos %}
     <div style="margin-top:16px;border-top:1px solid var(--pq-border);padding-top:14px">
       <div class="ind-link-label"><i class="fa fa-bookmark me-1"></i>Produtos salvos</div>
+      <div id="ind-prod-salvos-vazio" style="font-size:.8rem;color:var(--pq-muted);margin-top:6px;{{ 'display:none' if produtos_salvos else '' }}">Nenhum produto salvo ainda — escolha um acima.</div>
       <div id="ind-prod-salvos-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         {% for p in produtos_salvos %}
-        <div class="ind-prod-salvo" data-id="{{ p.id }}" style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--pq-border);border-radius:10px;padding:8px 10px">
+        <div class="ind-prod-salvo" data-id="{{ p.id }}" data-ean="{{ p.ean }}" style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--pq-border);border-radius:10px;padding:8px 10px">
           <img src="{{ p.imagem or '' }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:#f2ede6;flex-shrink:0">
           <div style="flex:1;min-width:0;font-size:.82rem;font-weight:700;color:var(--pq-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.nome }}</div>
           <button type="button" class="ind-copy-btn" style="padding:6px 10px;font-size:.72rem" onclick="indCopiarLinkSalvo('{{ p.ean }}', this)"><i class="fa fa-copy me-1"></i>Link</button>
@@ -166,7 +166,6 @@
         {% endfor %}
       </div>
     </div>
-    {% endif %}
   </div>
   {% endif %}
 
@@ -238,6 +237,21 @@ function indLinkDoProduto(ean) {
   const base = document.getElementById('ind-link-input').value;
   return base + (base.includes('?') ? '&' : '?') + 'p=' + encodeURIComponent(ean);
 }
+function indMontarLinhaSalvo(id, ean, nome, imagem) {
+  const div = document.createElement('div');
+  div.className = 'ind-prod-salvo';
+  div.dataset.id = id;
+  div.dataset.ean = ean;
+  div.style.cssText = 'display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--pq-border);border-radius:10px;padding:8px 10px';
+  div.innerHTML = `
+    <img src="${imagem || ''}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:#f2ede6;flex-shrink:0">
+    <div style="flex:1;min-width:0;font-size:.82rem;font-weight:700;color:var(--pq-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nome}</div>
+    <button type="button" class="ind-copy-btn" style="padding:6px 10px;font-size:.72rem" onclick="indCopiarLinkSalvo('${ean}', this)"><i class="fa fa-copy me-1"></i>Link</button>
+    <button type="button" class="ind-copy-btn" style="padding:6px 10px;font-size:.72rem" onclick="indTrocarSalvo(${id})"><i class="fa fa-pen me-1"></i>Trocar</button>
+    <button type="button" class="ind-copy-btn" style="padding:6px 10px;font-size:.72rem;border-color:#c0392b;color:#c0392b" onclick="indExcluirSalvo(${id})"><i class="fa fa-trash me-1"></i>Excluir</button>
+  `;
+  return div;
+}
 function indEscolherProduto(ean, nome, imagem) {
   document.getElementById('ind-prod-link-input').value = indLinkDoProduto(ean);
   document.getElementById('ind-prod-link-box').style.display = 'block';
@@ -248,7 +262,18 @@ function indEscolherProduto(ean, nome, imagem) {
   const url = editandoId ? `/api/indicar/produtos-salvos/${editandoId}/trocar` : '/api/indicar/produtos-salvos';
   fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ean, nome, imagem }) })
     .then(r => r.json())
-    .then(() => { _indEditandoId = null; location.reload(); })
+    .then(d => {
+      if (!d.ok) return;
+      _indEditandoId = null;
+      const lista = document.getElementById('ind-prod-salvos-list');
+      // se ja existia uma linha com esse id (upsert do mesmo produto, ou
+      // 'trocar' de um slot), atualiza ela no lugar em vez de duplicar
+      const existente = lista.querySelector(`[data-id="${d.id}"]`);
+      const nova = indMontarLinhaSalvo(d.id, ean, nome, imagem);
+      if (existente) existente.replaceWith(nova);
+      else lista.prepend(nova);
+      document.getElementById('ind-prod-salvos-vazio').style.display = 'none';
+    })
     .catch(() => { _indEditandoId = null; });
 }
 function indCopiarLinkSalvo(ean, btn) {
@@ -270,7 +295,13 @@ function indExcluirSalvo(id) {
   if (!confirm('Remover esse produto da sua lista?')) return;
   fetch(`/api/indicar/produtos-salvos/${id}/excluir`, { method: 'POST' })
     .then(r => r.json())
-    .then(d => { if (d.ok) location.reload(); });
+    .then(d => {
+      if (!d.ok) return;
+      const lista = document.getElementById('ind-prod-salvos-list');
+      const linha = lista.querySelector(`[data-id="${id}"]`);
+      if (linha) linha.remove();
+      if (!lista.children.length) document.getElementById('ind-prod-salvos-vazio').style.display = 'block';
+    });
 }
 function indCopiarLinkProduto() {
   const input = document.getElementById('ind-prod-link-input');
