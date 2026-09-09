@@ -13951,6 +13951,28 @@ def produto_detalhe(ean):
     conn = db()
     cur  = conn.cursor()
 
+    if not cnpjloja:
+        # Sem ?cnpj= na URL (ex.: link de feed do Google Shopping, link
+        # compartilhado sem loja definida, robo de busca sem localizacao
+        # salva), o preco/disponibilidade nunca era buscado -- a pagina
+        # ficava sem preco nenhum pra quem chegasse assim. Cai numa loja
+        # que realmente tem o produto em estoque, em vez de ficar em
+        # branco (o restante da pagina ja deixa trocar de loja via
+        # localizacao normalmente).
+        try:
+            cur.execute(
+                """SELECT cnpjloja FROM ecommerce_alpha_produtos
+                   WHERE LTRIM(COALESCE(ean,''),'0')=LTRIM(%s,'0')
+                     AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
+                   ORDER BY estoque DESC LIMIT 1""",
+                (ean,),
+            )
+            _row_fallback = cur.fetchone()
+            if _row_fallback:
+                cnpjloja = _row_fallback["cnpjloja"]
+        except Exception as exc:
+            app.logger.warning("produto_detalhe: fallback de loja sem cnpj falhou: %s", exc)
+
     cur.execute(
         """
         SELECT m.descricao, m.marca, m.laboratorio, m.classe,
