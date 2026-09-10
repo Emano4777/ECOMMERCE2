@@ -2284,18 +2284,40 @@ function _pqItensElegiveisRegraQtd(regra, itens) {
 }
 function _pqDescontoQtdLoja(cnpjloja, itens) {
   const regras = _pqCestaRules[cnpjloja] || [];
-  let melhor = 0;
-  regras.forEach(r => {
+  const ord = [...regras].sort((a, b) => (b.desconto_valor || 0) - (a.desconto_valor || 0));
+  // Regras miradas em produto/categoria SOMAM entre si (cada item so uma vez,
+  // a de maior valor primeiro); regra 'todos' e a melhor unica. Mesma logica
+  // do backend e da pagina /carrinho.
+  let somaAlvo = 0;
+  const pegos = new Set();
+  ord.forEach(r => {
+    const escopo = r.escopo || 'todos';
+    if (escopo !== 'produto' && escopo !== 'categoria') return;
     const elegiveis = _pqItensElegiveisRegraQtd(r, itens);
-    const qtdElegivel = elegiveis.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
-    if (!qtdElegivel || qtdElegivel < r.qtd_minima) return;
-    const valElegivel = elegiveis.reduce((s, i) => s + (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1), 0);
+    const qtdTotal = elegiveis.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+    if (!qtdTotal || qtdTotal < r.qtd_minima) return;
+    const disp = elegiveis.filter(i => !pegos.has(i));
+    const val = disp.reduce((s, i) => s + (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1), 0);
+    const qtdDisp = disp.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+    if (val <= 0) return;
     const calc = r.desconto_tipo === 'pct'
-      ? valElegivel * r.desconto_valor / 100
-      : Math.min(valElegivel, (r.desconto_valor / (r.qtd_minima || 1)) * qtdElegivel);
-    if (calc > melhor) melhor = calc;
+      ? val * r.desconto_valor / 100
+      : Math.min(val, (r.desconto_valor / (r.qtd_minima || 1)) * qtdDisp);
+    if (calc > 0) { somaAlvo += calc; disp.forEach(i => pegos.add(i)); }
   });
-  return Math.round(melhor * 100) / 100;
+  const valTudo = itens.reduce((s, i) => s + (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1), 0);
+  const qtdTudo = itens.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+  let melhorTodos = 0;
+  ord.forEach(r => {
+    const escopo = r.escopo || 'todos';
+    if (escopo === 'produto' || escopo === 'categoria') return;
+    if (qtdTudo < r.qtd_minima) return;
+    const calc = r.desconto_tipo === 'pct'
+      ? valTudo * r.desconto_valor / 100
+      : Math.min(valTudo, (r.desconto_valor / (r.qtd_minima || 1)) * qtdTudo);
+    if (calc > melhorTodos) melhorTodos = calc;
+  });
+  return Math.round(Math.max(somaAlvo, melhorTodos) * 100) / 100;
 }
 
 function getCart() {

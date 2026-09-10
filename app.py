@@ -17549,37 +17549,74 @@ def api_checkout():
               AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %s)
             ORDER BY c.qtd_minima DESC, c.desconto_valor DESC
         """, (cnpjloja, total_itens_qty, is_assinante_checkout))
-        desconto_qtd = 0.0
-        cupom_qtd_id = None
-        for qr in cur.fetchall():
+        # Regras que miram produto/categoria especificos SOMAM entre si (sao
+        # promocoes independentes de itens diferentes: "leve 2 Leite Ninho" +
+        # "leve 2 Toalha" valem as duas). Cada item so pode ser descontado por
+        # uma regra -- a de maior valor pega primeiro; regra 'todos' (cesta
+        # inteira) continua sendo a melhor unica, comparada contra a soma das
+        # miradas.
+        _regras_qtd = list(cur.fetchall())
+        desconto_qtd_alvo = 0.0
+        ids_alvo = []
+        _itens_pegos = set()
+        for qr in _regras_qtd:
             escopo_q = qr.get("escopo") or "todos"
+            if escopo_q not in ("produto", "categoria"):
+                continue
             eans_q = set(x.strip() for x in (qr.get("escopo_eans") or "").split(",") if x.strip())
             cats_q = set(x.strip() for x in (qr.get("escopo_categorias") or "").split(",") if x.strip())
             if escopo_q == "categoria" and cats_q:
-                app_q = sum(float(i.get("preco", 0)) * int(i.get("qty", 1)) for i in itens if _classificar_produto(i.get("nome", "")) in cats_q)
-                qtd_aplicavel = sum(int(i.get("qty", 1)) for i in itens if _classificar_produto(i.get("nome", "")) in cats_q)
+                elegiveis_q = [ix for ix, i in enumerate(itens) if _classificar_produto(i.get("nome", "")) in cats_q]
             elif escopo_q == "produto" and eans_q:
-                app_q = sum(float(i.get("preco", 0)) * int(i.get("qty", 1)) for i in itens if (i.get("ean") or "").strip() in eans_q)
-                qtd_aplicavel = sum(int(i.get("qty", 1)) for i in itens if (i.get("ean") or "").strip() in eans_q)
+                elegiveis_q = [ix for ix, i in enumerate(itens) if (i.get("ean") or "").strip() in eans_q]
             else:
-                app_q = produtos_total
-                qtd_aplicavel = total_itens_qty
+                continue
+            if sum(int(itens[ix].get("qty", 1)) for ix in elegiveis_q) < qr["qtd_minima"]:
+                continue
+            disp = [ix for ix in elegiveis_q if ix not in _itens_pegos]
+            app_q = sum(float(itens[ix].get("preco", 0)) * int(itens[ix].get("qty", 1)) for ix in disp)
+            qtd_aplicavel = sum(int(itens[ix].get("qty", 1)) for ix in disp)
+            if app_q <= 0:
+                continue
             if qr["desconto_tipo"] == "pct":
                 calc_q = round(app_q * float(qr["desconto_valor"]) / 100, 2)
             else:
-                # desconto 'fixo' e por grupo de qtd_minima (ex: R$20 a cada 2
-                # unidades) — escala pela quantidade elegivel, senao uma compra
-                # de 4+ unidades so ganharia o desconto de 2 (mesmo valor de
-                # quem levou so a quantidade minima).
                 qtd_min_q = int(qr["qtd_minima"]) or 1
                 calc_q = min(app_q, round((float(qr["desconto_valor"]) / qtd_min_q) * qtd_aplicavel, 2))
-            if calc_q > desconto_qtd:
-                desconto_qtd = calc_q
-                cupom_qtd_id = str(qr["id"])
+            if calc_q > 0:
+                desconto_qtd_alvo += calc_q
+                ids_alvo.append(str(qr["id"]))
+                _itens_pegos.update(disp)
+
+        desconto_qtd_todos = 0.0
+        cupom_qtd_todos_id = None
+        for qr in _regras_qtd:
+            if (qr.get("escopo") or "todos") in ("produto", "categoria"):
+                continue
+            if qr["desconto_tipo"] == "pct":
+                calc_q = round(produtos_total * float(qr["desconto_valor"]) / 100, 2)
+            else:
+                qtd_min_q = int(qr["qtd_minima"]) or 1
+                calc_q = min(produtos_total, round((float(qr["desconto_valor"]) / qtd_min_q) * total_itens_qty, 2))
+            if calc_q > desconto_qtd_todos:
+                desconto_qtd_todos = calc_q
+                cupom_qtd_todos_id = str(qr["id"])
+
+        cupons_qtd_aplicados = []
+        if desconto_qtd_alvo >= desconto_qtd_todos:
+            desconto_qtd = round(desconto_qtd_alvo, 2)
+            cupom_qtd_id = ids_alvo[0] if ids_alvo else None
+            cupons_qtd_aplicados = list(ids_alvo)
+        else:
+            desconto_qtd = desconto_qtd_todos
+            cupom_qtd_id = cupom_qtd_todos_id
+            cupons_qtd_aplicados = [cupom_qtd_todos_id] if cupom_qtd_todos_id else []
         # Melhor desconto base: código ou quantidade
         if desconto_qtd > desconto_cupom:
             desconto_cupom = desconto_qtd
             cupom_id_aplicado = cupom_qtd_id
+        else:
+            cupons_qtd_aplicados = []  # cupom de codigo venceu; nao conta uso das regras de qtd
 
         # Desconto automático por forma de pagamento (sempre adicional ao base)
         desconto_pag = 0.0
@@ -17750,6 +17787,14 @@ def api_checkout():
                 "UPDATE ecommerce_cupons_lojas SET usos_count = usos_count + 1 WHERE cupom_id=%s AND cnpjloja=%s",
                 (cupom_id_aplicado, cnpjloja),
             )
+        # Quando varias regras de quantidade (produto/categoria) somam, conta o
+        # uso de cada uma -- menos a que ja foi contada como cupom_id_aplicado.
+        for _cq_id in cupons_qtd_aplicados:
+            if _cq_id and _cq_id != cupom_id_aplicado:
+                cur.execute(
+                    "UPDATE ecommerce_cupons_lojas SET usos_count = usos_count + 1 WHERE cupom_id=%s AND cnpjloja=%s",
+                    (_cq_id, cnpjloja),
+                )
         if cupom_pag_id:
             cur.execute(
                 "UPDATE ecommerce_cupons_lojas SET usos_count = usos_count + 1 WHERE cupom_id=%s AND cnpjloja=%s",
