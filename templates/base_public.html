@@ -2269,6 +2269,35 @@ function esc(s) {
 /* ── CARRINHO (localStorage + banco) ───────────────────── */
 const CART_KEY = 'pq_cart';
 
+/* Regras de desconto automatico por quantidade, por loja — usadas pra a cesta
+   lateral mostrar o valor promocional na hora que muda a quantidade, igual a
+   pagina /carrinho (antes ela so mostrava o preco cheio ate abrir o carrinho). */
+const _pqCestaRules = {};
+function _pqItensElegiveisRegraQtd(regra, itens) {
+  const escopo = regra.escopo || 'todos';
+  if (escopo === 'produto') {
+    const eans = new Set((regra.escopo_eans || '').split(/[,\s]+/).map(e => e.trim()).filter(Boolean));
+    return itens.filter(i => eans.has((i.ean || '').trim()));
+  }
+  if (escopo === 'categoria') return []; // classificacao so no servidor
+  return itens;
+}
+function _pqDescontoQtdLoja(cnpjloja, itens) {
+  const regras = _pqCestaRules[cnpjloja] || [];
+  let melhor = 0;
+  regras.forEach(r => {
+    const elegiveis = _pqItensElegiveisRegraQtd(r, itens);
+    const qtdElegivel = elegiveis.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+    if (!qtdElegivel || qtdElegivel < r.qtd_minima) return;
+    const valElegivel = elegiveis.reduce((s, i) => s + (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1), 0);
+    const calc = r.desconto_tipo === 'pct'
+      ? valElegivel * r.desconto_valor / 100
+      : Math.min(valElegivel, (r.desconto_valor / (r.qtd_minima || 1)) * qtdElegivel);
+    if (calc > melhor) melhor = calc;
+  });
+  return Math.round(melhor * 100) / 100;
+}
+
 function getCart() {
   try {
     const cart = JSON.parse(localStorage.getItem(CART_KEY)) || [];
@@ -2421,8 +2450,48 @@ function renderCestaLateral() {
   if (!body || !foot || !count) return;
   const cart = getCart();
   const totalItens = cart.reduce((s, c) => s + (parseInt(c.qty) || 1), 0);
-  const subtotal = cart.reduce((s, c) => s + ((parseFloat(c.preco) || 0) * (parseInt(c.qty) || 1)), 0);
   count.textContent = totalItens === 1 ? '1 item' : `${totalItens} itens`;
+
+  // Garante as regras de desconto por quantidade das lojas da cesta (busca 1x
+  // por loja e re-renderiza) — pra o valor promocional aparecer na hora que
+  // muda a quantidade, sem precisar abrir a pagina /carrinho.
+  const _cnpjsCesta = [...new Set(cart.map(c => c.cnpjloja).filter(Boolean))];
+  const _faltamRegras = _cnpjsCesta.filter(c => !(c in _pqCestaRules));
+  if (_faltamRegras.length) {
+    Promise.all(_faltamRegras.map(c =>
+      fetch(`/api/descontos-auto?cnpj=${encodeURIComponent(c)}`)
+        .then(r => r.json()).then(d => { _pqCestaRules[c] = (d.quantidade || []); })
+        .catch(() => { _pqCestaRules[c] = []; })
+    )).then(() => renderCestaLateral());
+  }
+
+  // Desconto por quantidade por loja (mesma formula da pagina /carrinho).
+  const _porLoja = {};
+  cart.forEach(c => { (_porLoja[c.cnpjloja || ''] = _porLoja[c.cnpjloja || ''] || []).push(c); });
+  const _descLoja = {};   // {cnpjloja: valor de desconto}
+  const _lineDesc = new Map(); // item -> desconto proporcional dessa linha
+  Object.keys(_porLoja).forEach(cnpj => {
+    const itens = _porLoja[cnpj];
+    const d = _pqDescontoQtdLoja(cnpj, itens);
+    _descLoja[cnpj] = d;
+    if (d <= 0) return;
+    // rateia o desconto da loja entre os itens das regras que bateram o minimo
+    const elegiveis = new Set();
+    (_pqCestaRules[cnpj] || []).forEach(r => {
+      const its = _pqItensElegiveisRegraQtd(r, itens);
+      const qtd = its.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+      if (qtd >= (r.qtd_minima || 1)) its.forEach(i => elegiveis.add(i));
+    });
+    const base = [...elegiveis].reduce((s, i) => s + (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1), 0);
+    if (base > 0) {
+      elegiveis.forEach(i => {
+        const val = (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1);
+        _lineDesc.set(i, d * val / base);
+      });
+    }
+  });
+  const subtotalCheio = cart.reduce((s, c) => s + ((parseFloat(c.preco) || 0) * (parseInt(c.qty) || 1)), 0);
+  const subtotal = Math.max(0, subtotalCheio - Object.values(_descLoja).reduce((s, v) => s + v, 0));
 
   if (!cart.length) {
     count.textContent = 'Sua cesta está vazia';
@@ -2445,13 +2514,16 @@ function renderCestaLateral() {
       ? `<img class="pq-cart-side-img" src="${esc(item.imagem)}" alt="" onerror="this.outerHTML='<div class=&quot;pq-cart-side-ph&quot;><i class=&quot;fa fa-box&quot;></i></div>'">`
       : `<div class="pq-cart-side-ph"><i class="fa fa-box"></i></div>`;
     const pq = item.promo_qtd;
-    const pqAtingiu = pq && qty >= pq.qtd_minima;
-    // Mesmo padrao das outras promocoes (preco riscado + novo valor), em vez
-    // de um aviso separado abaixo do preco.
+    const descLinha = _lineDesc.get(item) || 0;
+    // Preco riscado + novo valor (mesmo padrao das outras promocoes). O desconto
+    // vem das regras buscadas agora, entao aparece na hora que muda a qty --
+    // nao depende de promo_qtd ter sido salvo no item quando foi adicionado.
     let precoLinha;
-    if (pqAtingiu) {
-      precoLinha = `${brlGlobal(pq.preco_unit_promo * qty)} <s style="font-size:.76rem;opacity:.55;font-weight:600">${brlGlobal(preco * qty)}</s>`;
-    } else if (pq) {
+    if (descLinha > 0.005) {
+      const cheio = preco * qty;
+      precoLinha = `${brlGlobal(cheio - descLinha)} <s style="font-size:.76rem;opacity:.55;font-weight:600">${brlGlobal(cheio)}</s>` +
+        `<div style="font-size:.7rem;color:var(--pq-red);font-weight:800;margin-top:2px"><i class="fa fa-layer-group"></i> Oferta por quantidade</div>`;
+    } else if (pq && qty < pq.qtd_minima) {
       precoLinha = `${brlGlobal(preco * qty)}<div style="font-size:.7rem;color:var(--pq-red);font-weight:800;margin-top:2px"><i class="fa fa-layer-group"></i> Leve ${pq.qtd_minima}+ por ${brlGlobal(pq.preco_unit_promo)} cada</div>`;
     } else {
       precoLinha = brlGlobal(preco * qty);
@@ -2475,7 +2547,10 @@ function renderCestaLateral() {
       </div>
     </div>`;
   }).join('');
-  foot.innerHTML = `<div class="pq-cart-subtotal"><span>Subtotal</span><strong>${brlGlobal(subtotal)}</strong></div>
+  const _economiaCesta = subtotalCheio - subtotal;
+  foot.innerHTML = `${_economiaCesta > 0.005
+      ? `<div class="pq-cart-subtotal" style="color:#16a34a"><span><i class="fa fa-piggy-bank" style="margin-right:4px"></i>Você economizou</span><strong style="color:#16a34a">${brlGlobal(_economiaCesta)}</strong></div>`
+      : ''}<div class="pq-cart-subtotal"><span>Subtotal</span><strong>${brlGlobal(subtotal)}</strong></div>
     <a class="pq-cart-action primary" href="{{ url_for('carrinho') }}"><i class="fa fa-basket-shopping"></i>Ir para minha cesta</a>
     <button type="button" class="pq-cart-action" onclick="fecharCestaLateral()">Continuar comprando</button>`;
 }
