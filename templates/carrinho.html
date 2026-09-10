@@ -843,6 +843,11 @@ function renderDescontoQuantidade(cnpjloja, itens) {
     const totalQty = elegiveis.reduce((s, i) => s + (i.qty || 1), 0);
     const falta = r.qtd_minima - totalQty;
     const label = r.desconto_tipo === 'pct' ? `${parseInt(r.desconto_valor)}% OFF` : `R$${parseFloat(r.desconto_valor).toFixed(2).replace('.',',')} OFF`;
+    // Regra restrita a produto/categoria específicos: só faz sentido incentivar
+    // quem já tem pelo menos 1 item elegível no carrinho. Sem isso a mensagem
+    // "adicione mais 2 items" aparece pra qualquer cesta e dá a entender que
+    // qualquer produto serve (categoria o cliente nem consegue verificar aqui).
+    if (falta > 0 && (r.escopo || 'todos') !== 'todos' && totalQty === 0) return;
     if (falta <= 0) {
       const totalElegivel = elegiveis.reduce((s, i) => s + (i.preco || 0) * (i.qty || 1), 0);
       const descontoRegra = r.desconto_tipo === 'pct'
@@ -860,9 +865,14 @@ function renderDescontoQuantidade(cnpjloja, itens) {
         </div>`;
       }
     } else {
+      const ehProduto = (r.escopo || 'todos') === 'produto';
+      const nomeItem = ehProduto && elegiveis[0] ? esc(elegiveis[0].nome || '') : '';
+      const alvo = ehProduto
+        ? `<strong>${falta} unidade${falta>1?'s':''}</strong>${nomeItem ? ` de ${nomeItem}` : ' desse item'}`
+        : `<strong>${falta} item${falta>1?'s':''}</strong>`;
       html += `<div style="display:flex;align-items:center;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#92400e;margin-bottom:2px">
         <i class="fa fa-layer-group" style="color:#d97706;flex-shrink:0"></i>
-        <span>Adicione mais <strong>${falta} item${falta>1?'s':''}</strong> e ganhe <strong>${label}</strong> de desconto!</span>
+        <span>Adicione mais ${alvo} e ganhe <strong>${label}</strong> de desconto!</span>
       </div>`;
     }
   });
