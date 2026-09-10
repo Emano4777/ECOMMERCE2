@@ -90,7 +90,7 @@
     <span class="ind-hero-tag"><i class="fa fa-star"></i>Parceria de indicação</span>
     <i class="fa fa-sack-dollar ind-hero-icon"></i>
     <h1>Ganhe {{ comissao_pct|round(1) }}% de comissão em toda compra</h1>
-    <p>Compartilhe seu link. Toda vez que alguém que você indicou comprar — não só na primeira vez, em todas as compras — você ganha {{ comissao_pct|round(1) }}% do valor em comissão, acumulada pra receber via Pix/transferência.</p>
+    <p>Compartilhe seu link. Toda vez que alguém que você indicou comprar — não só na primeira vez, em todas as compras — você ganha {{ comissao_pct|round(1) }}% do valor em comissão. O pagamento é feito <strong>via Pix</strong>, sempre que sua comissão acumulada chega em <strong>R$ {{ "%.0f"|format(saque_minimo) }}</strong> (a cada R$ {{ "%.0f"|format(saque_minimo) }}).</p>
   </div>
   <div class="ind-stats-row" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
     <div style="flex:1;min-width:150px;background:#fff;border:1px solid var(--pq-border);border-radius:12px;padding:14px 16px">
@@ -101,6 +101,31 @@
       <div style="font-size:.72rem;color:var(--pq-muted);font-weight:800;text-transform:uppercase">Total já gerado</div>
       <div style="font-size:1.35rem;font-weight:900;color:var(--pq-text)">R$ {{ "%.2f"|format(total_gerado) }}</div>
     </div>
+  </div>
+
+  {# ── Meta pra saque via Pix ────────────────────────────── #}
+  {% set _meta = saque_minimo %}
+  {% set _prontos = (total_pendente // _meta) | int %}
+  {% set _resto = total_pendente - (_prontos * _meta) %}
+  {% set _pct = (_resto / _meta * 100) if _meta else 0 %}
+  {% set _falta = _meta - _resto %}
+  <div style="background:#fff;border:1px solid var(--pq-border);border-radius:12px;padding:16px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <div style="font-size:.72rem;color:var(--pq-muted);font-weight:800;text-transform:uppercase"><i class="fa fa-bullseye" style="margin-right:5px"></i>Meta pra saque via Pix</div>
+      <div style="font-size:.82rem;font-weight:800;color:var(--pq-muted)">
+        <span id="ind-meta-atual" data-pq-alvo="{{ "%.2f"|format(_resto) }}">R$ {{ "%.2f"|format(_resto) }}</span> / R$ {{ "%.0f"|format(_meta) }}
+      </div>
+    </div>
+    <div style="height:12px;background:#f1f5f9;border-radius:99px;overflow:hidden;margin:10px 0 8px">
+      <div id="ind-meta-bar" data-pq-pct="{{ _pct|round(1) }}" style="height:100%;width:0;background:linear-gradient(90deg,#16a34a,#22c55e);border-radius:99px;transition:width 1s cubic-bezier(.15,.7,.3,1)"></div>
+    </div>
+    {% if _prontos >= 1 %}
+      <div style="font-size:.82rem;color:#166534;font-weight:800"><i class="fa fa-circle-check" style="margin-right:5px"></i>Você já tem <strong>R$ {{ "%.2f"|format(_prontos * _meta) }}</strong> pronto{{ 's' if _prontos > 1 }} pra saque! O pagamento cai no seu Pix a cada R$ {{ "%.0f"|format(_meta) }} acumulados.</div>
+    {% elif total_pendente > 0 %}
+      <div style="font-size:.82rem;color:var(--pq-text)">Faltam <strong style="color:var(--pq-red)">R$ {{ "%.2f"|format(_falta) }}</strong> pra atingir R$ {{ "%.0f"|format(_meta) }} e liberar seu saque via Pix.</div>
+    {% else %}
+      <div style="font-size:.82rem;color:var(--pq-muted)">Comece a compartilhar seu link. A cada compra de quem você indicou, sua comissão sobe aqui — ao chegar em R$ {{ "%.0f"|format(_meta) }}, você recebe via Pix.</div>
+    {% endif %}
   </div>
   {% else %}
   <div class="ind-hero">
@@ -346,5 +371,29 @@ async function indCompartilhar(canal, inputId, mensagemBase) {
     window.open('https://www.instagram.com/', '_blank', 'noopener');
   }
 }
+
+/* Meta pra saque via Pix: anima a barra e o contador quando entra na tela. */
+(function () {
+  const bar = document.getElementById('ind-meta-bar');
+  const num = document.getElementById('ind-meta-atual');
+  if (!bar) return;
+  const pct = Math.max(0, Math.min(100, parseFloat(bar.dataset.pqPct || '0') || 0));
+  const alvo = num ? (parseFloat(num.dataset.pqAlvo || '0') || 0) : 0;
+  const dispara = () => {
+    requestAnimationFrame(() => { bar.style.width = pct + '%'; });
+    if (num && window.PQEconomia) {
+      num.textContent = 'R$ 0,00';
+      PQEconomia.contador(num, alvo, { de: 0, duracao: 1100, onComplete: () => { if (pct >= 100) PQEconomia.comemorar(bar); } });
+    }
+  };
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((ents) => {
+      if (ents.some(e => e.isIntersecting)) { io.disconnect(); dispara(); }
+    }, { threshold: 0.4 });
+    io.observe(bar);
+  } else {
+    dispara();
+  }
+})();
 </script>
 {% endblock %}

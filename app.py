@@ -1036,6 +1036,10 @@ INDICACAO_DESCONTO_TIPO = "valor"
 INDICACAO_DESCONTO_VALOR = 10.0
 INDICACAO_VALIDADE_DIAS = 90
 
+# Influencer: só recebe a comissão acumulada quando o saldo pendente atinge
+# esse valor; o pagamento é feito via Pix a cada múltiplo desse valor.
+INFLUENCER_SAQUE_MINIMO = 100.0
+
 
 def _ensure_indicacoes_schema():
     key = "indicacoes_v1"
@@ -28520,6 +28524,7 @@ def consumidor_indicar():
             eh_influencer=True, comissao_pct=float(influencer["comissao_pct"]),
             total_pendente=total_pendente, total_gerado=total_gerado,
             produtos_salvos=produtos_salvos,
+            saque_minimo=INFLUENCER_SAQUE_MINIMO,
         )
     cur.execute("""
         SELECT i.status, i.criado_em, i.recompensado_em, c.nome AS indicado_nome
