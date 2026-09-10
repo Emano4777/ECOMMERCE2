@@ -1503,7 +1503,7 @@ function renderCupons(produtos){
       <div class="coupon-store">${hEsc(c.razao || 'Cupom Poupaqui')}${c.valido_ate ? ' · até ' + hEsc(c.valido_ate) : ''}</div>
     </div>`).join('') || '<div class="home-empty">Nenhum cupom disponível para sua região no momento.</div>';
 }
-function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); }
+function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); atualizarAvisoSemFarmacia(); }
 
 // â”€â”€ Economia com IA Poupinha â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function carregarEconomiaIa(lat, lng, produtosProximos) {
@@ -1780,16 +1780,20 @@ function sfpAvisoChegada() {
   }).finally(() => { if (btn && !btn.classList.contains('active')) btn.disabled = false; });
 }
 
-function carregarInsights() {
+// Mostra/esconde o aviso "ainda nao integrada" conforme a localizacao atual.
+// Precisa rodar tambem quando o cliente troca de local (nao so no load), senao
+// o aviso so some no F5 mesmo depois do banner ja ter trocado pra cidade nova.
+function atualizarAvisoSemFarmacia() {
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
+  return _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d => {
-      // Aviso sem farmácia prÃ³xima
       _sfpLogado = !!d.logado;
+      const sec = document.getElementById('sec-sem-farmacia');
+      if (!sec) return d;
       if (d.sem_farmacia_proxima) {
-        document.getElementById('sec-sem-farmacia').style.display = '';
+        sec.style.display = '';
         _sfpCidade = d.cidade || null;
         _sfpUf = d.uf || null;
         _sfpLat = parseFloat(_lat) || 0;
@@ -1804,7 +1808,22 @@ function carregarInsights() {
             .then(sd => { if (sd.registrado) sfpMarkRequested(); })
             .catch(() => {});
         }
+      } else {
+        sec.style.display = 'none';
       }
+      return d;
+    })
+    .catch(() => {});
+}
+
+function carregarInsights() {
+  const _lat = localStorage.getItem('pq_lat') || 0;
+  const _lng = localStorage.getItem('pq_lng') || 0;
+  const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
+  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
+    .then(d => {
+      // Aviso sem farmácia próxima (mostra/esconde conforme a cidade atual)
+      atualizarAvisoSemFarmacia();
 
       // Banner IA personalizado no hero (sÃ³ logado)
       if (d.logado && d.banner_ia) {
