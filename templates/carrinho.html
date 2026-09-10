@@ -858,6 +858,10 @@ function renderDescontoQuantidade(cnpjloja, itens) {
   let html = '';
   const cupom = _cupomAplicado[cnpjloja];
   const descontoCupom = cupom?.desconto || 0;
+  // Comparacao contra o total das ofertas por quantidade (ja somadas), nao
+  // regra por regra -- pra a mensagem "cupom mais vantajoso" so aparecer
+  // quando o cupom realmente supera TUDO que as ofertas dao juntas.
+  const cupomSupera = descontoCupom > 0 && descontoCupom >= calcDescontoQtdAuto(cnpjloja, itens);
   regras.forEach(r => {
     const elegiveis = _itensElegiveisRegraQtd(r, itens);
     const totalQty = elegiveis.reduce((s, i) => s + (i.qty || 1), 0);
@@ -869,14 +873,10 @@ function renderDescontoQuantidade(cnpjloja, itens) {
     // qualquer produto serve (categoria o cliente nem consegue verificar aqui).
     if (falta > 0 && (r.escopo || 'todos') !== 'todos' && totalQty === 0) return;
     if (falta <= 0) {
-      const totalElegivel = elegiveis.reduce((s, i) => s + (i.preco || 0) * (i.qty || 1), 0);
-      const descontoRegra = r.desconto_tipo === 'pct'
-        ? totalElegivel * r.desconto_valor / 100
-        : Math.min(totalElegivel, (r.desconto_valor / (r.qtd_minima || 1)) * totalQty);
-      if (cupom && descontoCupom >= descontoRegra) {
+      if (cupomSupera) {
         html += `<div style="display:flex;align-items:center;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#92400e;margin-bottom:2px">
           <i class="fa fa-circle-info" style="color:#d97706;flex-shrink:0"></i>
-          <span>Promoção por quantidade (${label}) não acumulativa; o cupom <strong>${esc(cupom.codigo)}</strong> oferece maior desconto.</span>
+          <span>Oferta por quantidade (${label}) não soma com cupom; o cupom <strong>${esc(cupom.codigo)}</strong> dá um desconto maior e foi o aplicado.</span>
         </div>`;
       } else {
         html += `<div style="display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:8px 14px;font-size:.8rem;color:#166534;margin-bottom:2px">
@@ -1462,8 +1462,13 @@ function renderCart() {
             Aplicar
           </button>
         </div>
-        <div id="cupom-msg-${esc(cnpj)}" style="font-size:.78rem;margin-top:5px;min-height:18px;${_cupomAplicado[cnpj] ? 'color:#16a34a' : ''}">
-          ${_cupomAplicado[cnpj] ? '<i class="fa fa-circle-check me-1"></i>' + _cupomAplicado[cnpj].msg : ''}
+        <div id="cupom-msg-${esc(cnpj)}" style="font-size:.78rem;margin-top:5px;min-height:18px;${(_cupomAplicado[cnpj] && cupomEhMelhor) ? 'color:#16a34a' : ''}">
+          ${!_cupomAplicado[cnpj] ? '' : (cupomEhMelhor
+            ? '<i class="fa fa-circle-check me-1"></i>' + esc(_cupomAplicado[cnpj].msg)
+            : `<div style="display:flex;align-items:flex-start;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 12px;line-height:1.45;color:#92400e">
+                <i class="fa fa-circle-info" style="margin-top:2px;flex-shrink:0"></i>
+                <span>Cupom <strong>${esc(_cupomAplicado[cnpj].codigo)}</strong> é válido, mas as ofertas automáticas dos seus itens já dão <strong>${brl(descontoQtdAuto)}</strong> de desconto — mais que o cupom (${brl(descontoCodigo)}). Elas <strong>não somam</strong> com o cupom; ele fica guardado pra uma próxima compra.</span>
+              </div>`)}
         </div>
       </div>
       <div class="cart-subtotal">
