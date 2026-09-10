@@ -1702,7 +1702,7 @@ def _crm_registrar_envio(cnpjloja, consumidor_id, canal, origem, status,
 
 
 def _ensure_aviso_chegada_schema():
-    key = "aviso_chegada_v1"
+    key = "aviso_chegada_v2"
     if key in _schema_ready:
         return
     _load_db_migrations()
@@ -1726,7 +1726,19 @@ def _ensure_aviso_chegada_schema():
                 UNIQUE (consumidor_id, cidade, uf)
             )
         """)
+        # v2: aceita lead sem conta (nome/telefone direto no formulario do banner)
+        try:
+            cur.execute("ALTER TABLE ecommerce_avisos_chegada ALTER COLUMN consumidor_id DROP NOT NULL")
+        except Exception:
+            conn.rollback()
+        cur.execute("ALTER TABLE ecommerce_avisos_chegada ADD COLUMN IF NOT EXISTS nome TEXT")
+        cur.execute("ALTER TABLE ecommerce_avisos_chegada ADD COLUMN IF NOT EXISTS telefone TEXT")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_aviso_chegada_pendente ON ecommerce_avisos_chegada(cidade, uf) WHERE notificado_em IS NULL")
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_aviso_chegada_fone_cidade
+            ON ecommerce_avisos_chegada (telefone, lower(cidade), COALESCE(upper(uf),''))
+            WHERE telefone IS NOT NULL AND telefone <> ''
+        """)
         conn.commit()
         cur.close()
         _schema_ready.add(key)
@@ -16136,31 +16148,51 @@ def api_aviso_chegada_status():
 
 
 @app.post("/api/aviso-chegada")
-@_consumer_required
+@_rate_limited_api(max_calls=8, window_secs=60)
 def api_aviso_chegada_criar():
-    """Consumidor pede para ser avisado (via notificacoes) quando uma farmacia
-    parceira for ativada na cidade dele. Casamento por cidade/uf acontece em
+    """Pede para ser avisado quando uma farmacia parceira for ativada na cidade.
+    Funciona logado (casa com o consumidor) ou anonimo (nome + WhatsApp + cidade
+    direto no banner). Casamento por cidade/uf acontece em
     admin_loja_catalogo_toggle quando o admin liga o catalogo publico da loja."""
     _ensure_aviso_chegada_schema()
     data = request.get_json(silent=True) or {}
-    consumidor_id = session["consumidor_id"]
+    consumidor_id = session.get("consumidor_id")
     cidade = (data.get("cidade") or "").strip()[:120]
     uf = (data.get("uf") or "").strip()[:2].upper() or None
     lat = _to_float_or_none(data.get("lat"))
     lng = _to_float_or_none(data.get("lng"))
+    nome = re.sub(r"\s+", " ", str(data.get("nome") or "")).strip()[:120]
+    telefone_fmt = _normalize_phone_br(data.get("telefone"))
+    telefone = _digits(telefone_fmt) if telefone_fmt else ""
     if not cidade:
         return jsonify({"ok": False, "erro": "Cidade não identificada."}), 400
+    if not consumidor_id:
+        # anonimo precisa se identificar
+        if len(nome) < 2:
+            return jsonify({"ok": False, "erro": "Informe seu nome."}), 400
+        if not telefone:
+            return jsonify({"ok": False, "erro": "Informe um WhatsApp válido com DDD."}), 400
     conn = db()
     cur = conn.cursor()
+    # dedupe: mesma conta+cidade, ou mesmo telefone+cidade+uf
     cur.execute(
         """
-        INSERT INTO ecommerce_avisos_chegada (consumidor_id, cidade, uf, lat, lng)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (consumidor_id, cidade, uf) DO NOTHING
+        SELECT 1 FROM ecommerce_avisos_chegada
+        WHERE (%s::uuid IS NOT NULL AND consumidor_id = %s::uuid AND lower(cidade) = lower(%s) AND COALESCE(upper(uf),'') = COALESCE(%s,''))
+           OR (%s <> '' AND telefone = %s AND lower(cidade) = lower(%s) AND COALESCE(upper(uf),'') = COALESCE(%s,''))
+        LIMIT 1
         """,
-        (consumidor_id, cidade, uf, lat, lng),
+        (consumidor_id, consumidor_id, cidade, uf, telefone, telefone, cidade, uf),
     )
-    conn.commit()
+    if not cur.fetchone():
+        cur.execute(
+            """
+            INSERT INTO ecommerce_avisos_chegada (consumidor_id, nome, telefone, cidade, uf, lat, lng)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (consumidor_id, nome or None, telefone or None, cidade, uf, lat, lng),
+        )
+        conn.commit()
     cur.close()
     return jsonify({"ok": True})
 

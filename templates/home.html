@@ -913,9 +913,25 @@
       </div>
       <div class="sfp-actions">
         <a class="sfp-btn sfp-btn-solid" href="{{ url_for('catalogo_publico') }}"><i class="fa fa-cart-shopping"></i>Ver produtos</a>
-        <button type="button" class="sfp-btn sfp-btn-outline" id="sfp-aviso-btn" onclick="sfpAvisoChegada()"><i class="fa fa-bell"></i><span>Avise-me quando chegar</span></button>
+        <button type="button" class="sfp-btn sfp-btn-outline" id="sfp-aviso-btn" onclick="sfpAbrirFormAviso()"><i class="fa fa-bell"></i><span>Avise-me quando chegar</span></button>
       </div>
     </div>
+    <form id="sfp-form" style="display:none;margin-top:10px;background:#fff;border:1px solid #ffe0b8;border-radius:12px;padding:14px" onsubmit="sfpEnviarAviso(event)">
+      <div style="font-size:.82rem;font-weight:800;color:#9a3412;margin-bottom:8px"><i class="fa fa-bell" style="margin-right:5px"></i>Te avisamos assim que a Poupaqui chegar aí</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <input id="sfp-nome" placeholder="Seu nome" maxlength="120" autocomplete="name" required
+          style="padding:9px 11px;border:1px solid #e5e7eb;border-radius:8px;font:inherit;font-size:.85rem;min-width:0">
+        <input id="sfp-fone" placeholder="WhatsApp com DDD" maxlength="18" inputmode="tel" autocomplete="tel" required
+          style="padding:9px 11px;border:1px solid #e5e7eb;border-radius:8px;font:inherit;font-size:.85rem;min-width:0">
+        <input id="sfp-cidade-inp" placeholder="Sua cidade" maxlength="120" required
+          style="padding:9px 11px;border:1px solid #e5e7eb;border-radius:8px;font:inherit;font-size:.85rem;grid-column:1/-1">
+      </div>
+      <div id="sfp-form-msg" style="font-size:.78rem;color:var(--pq-red);margin-top:6px;min-height:16px"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button type="submit" id="sfp-form-btn" class="sfp-btn sfp-btn-outline" style="flex:1"><i class="fa fa-check"></i>Quero ser avisado</button>
+        <button type="button" class="sfp-btn" style="background:none;border:1px solid #e5e7eb;color:#6b7280" onclick="document.getElementById('sfp-form').style.display='none'">Cancelar</button>
+      </div>
+    </form>
   </div>
 
   {# â”€â”€ Banners + categorias â”€â”€ #}
@@ -1755,6 +1771,7 @@ function renderInsightCard(p, tag) {
 }
 
 let _sfpCidade = null, _sfpUf = null, _sfpLat = 0, _sfpLng = 0, _sfpLogado = false;
+window.CONSUMIDOR_NOME = {{ (consumidor.nome if consumidor else '')|tojson }};
 
 function sfpMarkRequested() {
   const btn = document.getElementById('sfp-aviso-btn');
@@ -1764,20 +1781,41 @@ function sfpMarkRequested() {
   btn.innerHTML = '<i class="fa fa-check"></i><span>Vamos te avisar</span>';
 }
 
-function sfpAvisoChegada() {
-  if (!_sfpLogado) {
-    location.href = `/entrar?next=${encodeURIComponent(location.pathname + location.search)}`;
-    return;
-  }
-  const btn = document.getElementById('sfp-aviso-btn');
+function sfpAbrirFormAviso() {
+  const f = document.getElementById('sfp-form');
+  if (!f) return;
+  // prefill cidade com a detectada; nome vem da conta se estiver logado
+  const cidInp = document.getElementById('sfp-cidade-inp');
+  if (cidInp && !cidInp.value) cidInp.value = _sfpCidade || '';
+  const nomeInp = document.getElementById('sfp-nome');
+  if (nomeInp && !nomeInp.value && window.CONSUMIDOR_NOME) nomeInp.value = window.CONSUMIDOR_NOME;
+  f.style.display = '';
+  (nomeInp && !nomeInp.value ? nomeInp : document.getElementById('sfp-fone'))?.focus();
+}
+
+async function sfpEnviarAviso(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('sfp-form-btn');
+  const msg = document.getElementById('sfp-form-msg');
+  const nome = document.getElementById('sfp-nome').value.trim();
+  const telefone = document.getElementById('sfp-fone').value.trim();
+  const cidade = document.getElementById('sfp-cidade-inp').value.trim();
+  if (msg) { msg.style.color = 'var(--pq-muted)'; msg.textContent = 'Enviando…'; }
   if (btn) btn.disabled = true;
-  fetch('/api/aviso-chegada', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({cidade: _sfpCidade || 'sua região', uf: _sfpUf || '', lat: _sfpLat, lng: _sfpLng})
-  }).then(r => r.json()).then(d => {
-    if (d.ok) sfpMarkRequested();
-  }).finally(() => { if (btn && !btn.classList.contains('active')) btn.disabled = false; });
+  try {
+    const r = await fetch('/api/aviso-chegada', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ nome, telefone, cidade, uf: _sfpUf || '', lat: _sfpLat, lng: _sfpLng })
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.erro || 'Não foi possível registrar agora.');
+    document.getElementById('sfp-form').style.display = 'none';
+    sfpMarkRequested();
+  } catch (e) {
+    if (msg) { msg.style.color = 'var(--pq-red)'; msg.textContent = e.message; }
+    if (btn) btn.disabled = false;
+  }
 }
 
 // Mostra/esconde o aviso "ainda nao integrada" conforme a localizacao atual.
