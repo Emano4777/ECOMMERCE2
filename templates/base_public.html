@@ -2616,6 +2616,83 @@ function fecharDrawer() {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharDrawer(); });
 </script>
 
+<script>
+/* ── ECONOMIA: contador animado + comemoração (usado no carrinho e em Meus Pedidos) ── */
+window.PQEconomia = (function () {
+  const _reduz = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function fmtBRL(v) {
+    return 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /* Anima o texto de `el` do valor anterior (guardado em el.dataset.pqVal) até `ate`. */
+  function contador(el, ate, opts) {
+    opts = opts || {};
+    if (!el) return;
+    ate = Number(ate) || 0;
+    const de = (typeof opts.de === 'number') ? opts.de : (parseFloat(el.dataset.pqVal || '0') || 0);
+    const fmt = opts.fmt || fmtBRL;
+    el.dataset.pqVal = ate;
+    if (el._pqRaf) { cancelAnimationFrame(el._pqRaf); el._pqRaf = null; }
+    if (_reduz || Math.abs(ate - de) < 0.005) {
+      el.textContent = fmt(ate);
+      if (opts.onComplete) opts.onComplete();
+      return;
+    }
+    const dur = opts.duracao || Math.min(1500, 450 + Math.abs(ate - de) * 7);
+    const t0 = performance.now();
+    function step(now) {
+      const p = Math.min(1, (now - t0) / dur);
+      const e = 1 - Math.pow(1 - p, 3); // easeOutCubic
+      el.textContent = fmt(de + (ate - de) * e);
+      if (p < 1) { el._pqRaf = requestAnimationFrame(step); }
+      else { el._pqRaf = null; el.textContent = fmt(ate); if (opts.onComplete) opts.onComplete(); }
+    }
+    el._pqRaf = requestAnimationFrame(step);
+  }
+
+  /* Explosão curta de confete a partir do centro de `alvo` (ou do topo da tela). */
+  function comemorar(alvo) {
+    if (_reduz) return;
+    let x = window.innerWidth / 2, y = window.innerHeight * 0.32;
+    if (alvo && alvo.getBoundingClientRect) {
+      const r = alvo.getBoundingClientRect();
+      if (r.width || r.height) { x = r.left + r.width / 2; y = r.top + r.height / 2; }
+    }
+    const cores = ['#c8102e', '#f5c842', '#16a34a', '#2563eb', '#ec4899', '#f97316'];
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;z-index:4000;pointer-events:none';
+    document.body.appendChild(wrap);
+    for (let i = 0; i < 36; i++) {
+      const d = document.createElement('i');
+      const ang = Math.random() * Math.PI * 2;
+      const vel = 55 + Math.random() * 160;
+      const dx = Math.cos(ang) * vel;
+      const dy = Math.sin(ang) * vel - 70;
+      const sz = 6 + Math.random() * 7;
+      d.style.cssText =
+        'position:absolute;left:' + x + 'px;top:' + y + 'px;width:' + sz + 'px;height:' + (sz * 0.5) + 'px;' +
+        'background:' + cores[i % cores.length] + ';border-radius:1px;' +
+        'transform:translate(-50%,-50%) rotate(' + (Math.random() * 360) + 'deg);' +
+        'transition:transform .95s cubic-bezier(.15,.7,.3,1), opacity .95s ease-out';
+      wrap.appendChild(d);
+      (function (node, ddx, ddy) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            node.style.transform =
+              'translate(calc(-50% + ' + ddx + 'px), calc(-50% + ' + (ddy + 240) + 'px)) rotate(' + (Math.random() * 720 - 360) + 'deg)';
+            node.style.opacity = '0';
+          });
+        });
+      })(d, dx, dy);
+    }
+    setTimeout(function () { wrap.remove(); }, 1200);
+  }
+
+  return { contador: contador, comemorar: comemorar, fmtBRL: fmtBRL };
+})();
+</script>
+
 {% block extra_js %}{% endblock %}
 
 <!-- ── SUPORTE IA (widget flutuante, aparece em toda pagina do consumidor) ── -->

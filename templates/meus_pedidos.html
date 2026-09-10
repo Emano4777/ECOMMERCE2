@@ -369,7 +369,7 @@
     <div class="orders-summary-card"><span>Total de pedidos</span><strong>{{ pedidos|length }}</strong></div>
     <div class="orders-summary-card"><span>Em andamento</span><strong>{{ ns.ativos }}</strong></div>
     <div class="orders-summary-card"><span>Concluídos</span><strong>{{ ns.concluidos }}</strong></div>
-    <div class="orders-summary-card"><span>Economia total</span><strong>{{ money(economia_total) }}</strong></div>
+    <div class="orders-summary-card"><span>Economia total</span><strong id="economia-total-num" data-pq-alvo="{{ '%.2f'|format(economia_total or 0) }}">{{ money(economia_total) }}</strong></div>
   </div>
 
   {% set _pontos_falta_p = consumidor_pontos_meta - (consumidor_pontos_compras % consumidor_pontos_meta) %}
@@ -564,5 +564,25 @@ filterButtons.forEach(btn => {
 });
 
 orderSearch?.addEventListener('input', applyOrderFilters);
+
+/* Economia total: sobe o contador do zero até o valor e comemora ao chegar. */
+(function () {
+  const el = document.getElementById('economia-total-num');
+  if (!el || !window.PQEconomia) return;
+  const alvo = parseFloat(el.dataset.pqAlvo || '0') || 0;
+  if (alvo <= 0) { el.dataset.pqVal = 0; return; }
+  const dispara = () => {
+    el.textContent = 'R$ 0,00';
+    PQEconomia.contador(el, alvo, { de: 0, duracao: 1400, onComplete: () => PQEconomia.comemorar(el) });
+  };
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((ents) => {
+      if (ents.some(e => e.isIntersecting)) { io.disconnect(); dispara(); }
+    }, { threshold: 0.4 });
+    io.observe(el);
+  } else {
+    dispara();
+  }
+})();
 </script>
 {% endblock %}

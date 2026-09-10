@@ -460,6 +460,7 @@
         <div class="summary-free" id="summary-free" style="display:none"></div>
         <div class="summary-row"><span>Itens</span><strong id="summary-items">0 itens</strong></div>
         <div class="summary-row"><span>Subtotal</span><strong id="summary-subtotal">R$ 0,00</strong></div>
+        <div class="summary-row" id="summary-economia-row" style="display:none;color:#16a34a"><span><i class="fa fa-piggy-bank" style="margin-right:5px"></i>Você economizou</span><strong id="summary-economia" style="color:#16a34a">R$ 0,00</strong></div>
         <div class="summary-row"><span>Recebimento</span><strong id="summary-delivery">Retirada</strong></div>
         <div class="summary-total"><span>Total</span><strong id="grand-total">R$ 0,00</strong></div>
         {% if not consumidor %}
@@ -550,6 +551,7 @@ const _receitaDeclaracaoOk = {}; // {cnpjloja: true} — cliente confirmou recei
 let _enderecosSalvos = [];
 const _deliveryModes = {};
 const _economiaClubeProdutos = {}; // {cnpjloja: economia de produto (qtd/promo) calculada no ultimo render}
+let _pqEcoComemorada = 0;          // maior economia total ja comemorada nesta sessao (evita repetir a comemoracao a cada recalculo)
 const CONSUMIDOR_ENDERECO = {{ (consumidor.endereco if consumidor else '')|tojson }};
 const CONSUMIDOR_LAT = {{ (consumidor.lat if consumidor else none)|tojson }};
 const CONSUMIDOR_LNG = {{ (consumidor.lng if consumidor else none)|tojson }};
@@ -1490,6 +1492,7 @@ function atualizarTotaisComFrete() {
   let total = 0;
   let subtotalTotal = 0;
   let freteTotal = 0;
+  let descontoTotal = 0;
   let entregaCount = 0;
   const faltasMinimo = [];
   Object.keys(groups).forEach(cnpj => {
@@ -1509,6 +1512,7 @@ function atualizarTotaisComFrete() {
     const desconto = Math.max(descontoCodigo, descontoQtdAuto);
     subtotalTotal += sub;
     freteTotal += frete;
+    descontoTotal += Math.min(desconto, sub);
     if (delivery === 'entrega') {
       entregaCount++;
     }
@@ -1564,6 +1568,31 @@ function atualizarTotaisComFrete() {
     }
   }
   document.getElementById('grand-total').textContent = brl(total);
+
+  // Economia do pedido: contador animado + comemoração quando destrava um desconto novo.
+  const ecoRow = document.getElementById('summary-economia-row');
+  const ecoEl = document.getElementById('summary-economia');
+  if (ecoRow && ecoEl && window.PQEconomia) {
+    if (descontoTotal > 0.005) {
+      const jaVisivel = ecoRow.style.display !== 'none';
+      ecoRow.style.display = '';
+      PQEconomia.contador(ecoEl, descontoTotal, {
+        de: jaVisivel ? undefined : 0,
+        onComplete: () => {
+          if (descontoTotal > _pqEcoComemorada + 0.5) {
+            _pqEcoComemorada = descontoTotal;
+            PQEconomia.comemorar(ecoEl);
+          }
+        }
+      });
+      if (descontoTotal < _pqEcoComemorada) _pqEcoComemorada = descontoTotal; // permite comemorar de novo se voltar a subir
+    } else {
+      ecoRow.style.display = 'none';
+      ecoEl.dataset.pqVal = 0;
+      ecoEl.textContent = brl(0);
+      _pqEcoComemorada = 0;
+    }
+  }
 }
 
 async function atualizarStatusHorarioCarrinho(cnpjs) {
