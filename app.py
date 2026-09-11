@@ -14200,6 +14200,53 @@ def produto_detalhe(ean):
             )
             produto = cur.fetchone()
 
+    # Fallback so pro Merchant Center: quando o produto existe na loja mas
+    # esta zerado (estoque=0), as buscas acima de proposito nao retornam
+    # nada -- assim a pagina nao mostra botao de compra pra quem nao tem
+    # estoque. Mas isso deixava o Google sem NENHUM dado de oferta (nem
+    # "OutOfStock"), o que o Merchant Center reporta como atributo
+    # "availability" ausente. Busca so o preco/estoque bruto (sem exigir
+    # estoque>0) numa variavel separada, so pra alimentar o schema.org —
+    # nao toca em `produto`, entao o fluxo de compra normal continua igual.
+    produto_merchant_oos = None
+    if cnpjloja and not (produto and produto.get("qty")):
+        try:
+            if _alpha_enabled():
+                cur.execute(
+                    """SELECT CAST(ap.estoque AS INTEGER) AS qty, ap.preco_venda AS preco
+                       FROM ecommerce_alpha_produtos ap
+                       WHERE ap.cnpjloja=%s AND LTRIM(COALESCE(ap.ean,''),'0')=LTRIM(%s,'0')
+                         AND COALESCE(ap.inativo,false)=false
+                       LIMIT 1""",
+                    (cnpjloja, ean),
+                )
+                produto_merchant_oos = cur.fetchone()
+            if not produto_merchant_oos:
+                cur.execute(
+                    """SELECT CAST(e.estoque AS INTEGER) AS qty,
+                              COALESCE(ep.preco_customizado, e.preco_referencial) AS preco
+                       FROM estoque e
+                       LEFT JOIN ecommerce_precos ep ON ep.cnpjloja=e.cnpj AND ep.ean=e.barras
+                       WHERE e.cnpj=%s AND (e.barras=%s OR e.barras_norm=%s)
+                       LIMIT 1""",
+                    (cnpjloja, ean, ean),
+                )
+                produto_merchant_oos = cur.fetchone()
+            if not produto_merchant_oos:
+                cur.execute(
+                    """SELECT CAST(ae.quantidade_estoque AS INTEGER) AS qty,
+                              COALESCE(ep.preco_customizado, ae.valor_final_produto) AS preco
+                       FROM automatiza_estoque ae
+                       LEFT JOIN ecommerce_precos ep ON ep.cnpjloja=ae.cnpj_loja AND ep.ean=ae.ean
+                       WHERE ae.cnpj_loja=%s AND ae.ean=%s
+                       LIMIT 1""",
+                    (cnpjloja, ean),
+                )
+                produto_merchant_oos = cur.fetchone()
+        except Exception as exc:
+            app.logger.warning("produto_detalhe: fallback OOS do merchant falhou: %s", exc)
+            produto_merchant_oos = None
+
     # ANVISA cache lookup (same cursor, before closing)
     anvisa = {}
     _chave_anvisa = _anvisa_chave(nome_busca) if nome_busca else ""
@@ -14462,15 +14509,16 @@ def produto_detalhe(ean):
             merchant_schema[gtin_property] = gtin_value
         if merchant_brand:
             merchant_schema["brand"] = {"@type": "Brand", "name": merchant_brand}
-        if produto and produto.get("preco"):
+        _produto_oferta = produto if (produto and produto.get("preco")) else produto_merchant_oos
+        if _produto_oferta and _produto_oferta.get("preco"):
             merchant_schema["offers"] = {
                 "@type": "Offer",
                 "url": merchant_url,
                 "priceCurrency": "BRL",
-                "price": f"{float(produto['preco']):.2f}",
+                "price": f"{float(_produto_oferta['preco']):.2f}",
                 "availability": (
                     "https://schema.org/InStock"
-                    if int(produto.get("qty") or 0) > 0
+                    if int(_produto_oferta.get("qty") or 0) > 0
                     else "https://schema.org/OutOfStock"
                 ),
                 "itemCondition": "https://schema.org/NewCondition",
