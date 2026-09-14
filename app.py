@@ -90,24 +90,42 @@ VAPID_PUBLIC_KEY = (os.getenv("VAPID_PUBLIC_KEY", "") or "").strip()
 
 
 def _carregar_vapid_private_key():
-    """VAPID_PRIVATE_KEY aceita dois formatos: o PEM cru numa linha so com
-    '\\n' escapado (formato antigo, propenso a erro de copia/cola de quebra
-    de linha), OU o PEM inteiro codificado em base64 puro -- uma unica
-    string alfanumerica, sem barra nem quebra nenhuma, muito mais dificil
-    de estragar colando no painel da Vercel. Detecta automaticamente qual
-    dos dois foi configurado."""
+    """A lib que manda o push (py_vapid, por baixo do pywebpush) NAO aceita
+    PEM de jeito nenhum -- Vapid.from_string() so entende base64url puro do
+    DER bruto da chave (ou da chave raw de 32 bytes), sem '-----BEGIN...-----'
+    nem quebra de linha nenhuma. E esse o motivo real do push nunca ter
+    funcionado (nao foi erro de copia/cola -- era formato errado desde o
+    inicio). Por isso: se o valor configurado ainda estiver em PEM (cru com
+    '\\n' escapado, OU o PEM inteiro em base64 -- os dois formatos usados
+    antes de descobrir isso), converte sozinho pra DER+base64url aqui.
+    Se ja estiver no formato certo (sem 'BEGIN' em lugar nenhum), so
+    limpa espaco em branco e usa direto."""
+    from cryptography.hazmat.primitives import serialization
+
+    def _pem_para_der_b64url(pem_str):
+        chave = serialization.load_pem_private_key(pem_str.encode("utf-8"), password=None)
+        der = chave.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        return base64.urlsafe_b64encode(der).decode("ascii").rstrip("=")
+
     bruto = (os.getenv("VAPID_PRIVATE_KEY", "") or "").strip()
     if not bruto:
         return ""
     if "BEGIN" in bruto:
-        return bruto.replace("\\n", "\n")
+        try:
+            return _pem_para_der_b64url(bruto.replace("\\n", "\n"))
+        except Exception:
+            return bruto.replace("\\n", "\n")
     try:
         decodificado = base64.b64decode(bruto).decode("utf-8")
         if "BEGIN" in decodificado:
-            return decodificado
+            return _pem_para_der_b64url(decodificado)
     except Exception:
         pass
-    return bruto.replace("\\n", "\n")
+    return bruto
 
 
 VAPID_PRIVATE_KEY = _carregar_vapid_private_key()
