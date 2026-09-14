@@ -86,8 +86,31 @@ SUPABASE_ANON = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 # ─── WEB PUSH (notificações push no navegador do cliente) ───────────────────
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").replace("\\n", "\n")
+VAPID_PUBLIC_KEY = (os.getenv("VAPID_PUBLIC_KEY", "") or "").strip()
+
+
+def _carregar_vapid_private_key():
+    """VAPID_PRIVATE_KEY aceita dois formatos: o PEM cru numa linha so com
+    '\\n' escapado (formato antigo, propenso a erro de copia/cola de quebra
+    de linha), OU o PEM inteiro codificado em base64 puro -- uma unica
+    string alfanumerica, sem barra nem quebra nenhuma, muito mais dificil
+    de estragar colando no painel da Vercel. Detecta automaticamente qual
+    dos dois foi configurado."""
+    bruto = (os.getenv("VAPID_PRIVATE_KEY", "") or "").strip()
+    if not bruto:
+        return ""
+    if "BEGIN" in bruto:
+        return bruto.replace("\\n", "\n")
+    try:
+        decodificado = base64.b64decode(bruto).decode("utf-8")
+        if "BEGIN" in decodificado:
+            return decodificado
+    except Exception:
+        pass
+    return bruto.replace("\\n", "\n")
+
+
+VAPID_PRIVATE_KEY = _carregar_vapid_private_key()
 VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:contato@poupaqui.com.br")
 
 # ─── MERCADO LIVRE ─────────────────────────────────────────────────────────────
