@@ -2979,7 +2979,7 @@ if ('serviceWorker' in navigator) {
   // Registrado em /sw.js (raiz), nao /static/sw.js -- assim o escopo cobre
   // o site inteiro ("/"), nao so os arquivos estaticos. Ver comentario na
   // rota service_worker_raiz() no app.py.
-  navigator.serviceWorker.register('/sw.js?v=20260914-1')
+  navigator.serviceWorker.register('/sw.js?v=20260914-2')
     .then(reg => reg.update())
     .catch(() => {});
   // Limpa o registro antigo (escopo /static/), que nunca controlava
@@ -3040,26 +3040,8 @@ function lgpdAceitar() {
 
 /* ── NOTIFICAÇÕES PUSH NO NAVEGADOR ───────────────────── */
 (function() {
-  // Diagnostico TEMPORARIO (remover depois de achar o problema do app
-  // Android nao inscrever -- conversa de 14/09/2026)
-  function dbg(passo, detalhe) {
-    try {
-      fetch('/api/push/debug', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passo: passo, detalhe: detalhe }),
-      }).catch(() => {});
-    } catch (e) {}
-  }
-
   const VAPID_KEY = {{ VAPID_PUBLIC_KEY | tojson }};
   const LOGADO = {{ (consumidor is not none) | tojson }};
-  dbg('init', 'vapid=' + !!VAPID_KEY + ' logado=' + LOGADO +
-      ' sw=' + ('serviceWorker' in navigator) + ' push=' + ('PushManager' in window) +
-      ' notif=' + ('Notification' in window) +
-      ' permission=' + (('Notification' in window) ? Notification.permission : 'sem-api') +
-      ' lgpdOk=' + !!localStorage.getItem('pq_lgpd_ok') +
-      ' dispensado=' + !!localStorage.getItem('pq_push_dispensado'));
   if (!VAPID_KEY || !LOGADO) return;
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
 
@@ -3072,33 +3054,26 @@ function lgpdAceitar() {
   }
 
   function enviarInscricaoAoServidor(sub) {
-    dbg('enviando-ao-servidor', sub.endpoint);
     fetch('/api/push/inscrever', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sub.toJSON()),
-    }).then(r => dbg('resposta-servidor', r.status)).catch(e => dbg('erro-fetch-inscrever', String(e)));
+    }).catch(() => {});
   }
 
   function inscrever() {
-    dbg('inscrever-chamado', '');
     navigator.serviceWorker.ready.then(reg => {
-      dbg('sw-ready-ok', '');
       reg.pushManager
         .subscribe({ userVisibleOnly: true, applicationServerKey: base64ParaUint8Array(VAPID_KEY) })
         .then(enviarInscricaoAoServidor)
-        .catch(e => dbg('erro-subscribe', String(e && e.message || e)));
-    }).catch(e => dbg('erro-sw-ready', String(e)));
+        .catch(() => {});
+    });
   }
 
   window.pqPushAtivar = function() {
     const b = document.getElementById('push-banner');
     if (b) b.style.display = 'none';
-    dbg('ativar-clicado', '');
-    Notification.requestPermission().then(perm => {
-      dbg('permissao-resultado', perm);
-      if (perm === 'granted') inscrever();
-    });
+    Notification.requestPermission().then(perm => { if (perm === 'granted') inscrever(); });
   };
   window.pqPushDispensar = function() {
     const b = document.getElementById('push-banner');
@@ -3108,16 +3083,13 @@ function lgpdAceitar() {
 
   window.pqPushTalvezMostrarBanner = function() {
     const b = document.getElementById('push-banner');
-    dbg('talvez-mostrar-banner', 'permission=' + Notification.permission + ' temBanner=' + !!b);
     if (Notification.permission === 'granted') {
       navigator.serviceWorker.ready.then(reg => {
-        dbg('sw-ready-ok-granted', '');
         reg.pushManager.getSubscription().then(sub => {
-          dbg('getSubscription', sub ? 'ja-tinha' : 'nao-tinha-vai-inscrever');
           if (sub) enviarInscricaoAoServidor(sub);
           else inscrever();
-        }).catch(e => dbg('erro-getSubscription', String(e)));
-      }).catch(e => dbg('erro-sw-ready-granted', String(e)));
+        });
+      });
     } else if (Notification.permission === 'default' && b && !localStorage.getItem('pq_push_dispensado')) {
       const lgpd = document.getElementById('lgpd-banner');
       setTimeout(() => { if (!lgpd || lgpd.style.display === 'none') b.style.display = 'flex'; }, 2500);

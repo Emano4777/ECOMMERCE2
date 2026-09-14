@@ -15932,21 +15932,6 @@ def api_push_chave_publica():
     return jsonify({"publicKey": VAPID_PUBLIC_KEY})
 
 
-@app.post("/api/push/debug")
-def api_push_debug():
-    # Diagnostico TEMPORARIO pra achar onde a inscricao de push trava no app
-    # Android -- so escreve no log do servidor, remover depois de achar o
-    # problema (ver conversa de 14/09/2026).
-    try:
-        data = request.get_json(silent=True) or {}
-        cid = session.get("consumidor_id") or "anon"
-        app.logger.warning("[push-debug] consumidor=%s passo=%s detalhe=%s",
-                            cid, data.get("passo"), str(data.get("detalhe"))[:300])
-    except Exception:
-        pass
-    return ("", 204)
-
-
 @app.post("/api/push/inscrever")
 @_consumer_required
 def api_push_inscrever():
@@ -25332,35 +25317,6 @@ def api_cron_enviar_whatsapp_teste():
         return jsonify({"ok": True, "resposta": resposta})
     except Exception as exc:
         return jsonify({"ok": False, "erro": str(exc)}), 500
-
-
-@app.get("/api/cron/vapid-diagnostico")
-def api_cron_vapid_diagnostico():
-    # Diagnostico TEMPORARIO -- mostra so metadados da chave (tamanho,
-    # inicio/fim, se decodifica), nunca o segredo inteiro. Remover depois
-    # de resolver o problema da VAPID_PRIVATE_KEY em producao (14/09/2026).
-    if not _cron_authorized():
-        return jsonify({"ok": False, "erro": "unauthorized"}), 401
-    bruto = os.getenv("VAPID_PRIVATE_KEY", "") or ""
-    info = {
-        "tamanho_bruto": len(bruto),
-        "comeco": bruto[:15],
-        "fim": bruto[-15:],
-        "contem_BEGIN": "BEGIN" in bruto,
-        "contem_barra_n_literal": "\\n" in bruto,
-        "contem_newline_real": "\n" in bruto,
-    }
-    try:
-        carregada = _carregar_vapid_private_key()
-        info["carregada_tamanho"] = len(carregada)
-        info["carregada_comeco"] = carregada[:30]
-        from cryptography.hazmat.primitives import serialization
-        serialization.load_pem_private_key(carregada.encode(), password=None)
-        info["parse_ok"] = True
-    except Exception as exc:
-        info["parse_ok"] = False
-        info["parse_erro"] = str(exc)
-    return jsonify(info)
 
 
 @app.post("/api/cron/enviar-push-teste")
