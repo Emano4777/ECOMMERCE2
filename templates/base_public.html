@@ -2979,7 +2979,7 @@ if ('serviceWorker' in navigator) {
   // Registrado em /sw.js (raiz), nao /static/sw.js -- assim o escopo cobre
   // o site inteiro ("/"), nao so os arquivos estaticos. Ver comentario na
   // rota service_worker_raiz() no app.py.
-  navigator.serviceWorker.register('/sw.js?v=20260914-2')
+  navigator.serviceWorker.register('/sw.js?v=20260914-3')
     .then(reg => reg.update())
     .catch(() => {});
   // Limpa o registro antigo (escopo /static/), que nunca controlava

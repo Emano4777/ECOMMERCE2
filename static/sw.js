@@ -7,7 +7,7 @@ self.addEventListener('push', event => {
   const opcoes = {
     body: dados.body || '',
     icon: dados.icon || '/static/poupaqui-logo.png',
-    badge: '/static/poupaqui-badge-192.png',
+    badge: '/static/poupaqui-badge-192.png?v=2',
     image: dados.image || undefined,
     data: { url: dados.url || '/' },
   };
