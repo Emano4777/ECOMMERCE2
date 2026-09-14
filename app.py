@@ -33079,6 +33079,19 @@ def android_asset_links():
     ])
 
 
+@app.get("/sw.js")
+def service_worker_raiz():
+    # O arquivo fisico continua em static/sw.js, mas precisa ser servido
+    # NESSE caminho (raiz do site) pra registrar com escopo "/" -- registrado
+    # em /static/sw.js, o navegador so deixa ele controlar paginas dentro de
+    # /static/ (nenhuma pagina real do site), e por isso
+    # navigator.serviceWorker.ready NUNCA resolvia em lugar nenhum -- e
+    # a causa raiz de nenhuma inscricao de push nunca ter funcionado, pra
+    # ninguem, desde sempre (achado em 14/09/2026).
+    return send_from_directory(app.static_folder, "sw.js", mimetype="text/javascript",
+                                max_age=0)
+
+
 @app.get("/robots.txt")
 def robots_txt():
     base_url = (os.getenv("PUBLIC_BASE_URL") or request.url_root).rstrip("/")

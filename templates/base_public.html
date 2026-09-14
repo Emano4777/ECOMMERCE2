@@ -2976,9 +2976,17 @@ window.PQEconomia = (function () {
 <script>
 /* ── SERVICE WORKER (PWA) ────────────────────────────── */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/static/sw.js?v=20260829-1')
+  // Registrado em /sw.js (raiz), nao /static/sw.js -- assim o escopo cobre
+  // o site inteiro ("/"), nao so os arquivos estaticos. Ver comentario na
+  // rota service_worker_raiz() no app.py.
+  navigator.serviceWorker.register('/sw.js?v=20260914-1')
     .then(reg => reg.update())
     .catch(() => {});
+  // Limpa o registro antigo (escopo /static/), que nunca controlava
+  // nenhuma pagina real e so ficava ali sem fazer nada util.
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => { if (r.scope.endsWith('/static/')) r.unregister(); });
+  }).catch(() => {});
 }
 
 /* ── DETECTA APP JA INSTALADO (esconde "Baixar app") ──── */
