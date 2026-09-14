@@ -33028,15 +33028,19 @@ def sitemap_products(page):
     )
 
 
-# App Android (Trusted Web Activity) preenche isso depois que o pacote for
-# gerado no PWABuilder: o "package name" escolhido (ex.: br.com.drogariaspoupaqui.app)
-# e o(s) fingerprint(s) SHA256 da assinatura. Tera DOIS fingerprints quando o
-# Google Play App Signing entrar: o da chave de upload (a que o PWABuilder
-# gera) e o da chave de assinatura final que o Google gera depois do primeiro
-# envio — os dois ficam nessa lista, nao substitui um pelo outro.
-_ANDROID_TWA_PACKAGE = os.getenv("ANDROID_TWA_PACKAGE")  # ex.: "br.com.drogariaspoupaqui.app"
+# App Android (Trusted Web Activity) -- package name e fingerprint SHA256 da
+# chave gerada no PWABuilder em 14/09/2026 (assetlinks.json do pacote). Nao e
+# dado sensivel (esse arquivo e servido publico de proposito, pra provar dono
+# do dominio). Vai ganhar um SEGUNDO fingerprint quando o Google Play App
+# Signing entrar em acao apos o primeiro envio na Play Console -- os dois
+# ficam juntos na lista quando isso acontecer, nao substitui um pelo outro.
+# Da pra sobrescrever via env var ANDROID_TWA_PACKAGE / ANDROID_TWA_SHA256_FINGERPRINTS
+# se um dia trocar de chave (ex.: perda da atual, novo app).
+_ANDROID_TWA_PACKAGE = os.getenv("ANDROID_TWA_PACKAGE") or "br.com.drogariaspoupaqui.app"
 _ANDROID_TWA_SHA256_FINGERPRINTS = [
-    f.strip() for f in (os.getenv("ANDROID_TWA_SHA256_FINGERPRINTS") or "").split(",") if f.strip()
+    f.strip() for f in (os.getenv("ANDROID_TWA_SHA256_FINGERPRINTS") or
+                         "C7:8C:6C:E9:76:CE:9B:DC:1B:8E:10:16:AE:65:9E:12:7A:CC:6C:E3:D3:33:50:7C:E1:26:EC:43:EF:2E:A3:9E").split(",")
+    if f.strip()
 ]
 
 
