@@ -25277,6 +25277,27 @@ def api_cron_enviar_whatsapp_teste():
         return jsonify({"ok": False, "erro": str(exc)}), 500
 
 
+@app.post("/api/cron/enviar-push-teste")
+def api_cron_enviar_push_teste():
+    """Envia uma notificacao push de teste pra um consumidor especifico --
+    uso administrativo pontual, mesmo espirito do /enviar-whatsapp-teste.
+    Roda no Vercel porque so la o VAPID_PRIVATE_KEY de producao existe."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    data = request.get_json(force=True) or {}
+    consumidor_id = (data.get("consumidor_id") or "").strip()
+    titulo = (data.get("titulo") or "").strip()
+    mensagem = (data.get("mensagem") or "").strip()
+    if not consumidor_id or not titulo:
+        return jsonify({"ok": False, "erro": "Informe consumidor_id e titulo."}), 400
+    enviados = _web_push_enviar_consumidor(
+        consumidor_id, titulo, mensagem,
+        url=(data.get("url") or "/").strip(),
+        imagem_url=(data.get("imagem_url") or "").strip() or None,
+    )
+    return jsonify({"ok": True, "enviados": enviados})
+
+
 @app.post("/api/cron/enviar-whatsapp-cupom")
 def api_cron_enviar_whatsapp_cupom():
     """Envia por WhatsApp um cupom especifico pra um consumidor. Roda no
