@@ -33028,6 +33028,38 @@ def sitemap_products(page):
     )
 
 
+# App Android (Trusted Web Activity) preenche isso depois que o pacote for
+# gerado no PWABuilder: o "package name" escolhido (ex.: br.com.drogariaspoupaqui.app)
+# e o(s) fingerprint(s) SHA256 da assinatura. Tera DOIS fingerprints quando o
+# Google Play App Signing entrar: o da chave de upload (a que o PWABuilder
+# gera) e o da chave de assinatura final que o Google gera depois do primeiro
+# envio — os dois ficam nessa lista, nao substitui um pelo outro.
+_ANDROID_TWA_PACKAGE = os.getenv("ANDROID_TWA_PACKAGE")  # ex.: "br.com.drogariaspoupaqui.app"
+_ANDROID_TWA_SHA256_FINGERPRINTS = [
+    f.strip() for f in (os.getenv("ANDROID_TWA_SHA256_FINGERPRINTS") or "").split(",") if f.strip()
+]
+
+
+@app.get("/.well-known/assetlinks.json")
+def android_asset_links():
+    # Verificacao de dominio pro TWA (Trusted Web Activity) do app Android —
+    # e o que faz o app abrir em tela cheia, sem a barra de endereco do
+    # navegador. Enquanto ANDROID_TWA_PACKAGE nao estiver configurado, responde
+    # uma lista vazia (JSON valido, so nao verifica nada ainda).
+    if not _ANDROID_TWA_PACKAGE or not _ANDROID_TWA_SHA256_FINGERPRINTS:
+        return jsonify([])
+    return jsonify([
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": _ANDROID_TWA_PACKAGE,
+                "sha256_cert_fingerprints": _ANDROID_TWA_SHA256_FINGERPRINTS,
+            },
+        }
+    ])
+
+
 @app.get("/robots.txt")
 def robots_txt():
     base_url = (os.getenv("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
