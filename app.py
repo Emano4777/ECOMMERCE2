@@ -1368,12 +1368,17 @@ def _ensure_push_schema():
         _mark_migration_done(key)
 
 
-def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, imagem_url=None):
+def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, imagem_url=None, propagar_erro=False):
     """Manda uma notificacao de verdade pro navegador do consumidor (Web
     Push), pra todas as assinaturas ativas dele. Some calada se faltar
     configuracao (VAPID) ou nao tiver assinatura -- quem quer garantia de
     aviso deve continuar usando o inbox in-app (ecommerce_notificacoes_consumidor),
-    isso aqui e so o "toque" extra fora da aba/app aberto."""
+    isso aqui e so o "toque" extra fora da aba/app aberto. propagar_erro=True
+    (uso pontual/debug) levanta o motivo real em vez de so retornar 0."""
+    if propagar_erro and not webpush:
+        raise RuntimeError("lib pywebpush nao instalada")
+    if propagar_erro and not VAPID_PRIVATE_KEY:
+        raise RuntimeError("VAPID_PRIVATE_KEY nao configurada")
     if not (webpush and VAPID_PRIVATE_KEY and consumidor_id):
         return 0
     try:
@@ -1385,6 +1390,8 @@ def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, im
     except Exception:
         return 0
     if not subs:
+        if propagar_erro:
+            raise RuntimeError("Esse consumidor nao tem nenhuma inscricao de push salva.")
         return 0
     payload = json.dumps({
         "title": (titulo or "Poupaqui")[:160],
@@ -1395,6 +1402,7 @@ def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, im
     })
     enviados = 0
     mortas = []
+    ultimo_erro = None
     for sub in subs:
         try:
             webpush(
@@ -1410,10 +1418,18 @@ def _web_push_enviar_consumidor(consumidor_id, titulo, mensagem="", url=None, im
             enviados += 1
         except WebPushException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
+            corpo = ""
+            try:
+                corpo = exc.response.text[:300] if getattr(exc, "response", None) is not None else ""
+            except Exception:
+                pass
+            ultimo_erro = f"WebPushException status={status} corpo={corpo} msg={exc}"
             if status in (404, 410):
                 mortas.append(sub["id"])
-        except Exception:
-            pass
+        except Exception as exc:
+            ultimo_erro = f"{type(exc).__name__}: {exc}"
+    if propagar_erro and enviados == 0 and ultimo_erro:
+        raise RuntimeError(ultimo_erro)
     if mortas:
         try:
             cur = db().cursor()
@@ -25290,12 +25306,16 @@ def api_cron_enviar_push_teste():
     mensagem = (data.get("mensagem") or "").strip()
     if not consumidor_id or not titulo:
         return jsonify({"ok": False, "erro": "Informe consumidor_id e titulo."}), 400
-    enviados = _web_push_enviar_consumidor(
-        consumidor_id, titulo, mensagem,
-        url=(data.get("url") or "/").strip(),
-        imagem_url=(data.get("imagem_url") or "").strip() or None,
-    )
-    return jsonify({"ok": True, "enviados": enviados})
+    try:
+        enviados = _web_push_enviar_consumidor(
+            consumidor_id, titulo, mensagem,
+            url=(data.get("url") or "/").strip(),
+            imagem_url=(data.get("imagem_url") or "").strip() or None,
+            propagar_erro=True,
+        )
+        return jsonify({"ok": True, "enviados": enviados})
+    except Exception as exc:
+        return jsonify({"ok": False, "erro": str(exc)}), 500
 
 
 @app.post("/api/cron/enviar-whatsapp-cupom")
