@@ -25316,6 +25316,35 @@ def api_cron_enviar_whatsapp_teste():
         return jsonify({"ok": False, "erro": str(exc)}), 500
 
 
+@app.get("/api/cron/vapid-diagnostico")
+def api_cron_vapid_diagnostico():
+    # Diagnostico TEMPORARIO -- mostra so metadados da chave (tamanho,
+    # inicio/fim, se decodifica), nunca o segredo inteiro. Remover depois
+    # de resolver o problema da VAPID_PRIVATE_KEY em producao (14/09/2026).
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    bruto = os.getenv("VAPID_PRIVATE_KEY", "") or ""
+    info = {
+        "tamanho_bruto": len(bruto),
+        "comeco": bruto[:15],
+        "fim": bruto[-15:],
+        "contem_BEGIN": "BEGIN" in bruto,
+        "contem_barra_n_literal": "\\n" in bruto,
+        "contem_newline_real": "\n" in bruto,
+    }
+    try:
+        carregada = _carregar_vapid_private_key()
+        info["carregada_tamanho"] = len(carregada)
+        info["carregada_comeco"] = carregada[:30]
+        from cryptography.hazmat.primitives import serialization
+        serialization.load_pem_private_key(carregada.encode(), password=None)
+        info["parse_ok"] = True
+    except Exception as exc:
+        info["parse_ok"] = False
+        info["parse_erro"] = str(exc)
+    return jsonify(info)
+
+
 @app.post("/api/cron/enviar-push-teste")
 def api_cron_enviar_push_teste():
     """Envia uma notificacao push de teste pra um consumidor especifico --
