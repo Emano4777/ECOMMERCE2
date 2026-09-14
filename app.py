@@ -15875,6 +15875,21 @@ def api_push_chave_publica():
     return jsonify({"publicKey": VAPID_PUBLIC_KEY})
 
 
+@app.post("/api/push/debug")
+def api_push_debug():
+    # Diagnostico TEMPORARIO pra achar onde a inscricao de push trava no app
+    # Android -- so escreve no log do servidor, remover depois de achar o
+    # problema (ver conversa de 14/09/2026).
+    try:
+        data = request.get_json(silent=True) or {}
+        cid = session.get("consumidor_id") or "anon"
+        app.logger.warning("[push-debug] consumidor=%s passo=%s detalhe=%s",
+                            cid, data.get("passo"), str(data.get("detalhe"))[:300])
+    except Exception:
+        pass
+    return ("", 204)
+
+
 @app.post("/api/push/inscrever")
 @_consumer_required
 def api_push_inscrever():
