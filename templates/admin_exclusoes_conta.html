@@ -1,0 +1,68 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Exclusões de conta{% endblock %}
+
+{% block extra_style %}
+<style>
+.exc-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+.exc-table thead tr { background:#0d1016; }
+.exc-table th { padding:9px 12px; text-align:left; color:var(--pk-muted); font-weight:700; font-size:.78rem; text-transform:uppercase; border-bottom:1px solid var(--pk-line); }
+.exc-table td { padding:9px 12px; border-bottom:1px solid var(--pk-line); vertical-align:top; }
+.exc-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:3px 9px; font-size:.72rem; font-weight:800; }
+.exc-badge.pendente { color:#f0b429; border:1px solid rgba(240,180,41,.35); background:#2a1c08; }
+.exc-badge.processado { color:#6ee79a; border:1px solid rgba(34,197,94,.35); background:#0d2d1a; }
+.exc-btn { border:1px solid var(--pk-line); background:transparent; color:var(--pk-muted); border-radius:8px; padding:5px 10px; font-size:.76rem; font-weight:700; cursor:pointer; font-family:inherit; }
+.exc-btn:hover { background:#0d2d1a; color:#6ee79a; border-color:#22c55e55; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="font-weight:900;font-size:1.25rem;margin-bottom:8px">
+  <i class="fa fa-user-slash me-2" style="color:var(--pk-yellow)"></i>Exclusões de conta
+</div>
+<p style="color:var(--pk-muted);font-size:.85rem;margin-bottom:20px">
+  Pedidos de exclusão de conta feitos pelos clientes em <code>/excluir-conta</code> (exigido pela Play Store e pela LGPD).
+  Ao processar, remova manualmente nome/e-mail/telefone/endereço do consumidor em <code>ecommerce_consumidores</code>
+  — mantendo o histórico de pedidos por obrigação fiscal, só sem vínculo com a identidade da pessoa.
+</p>
+
+<div class="pk-card" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto">
+  <table class="exc-table">
+    <thead>
+      <tr>
+        <th>Solicitado em</th>
+        <th>Nome</th>
+        <th>Contato</th>
+        <th>Motivo</th>
+        <th>Status</th>
+        <th style="width:140px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in solicitacoes %}
+      <tr>
+        <td>{{ s.criado_em|brt('%d/%m/%Y %H:%M') }}</td>
+        <td><strong>{{ s.nome or '—' }}</strong></td>
+        <td style="font-size:.78rem;color:var(--pk-muted)">{{ s.email or '' }}{% if s.telefone %}<br>{{ s.telefone }}{% endif %}</td>
+        <td style="font-size:.8rem;color:var(--pk-muted);max-width:260px">{{ s.motivo or '—' }}</td>
+        <td>
+          {% if s.status == 'processado' %}<span class="exc-badge processado"><i class="fa fa-check"></i>Processado</span>
+          {% else %}<span class="exc-badge pendente"><i class="fa fa-clock"></i>Pendente</span>{% endif %}
+        </td>
+        <td>
+          {% if s.status != 'processado' %}
+          <form method="post" action="{{ url_for('admin_exclusoes_conta_processar', solicitacao_id=s.id) }}"
+                onsubmit="return confirm('Confirma que ja removeu os dados pessoais desse consumidor antes de marcar como processado?')">
+            <button type="submit" class="exc-btn"><i class="fa fa-check me-1"></i>Marcar processado</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="text-align:center;color:var(--pk-muted);padding:20px">Nenhuma solicitação de exclusão.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

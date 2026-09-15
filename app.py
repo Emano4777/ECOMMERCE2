@@ -31368,6 +31368,73 @@ def politica_privacidade():
     return render_template("politica_privacidade.html")
 
 
+def _ensure_exclusao_conta_schema():
+    # Solicitacao de exclusao de conta/dados -- exigido pela Play Store
+    # (e pela LGPD) pra quem permite criar conta. A exclusao de fato dos
+    # dados pessoais e feita manualmente pelo admin (fica registro fiscal
+    # dos pedidos por obrigacao legal, nao e apagado); aqui so registra o
+    # pedido e da o prazo.
+    key = "exclusao_conta_v1"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_solicitacoes_exclusao (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                nome TEXT, email TEXT, telefone TEXT,
+                motivo TEXT,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                processado_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_solic_exclusao_status ON ecommerce_solicitacoes_exclusao(status, criado_em DESC)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+@app.route("/excluir-conta", methods=["GET", "POST"])
+@_consumer_required
+def consumidor_excluir_conta():
+    _ensure_exclusao_conta_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT nome, email, telefone FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
+    user = cur.fetchone()
+
+    if request.method == "POST":
+        confirmar = request.form.get("confirmar") == "1"
+        motivo = (request.form.get("motivo") or "").strip()[:500]
+        if not confirmar:
+            flash("Marque a caixa de confirmação para continuar.", "error")
+            cur.close()
+            return redirect(url_for("consumidor_excluir_conta"))
+        cur.execute(
+            "SELECT id FROM ecommerce_solicitacoes_exclusao WHERE consumidor_id=%s AND status='pendente' LIMIT 1",
+            (session["consumidor_id"],),
+        )
+        ja_existe = cur.fetchone()
+        if not ja_existe:
+            cur.execute(
+                "INSERT INTO ecommerce_solicitacoes_exclusao (consumidor_id, nome, email, telefone, motivo) VALUES (%s,%s,%s,%s,%s)",
+                (session["consumidor_id"], user["nome"] if user else None,
+                 user["email"] if user else None, user["telefone"] if user else None, motivo or None),
+            )
+            conn.commit()
+        cur.close()
+        return render_template("excluir_conta.html", user=user, enviado=True)
+
+    cur.close()
+    return render_template("excluir_conta.html", user=user, enviado=False)
+
+
 @app.get("/politica-de-trocas-e-devolucoes")
 def politica_devolucao():
     return render_template("politica_devolucao.html")
@@ -31864,6 +31931,40 @@ def admin_repasses_marcar_pago_loja(cnpjloja):
 
 # repasse de comissao pra influencers (indicacao com % recorrente, diferente
 # do "indique um amigo" padrao que da cupom unico na 1a compra do indicado).
+
+@app.get("/painel/admin/exclusoes-conta")
+@admin_required
+def admin_exclusoes_conta():
+    _ensure_exclusao_conta_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT id, consumidor_id, nome, email, telefone, motivo, status, criado_em, processado_em
+        FROM ecommerce_solicitacoes_exclusao
+        ORDER BY (status = 'pendente') DESC, criado_em DESC
+    """)
+    solicitacoes = cur.fetchall()
+    cur.close()
+    return render_template("admin_exclusoes_conta.html", solicitacoes=solicitacoes)
+
+
+@app.post("/painel/admin/exclusoes-conta/<solicitacao_id>/processar")
+@admin_required
+def admin_exclusoes_conta_processar(solicitacao_id):
+    # So marca como processado aqui -- a remocao de fato dos dados pessoais
+    # (nome/email/telefone/endereco na tabela de consumidores) e feita a
+    # parte, manualmente, verificando antes se nao ha pendencia fiscal
+    # em aberto atrelada a conta.
+    _ensure_exclusao_conta_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_solicitacoes_exclusao SET status='processado', processado_em=NOW() WHERE id=%s",
+        (solicitacao_id,),
+    )
+    conn.commit()
+    cur.close()
+    flash("Solicitação marcada como processada.", "success")
+    return redirect(url_for("admin_exclusoes_conta"))
+
 
 @app.get("/painel/admin/influencers")
 @admin_required

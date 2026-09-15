@@ -1,0 +1,50 @@
+{% extends "base_public.html" %}
+{% block title %}Poupaqui - Excluir conta{% endblock %}
+
+{% block content %}
+<div style="max-width:640px;margin:0 auto;padding:32px 16px 60px">
+  <h1 style="font-size:1.5rem;font-weight:900;color:var(--pq-red);margin-bottom:6px">Excluir minha conta</h1>
+  <p style="color:var(--pq-muted);font-size:.85rem;margin-bottom:28px">Drogarias Poupaqui — solicitação de exclusão de conta e dados pessoais.</p>
+
+  <div style="background:#fff;border-radius:14px;padding:28px 32px;box-shadow:var(--pq-shadow);line-height:1.7;color:#333">
+
+    {% if enviado %}
+      <div style="display:flex;gap:12px;align-items:flex-start;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px 18px;margin-bottom:22px">
+        <i class="fa fa-check-circle" style="color:#16a34a;font-size:1.3rem;margin-top:2px"></i>
+        <div>
+          <strong style="display:block;color:#166534;margin-bottom:4px">Solicitação recebida!</strong>
+          <span style="font-size:.88rem;color:#15803d">Vamos processar em até 30 dias. Você pode continuar usando sua conta normalmente até lá.</span>
+        </div>
+      </div>
+    {% else %}
+      <h2 style="font-size:1.02rem;font-weight:900;color:var(--pq-text);margin:0 0 10px">O que acontece quando você solicita</h2>
+      <ul style="margin:0 0 20px;padding-left:20px">
+        <li><strong>Dados pessoais removidos</strong>: nome, e-mail, telefone, endereço e senha da sua conta são apagados dos nossos sistemas.</li>
+        <li><strong>Histórico de pedidos</strong>: registros de compras já feitas são mantidos de forma anonimizada (sem seu nome/contato), pois somos obrigados por lei fiscal/tributária a guardar essas notas por um período — mas deixam de estar vinculados à sua identidade.</li>
+        <li><strong>Prazo</strong>: processamos manualmente em até 30 dias após a solicitação.</li>
+        <li>Você pode continuar comprando normalmente até a exclusão ser concluída.</li>
+      </ul>
+
+      <h2 style="font-size:1.02rem;font-weight:900;color:var(--pq-text);margin:20px 0 10px">Conta que será excluída</h2>
+      <p style="background:#f8f8f8;border-radius:8px;padding:12px 16px;font-size:.88rem">
+        <strong>{{ user.nome if user else '—' }}</strong><br>
+        {{ user.email if user else '' }}{% if user and user.telefone %} · {{ user.telefone }}{% endif %}
+      </p>
+
+      <form method="post" style="margin-top:22px">
+        <label style="display:block;font-size:.78rem;font-weight:800;color:var(--pq-muted);margin-bottom:6px">Motivo (opcional)</label>
+        <textarea name="motivo" rows="3" placeholder="Conte pra gente por que está saindo, se quiser." style="width:100%;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-family:inherit;font-size:.88rem;margin-bottom:16px;resize:vertical"></textarea>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:.85rem;margin-bottom:20px;cursor:pointer">
+          <input type="checkbox" name="confirmar" value="1" required style="margin-top:3px">
+          <span>Confirmo que quero excluir minha conta e meus dados pessoais da Drogarias Poupaqui, ciente de que registros de pedidos já feitos ficam retidos de forma anônima por obrigação legal.</span>
+        </label>
+
+        <button type="submit" style="background:var(--pq-red);color:#fff;border:0;border-radius:10px;padding:12px 24px;font-weight:900;cursor:pointer;font-size:.9rem">
+          <i class="fa fa-trash me-1"></i> Solicitar exclusão da conta
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
