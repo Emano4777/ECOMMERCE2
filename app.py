@@ -8092,30 +8092,72 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     return _dedupe_products_for_display(rows)[:int(limit)]
 
 
-# Mesmo mapa de alias/superset que o filtro em Python usava (_CAT_ALIAS_SRV +
-# _MED_TIPOS em _api_produtos_proximos_impl) -- replicado em SQL pra filtrar
-# categoria direto na query, sem precisar trazer o catalogo inteiro.
-_CAT_SQL_GRUPOS = {
-    "medicamento": ("medicamento", "generico", "similar", "referencia"),
-    "perfumaria": ("perfumaria", "cosmetico", "higiene"),
-    "varejo": ("varejo", "correlato", "outros"),
-    "nutricao": ("nutricao", "alimento"),
-}
-
-
+# Mesmo mapa de alias/superset que _categoria_bate_filtro usa (definido perto
+# de _categoria_produto) -- filtro de categoria aqui e feito em 2 passos: uma
+# busca leve (so ean/classificacao/nome/categoria, sem os JOINs pesados de
+# imagem/laboratorio) pra achar os EANs que batem usando a MESMA funcao
+# _categoria_produto do resto do site, e so entao a busca pesada roda com
+# "ean = ANY(eans_que_bateram)". Uma tentativa anterior comparava direto
+# COALESCE(m.tipo_ia, pc.categoria) contra um mapa fixo em SQL -- mas
+# _categoria_produto tambem herda categoria de ap.classificacao (texto do
+# Alpha, ex: 3o nivel "INFANTIL" tem prioridade sobre tudo) quando tipo_ia/
+# categoria estao vazios, entao o filtro SQL sozinho descartava quase tudo
+# (ex: "infantil" sempre 0 resultados, "medicamento" cortado de milhares pra
+# menos de 200) por nao replicar essa logica.
 def get_alpha_products_direct(cnpjs, limit=200, categoria_filter=None):
     if not cnpjs or not _catalogo_alpha_exclusivo():
         return []
     conn = _new_conn_batch()
     cur = conn.cursor()
     _alpha_catalog_sync_if_needed(cur=cur)
+    _eans_ok = None
+    if categoria_filter:
+        cur.execute(
+            """
+            SELECT ap.ean, ap.classificacao, ap.nome,
+                   COALESCE(m.tipo_ia, pc.categoria) AS categoria
+            FROM ecommerce_alpha_produtos ap
+            LEFT JOIN medicamentos m   ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+            LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+            WHERE ap.cnpjloja = ANY(%s)
+              AND COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > 0
+              AND COALESCE(ap.ean, '') <> ''
+            """,
+            (cnpjs,),
+        )
+        _rows_leves = [dict(r) for r in cur.fetchall()]
+        # Mesma sobreposicao de categoria manual (ecommerce_classificacao_ean)
+        # que a query pesada aplica mais embaixo -- sem isso, EAN com
+        # classificacao curada manualmente (que nao bate com tipo_ia/
+        # pc.categoria crus) ficava de fora do pre-filtro.
+        _apply_saved_categories(_rows_leves, cur=cur)
+        _eans_ok = [
+            r["ean"] for r in _rows_leves
+            if _categoria_bate_filtro(_categoria_produto(r), categoria_filter)
+        ]
+        if not _eans_ok:
+            cur.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return []
     _cat_where = ""
     _params = [cnpjs]
-    if categoria_filter:
-        grupo = _CAT_SQL_GRUPOS.get(categoria_filter, (categoria_filter,))
-        _cat_where = " AND COALESCE(m.tipo_ia, pc.categoria) = ANY(%s)"
-        _params.append(list(grupo))
-    _params.append(int(limit))
+    if _eans_ok is not None:
+        _cat_where = " AND ap.ean = ANY(%s)"
+        _params.append(_eans_ok)
+    # Quando ha filtro de categoria, os JOINs abaixo (medicamentos,
+    # produto_canon, medicamentos5 etc) frequentemente casam varias linhas
+    # pro mesmo EAN (fan-out) -- um LIMIT aqui cortaria nas linhas
+    # duplicadas, nao nos produtos distintos, entao um EAN podia sumir so
+    # por causa do numero de linhas que os JOINs geraram pra ele. Sem
+    # filtro de categoria o limite alto (chamado com 10000) sempre teve
+    # folga suficiente pra isso nunca ter sido percebido antes.
+    _limit_sql = "" if _eans_ok is not None else "LIMIT %s"
+    if _eans_ok is None:
+        _params.append(int(limit))
     cur.execute(
         """
         SELECT
@@ -8150,7 +8192,7 @@ def get_alpha_products_direct(cnpjs, limit=200, categoria_filter=None):
           AND COALESCE(ap.ean, '') <> ''
           """ + _cat_where + """
         ORDER BY ap.nome
-        LIMIT %s
+        """ + _limit_sql + """
         """,
         tuple(_params),
     )
@@ -8171,7 +8213,10 @@ def get_alpha_products_direct(cnpjs, limit=200, categoria_filter=None):
         pass
     rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
-    return _dedupe_products_for_display(rows)
+    rows = _dedupe_products_for_display(rows)
+    if _eans_ok is not None:
+        rows = rows[: int(limit)]
+    return rows
 
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -10327,21 +10372,7 @@ def _api_produtos_proximos_impl():
 
     # Filtro server-side de categoria (mesmos aliases que o JS usa)
     if cat_filter:
-        _CAT_ALIAS_SRV = {
-            "cosmetico": "perfumaria", "higiene": "perfumaria",
-            "correlato": "varejo", "outros": "varejo",
-            "alimento": "nutricao",
-        }
-        # "medicamento" é superset dos subtipos de remédio; os subtipos
-        # (generico/similar/referencia) continuam filtrando de forma exata.
-        _MED_TIPOS = {"medicamento", "generico", "similar", "referencia"}
-        def _cat_ok(p):
-            c = (p.get("categoria") or "").lower()
-            c = _CAT_ALIAS_SRV.get(c, c)
-            if cat_filter == "medicamento":
-                return c in _MED_TIPOS
-            return c == cat_filter
-        produtos_raw = [p for p in produtos_raw if _cat_ok(p)]
+        produtos_raw = [p for p in produtos_raw if _categoria_bate_filtro(p.get("categoria"), cat_filter)]
 
     # Faixas de frete por distancia (ecommerce_frete_faixas), buscadas em lote
     # pras lojas que aparecem nesse catalogo — evita 1 query por produto.
@@ -26482,6 +26513,28 @@ def _categoria_produto(p):
         categoria_alpha
         or _classificar_produto(p.get("nome") or "")
     )
+
+
+# Mesmo alias/superset usado pro filtro "?cat=" do catalogo -- centralizado
+# aqui (em vez de duplicado em cada lugar que filtra por categoria) pra nao
+# se desalinhar de novo do jeito que aconteceu quando o filtro SQL de
+# get_alpha_products_direct usava seu proprio mapa e nao esse.
+_CAT_ALIAS_SRV = {
+    "cosmetico": "perfumaria", "higiene": "perfumaria",
+    "correlato": "varejo", "outros": "varejo",
+    "alimento": "nutricao",
+}
+# "medicamento" é superset dos subtipos de remédio; os subtipos
+# (generico/similar/referencia) continuam filtrando de forma exata.
+_MED_TIPOS = {"medicamento", "generico", "similar", "referencia"}
+
+
+def _categoria_bate_filtro(categoria, cat_filter):
+    c = (categoria or "").lower()
+    c = _CAT_ALIAS_SRV.get(c, c)
+    if cat_filter == "medicamento":
+        return c in _MED_TIPOS
+    return c == cat_filter
 
 
 def _alpha_classificacao_leaf(classificacao):
