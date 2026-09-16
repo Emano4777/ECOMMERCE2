@@ -33211,18 +33211,24 @@ def sitemap_products(page):
     )
 
 
-# App Android (Trusted Web Activity) -- package name e fingerprint SHA256 da
-# chave gerada no PWABuilder em 14/09/2026 (assetlinks.json do pacote). Nao e
-# dado sensivel (esse arquivo e servido publico de proposito, pra provar dono
-# do dominio). Vai ganhar um SEGUNDO fingerprint quando o Google Play App
-# Signing entrar em acao apos o primeiro envio na Play Console -- os dois
-# ficam juntos na lista quando isso acontecer, nao substitui um pelo outro.
+# App Android (Trusted Web Activity) -- package name e fingerprint(s) SHA256
+# das chaves. Nao e dado sensivel (esse arquivo e servido publico de
+# proposito, pra provar dono do dominio). Duas chaves aqui, de proposito:
+# 1) C7:8C:6C:E9:... -- a "upload key" gerada no PWABuilder em 14/09/2026.
+# 2) 0F:0D:2D:CF:... -- a "app signing key" que o proprio Google Play gera
+#    e usa pra RE-ASSINAR o app antes de distribuir pra quem baixa pela
+#    Play Store (Play App Signing, que foi ativado no primeiro envio).
+#    Achada via `adb shell pm get-app-links` num celular real que instalou
+#    pela Play Store (installerPackageName=com.android.vending) -- sem essa
+#    segunda chave aqui, o app abria sempre com barra de navegador visivel,
+#    porque quem baixa da Play Store nunca usa a chave de upload de verdade.
 # Da pra sobrescrever via env var ANDROID_TWA_PACKAGE / ANDROID_TWA_SHA256_FINGERPRINTS
 # se um dia trocar de chave (ex.: perda da atual, novo app).
 _ANDROID_TWA_PACKAGE = os.getenv("ANDROID_TWA_PACKAGE") or "br.com.drogariaspoupaqui.app"
 _ANDROID_TWA_SHA256_FINGERPRINTS = [
     f.strip() for f in (os.getenv("ANDROID_TWA_SHA256_FINGERPRINTS") or
-                         "C7:8C:6C:E9:76:CE:9B:DC:1B:8E:10:16:AE:65:9E:12:7A:CC:6C:E3:D3:33:50:7C:E1:26:EC:43:EF:2E:A3:9E").split(",")
+                         "C7:8C:6C:E9:76:CE:9B:DC:1B:8E:10:16:AE:65:9E:12:7A:CC:6C:E3:D3:33:50:7C:E1:26:EC:43:EF:2E:A3:9E,"
+                         "0F:0D:2D:CF:2D:91:85:E7:9B:1B:6A:44:25:9B:C1:06:97:B1:21:58:D5:26:2D:36:C2:68:13:3D:4C:27:70:6F").split(",")
     if f.strip()
 ]
 
