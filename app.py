@@ -26825,6 +26825,15 @@ _MARCA_TO_INN = {
     "AVIANT":       "BILASTINA",
 }
 
+# Versao sem acento de _MARCA_TO_INN (chave e valor) -- ver _sem_acento em
+# _anvisa_chave logo abaixo; monta uma vez no import em vez de normalizar a
+# cada chamada.
+_MARCA_TO_INN_SEM_ACENTO = {
+    "".join(c for c in unicodedata.normalize("NFD", k) if unicodedata.category(c) != "Mn"):
+    "".join(c for c in unicodedata.normalize("NFD", v) if unicodedata.category(c) != "Mn")
+    for k, v in _MARCA_TO_INN.items()
+}
+
 # Chaves cujo lookup no anvisa_cache deve ser ignorado tanto na escrita (csv/bulário)
 # quanto na leitura (_marcar_tarja_batch).  São produtos OTC, cosméticos, higiene ou
 # suplementos cujo nome gera uma chave que colide com um medicamento ANVISA tarjado.
@@ -26897,27 +26906,35 @@ def _forma_injetavel(texto):
     return None
 
 
+def _sem_acento(s):
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s or "")
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 def _anvisa_chave(nome):
-    """Retorna chave de lookup no anvisa_cache: INN se nome comercial mapeado, senão 2 primeiras palavras significativas."""
+    """Retorna chave de lookup no anvisa_cache: INN se nome comercial mapeado, senão 2 primeiras palavras significativas.
+
+    A chave em si (nao so a comparacao com stopwords) e sempre sem acento --
+    o mesmo remedio pode aparecer com nome acentuado vindo de uma fonte
+    (produto_canon.descricao_canon, ex: "Dipirona Sódica") e sem acento vindo
+    de outra (medicamentos.descricao, ex: "DIPIRONA SODICA"), dependendo de
+    qual rota do site resolveu o nome primeiro. Sem essa normalizacao as duas
+    formas geram chaves DIFERENTES ("DIPIRONA SODICA" vs "DIPIRONA SÓDICA"),
+    cada uma com seu proprio registro (as vezes divergente!) no anvisa_cache
+    -- explicando tarja/imagem mudando dependendo de onde o produto aparece."""
     tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
-    if tks and tks[0] in _MARCA_TO_INN:
-        return _MARCA_TO_INN[tks[0]]
+    if tks and _sem_acento(tks[0]) in _MARCA_TO_INN_SEM_ACENTO:
+        return _MARCA_TO_INN_SEM_ACENTO[_sem_acento(tks[0])]
     words = []
     for w in tks:
-        # Compara sem acento -- o nome real do produto vem acentuado (ex:
-        # "Solução", "Injeção", "Cápsulas") mas _ANVISA_STOP_WORDS so tem a
-        # forma sem acento. Sem essa normalizacao a palavra de embalagem
-        # nunca batia como stopword e virava a 2a palavra da chave em vez
-        # do nome do remedio (ex: "TIMOLOL SOLUÇÃO" em vez de so "TIMOLOL").
-        w_sem_acento = "".join(
-            c for c in unicodedata.normalize("NFD", w.lower())
-            if unicodedata.category(c) != "Mn"
-        )
+        w_sem_acento = _sem_acento(w.lower())
         if (w_sem_acento in _ANVISA_STOP_WORDS
                 or any(c.isdigit() for c in w)
                 or len(w) < 4):
             continue
-        words.append(w)
+        words.append(_sem_acento(w))
         if len(words) >= 2:
             break
     return " ".join(words)

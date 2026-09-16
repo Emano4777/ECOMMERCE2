@@ -179,6 +179,17 @@ _MARCA_TO_INN = {
     "AVIANT":       "BILASTINA",               # bilastina 20mg (Eurofarma) — tarja vermelha
 }
 
+# Versao sem acento de _MARCA_TO_INN (chave e valor) -- ver _sem_acento em
+# _chave logo abaixo; mantido sincronizado com app.py.
+def _sem_acento(s):
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s or "")
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+_MARCA_TO_INN_SEM_ACENTO = {_sem_acento(k): _sem_acento(v) for k, v in _MARCA_TO_INN.items()}
+
 # Chaves OTC que NÃO devem ser sobrescritas pelo bulário.
 # São produtos comuns cujo _chave() colide com versões farmacêuticas específicas na ANVISA
 # (ex: "ÁGUA PARA INJEÇÃO", "ÁLCOOL 70% HEMAFARMA"), causando falsos positivos de tarja vermelha.
@@ -301,20 +312,20 @@ def _inferir_tarja_dos_textos(chaves=None, apply=True):
 
 
 def _chave(nome):
+    """Ver docstring de _anvisa_chave em app.py -- a chave em si (nao so a
+    comparacao com stopwords) e sempre sem acento, pro mesmo remedio nao
+    gerar 2 chaves diferentes dependendo de qual fonte de nome (com ou sem
+    acento) foi usada."""
     tks = re.sub(r"[^\w\s]", " ", nome or "").upper().split()
     # Se a 1ª palavra for um nome comercial conhecido, retorna o INN diretamente.
-    if tks and tks[0] in _MARCA_TO_INN:
-        return _MARCA_TO_INN[tks[0]]
+    if tks and _sem_acento(tks[0]) in _MARCA_TO_INN_SEM_ACENTO:
+        return _MARCA_TO_INN_SEM_ACENTO[_sem_acento(tks[0])]
     words = []
     for w in tks:
-        # Compara sem acento -- ver mesmo motivo em _anvisa_chave no app.py.
-        w_sem_acento = "".join(
-            c for c in unicodedata.normalize("NFD", w.lower())
-            if unicodedata.category(c) != "Mn"
-        )
+        w_sem_acento = _sem_acento(w.lower())
         if w_sem_acento in _STOP_WORDS or any(c.isdigit() for c in w) or len(w) < 4:
             continue
-        words.append(w)
+        words.append(_sem_acento(w))
         if len(words) >= 2:
             break
     return " ".join(words)
