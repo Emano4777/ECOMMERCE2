@@ -26649,6 +26649,14 @@ _ANVISA_STOP_WORDS = {
 # Mapeamento nome-comercial → INN para lookup no anvisa_cache.
 # IMPORTANTE: manter sincronizado com _MARCA_TO_INN em anvisa_sync.py.
 _MARCA_TO_INN = {
+    # Marcas curtas/com hifen cujo primeiro token sozinho (depois de tirar
+    # pontuacao) tem menos de 4 letras -- "AD-TIL" vira ["AD","TIL",...] e
+    # nenhum token sobrevive ao filtro de _anvisa_chave, entao a chave
+    # ficava vazia e o produto NUNCA era processado (nem pela busca real na
+    # ANVISA, nem pelo enriquecimento por IA -- os dois dependem dessa
+    # mesma chave). Achado revisando o EAN 7896094925144 (AD-TIL, tarja
+    # vermelha confirmada).
+    "AD":           "RETINOL COLECALCIFEROL",
     # Analgésicos / AINEs
     "ALIVIUM":      "IBUPROFENO",
     "BUPROVIL":     "IBUPROFENO",
