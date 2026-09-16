@@ -27398,6 +27398,17 @@ def _vitamina_d_dose_alta(nome):
     return bool(_VITAMINA_D_DOSE_ALTA_RE.search(nome or ""))
 
 
+_IBUPROFENO_DOSE_ALTA_RE = re.compile(r"\b600\s*mg\b", re.IGNORECASE)
+
+
+def _ibuprofeno_dose_alta(nome):
+    """True = ibuprofeno 600mg -- confirmado por bula como venda sob
+    prescricao medica com retencao de receita, diferente das apresentacoes
+    comuns isentas (100mg/mL gotas, 400mg comprimido) que compartilham a
+    mesma chave generica "IBUPROFENO"."""
+    return bool(_IBUPROFENO_DOSE_ALTA_RE.search(nome or ""))
+
+
 def _sem_acento(s):
     return "".join(
         c for c in unicodedata.normalize("NFD", s or "")
@@ -27600,6 +27611,11 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             # manutencao) e tarja vermelha de verdade. Usa uma chave propria
             # pra nao herdar nem contaminar o cache generico de "VITAMINA".
             ch = "VITAMINA D3 ALTA DOSE"
+        elif ch == "IBUPROFENO" and _ibuprofeno_dose_alta(nomes[i]):
+            # Mesmo caso: "IBUPROFENO" sozinho e isento por padrao (100mg/mL
+            # gotas, 400mg comprimido), mas 600mg e confirmado por bula como
+            # venda sob prescricao com retencao de receita.
+            ch = "IBUPROFENO 600MG"
         elif not ch or ch in _CHAVES_OTC_ISENTO:
             continue
         chaves_map.setdefault(ch, []).append(i)
