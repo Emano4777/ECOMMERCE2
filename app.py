@@ -4732,6 +4732,16 @@ _NORM_DOSAGEM_UNIDADE_RE = re.compile(r"(?<=\d) (?=(mg|mcg|ml|g|ui|mm|cm|kg|cp|c
 
 def _norm_text(value):
     value = html.unescape(value or "").lower()
+    # Dobra acento (á/ã/â -> a, ç -> c etc) antes de descartar o que sobra
+    # de [^a-z0-9] -- sem isso o acento virava espaco e QUEBRAVA a palavra
+    # em vez de normalizar (ex: "açúcar" virava "a car", "café" virava
+    # "caf"), gerando fragmentos curtos sem sentido que batiam em qualquer
+    # produto nao relacionado (ex: "car" batendo em qualquer coisa com
+    # "car" no nome) em vez de normalizar pra "acucar"/"cafe" como deveria.
+    value = "".join(
+        c for c in unicodedata.normalize("NFD", value)
+        if unicodedata.category(c) != "Mn"
+    )
     value = re.sub(r"[^a-z0-9]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     # "10 mg" digitado com espaco nao batia com nomes de produto, que nunca
@@ -7961,6 +7971,37 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
     return _dedupe_products_for_display(rows)
 
 
+def _relevancia_busca_score(row, q_norm, required_terms):
+    """Pontua quao bem um produto bate com a busca, maior = mais relevante.
+    Sem isso a ordem final era so alfabetica (ORDER BY ap.nome no SQL) --
+    nao tinha NENHUM ranking por relevancia, entao o produto mais "completo"
+    pra busca podia aparecer la embaixo so por causa da letra do nome.
+    Prioriza match no NOME de exibicao (o que o cliente ve) sobre um match
+    que só existe espalhado em laboratorio/marca/classificacao -- essas
+    outras colunas ainda contam pro filtro AND passar, mas nao deveriam
+    empurrar um produto pouco relacionado pro topo so por bater ali."""
+    nome_norm = _norm_text(row.get("nome") or "")
+    nome_raw_norm = _norm_text(row.get("nome_alpha_raw") or "")
+    score = 0.0
+    if q_norm:
+        if nome_norm.startswith(q_norm):
+            score += 1000
+        elif q_norm in nome_norm:
+            score += 700
+        elif nome_raw_norm.startswith(q_norm):
+            score += 500
+        elif q_norm in nome_raw_norm:
+            score += 300
+    for t in required_terms:
+        if t in nome_norm or t in nome_raw_norm:
+            score += 50
+        else:
+            score += 5  # so bateu em campo auxiliar (lab/marca/classificacao)
+    # entre igualmente relevantes, nome mais curto tende a ser mais especifico
+    score -= len(nome_norm) * 0.05
+    return score
+
+
 def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     if not cnpjs or not query or not _catalogo_alpha_exclusivo():
         return []
@@ -8089,6 +8130,10 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
         rows = filtered_rows
     rows = [r for r in rows if _has_catalog_image(r)]
     _schedule_fill_images(rows)
+    # Ordena por relevancia (nao mais so alfabetico -- ver docstring de
+    # _relevancia_busca_score) antes do dedupe, que preserva a ordem de
+    # primeira ocorrencia de cada produto.
+    rows.sort(key=lambda r: _relevancia_busca_score(r, q_norm, required_terms), reverse=True)
     return _dedupe_products_for_display(rows)[:int(limit)]
 
 
@@ -10513,16 +10558,29 @@ def _api_produtos_proximos_impl():
         # busca por "sh huggies" so por causa do "S" vir antes do "Sh" no
         # alfabeto, mesmo o shampoo sendo o resultado mais relevante (o termo
         # "sh" bate como prefixo da palavra "shampoo", nao de "sab").
-        _bq_tokens_rel = [t for t in _norm_text(busca_q).split() if t]
+        _bq_norm_rel = _norm_text(busca_q)
+        _bq_tokens_rel = [t for t in _bq_norm_rel.split() if t]
         def _relevancia_busca(p):
             nome_n = _norm_text(p.get("nome") or "")
             palavras_n = nome_n.split()
             score = 0
+            # Frase de busca inteira aparece no nome -- prioridade maxima,
+            # senao 2 termos que so batem cada um numa palavra diferente e
+            # sem relacao entre si (ex: "baby" batendo por acaso num
+            # desodorante Giovanna Baby, "sec" so como prefixo de "seco" no
+            # mesmo produto) podiam empatar ou superar um match de verdade
+            # (ex: "Fralda BABY SEC..." onde as 2 palavras sao exatas).
+            if _bq_norm_rel and _bq_norm_rel in nome_n:
+                score += 1000
+                if nome_n.startswith(_bq_norm_rel):
+                    score += 500
             for t in _bq_tokens_rel:
-                if any(w.startswith(t) for w in palavras_n):
-                    score += len(t) * 2  # bate como prefixo de alguma palavra do nome
+                if t in palavras_n:
+                    score += len(t) * 10  # palavra inteira igual ao termo -- match forte
+                elif any(w.startswith(t) for w in palavras_n):
+                    score += len(t) * 2   # bate como prefixo de uma palavra maior -- fraco
                 elif t in nome_n:
-                    score += len(t)      # bate so como substring solta
+                    score += len(t)       # bate so como substring solta -- mais fraco ainda
             return -score
         result = sorted(produtos_view, key=lambda x: (
             _relevancia_busca(x),
@@ -10619,6 +10677,21 @@ def _api_produtos_proximos_impl():
                     "cobra_frete": bool(info.get("cobra_frete")),
                     "valor_frete": _frete_calc if entrega_disponivel else 0.0,
                 })
+            # Esse fallback so roda quando o caminho principal (com filtro de
+            # relevancia mais rigoroso) nao achou nada -- comum em busca curta
+            # tipo "dipi" (bate so como prefixo de "dipirona", nao como
+            # palavra inteira, e cai fora do filtro _ft_patterns acima). A
+            # query SQL aqui e so "ORDER BY nome" (alfabetico), entao sem
+            # reordenar por relevancia um match fraco tipo "BESILATO..."
+            # aparecia antes de "DIPIRONA..." so por causa do "B" vir antes
+            # do "D" no alfabeto.
+            if busca_q:
+                result.sort(key=lambda x: (
+                    _relevancia_busca(x),
+                    x.get("distancia_km") is None,
+                    x.get("distancia_km") or 0,
+                    (x.get("nome") or "").lower(),
+                ))
         except Exception as exc:
             app.logger.warning("alpha direct final fallback error: %s", exc)
     saudacao = None
