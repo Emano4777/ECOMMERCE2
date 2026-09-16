@@ -26697,6 +26697,14 @@ _ANVISA_STOP_WORDS = {
     "torrent","teuto","eurofarma","prati","donaduzzi","neo","geolab",
     "pharlab","pharma","laboratorio","laboratorios",
     "natulab","multilab","airela","pharmascience","biosintetica",
+    # Embalagem / apresentacao -- faltavam varios termos comuns aqui, o que
+    # fazia a 2a palavra "significativa" da chave virar a embalagem em vez
+    # do nome do remedio (ex: "ITRACONAZOL CAPSULAS" em vez de so
+    # "ITRACONAZOL"). Ver tambem normalizacao de acento em _anvisa_chave --
+    # sem ela, a forma acentuada de "solucao"/"injecao"/etc (como realmente
+    # vem no nome, ex: "Solução") nunca batia com essas entradas sem acento.
+    "caixa","unidades","unidade","embalagem","ampola","ampolas",
+    "aplicador","aplicadores","flaconete","flaconetes",
 }
 
 # Mapeamento nome-comercial → INN para lookup no anvisa_cache.
@@ -26896,7 +26904,16 @@ def _anvisa_chave(nome):
         return _MARCA_TO_INN[tks[0]]
     words = []
     for w in tks:
-        if (w.lower() in _ANVISA_STOP_WORDS
+        # Compara sem acento -- o nome real do produto vem acentuado (ex:
+        # "Solução", "Injeção", "Cápsulas") mas _ANVISA_STOP_WORDS so tem a
+        # forma sem acento. Sem essa normalizacao a palavra de embalagem
+        # nunca batia como stopword e virava a 2a palavra da chave em vez
+        # do nome do remedio (ex: "TIMOLOL SOLUÇÃO" em vez de so "TIMOLOL").
+        w_sem_acento = "".join(
+            c for c in unicodedata.normalize("NFD", w.lower())
+            if unicodedata.category(c) != "Mn"
+        )
+        if (w_sem_acento in _ANVISA_STOP_WORDS
                 or any(c.isdigit() for c in w)
                 or len(w) < 4):
             continue

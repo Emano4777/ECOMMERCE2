@@ -14,6 +14,7 @@ import json
 import argparse
 import subprocess
 import tempfile
+import unicodedata
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -60,6 +61,10 @@ _STOP_WORDS = {
     "hidroclor",   # OLMESARTANA HIDROCLOR → OLMESARTANA
     "medoxomila",  # OLMESARTANA MEDOXOMILA → OLMESARTANA
     "flacodin",    # SIMETICONA FLACODIN → SIMETICONA
+    # Embalagem / apresentacao -- ver mesma lista e o mesmo motivo em
+    # _ANVISA_STOP_WORDS no app.py (mantido sincronizado com este arquivo).
+    "caixa","unidades","unidade","embalagem","ampola","ampolas",
+    "aplicador","aplicadores","flaconete","flaconetes",
 }
 
 # Mapeamento nome-comercial → INN para busca no bulário ANVISA.
@@ -302,7 +307,12 @@ def _chave(nome):
         return _MARCA_TO_INN[tks[0]]
     words = []
     for w in tks:
-        if w.lower() in _STOP_WORDS or any(c.isdigit() for c in w) or len(w) < 4:
+        # Compara sem acento -- ver mesmo motivo em _anvisa_chave no app.py.
+        w_sem_acento = "".join(
+            c for c in unicodedata.normalize("NFD", w.lower())
+            if unicodedata.category(c) != "Mn"
+        )
+        if w_sem_acento in _STOP_WORDS or any(c.isdigit() for c in w) or len(w) < 4:
             continue
         words.append(w)
         if len(words) >= 2:
