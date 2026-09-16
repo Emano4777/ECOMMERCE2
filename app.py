@@ -10560,6 +10560,7 @@ def _api_produtos_proximos_impl():
         # "sh" bate como prefixo da palavra "shampoo", nao de "sab").
         _bq_norm_rel = _norm_text(busca_q)
         _bq_tokens_rel = [t for t in _bq_norm_rel.split() if t]
+        _bq_colado_rel = _bq_norm_rel.replace(" ", "")
         def _relevancia_busca(p):
             nome_n = _norm_text(p.get("nome") or "")
             palavras_n = nome_n.split()
@@ -10574,6 +10575,13 @@ def _api_produtos_proximos_impl():
                 score += 1000
                 if nome_n.startswith(_bq_norm_rel):
                     score += 500
+            # Busca em 2+ palavras bate com 1 palavra grudada do nome (ex:
+            # "baby sec" == "babysec", marca real sem espaco) -- sem isso
+            # "Fralda Babysec..." (marca grudada, a maioria dos produtos)
+            # pontuava pior que um match fraco espalhado em produto errado,
+            # porque nenhuma palavra do nome batia exata com "baby" sozinho.
+            if len(_bq_tokens_rel) >= 2 and _bq_colado_rel and _bq_colado_rel in palavras_n:
+                score += 1000
             for t in _bq_tokens_rel:
                 if t in palavras_n:
                     score += len(t) * 10  # palavra inteira igual ao termo -- match forte
