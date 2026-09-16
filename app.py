@@ -6864,7 +6864,22 @@ _SQL_ALPHA_A7 = """
         'alpha_a7' AS fonte_estoque,
         el.alpha_o_id
     FROM eligible el
-    LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+    LEFT JOIN LATERAL (
+        SELECT *
+        FROM medicamentos m0
+        WHERE LTRIM(COALESCE(m0.barra_norm, m0.barra, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
+        -- Varios EANs tem MAIS DE UMA linha em medicamentos pro mesmo codigo
+        -- de barra (import antigo duplicado) -- sem escolher so 1, o JOIN
+        -- reto abaixo fazia fan-out (1 linha por duplicata) e o resultado
+        -- final ficava por conta de qual linha o Postgres decidisse trazer
+        -- primeiro, arbitrario. Preferir a que nao tem nome-lixo de import
+        -- antigo (ex: "Produto JK <ean>", 311 casos conhecidos) evita
+        -- mostrar esse nome-lixo quando existe uma linha melhor duplicada.
+        ORDER BY (m0.barra_norm IS NOT NULL) DESC,
+                 (m0.descricao ~ '^Produto [A-Za-z]+ [0-9]{8,14}$') ASC,
+                 m0.id
+        LIMIT 1
+    ) m ON TRUE
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
     LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
     LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean, ''), '0') = LTRIM(COALESCE(el.ean, ''), '0')
