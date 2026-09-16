@@ -14224,7 +14224,9 @@ def produto_detalhe(ean):
         LEFT JOIN medicamentos5 m5 ON m5.barra = COALESCE(m.barra_norm, m.barra)
         WHERE LTRIM(COALESCE(m.barra_norm,''),'0') = LTRIM(%s,'0')
            OR LTRIM(COALESCE(m.barra,''),'0')      = LTRIM(%s,'0')
-        ORDER BY (m.barra_norm IS NOT NULL) DESC, m.id
+        ORDER BY (m.barra_norm IS NOT NULL) DESC,
+                 (m.descricao ~ '^Produto [A-Za-z]+ [0-9]{8,14}$') ASC,
+                 m.id
         LIMIT 1
         """,
         (ean, ean),
@@ -14246,6 +14248,37 @@ def produto_detalhe(ean):
         _descricao_canon = _row_canon["descricao_canon"] if _row_canon else None
 
     nome_busca = nome_hint or (med["descricao"] if med else _descricao_canon or "")
+
+    # Nome-lixo de import antigo (ex: fornecedor "JK" -- "Produto JK <ean>",
+    # 311 EANs nessa situacao em medicamentos.descricao): o ORDER BY acima ja
+    # evita escolher essa linha quando existe uma duplicata melhor pro mesmo
+    # codigo de barras, mas quando ela e a UNICA linha (sem duplicata) ainda
+    # cai aqui -- busca uma fonte melhor (canon, senao o nome real do Alpha)
+    # em vez de mostrar "Produto JK ..." pro cliente na pagina de detalhe.
+    if nome_busca and re.match(r"^Produto [A-Za-z]+ \d{8,14}$", nome_busca.strip(), re.IGNORECASE):
+        _nome_melhor = _descricao_canon
+        if not _nome_melhor:
+            cur.execute(
+                "SELECT descricao_canon FROM produto_canon "
+                "WHERE LTRIM(COALESCE(ean,''),'0') = LTRIM(%s,'0') "
+                "  AND descricao_canon IS NOT NULL "
+                "  AND fonte NOT IN ('cosmos_miss','ia_miss','placeholder_broken') "
+                "LIMIT 1",
+                (ean,),
+            )
+            _row_canon2 = cur.fetchone()
+            _nome_melhor = _row_canon2["descricao_canon"] if _row_canon2 else None
+        if not _nome_melhor:
+            cur.execute(
+                "SELECT nome FROM ecommerce_alpha_produtos "
+                "WHERE LTRIM(COALESCE(ean,''),'0') = LTRIM(%s,'0') AND COALESCE(nome,'') <> '' "
+                "LIMIT 1",
+                (ean,),
+            )
+            _row_alpha2 = cur.fetchone()
+            _nome_melhor = _row_alpha2["nome"] if _row_alpha2 else None
+        if _nome_melhor:
+            nome_busca = _nome_melhor
     vitnatu = None
     if nome_busca:
         stop  = {"com","de","do","da","dos","das","para","por","em","e","ou","cp","ml","mg","un","gr"}
@@ -14466,6 +14499,12 @@ def produto_detalhe(ean):
             _alvo_injetavel = _forma_injetavel(nome_busca or "")
             if _alvo_injetavel is False:
                 _candidatos = [c for c in _candidatos if _forma_injetavel(c.get("nome_anvisa") or c.get("chave") or "") is not True]
+            # Mesma ideia pra solido x liquido oral (ver docstring de
+            # _forma_solida_oral): comprimido nao deveria herdar o bloqueio
+            # de uma gota/xarope/solucao oral do mesmo principio ativo.
+            _alvo_solido = _forma_solida_oral(nome_busca or "")
+            if _alvo_solido is True:
+                _candidatos = [c for c in _candidatos if _forma_solida_oral(f"{c.get('nome_anvisa') or ''} {c.get('chave') or ''}") is not False]
 
             def _restritividade(row):
                 # tarja_ia (validada pela IA) tem prioridade sobre a bruta --
@@ -26965,6 +27004,24 @@ _FORMA_NAO_INJETAVEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Mesmo motivo/padrao do par acima (injetavel), mas pra um problema parecido
+# dentro do proprio grupo "nao injetavel": comprimido e solucao/gotas/xarope
+# do MESMO principio ativo as vezes tem tarja diferente de verdade (ex:
+# dipirona comprimido e venda livre, mas a gota/solucao oral pediatrica de um
+# fabricante especifico e tarja vermelha por risco de erro de dosagem em
+# crianca) -- sem separar as duas, o "mais restritivo da familia" da gota
+# contaminava a imagem do comprimido do mesmo princípio ativo, mesmo o
+# comprimido tendo classificacao propria confirmada como segura.
+_FORMA_SOLIDA_ORAL_RE = re.compile(
+    r"comprimido|c[aá]psula|dr[aá]gea|pastilha|sublingual|efervescente|p[oó]\s+oral"
+    r"|granulado|mastig[aá]vel|orodispersivel|orodisp\b",
+    re.IGNORECASE,
+)
+_FORMA_LIQUIDA_ORAL_RE = re.compile(
+    r"xarope|suspens[aã]o\s+oral|solu[cç][aã]o\s+oral|\bgotas?\b|elixir",
+    re.IGNORECASE,
+)
+
 
 def _forma_injetavel(texto):
     """True = forma claramente injetável/parenteral. False = forma claramente
@@ -26975,6 +27032,18 @@ def _forma_injetavel(texto):
     if _FORMA_INJETAVEL_RE.search(t):
         return True
     if _FORMA_NAO_INJETAVEL_RE.search(t):
+        return False
+    return None
+
+
+def _forma_solida_oral(texto):
+    """True = comprimido/capsula/dragea etc (solido oral). False = xarope/
+    gotas/solucao oral etc (liquido oral). None = indeterminado -- ver
+    docstring de _forma_injetavel, mesmo comportamento conservador."""
+    t = texto or ""
+    if _FORMA_SOLIDA_ORAL_RE.search(t):
+        return True
+    if _FORMA_LIQUIDA_ORAL_RE.search(t):
         return False
     return None
 
@@ -27306,6 +27375,17 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                     candidatos_validos = [
                         c for c in candidatos_familia
                         if _forma_injetavel(c.get("nome_anvisa") or c.get("chave") or "") is not True
+                    ]
+                # Mesma ideia pra solido x liquido oral (ver docstring de
+                # _forma_solida_oral) -- comprimido do mesmo principio ativo
+                # nao deveria herdar o bloqueio de uma gota/xarope/solucao
+                # oral com tarja diferente (ex: dipirona gotas pediatrica
+                # tarjada nao deveria bloquear a foto do comprimido).
+                alvo_solido = _forma_solida_oral(produtos[idx].get("nome") or "")
+                if alvo_solido is True and candidatos_validos:
+                    candidatos_validos = [
+                        c for c in candidatos_validos
+                        if _forma_solida_oral(f"{c.get('nome_anvisa') or ''} {c.get('chave') or ''}") is not False
                     ]
                 familia = max(candidatos_validos, key=_restritividade) if candidatos_validos else None
                 if exato is not None and familia is not None:
