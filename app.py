@@ -11925,9 +11925,9 @@ def api_produto(ean):
             chave_anv = _anvisa_chave(nome_busca)
             if chave_anv:
                 cur.execute(
-                    "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, receita_retida, "
+                    "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, tarja_ia, receita_retida, "
                     "exibir_imagem_publica, dizeres_receita, dizeres_imagem "
-                    "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE LIMIT 1",
+                    "FROM anvisa_cache WHERE chave=%s AND (encontrado=TRUE OR tarja_ia IS NOT NULL) LIMIT 1",
                     (chave_anv,),
                 )
                 anvisa_img = dict(cur.fetchone() or {})
@@ -14366,7 +14366,7 @@ def produto_detalhe(ean):
         try:
             _anvisa_schema()   # ensure table exists (idempotent, own connection)
             cur.execute(
-                "SELECT * FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE",
+                "SELECT * FROM anvisa_cache WHERE chave=%s AND (encontrado=TRUE OR tarja_ia IS NOT NULL)",
                 (_chave_anvisa,),
             )
             _row_anv = cur.fetchone()
@@ -14380,7 +14380,7 @@ def produto_detalhe(ean):
             _first_word = _chave_anvisa.split(" ", 1)[0]
             cur.execute(
                 "SELECT chave, nome_anvisa, tarja, tarja_ia, receita_retida, exibir_imagem_publica "
-                "FROM anvisa_cache WHERE SPLIT_PART(chave, ' ', 1) = %s AND encontrado = TRUE",
+                "FROM anvisa_cache WHERE SPLIT_PART(chave, ' ', 1) = %s AND (encontrado = TRUE OR tarja_ia IS NOT NULL)",
                 (_first_word,),
             )
             _candidatos = [dict(r) for r in cur.fetchall()]
@@ -15361,9 +15361,9 @@ def api_carrinho_get():
         chave = _anvisa_chave(nome)
         if chave:
             cur.execute(
-                "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, receita_retida, "
+                "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, tarja_ia, receita_retida, "
                 "venda_online_permitida, exibir_imagem_publica, dizeres_receita, dizeres_imagem "
-                "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE LIMIT 1",
+                "FROM anvisa_cache WHERE chave=%s AND (encontrado=TRUE OR tarja_ia IS NOT NULL) LIMIT 1",
                 (chave,),
             )
             anvisa = dict(cur.fetchone() or {})
@@ -17859,8 +17859,8 @@ def api_checkout():
             if chave_item:
                 try:
                     cur.execute(
-                        "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, receita_retida "
-                        "FROM anvisa_cache WHERE chave=%s AND encontrado=TRUE LIMIT 1",
+                        "SELECT alertas, como_usar, nome_anvisa, principio_ativo, tarja, tarja_ia, receita_retida "
+                        "FROM anvisa_cache WHERE chave=%s AND (encontrado=TRUE OR tarja_ia IS NOT NULL) LIMIT 1",
                         (chave_item,),
                     )
                     anvisa_item = dict(cur.fetchone() or {})
@@ -27100,7 +27100,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             "SELECT chave, alertas, como_usar, nome_anvisa, principio_ativo, tarja, tarja_ia, "
             "receita_retida, venda_online_permitida, exibir_imagem_publica, dizeres_receita, "
             "dizeres_imagem, override_manual "
-            "FROM anvisa_cache WHERE chave = ANY(%s) AND encontrado = TRUE",
+            "FROM anvisa_cache WHERE chave = ANY(%s) AND (encontrado = TRUE OR tarja_ia IS NOT NULL)",
             (list(chaves_map.keys()),),
         )
         rows_by_chave = {r["chave"]: r for r in cur.fetchall()}
@@ -27180,7 +27180,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                     "receita_retida, venda_online_permitida, "
                     "exibir_imagem_publica, dizeres_receita, dizeres_imagem "
                     "FROM anvisa_cache "
-                    "WHERE SPLIT_PART(chave, ' ', 1) = ANY(%s) AND encontrado = TRUE",
+                    "WHERE SPLIT_PART(chave, ' ', 1) = ANY(%s) AND (encontrado = TRUE OR tarja_ia IS NOT NULL)",
                     (first_words,),
                 )
                 for r in cur.fetchall():
