@@ -6626,7 +6626,7 @@ _SQL_ALPHA = """
     )
     SELECT
         el.barras                                                            AS ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)             AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.descricao)             AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         el.qty,
@@ -6708,7 +6708,7 @@ _SQL_AUTO = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao_produto)           AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.descricao_produto)           AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)                 AS laboratorio,
         m.marca                                                                   AS marca,
         el.qty,
@@ -6753,7 +6753,7 @@ _SQL_ALPHA_FAST = """
     )
     SELECT
         el.barras                                                            AS ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)             AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.descricao)             AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         el.qty,
@@ -6790,7 +6790,7 @@ _SQL_AUTO_FAST = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao_produto)           AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.descricao_produto)           AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)                 AS laboratorio,
         m.marca                                                                   AS marca,
         el.qty,
@@ -6839,7 +6839,7 @@ _SQL_ALPHA_A7 = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.nome) AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.nome) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         el.qty,
@@ -7212,7 +7212,7 @@ _SQL_ALPHA_A7_BATCH = """
     SELECT
         el.cnpjloja,
         el.ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.nome) AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.nome) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -7286,7 +7286,7 @@ _SQL_ALPHA_BATCH = """
     SELECT
         el.cnpjloja,
         el.barras                                                             AS ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)              AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.descricao)              AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)            AS laboratorio,
         m.marca                                                              AS marca,
         COALESCE(m.tipo_ia, pc.categoria)  AS categoria,
@@ -7351,7 +7351,7 @@ _SQL_AUTO_BATCH = """
     SELECT
         el.cnpjloja,
         el.ean,
-        COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), el.descricao)                   AS nome,
+        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.descricao)                   AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio)               AS laboratorio,
         m.marca                                                                   AS marca,
         COALESCE(m.tipo_ia, pc.categoria)        AS categoria,
@@ -7504,7 +7504,7 @@ def get_dns_products_batch(cnpjs):
 
             cur.execute("""
                 SELECT e.cnpj AS cnpjloja, e.barras AS ean,
-                       COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), e.descricao) AS nome,
+                       COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), e.descricao) AS nome,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -7544,7 +7544,7 @@ def get_dns_products_batch(cnpjs):
 
             cur.execute("""
                 SELECT ae.cnpj_loja AS cnpjloja, ae.ean,
-                       COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ae.descricao_produto) AS nome,
+                       COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ae.descricao_produto) AS nome,
                        COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
                        m.marca AS marca,
                        COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -7670,7 +7670,7 @@ def get_dns_products_batch_by_eans(cnpjs, eans):
         SELECT
             b.cnpjloja,
             b.ean,
-            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), b.nome_raw) AS nome,
+            COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), b.nome_raw) AS nome,
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -7869,7 +7869,7 @@ def get_dns_products_batch_by_name(cnpjs, terms, limit=400):
         SELECT
             b.cnpjloja,
             b.ean,
-            COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), b.nome_raw) AS nome,
+            COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), b.nome_raw) AS nome,
             COALESCE(pc.laboratorio, m.laboratorio) AS laboratorio,
             m.marca AS marca,
             COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -7995,13 +7995,13 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             ap.ean,
             CASE
                 WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
-                    THEN COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome)
+                    THEN COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome)
                 -- Fora de medicamentos (cosmetico/higiene/perfumaria etc), o nome
                 -- padronizado por IA (produto_canon) tem prioridade sobre a
                 -- descricao abreviada da tabela de referencia (ex: "SH" vira
                 -- "Shampoo") — vale tanto pra exibicao quanto pro filtro de
                 -- relevancia da busca, que usa esse mesmo campo "nome".
-                ELSE COALESCE(NULLIF(pc.descricao_canon, 'SEM DESCR'), m.descricao, ap.nome)
+                ELSE COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
             END AS nome,
             ap.nome AS nome_alpha_raw,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
@@ -8105,8 +8105,8 @@ def get_alpha_products_direct(cnpjs, limit=200):
             ap.ean,
             CASE
                 WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
-                    THEN COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome)
-                ELSE COALESCE(NULLIF(pc.descricao_canon, 'SEM DESCR'), m.descricao, ap.nome)
+                    THEN COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome)
+                ELSE COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
             END AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
@@ -14172,7 +14172,7 @@ def produto_detalhe(ean):
                 _ensure_alpha_schema()
                 cur.execute(
                     """
-                    SELECT ap.ean, COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
+                    SELECT ap.ean, COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome) AS nome,
                            CAST(ap.estoque AS INTEGER) AS qty,
                            ap.preco_venda AS preco,
                            ap.fabricante,
@@ -24700,7 +24700,7 @@ def api_cron_produto_descricao_ia():
             WITH catalogo AS (
                 SELECT DISTINCT ON (LTRIM(COALESCE(ap.ean, ''), '0'))
                     LTRIM(COALESCE(ap.ean, ''), '0') AS ean,
-                    COALESCE(m.descricao, NULLIF(pc.descricao_canon, 'SEM DESCR'), ap.nome) AS nome,
+                    COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome) AS nome,
                     COALESCE(m.marca, '') AS marca,
                     COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante, '') AS laboratorio,
                     COALESCE(m.tipo_ia, pc.categoria, '') AS categoria,
