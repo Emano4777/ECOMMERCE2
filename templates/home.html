@@ -1536,7 +1536,7 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
       // Formata como "47,50" sem o "R$ "
       ecVal.textContent = parseFloat(d.economia_total).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
     }
-    const listaEco = _dedupeContraHome(d.produtos, 6);
+    const listaEco = _dedupeContraHome(d.produtos, 20);
     if (!listaEco.length) return;
     gridEl.innerHTML = listaEco.map(p => {
       const badge = p.economia > 0.5 ? `<i class="fa fa-circle-arrow-down"></i>Economia de ${hBrl(p.economia)}` : '';

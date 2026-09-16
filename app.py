@@ -10081,6 +10081,14 @@ def _api_produtos_proximos_impl():
     cat_filter = (request.args.get("cat") or "").strip().lower()
     home_mode = request.args.get("home") == "1"
     sem_loc = (lat_usr == 0.0 and lng_usr == 0.0)
+    # Loga a busca do consumidor logado pra alimentar a recomendacao
+    # personalizada do carrossel da home (ver _recomendacoes_personalizadas_ia).
+    # Best-effort -- nunca deve atrasar/quebrar a busca em si.
+    if busca_q and session.get("consumidor_id"):
+        try:
+            _registrar_busca_consumidor(session.get("consumidor_id"), busca_q)
+        except Exception:
+            pass
 
     conn = db()
     cur  = conn.cursor()
@@ -13515,6 +13523,243 @@ def api_cron_produto_canon_ia():
     })
 
 
+def _ensure_consumidor_buscas_schema():
+    _load_db_migrations()
+    if "consumidor_buscas_v1" in _schema_ready:
+        return
+    with _schema_lock:
+        if "consumidor_buscas_v1" in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_consumidor_buscas (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id UUID NOT NULL,
+                termo TEXT NOT NULL,
+                criado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_consumidor_buscas_consumidor ON ecommerce_consumidor_buscas(consumidor_id, criado_em DESC)")
+        conn.commit()
+        cur.close()
+        conn.close()
+        _schema_ready.add("consumidor_buscas_v1")
+
+
+def _registrar_busca_consumidor(consumidor_id, termo):
+    """Loga o termo buscado por um consumidor logado, pra personalizar
+    recomendacoes depois (ver _recomendacoes_personalizadas_ia). So loga
+    termo com conteudo de verdade (>=3 chars) pra nao poluir com ruido de
+    digitacao -- e best-effort, nunca deve quebrar a busca em si."""
+    if not consumidor_id or not termo or len(termo.strip()) < 3:
+        return
+    try:
+        _ensure_consumidor_buscas_schema()
+        conn = _new_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO ecommerce_consumidor_buscas (consumidor_id, termo) VALUES (%s, %s)",
+            (consumidor_id, termo.strip()[:200]),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _produtos_atuais_por_ean(cnpjs, eans, limit=60):
+    """Busca dado ATUAL (preco/estoque/imagem/tarja) pra uma lista especifica
+    de EANs -- usado pra "recompre" (favoritos, pedidos anteriores), onde o
+    EAN vem de um registro antigo e precisa ser revalidado contra o catalogo
+    de hoje (preco pode ter mudado, produto pode ter saido de linha etc)."""
+    eans = [e for e in dict.fromkeys(e for e in (eans or []) if e)][:limit]
+    if not cnpjs or not eans:
+        return []
+    if _catalogo_alpha_exclusivo():
+        conn = _new_conn_batch()
+        cur = conn.cursor()
+        _alpha_catalog_sync_if_needed(cur=cur)
+        cur.execute(
+            """
+            SELECT
+                ap.cnpjloja, ap.ean,
+                CASE
+                    WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
+                        THEN COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome)
+                    ELSE COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                END AS nome,
+                COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
+                COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+                ap.classificacao AS classificacao,
+                CAST(ap.estoque AS INTEGER) AS qty,
+                ap.preco_venda AS preco,
+                COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+                'alpha_a7' AS fonte_estoque,
+                ap.preco_promocional AS preco_promocional,
+                ap.promo_inicio AS promo_inicio,
+                ap.promo_fim AS promo_fim
+            FROM ecommerce_alpha_produtos ap
+            LEFT JOIN medicamentos m          ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+            LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+            LEFT JOIN produto_canon pc        ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+            LEFT JOIN ecommerce_lab_ean elab  ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+            LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+            LEFT JOIN medicamentos5 m5        ON m5.barra = ap.ean
+            WHERE ap.cnpjloja = ANY(%s)
+              AND COALESCE(ap.inativo, false) = false
+              AND COALESCE(ap.estoque, 0) > 0
+              AND ap.ean = ANY(%s)
+            """,
+            (cnpjs, eans),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _apply_safe_catalog_images(rows)
+        _apply_saved_categories(rows)
+        _apply_alpha_realtime_promo(rows)
+        try:
+            conn2 = _new_conn()
+            _marcar_tarja_batch(rows, conn2)
+            conn2.close()
+        except Exception:
+            pass
+        rows = [r for r in rows if _has_catalog_image(r)]
+        rows = _dedupe_products_for_display(rows)
+    else:
+        todos = get_dns_products_batch(cnpjs)
+        eans_set = set(eans)
+        rows = [p for p in todos if (p.get("ean") or "") in eans_set and p.get("imagem")]
+    # Preserva a ordem original de eans (mais recente primeiro) em vez da
+    # ordem que a query devolveu.
+    por_ean: dict = {}
+    for r in rows:
+        por_ean.setdefault(r.get("ean"), r)
+    return [por_ean[e] for e in eans if e in por_ean]
+
+
+def _recomendacoes_personalizadas_ia(consumidor_id, cnpjs, limit=20):
+    """Monta ate `limit` produtos pra esse consumidor especifico, combinando
+    (em ordem de prioridade): itens que ele ja comprou (recompra), itens
+    favoritados, e produtos relacionados as ultimas buscas dele. Completa o
+    que faltar com os mais vendidos da regiao (mesmo fallback usado quando
+    nao ha personalizacao nenhuma). Retorna (produtos, origem) -- origem
+    informa a IA/mensagem qual foi a fonte predominante, pra gerar um
+    insight coerente com o que realmente esta sendo mostrado."""
+    conn = db()
+    cur = conn.cursor()
+    eans_ordenados: list = []
+    seen = set()
+
+    def _add(ean):
+        if ean and ean not in seen:
+            seen.add(ean)
+            eans_ordenados.append(ean)
+
+    # 1) Recompra: EAN de pedidos anteriores, mais recente primeiro
+    try:
+        cur.execute(
+            """
+            SELECT pi.ean, MAX(p.criado_em) AS ultima
+            FROM ecommerce_pedido_itens pi
+            JOIN ecommerce_pedidos p ON p.id = pi.pedido_id
+            WHERE p.consumidor_id = %s AND COALESCE(pi.ean, '') <> ''
+            GROUP BY pi.ean
+            ORDER BY ultima DESC
+            LIMIT 15
+            """,
+            (consumidor_id,),
+        )
+        eans_recompra = [r["ean"] for r in cur.fetchall()]
+    except Exception:
+        eans_recompra = []
+    for e in eans_recompra:
+        _add(e)
+
+    # 2) Favoritos, mais recente primeiro
+    try:
+        cur.execute(
+            "SELECT ean FROM ecommerce_favoritos WHERE consumidor_id=%s ORDER BY criado_em DESC LIMIT 15",
+            (consumidor_id,),
+        )
+        eans_favoritos = [r["ean"] for r in cur.fetchall() if r["ean"]]
+    except Exception:
+        eans_favoritos = []
+    for e in eans_favoritos:
+        _add(e)
+
+    # 3) Ultimas buscas: cada termo vira uma consulta de verdade no catalogo
+    eans_busca = []
+    try:
+        _ensure_consumidor_buscas_schema()
+        cur.execute(
+            """
+            SELECT termo, MAX(criado_em) AS ultima
+            FROM ecommerce_consumidor_buscas
+            WHERE consumidor_id=%s
+            GROUP BY termo
+            ORDER BY ultima DESC
+            LIMIT 6
+            """,
+            (consumidor_id,),
+        )
+        termos_busca = [r["termo"] for r in cur.fetchall()]
+    except Exception:
+        termos_busca = []
+    cur.close()
+    conn.close()
+
+    for termo in termos_busca:
+        try:
+            if _catalogo_alpha_exclusivo():
+                achados = get_alpha_products_direct_by_query(cnpjs, termo, limit=3)
+            else:
+                achados = get_dns_products_batch_by_name(cnpjs, [termo])[:3]
+        except Exception:
+            achados = []
+        for p in achados:
+            eans_busca.append(p.get("ean"))
+    for e in eans_busca:
+        _add(e)
+
+    origem = None
+    if eans_recompra:
+        origem = "recompra"
+    elif eans_favoritos:
+        origem = "favoritos"
+    elif eans_busca:
+        origem = "busca"
+
+    produtos = _produtos_atuais_por_ean(cnpjs, eans_ordenados, limit=limit)
+
+    # Completa com mais vendidos da regiao se a personalizacao nao encheu o limite
+    if len(produtos) < limit:
+        sales_scores = _sales_scores_for_cnpjs(cnpjs, limit=1600)
+        if _catalogo_alpha_exclusivo():
+            candidatos = get_alpha_products_direct(cnpjs, limit=2000)
+        else:
+            candidatos = get_dns_products_batch(cnpjs)
+        candidatos = [p for p in candidatos if p.get("ean") not in seen and p.get("imagem")]
+        candidatos.sort(key=lambda p: -int(sales_scores.get(_ean_key(p.get("ean")), 0) or 0))
+        for p in candidatos:
+            if len(produtos) >= limit:
+                break
+            ean = p.get("ean")
+            if ean in seen:
+                continue
+            seen.add(ean)
+            produtos.append(p)
+        if origem is None and produtos:
+            origem = "trending"
+
+    return produtos[:limit], origem
+
+
 @app.get("/api/home/economia-ia")
 def api_home_economia_ia():
     """Retorna insight gerado por Claude + top produtos com maior economia da região."""
@@ -13559,53 +13804,83 @@ def api_home_economia_ia():
     if not cnpjs:
         return jsonify({"insight_ia": "Compare preços e economize na sua saúde.", "produtos": [], "economia_total": 0})
 
-    todos = get_dns_products_batch(cnpjs)
+    LIMITE = 20
+    consumidor_id = session.get("consumidor_id")
+    origem = None
+    top = []
 
-    _nomes_lixo = {"sem descr", "sem descrição", "sem nome", "produto", "item", ""}
-    validos = [
-        p for p in todos
-        if p.get("imagem")
-        and (float(p.get("preco") or 0)) > 0
-        and (float(p.get("preco") or 0)) <= 300       # filtra preços absurdos
-        and (p.get("nome") or "").strip().lower() not in _nomes_lixo
-        and len((p.get("nome") or "").strip()) >= 5
-    ]
+    # Cliente logado com historico (compras, favoritos ou buscas anteriores)
+    # recebe recomendacao pessoal de verdade em vez do carrossel generico --
+    # antes esse endpoint SEMPRE devolvia o mesmo top-3 pra qualquer visitante
+    # da regiao (cache compartilhado de 3 dias), sem nenhuma nocao de quem
+    # estava logado.
+    if consumidor_id:
+        try:
+            top, origem = _recomendacoes_personalizadas_ia(consumidor_id, cnpjs, limit=LIMITE)
+        except Exception as exc:
+            app.logger.warning("economia-ia: recomendacao personalizada falhou: %s", exc)
+            top, origem = [], None
+        for t in top:
+            t.setdefault("economia", 0.0)
 
-    # Agrupa por EAN para encontrar maior diferença de preço entre lojas
-    por_ean: dict = {}
-    for p in validos:
-        ean = str(p.get("ean") or "").strip()
-        if not ean:
-            continue
-        por_ean.setdefault(ean, []).append(p)
+    if not top:
+        # Sem historico (ou visitante nao logado): mesma logica de antes --
+        # compara preco do mesmo EAN entre lojas da regiao e usa os mais
+        # procurados como complemento -- so que agora ate 20 itens, nao 3.
+        # get_dns_products_batch e a fonte legada (pre-Alpha) -- pra loja
+        # exclusiva Alpha ela nao reflete o catalogo de verdade (fica vazia
+        # ou incompleta), entao usa a mesma busca Alpha-aware que o resto
+        # do site ja usa quando disponivel.
+        todos = get_alpha_products_direct(cnpjs, limit=2000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
+        if not todos:
+            todos = get_dns_products_batch(cnpjs)
 
-    with_savings = []
-    for ean, lista in por_ean.items():
-        if len(lista) < 2:
-            continue
-        lista.sort(key=lambda x: float(x.get("preco") or 0))
-        melhor = lista[0]
-        pior   = lista[-1]
-        eco = float(pior.get("preco") or 0) - float(melhor.get("preco") or 0)
-        if eco > 0.5:
-            with_savings.append({**melhor, "economia": round(eco, 2)})
-
-    with_savings.sort(key=lambda x: -x["economia"])
-    top = with_savings[:3]
-
-    # Fallback: produtos populares (mais estoque) em faixa de preço razoável (R$ 10–150)
-    if len(top) < 3:
-        eans_top = {t.get("ean") for t in top}
-        resto = [
-            p for p in validos
-            if p.get("ean") not in eans_top
-            and 10 <= float(p.get("preco") or 0) <= 150
+        _nomes_lixo = {"sem descr", "sem descrição", "sem nome", "produto", "item", ""}
+        validos = [
+            p for p in todos
+            if p.get("imagem")
+            and (float(p.get("preco") or 0)) > 0
+            and (float(p.get("preco") or 0)) <= 300       # filtra preços absurdos
+            and (p.get("nome") or "").strip().lower() not in _nomes_lixo
+            and len((p.get("nome") or "").strip()) >= 5
         ]
-        resto.sort(key=lambda x: -(int(x.get("qty") or 0)))
-        for p in resto:
-            if len(top) >= 3:
-                break
-            top.append({**p, "economia": 0.0})
+
+        # Agrupa por EAN para encontrar maior diferença de preço entre lojas
+        por_ean: dict = {}
+        for p in validos:
+            ean = str(p.get("ean") or "").strip()
+            if not ean:
+                continue
+            por_ean.setdefault(ean, []).append(p)
+
+        with_savings = []
+        for ean, lista in por_ean.items():
+            if len(lista) < 2:
+                continue
+            lista.sort(key=lambda x: float(x.get("preco") or 0))
+            melhor = lista[0]
+            pior   = lista[-1]
+            eco = float(pior.get("preco") or 0) - float(melhor.get("preco") or 0)
+            if eco > 0.5:
+                with_savings.append({**melhor, "economia": round(eco, 2)})
+
+        with_savings.sort(key=lambda x: -x["economia"])
+        top = with_savings[:LIMITE]
+
+        # Fallback: produtos populares (mais estoque) em faixa de preço razoável (R$ 10–150)
+        if len(top) < LIMITE:
+            eans_top = {t.get("ean") for t in top}
+            resto = [
+                p for p in validos
+                if p.get("ean") not in eans_top
+                and 10 <= float(p.get("preco") or 0) <= 150
+            ]
+            resto.sort(key=lambda x: -(int(x.get("qty") or 0)))
+            for p in resto:
+                if len(top) >= LIMITE:
+                    break
+                top.append({**p, "economia": 0.0})
+        origem = "trending"
 
     economia_total = sum(t.get("economia", 0) for t in top)
 
@@ -13628,7 +13903,28 @@ def api_home_economia_ia():
     # Claude gera o insight
     nomes_str = "; ".join(t.get("nome", "") for t in top[:3] if t.get("nome"))
     insight_ia = None
-    if nomes_str:
+    _msgs_por_origem = {
+        "recompra": "Você já comprou {nomes} com a gente -- que tal repor o estoque?",
+        "favoritos": "Separamos {nomes} da sua lista de favoritos com bom preço agora.",
+        "busca": "Baseado no que você andou procurando, separamos {nomes} pra você.",
+    }
+    if nomes_str and origem in _msgs_por_origem:
+        # Recomendacao pessoal muda por cliente -- nao faz sentido usar o
+        # cache compartilhado de 3 dias (esse cache so serve pro caminho
+        # "trending", que e igual pra qualquer visitante da mesma regiao).
+        prompt = (
+            "Você é Poupinha, a IA da rede de farmácias Poupaqui, falando diretamente com um cliente que já "
+            f"tem histórico na loja. Baseado {'em compras anteriores dele' if origem=='recompra' else ('nos favoritos dele' if origem=='favoritos' else 'em buscas recentes dele')}, "
+            f"você está sugerindo: {nomes_str}. "
+            "Gere UMA frase curta, pessoal e animada (máximo 120 caracteres) convidando o cliente a conferir esses "
+            "produtos. Seja direto, simpático e em português, como se conhecesse o cliente. Sem emojis. "
+            "Retorne SOMENTE a frase, sem aspas nem explicações."
+        )
+        insight_ia = _claude_haiku(prompt, max_tokens=80, timeout=5)
+        if not insight_ia:
+            _nomes_label = nomes_str.split(";")[0].strip().title()
+            insight_ia = _msgs_por_origem[origem].format(nomes=_nomes_label)
+    elif nomes_str:
         # Cache compartilhado por conjunto de produtos (mem + DB, 3 dias). O
         # insight é o mesmo para todos os visitantes daquela região, então a
         # IA roda no máximo uma vez a cada 3 dias por combinação de produtos —
@@ -13668,7 +13964,7 @@ def api_home_economia_ia():
         }
         for t in top
     ]
-    return jsonify({"insight_ia": insight_ia, "produtos": result, "economia_total": round(economia_total, 2)})
+    return jsonify({"insight_ia": insight_ia, "produtos": result, "economia_total": round(economia_total, 2), "origem": origem})
 
 
 def _format_brl(valor: float) -> str:
