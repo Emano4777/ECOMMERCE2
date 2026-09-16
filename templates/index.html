@@ -1826,6 +1826,22 @@ async function enviarSugestaoRegiao() {
   }
 }
 
+// Busca /api/produtos-proximos com 1 nova tentativa automatica e silenciosa
+// antes de desistir -- na primeira visita do dia, a funcao serverless pode
+// estar "fria" (cold start) e essa chamada especifica (varios JOINs, pode
+// vir muita linha por categoria) estourar o tempo; a segunda tentativa quase
+// sempre pega a funcao ja aquecida. Antes disso, qualquer falha na primeira
+// tentativa ja mostrava "Erro ao carregar. Recarregue a pagina." direto.
+function _fetchProdutosProximosComRetry(url, tentativa=0) {
+  return fetch(url)
+    .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+    .catch(err => {
+      if (tentativa >= 1) throw err;
+      return new Promise(resolve => setTimeout(resolve, 900))
+        .then(() => _fetchProdutosProximosComRetry(url, tentativa + 1));
+    });
+}
+
 function carregarProdutos(lat, lng, busca='') {
   _currentLat = lat;
   _currentLng = lng;
@@ -1841,8 +1857,7 @@ function carregarProdutos(lat, lng, busca='') {
   if (_lastServerSearch) params.set('q', _lastServerSearch);
   const _activeCat = (catSel && catSel.value) ? catSel.value : (INITIAL_PARAMS.get('cat') || '');
   if (_activeCat) params.set('cat', _activeCat);
-  fetch(`/api/produtos-proximos?${params.toString()}`)
-    .then(r => r.json())
+  _fetchProdutosProximosComRetry(`/api/produtos-proximos?${params.toString()}`)
     .then(data => {
       const currentSearch = catalogSearchTerm();
       if (loadSeq !== _produtosLoadSeq) return;
