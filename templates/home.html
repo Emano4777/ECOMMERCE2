@@ -1584,12 +1584,15 @@ function _bnrGoTo(i){
 }
 function bnrGoTo(i){ clearInterval(_bnrTimer); _bnrGoTo(i); _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500); }
 // Inicializa o carrossel com os slides que jÃ¡ estÃ£o no HTML (banners padrÃ£o)
+let _bnrDefaultTrackHTML = null, _bnrDefaultDotsHTML = null, _bnrShowingDefault = true;
 (function _initBnrDefault(){
   const track   = document.getElementById('bnr-track');
   const dotsEl  = document.getElementById('bnr-dots');
   const btnPrev = document.getElementById('bnr-prev');
   const btnNext = document.getElementById('bnr-next');
   if(!track) return;
+  _bnrDefaultTrackHTML = track.innerHTML;
+  _bnrDefaultDotsHTML  = dotsEl ? dotsEl.innerHTML : null;
   _bnrSlides = track.querySelectorAll('.bnr-slide');
   if(!_bnrSlides.length) return;
   if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; dotsEl.style.display='none'; }
@@ -1619,7 +1622,26 @@ function carregarBanners(lat, lng){
   _bnrPromise
     .then(d=>{
       const banners = d.banners || [];
-      if(!banners.length) return; // mantÃ©m banners padrÃ£o
+      if(!banners.length){
+        // Sem banner pra essa localizaÃ§Ã£o (ex.: cidade sem loja ativa ainda) --
+        // antes ficava sÃ³ retornando aqui, deixando os banners da localizaÃ§Ã£o
+        // ANTERIOR presos na tela atÃ© recarregar a pÃ¡gina. Agora volta pros
+        // banners padrÃ£o (os mesmos que aparecem num carregamento novo), sÃ³
+        // se nÃ£o estiver jÃ¡ mostrando eles.
+        if(!_bnrShowingDefault && _bnrDefaultTrackHTML != null){
+          clearInterval(_bnrTimer);
+          track.innerHTML = _bnrDefaultTrackHTML;
+          if(dotsEl && _bnrDefaultDotsHTML != null) dotsEl.innerHTML = _bnrDefaultDotsHTML;
+          _bnrSlides = track.querySelectorAll('.bnr-slide');
+          _bnrCur = 0;
+          track.style.transform = 'translateX(0)';
+          if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; if(dotsEl) dotsEl.style.display='none'; }
+          else { btnPrev.style.display=btnNext.style.display=''; if(dotsEl) dotsEl.style.display=''; }
+          _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
+          _bnrShowingDefault = true;
+        }
+        return;
+      }
       clearInterval(_bnrTimer);
       track.innerHTML = banners.map(b=>`
         <div class="bnr-slide"${b.link_url ? ` onclick="window.open('${hEsc(b.link_url)}','_blank')"` : ''}>
@@ -1633,6 +1655,7 @@ function carregarBanners(lat, lng){
       if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; dotsEl.style.display='none'; }
       else { btnPrev.style.display=btnNext.style.display=''; dotsEl.style.display=''; }
       _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
+      _bnrShowingDefault = false;
     }).catch(()=>{});
 }
 
