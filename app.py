@@ -27382,6 +27382,22 @@ def _forma_solida_oral(texto):
     return None
 
 
+_VITAMINA_D_DOSE_ALTA_RE = re.compile(
+    r"vitamina\s*d3?\b.{0,20}?\b(?:[4-9]|[1-9]\d)\s*[.,]?\s*000\s*u\.?i\.?"
+    r"|\b(?:[4-9]|[1-9]\d)\s*[.,]?\s*000\s*u\.?i\.?.{0,20}?\bvitamina\s*d3?\b",
+    re.IGNORECASE,
+)
+
+
+def _vitamina_d_dose_alta(nome):
+    """True = vitamina D em dose terapeutica alta (>=4000 UI) -- uso sob
+    acompanhamento medico, diferente da dose de manutencao OTC comum (400 a
+    2000 UI). Usado so pra abrir excecao pontual na chave generica "VITAMINA"
+    (isenta por padrao) sem afetar as vitaminas comuns que compartilham essa
+    mesma chave."""
+    return bool(_VITAMINA_D_DOSE_ALTA_RE.search(nome or ""))
+
+
 def _sem_acento(s):
     return "".join(
         c for c in unicodedata.normalize("NFD", s or "")
@@ -27577,7 +27593,14 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
         if _categoria_conhecida and _categoria_conhecida in _TIPOS_NAO_MEDICAMENTO:
             continue
         ch = _anvisa_chave(nomes[i])
-        if not ch or ch in _CHAVES_OTC_ISENTO:
+        if ch == "VITAMINA" and _vitamina_d_dose_alta(nomes[i]):
+            # "VITAMINA" sozinha e isenta por padrao (maioria dos produtos com
+            # essa chave e vitamina comum OTC) -- mas vitamina D em dose alta
+            # (>=4000 UI, uso terapeutico sob acompanhamento medico, nao
+            # manutencao) e tarja vermelha de verdade. Usa uma chave propria
+            # pra nao herdar nem contaminar o cache generico de "VITAMINA".
+            ch = "VITAMINA D3 ALTA DOSE"
+        elif not ch or ch in _CHAVES_OTC_ISENTO:
             continue
         chaves_map.setdefault(ch, []).append(i)
 
@@ -27599,9 +27622,19 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
         rows_by_chave = {r["chave"]: r for r in cur.fetchall()}
 
         def _aplicar(idx, row):
-            # Cosméticos, suplementos e varejo não recebem tarja ANVISA
-            _tipo = _classificar_produto(produtos[idx].get("nome") or "")
-            _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
+            # Cosméticos, suplementos e varejo não recebem tarja ANVISA.
+            # Categoria ja confirmada (Alpha/classificacao_ean) tem prioridade
+            # sobre o regex por nome -- mesma regra do filtro que monta
+            # chaves_map acima. Sem isso, um produto com categoria correta
+            # (ex: "generico") podia ser barrado aqui de novo por uma
+            # reclassificacao por nome divergente (ex: "NISTATINA+OXIDO DE
+            # ZINCO" caindo em "suplemento" so por causa de "OXIDO DE ZINCO").
+            _categoria_idx = (produtos[idx].get("categoria") or "").strip().lower()
+            if _categoria_idx:
+                _is_med = _categoria_idx not in _TIPOS_NAO_MEDICAMENTO
+            else:
+                _tipo = _classificar_produto(produtos[idx].get("nome") or "")
+                _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
             if not _is_med:
                 return
             produtos[idx]["anvisa_cache_encontrado"] = True
