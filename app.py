@@ -6849,7 +6849,14 @@ _SQL_ALPHA_A7 = """
     )
     SELECT
         el.ean,
-        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.nome) AS nome,
+        -- el.nome (ap.nome, vem direto do catalogo Alpha) tem prioridade sobre
+        -- m.descricao: "medicamentos" e tabela legada com MULTIPLAS linhas
+        -- duplicadas pro mesmo EAN (import antigo) sem garantia de qual e a
+        -- "boa" -- ja causou nome-lixo tipo "Produto JK <ean>" e "HA H 1,5MG
+        -- C/ 1" (real: Hora H Uno) vazando pra loja/precificador. el.nome e
+        -- o dado que a integracao Alpha considera correto pra venda, entao
+        -- so cai pro fallback de medicamentos/produto_canon quando vazio.
+        COALESCE(NULLIF(TRIM(el.nome), ''), m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END)) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         el.qty,
@@ -7238,7 +7245,14 @@ _SQL_ALPHA_A7_BATCH = """
     SELECT
         el.cnpjloja,
         el.ean,
-        COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), el.nome) AS nome,
+        -- el.nome (ap.nome, vem direto do catalogo Alpha) tem prioridade sobre
+        -- m.descricao: "medicamentos" e tabela legada com MULTIPLAS linhas
+        -- duplicadas pro mesmo EAN (import antigo) sem garantia de qual e a
+        -- "boa" -- ja causou nome-lixo tipo "Produto JK <ean>" e "HA H 1,5MG
+        -- C/ 1" (real: Hora H Uno) vazando pra loja/precificador. el.nome e
+        -- o dado que a integracao Alpha considera correto pra venda, entao
+        -- so cai pro fallback de medicamentos/produto_canon quando vazio.
+        COALESCE(NULLIF(TRIM(el.nome), ''), m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END)) AS nome,
         COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, el.fabricante) AS laboratorio,
         m.marca AS marca,
         COALESCE(m.tipo_ia, pc.categoria) AS categoria,
