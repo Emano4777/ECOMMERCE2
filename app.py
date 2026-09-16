@@ -8092,12 +8092,30 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     return _dedupe_products_for_display(rows)[:int(limit)]
 
 
-def get_alpha_products_direct(cnpjs, limit=200):
+# Mesmo mapa de alias/superset que o filtro em Python usava (_CAT_ALIAS_SRV +
+# _MED_TIPOS em _api_produtos_proximos_impl) -- replicado em SQL pra filtrar
+# categoria direto na query, sem precisar trazer o catalogo inteiro.
+_CAT_SQL_GRUPOS = {
+    "medicamento": ("medicamento", "generico", "similar", "referencia"),
+    "perfumaria": ("perfumaria", "cosmetico", "higiene"),
+    "varejo": ("varejo", "correlato", "outros"),
+    "nutricao": ("nutricao", "alimento"),
+}
+
+
+def get_alpha_products_direct(cnpjs, limit=200, categoria_filter=None):
     if not cnpjs or not _catalogo_alpha_exclusivo():
         return []
     conn = _new_conn_batch()
     cur = conn.cursor()
     _alpha_catalog_sync_if_needed(cur=cur)
+    _cat_where = ""
+    _params = [cnpjs]
+    if categoria_filter:
+        grupo = _CAT_SQL_GRUPOS.get(categoria_filter, (categoria_filter,))
+        _cat_where = " AND COALESCE(m.tipo_ia, pc.categoria) = ANY(%s)"
+        _params.append(list(grupo))
+    _params.append(int(limit))
     cur.execute(
         """
         SELECT
@@ -8130,10 +8148,11 @@ def get_alpha_products_direct(cnpjs, limit=200):
           AND COALESCE(ap.inativo, false) = false
           AND COALESCE(ap.estoque, 0) > 0
           AND COALESCE(ap.ean, '') <> ''
+          """ + _cat_where + """
         ORDER BY ap.nome
         LIMIT %s
         """,
-        (cnpjs, int(limit)),
+        tuple(_params),
     )
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
@@ -10272,7 +10291,12 @@ def _api_produtos_proximos_impl():
         # só o recorte de mais vendidos que a vitrine de curva A usa (top ~160
         # EANs por score de venda) — senão categorias menos vendidas (ex:
         # suplemento) somem mesmo tendo produtos em estoque.
-        produtos_raw = get_alpha_products_direct(cnpjs, limit=10000) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
+        # Filtro de categoria agora vai na propria query SQL (categoria_filter),
+        # em vez de trazer os 10000 produtos da loja inteira e descartar quase
+        # tudo em Python -- isso que causava timeout/erro na primeira visita
+        # do dia numa categoria (conexao fria + processar 10 mil linhas com
+        # varios JOINs, imagem, tarja etc. antes de filtrar).
+        produtos_raw = get_alpha_products_direct(cnpjs, limit=2000, categoria_filter=cat_filter) if _catalogo_alpha_exclusivo() else get_dns_products_batch(cnpjs)
     elif not busca_q:
         produtos_raw = _curve_a_products_for_cnpjs(cnpjs, limit=(90 if home_mode else 500)) or get_dns_products_batch(cnpjs)
     # else: havia busca_q mas nenhuma etapa acima encontrou produto — deixa
