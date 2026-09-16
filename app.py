@@ -6872,12 +6872,13 @@ _SQL_ALPHA_A7 = """
         -- de barra (import antigo duplicado) -- sem escolher so 1, o JOIN
         -- reto abaixo fazia fan-out (1 linha por duplicata) e o resultado
         -- final ficava por conta de qual linha o Postgres decidisse trazer
-        -- primeiro, arbitrario. Preferir a que nao tem nome-lixo de import
-        -- antigo (ex: "Produto JK <ean>", 311 casos conhecidos) evita
-        -- mostrar esse nome-lixo quando existe uma linha melhor duplicada.
-        ORDER BY (m0.barra_norm IS NOT NULL) DESC,
-                 (m0.descricao ~ '^Produto [A-Za-z]+ [0-9]{8,14}$') ASC,
-                 m0.id
+        -- primeiro, arbitrario (o nome-lixo tipo "Produto JK <ean>" que
+        -- vinha disso ja foi limpo na propria tabela -- ver medicamentos.descricao).
+        -- NAO usar chave literal (colchete curvo) nesse bloco -- essa string
+        -- inteira passa por str.format() mais abaixo (busca/imagem_filter/
+        -- limite), entao qualquer chave literal vira lookup de placeholder
+        -- em vez de texto/regex -- ja quebrou producao (KeyError) 1x.
+        ORDER BY (m0.barra_norm IS NOT NULL) DESC, m0.id
         LIMIT 1
     ) m ON TRUE
     LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
