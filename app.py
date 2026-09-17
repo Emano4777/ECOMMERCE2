@@ -15256,14 +15256,22 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg", tenta
             if len(r["medicamentos"]) > i and (r["medicamentos"][i].get("nome") or "").strip()
         ]
         nome_final = base_item.get("nome", "")
+        # confianca_leitura: quando as leituras paralelas nao concordam entre
+        # si, isso e o proprio sinal de que a letra e ambigua -- melhor
+        # avisar o cliente pra conferir do que devolver um palpite com a
+        # mesma cara de certeza de sempre (letra cursiva ambigua nao tem
+        # solucao automatica 100% confiavel, entao o sistema precisa saber
+        # quando esta inseguro em vez de fingir que nao esta).
+        confianca = "alta"
         if candidatos_nome:
             contagem = Counter(_norm_text(c) for c in candidatos_nome)
-            nome_norm_mais_comum, _ = contagem.most_common(1)[0]
+            nome_norm_mais_comum, votos = contagem.most_common(1)[0]
+            confianca = "alta" if votos == len(candidatos_nome) else "baixa"
             for c in candidatos_nome:
                 if _norm_text(c) == nome_norm_mais_comum:
                     nome_final = c
                     break
-        medicamentos.append({**base_item, "nome": nome_final})
+        medicamentos.append({**base_item, "nome": nome_final, "confianca_leitura": confianca})
     return {**base, "medicamentos": medicamentos}
 
 
