@@ -11754,6 +11754,59 @@ def api_home_atividade_ao_vivo():
     return jsonify({"pedidos_hoje": n})
 
 
+@app.get("/api/home/meu-cupom")
+@_rate_limited_api(max_calls=30, window_secs=60)
+def api_home_meu_cupom():
+    """Avisa na propria home (nao so em /meus-cupons ou no checkout) que o
+    cliente logado tem cupom valido pra usar -- so leitura, mesma regra de
+    elegibilidade de /meus-cupons simplificada pros casos mais comuns
+    (publico 'todos' ou 'especifico'; nao cobre 'primeira_compra'/
+    'frequente'/so_assinantes aqui pra manter o endpoint leve -- prefere
+    nao mostrar a mostrar errado)."""
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"tem_cupom": False})
+    _ensure_cupons_schema()
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT c.codigo, c.desconto_tipo, c.desconto_valor, c.valido_ate
+        FROM ecommerce_cupons c
+        JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id
+        WHERE c.ativo = TRUE
+          AND COALESCE(c.tipo_regra,'codigo') = 'codigo'
+          AND COALESCE(c.so_assinantes, FALSE) = FALSE
+          AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
+          AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+          AND (
+            c.publico = 'todos'
+            OR (c.publico = 'especifico' AND EXISTS (
+                SELECT 1 FROM ecommerce_cupons_clientes cc
+                WHERE cc.cupom_id = c.id AND cc.consumidor_id = %s
+            ))
+          )
+        ORDER BY c.valido_ate ASC NULLS LAST
+        LIMIT 1
+        """,
+        (consumidor_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return jsonify({"tem_cupom": False})
+    valor_label = (
+        f"{int(row['desconto_valor'])}%" if row["desconto_tipo"] == "pct"
+        else f"R$ {float(row['desconto_valor']):.2f}".replace(".", ",")
+    )
+    return jsonify({
+        "tem_cupom": True,
+        "codigo": row["codigo"],
+        "valor_label": valor_label,
+        "valido_ate": row["valido_ate"].strftime("%d/%m") if row["valido_ate"] else None,
+    })
+
+
 @app.get("/api/home/insights")
 @_rate_limited_api(max_calls=20, window_secs=60)
 def api_home_insights():

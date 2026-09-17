@@ -347,18 +347,34 @@
 .bnr-slide { flex:0 0 100%; display:flex; flex-direction:column; cursor:pointer; }
 .bnr-slide img { width:100%; height:auto; aspect-ratio:1815/445; object-fit:cover; display:block; }
 
-/* ── Selo "atividade ao vivo" sobre o carrossel de banners ───────── */
+/* ── Selo "atividade ao vivo" logo abaixo do carrossel de banners ── */
 .pq-live-badge {
-  position:absolute; top:12px; left:12px; z-index:5;
+  margin:8px auto 0; width:fit-content;
   display:none; align-items:center; gap:7px;
-  background:rgba(20,20,20,.62); backdrop-filter:blur(3px);
-  color:#fff; font-size:.76rem; font-weight:800;
-  padding:7px 13px 7px 10px; border-radius:20px;
-  opacity:0; transform:translateY(-6px);
+  background:#fff; border:1px solid #e2e8f0;
+  color:#334155; font-size:.76rem; font-weight:800;
+  padding:6px 14px 6px 11px; border-radius:20px;
+  opacity:0; transform:translateY(-4px);
   transition:opacity .5s ease, transform .5s ease;
-  box-shadow:0 4px 14px rgba(0,0,0,.18);
+  box-shadow:0 2px 8px rgba(0,0,0,.06);
 }
 .pq-live-badge.pq-live-in { opacity:1; transform:translateY(0); }
+
+/* ── Aviso de cupom ativo pro cliente logado ─────────────────────── */
+.pq-meu-cupom {
+  display:none; align-items:center; gap:9px;
+  margin:10px 0 16px; padding:11px 16px;
+  background:linear-gradient(90deg,#fff7ed,#fffbeb);
+  border:1.5px solid #fbbf24; border-radius:14px;
+  color:#92400e; font-size:.85rem; font-weight:800;
+  text-decoration:none;
+  opacity:0; transform:translateY(-6px);
+  transition:opacity .5s ease, transform .5s ease, box-shadow .15s;
+}
+.pq-meu-cupom:hover { color:#92400e; box-shadow:0 4px 14px rgba(251,191,36,.3); }
+.pq-meu-cupom.pq-meu-cupom-in { opacity:1; transform:translateY(0); }
+.pq-meu-cupom > i:first-child { color:#d97706; font-size:1rem; }
+.pq-meu-cupom-arrow { margin-left:auto; font-size:.72rem; opacity:.7; }
 .pq-live-dot {
   width:8px; height:8px; border-radius:50%; background:#22c55e; flex-shrink:0;
   box-shadow:0 0 0 rgba(34,197,94,.6); animation:pqLivePulse 1.8s infinite;
@@ -859,6 +875,14 @@
 @keyframes heia-pulse { 0%,100%{box-shadow:0 4px 18px rgba(124,58,237,.42)} 50%{box-shadow:0 4px 28px rgba(124,58,237,.7)} }
 .heia-badge { font-size:.62rem; font-weight:900; color:rgba(255,255,255,.8); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; display:flex; align-items:center; gap:5px; }
 .heia-msg { font-size:.92rem; font-weight:700; color:#e2e8f0; line-height:1.5; }
+.heia-eco-total {
+  margin-top:6px; font-size:.8rem; color:#c4b5fd;
+  opacity:0; transform:translateY(4px);
+  transition:opacity .5s ease, transform .5s ease;
+}
+.heia-eco-total.heia-eco-in { opacity:1; transform:translateY(0); }
+.heia-eco-total strong { color:#fde047; font-size:.94rem; }
+.heia-eco-total i { margin-right:3px; }
 .heia-row-wrap .home-row-cnav { background:#fff; }
 .heia-row-wrap .home-prod-eco { font-size:.64rem; color:#16a34a; font-weight:800; margin-top:2px; display:flex; align-items:center; gap:3px; }
 
@@ -972,10 +996,6 @@
 
   <section id="bnr-section" class="bnr-section">
     <div class="bnr-carousel" id="bnr-carousel">
-      <div class="pq-live-badge" id="pq-live-badge">
-        <span class="pq-live-dot"></span>
-        <span id="pq-live-badge-txt"></span>
-      </div>
       <div class="bnr-track" id="bnr-track">
         <div class="bnr-slide" onclick="location.href='{{ url_for('catalogo_publico', q='principia') }}'">
           <img src="{{ url_for('static', filename='banners/principia.jpg') }}" alt="Principia">
@@ -995,7 +1015,17 @@
       <button class="bnr-dot" onclick="bnrGoTo(1)"></button>
       <button class="bnr-dot" onclick="bnrGoTo(2)"></button>
     </div>
+    <div class="pq-live-badge" id="pq-live-badge">
+      <span class="pq-live-dot"></span>
+      <span id="pq-live-badge-txt"></span>
+    </div>
   </section>
+
+  <a href="{{ url_for('consumidor_cupons') }}" class="pq-meu-cupom" id="pq-meu-cupom" style="display:none">
+    <i class="fa fa-ticket"></i>
+    <span id="pq-meu-cupom-txt"></span>
+    <i class="fa fa-chevron-right pq-meu-cupom-arrow"></i>
+  </a>
 
   {# â”€â”€ Departamentos: strip rÃ¡pida acima do hero â”€â”€ #}
   <div class="dept-strip-wrap">
@@ -1058,6 +1088,9 @@
         <div>
           <div class="heia-badge"><span class="badge-live-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#a78bfa;animation:live-blink 1.3s ease-in-out infinite"></span>Poupinha IA · Análise em tempo real</div>
           <div class="heia-msg" id="heia-msg">Analisando os melhores preços para você...</div>
+          <div class="heia-eco-total" id="heia-eco-total" style="display:none">
+            <i class="fa fa-piggy-bank"></i> Economia de até <strong>R$ <span id="heia-eco-val">0,00</span></strong> nesses produtos agora
+          </div>
         </div>
       </div>
       <div class="home-row-wrap heia-row-wrap">
@@ -1569,10 +1602,12 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
     const d = await _cFetch(`eco_${_geoK(lat || 0, lng || 0)}`, 300e3, `/api/home/economia-ia?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
     if (!d.produtos || !d.produtos.length) return;
     msgEl.textContent = d.insight_ia || 'Confira os melhores preços perto de você agora.';
-    const ecVal = document.getElementById('hhv-ec-val');
-    if (ecVal && d.economia_total > 0) {
-      // Formata como "47,50" sem o "R$ "
-      ecVal.textContent = parseFloat(d.economia_total).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+    const ecWrap = document.getElementById('heia-eco-total');
+    const ecVal = document.getElementById('heia-eco-val');
+    if (ecWrap && ecVal && d.economia_total > 0) {
+      _pqAnimaContagem(ecVal, parseFloat(d.economia_total));
+      ecWrap.style.display = 'block';
+      requestAnimationFrame(() => ecWrap.classList.add('heia-eco-in'));
     }
     const listaEco = _dedupeContraHome(d.produtos, 20);
     if (!listaEco.length) return;
@@ -2432,11 +2467,26 @@ function _homeSugKeyNav(e) {
   }
 }
 
-/* ── Selo "atividade ao vivo" + entrada suave das seções ──────────
-   Puramente visual/aditivo: nao mexe em nenhum fluxo existente, so
-   busca um numero real (pedidos de hoje) e anima a entrada das
-   seções que ja existem na pagina. */
+/* ── Home mais "viva": selo de atividade real, cupom ativo, entrada
+   suave ao rolar, contagem animada e busca com placeholder rotativo.
+   Tudo puramente visual/aditivo -- nenhum fluxo existente (carrinho,
+   busca, checkout, cupom) foi alterado, so a camada de apresentacao. */
+function _pqAnimaContagem(el, valorFinal, formatFn) {
+  if (!el) return;
+  formatFn = formatFn || (v => v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.'));
+  const duracao = 900;
+  const inicio = performance.now();
+  function passo(agora) {
+    const t = Math.min(1, (agora - inicio) / duracao);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = formatFn(valorFinal * eased);
+    if (t < 1) requestAnimationFrame(passo);
+  }
+  requestAnimationFrame(passo);
+}
+
 (function () {
+  // Selo "N pedidos feitos hoje aqui perto", com o numero contando
   try {
     const lat = localStorage.getItem('pq_lat') || 0;
     const lng = localStorage.getItem('pq_lng') || 0;
@@ -2448,15 +2498,56 @@ function _homeSugKeyNav(e) {
         const txt = document.getElementById('pq-live-badge-txt');
         if (!badge || !txt) return;
         const n = d.pedidos_hoje;
-        txt.textContent = n === 1
-          ? '1 pedido feito hoje aqui perto'
-          : `${n} pedidos feitos hoje aqui perto`;
+        const num = document.createElement('span');
+        txt.textContent = '';
+        txt.appendChild(num);
+        txt.appendChild(document.createTextNode(n === 1 ? ' pedido feito hoje aqui perto' : ' pedidos feitos hoje aqui perto'));
+        _pqAnimaContagem(num, n, v => Math.round(v).toString());
         badge.style.display = 'flex';
         requestAnimationFrame(() => badge.classList.add('pq-live-in'));
       })
       .catch(() => {});
   } catch (e) {}
 
+  // Aviso de cupom ativo pro cliente logado (nada aparece se nao tiver)
+  try {
+    fetch('/api/home/meu-cupom')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d || !d.tem_cupom) return;
+        const el = document.getElementById('pq-meu-cupom');
+        const txt = document.getElementById('pq-meu-cupom-txt');
+        if (!el || !txt) return;
+        const validadeTxt = d.valido_ate ? ` · válido até ${d.valido_ate}` : '';
+        txt.textContent = `Você tem um cupom de ${d.valor_label} pra usar${validadeTxt}`;
+        el.style.display = 'flex';
+        requestAnimationFrame(() => el.classList.add('pq-meu-cupom-in'));
+      })
+      .catch(() => {});
+  } catch (e) {}
+
+  // Placeholder rotativo na busca da home
+  try {
+    const inp = document.getElementById('home-q');
+    if (inp) {
+      const frases = [
+        'Buscar item ou medicamento',
+        'Buscar dipirona...',
+        'Buscar protetor solar...',
+        'Buscar fralda...',
+        'Buscar vitamina D...',
+        'Buscar shampoo...',
+      ];
+      let i = 0;
+      setInterval(() => {
+        if (document.activeElement === inp || inp.value) return;
+        i = (i + 1) % frases.length;
+        inp.setAttribute('placeholder', frases[i]);
+      }, 2600);
+    }
+  } catch (e) {}
+
+  // Entrada suave das seções ao rolar a página
   try {
     const alvos = document.querySelectorAll('.home-section, .dept-strip-wrap, #bnr-section');
     if (!('IntersectionObserver' in window) || !alvos.length) {
