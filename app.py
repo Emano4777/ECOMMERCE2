@@ -12944,6 +12944,20 @@ def _is_incoherent_complement(base_names, product_name):
     return False
 
 
+_FRALDA_KEYWORDS = (
+    "fralda", "fraldas", "pampers", "babysec", "huggies", "pom pom", "pompom",
+    "turma da monica fralda", "cotinha", "fralda calcinha",
+)
+
+
+def _produto_e_fralda(nome: str) -> bool:
+    """Deteccao por palavra-chave (nao ANVISA/farmaco) se um produto e
+    fralda -- usado pra regra de cupom que exige pelo menos 1 item fora
+    dessa categoria no carrinho."""
+    prod = _norm_text(nome or "")
+    return any(_norm_text(w) in prod for w in _FRALDA_KEYWORDS)
+
+
 def _is_probably_substitute(base_names, product_name, matched_terms=False, base_classificacao=None, product_classificacao=None):
     if _alpha_classificacao_specific_match(base_classificacao, product_classificacao):
         return True
@@ -18451,6 +18465,15 @@ def api_checkout():
                         for item in itens
                         if (item.get("ean") or "").strip() not in escopo_eans_set
                     )
+                elif escopo_c == "nao_fralda":
+                    # Cupom exige pelo menos 1 item que NAO seja fralda no
+                    # carrinho (pode ter fralda junto, so nao pode ser so
+                    # fralda) -- carrinho 100% fralda zera o desconto, o que
+                    # na pratica invalida o cupom pra esse carrinho.
+                    tem_item_nao_fralda = any(
+                        not _produto_e_fralda(item.get("nome", "")) for item in itens
+                    )
+                    applicable_total = produtos_total if tem_item_nao_fralda else 0
                 else:
                     applicable_total = produtos_total
                 if cupom["desconto_tipo"] == "pct":
@@ -29544,6 +29567,11 @@ def api_cupom_validar():
         return jsonify({
             "valido": False,
             "msg": f"Esse cupom só vale para compras a partir de R$ {valor_min_txt}.",
+        })
+    if (cupom.get("escopo") or "todos") == "nao_fralda" and total <= 0:
+        return jsonify({
+            "valido": False,
+            "msg": "Esse cupom só vale em pedidos com algum item além de fralda no carrinho.",
         })
     desconto = 0.0
     if cupom["desconto_tipo"] == "pct":

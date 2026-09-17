@@ -1870,6 +1870,10 @@ function _calcApplicableTotal(cnpjloja, codigo) {
     return cart.reduce((s, i) => s + (parseFloat(i.preco||0) * (i.qty||1)), 0);
   }
   const escopo = cupomInfo.escopo;
+  if (escopo === 'nao_fralda') {
+    if (!_carrinhoTemItemNaoFralda(cnpjloja)) return 0;
+    return cart.reduce((s, i) => s + (parseFloat(i.preco||0) * (i.qty||1)), 0);
+  }
   const escCats = (cupomInfo.escopo_categorias || '').split(',').map(s => s.trim()).filter(Boolean);
   const escEans = (cupomInfo.escopo_eans || '').split(',').map(s => s.trim()).filter(Boolean);
   return cart.reduce((s, i) => {
@@ -1885,6 +1889,11 @@ function _calcApplicableTotal(cnpjloja, codigo) {
     }
     return s + (parseFloat(i.preco||0) * (i.qty||1));
   }, 0);
+}
+
+function _carrinhoTemItemNaoFralda(cnpjloja) {
+  const cart = getCart().filter(i => i.cnpjloja === cnpjloja);
+  return cart.some(i => !/fralda|fraldas|pampers|babysec|huggies|pom\s*pom/i.test(i.nome || ''));
 }
 
 function _prodCat(nome) {
@@ -1917,6 +1926,7 @@ async function aplicarCupom(cnpjloja) {
         if (esc === 'categoria') return ` (categorias: ${d.escopo_categorias || '?'})`;
         if (esc === 'produto') return ' (produtos específicos)';
         if (esc === 'produto_exceto') return ' (só vale se levar outro item além do já indicado)';
+        if (esc === 'nao_fralda') return ' (só vale se o carrinho tiver algum item além de fralda)';
         return '';
       })();
       _cupomAplicado[cnpjloja] = {
