@@ -22122,35 +22122,48 @@ def api_suporte_mensagem():
     resposta = None
     from_cache = False
     escalou = False
-    if chat["pedido_id"]:
-        pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
-        resposta, _, escalou = _claude_suporte_responder(
-            mensagem, pedido_ctx=pedido_ctx, historico=historico, consumidor_id=consumidor_id, chat_id=chat_id
-        )
-    else:
-        resposta = None if pula_atalho else _suporte_resposta_topico(mensagem)
-        if resposta:
-            from_cache = True
+    # Bloco inteiro protegido -- qualquer excecao inesperada aqui (rede,
+    # ferramenta, cache) antes so derrubava a rota inteira com 500 (pagina de
+    # erro HTML), o fetch() do chat quebrava tentando ler como JSON e o
+    # cliente so via "Falha de conexao" sem nunca saber o motivo real nem
+    # receber a mensagem de fallback abaixo. Agora cai no mesmo fallback
+    # seguro de "nao consegui responder" que ja existia pra IA sem resposta.
+    try:
+        if chat["pedido_id"]:
+            pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
+            resposta, _, escalou = _claude_suporte_responder(
+                mensagem, pedido_ctx=pedido_ctx, historico=historico, consumidor_id=consumidor_id, chat_id=chat_id
+            )
         else:
-            resposta = None if pula_atalho else _suporte_cache_buscar(mensagem)
+            resposta = None if pula_atalho else _suporte_resposta_topico(mensagem)
             if resposta:
                 from_cache = True
             else:
-                pedidos_recentes_ctx = _pedidos_recentes_ctx_para_ia(consumidor_id)
-                resposta, usou_dado_pessoal, escalou = _claude_suporte_responder(
-                    mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx,
-                    consumidor_id=consumidor_id, chat_id=chat_id,
-                )
-                # Nunca cacheia resposta que usou pedido/ferramenta — e dado pessoal
-                # de UM cliente; o cache e global por similaridade de texto, entao
-                # cachear aqui vazaria pedido/cupom/link de pagamento pra outro
-                # cliente que perguntasse algo parecido depois.
-                if resposta and not pula_atalho and not usou_dado_pessoal:
-                    _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
+                resposta = None if pula_atalho else _suporte_cache_buscar(mensagem)
+                if resposta:
+                    from_cache = True
+                else:
+                    pedidos_recentes_ctx = _pedidos_recentes_ctx_para_ia(consumidor_id)
+                    resposta, usou_dado_pessoal, escalou = _claude_suporte_responder(
+                        mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx,
+                        consumidor_id=consumidor_id, chat_id=chat_id,
+                    )
+                    # Nunca cacheia resposta que usou pedido/ferramenta — e dado pessoal
+                    # de UM cliente; o cache e global por similaridade de texto, entao
+                    # cachear aqui vazaria pedido/cupom/link de pagamento pra outro
+                    # cliente que perguntasse algo parecido depois.
+                    if resposta and not pula_atalho and not usou_dado_pessoal:
+                        _suporte_cache_salvar(_norm_text(mensagem), mensagem, resposta)
+    except Exception as exc:
+        app.logger.warning("api_suporte_mensagem: erro gerando resposta: %s", exc)
+        resposta = None
 
     if not resposta:
         resposta = "No momento não consigo responder automaticamente. Vou chamar um atendente pra te ajudar."
-        _ia_tool_escalar_atendimento(chat_id, consumidor_id, "IA nao conseguiu gerar resposta", "sem_resposta")
+        try:
+            _ia_tool_escalar_atendimento(chat_id, consumidor_id, "IA nao conseguiu gerar resposta", "sem_resposta")
+        except Exception as exc:
+            app.logger.warning("api_suporte_mensagem: erro escalando: %s", exc)
         escalou = True
 
     cur.execute(
