@@ -15332,9 +15332,18 @@ def _buscar_med_catalogo(nome_med: str, cnpjs: list):
 
     def _search_cnpj(cnpj):
         try:
-            return get_dns_products(cnpj, q[:35], skip_image_filter=True)
+            prods = get_dns_products(cnpj, q[:35], skip_image_filter=True)
         except Exception:
             return []
+        # get_dns_products() e uma busca de UMA loja so -- o SQL da fonte
+        # alpha_a7 nao devolve a coluna cnpjloja em cada linha (o contexto
+        # ja era o parametro `cnpj`), mas aqui varias lojas sao buscadas em
+        # paralelo e os resultados juntados, entao sem isso o produto final
+        # nao sabe de qual farmacia veio (link/"adicionar ao carrinho" quebra).
+        for p in prods:
+            if not p.get("cnpjloja"):
+                p["cnpjloja"] = cnpj
+        return prods
 
     with ThreadPoolExecutor(max_workers=min(len(cnpjs), 6)) as exc:
         for prods in exc.map(_search_cnpj, cnpjs[:15], timeout=15):
