@@ -27143,6 +27143,17 @@ _ANVISA_STOP_WORDS = {
     "torrent","teuto","eurofarma","prati","donaduzzi","neo","geolab",
     "pharlab","pharma","laboratorio","laboratorios",
     "natulab","multilab","airela","pharmascience","biosintetica",
+    # Abreviacoes truncadas do mesmo fabricante acima (aparecem quando o nome
+    # do produto corta o nome do laboratorio, ex: "NATU" em vez de "NATULAB",
+    # "PRAT"/"TEUT"/"GEOL"/"VITA"/"VITAM"/"PHAR" em vez da forma completa) --
+    # cada uma vira uma chave PROPRIA e ISOLADA da familia (ex: "DIPIRONA
+    # NATU" != "DIPIRONA", nunca herda a classificacao ja validada da chave
+    # base), as vezes com tarja errada nunca corrigida por estar "escondida"
+    # entre dezenas de variantes por fabricante. Achado auditando a familia
+    # DIPIRONA/PARACETAMOL/IBUPROFENO apos usuario reportar EANs com mesma
+    # dose/forma e tarja divergente.
+    "natu","legrand","cimed","geol","prat","teut","vita","vitam","phar",
+    "globlo","alth","althaia","medq","medquimica",
     # Embalagem / apresentacao -- faltavam varios termos comuns aqui, o que
     # fazia a 2a palavra "significativa" da chave virar a embalagem em vez
     # do nome do remedio (ex: "ITRACONAZOL CAPSULAS" em vez de so
@@ -27151,6 +27162,11 @@ _ANVISA_STOP_WORDS = {
     # vem no nome, ex: "Solução") nunca batia com essas entradas sem acento.
     "caixa","unidades","unidade","embalagem","ampola","ampolas",
     "aplicador","aplicadores","flaconete","flaconetes",
+    # Mais termos de embalagem/forma que faltavam (mesmo motivo acima):
+    # "cartela" (tira de blister) e abreviacoes de "comprimido" e "gelatinosa
+    # mole" que nao batiam com as formas ja listadas.
+    "cartela","cartelas","compr","comps","frac","gelat","gelatinosa",
+    "gelatinosas","mole","moles",
 }
 
 # Mapeamento nome-comercial → INN para lookup no anvisa_cache.
