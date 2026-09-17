@@ -346,6 +346,40 @@
 .bnr-track { display:flex; align-items:stretch; transition:transform .45s cubic-bezier(.25,.8,.25,1); }
 .bnr-slide { flex:0 0 100%; display:flex; flex-direction:column; cursor:pointer; }
 .bnr-slide img { width:100%; height:auto; aspect-ratio:1815/445; object-fit:cover; display:block; }
+
+/* ── Selo "atividade ao vivo" sobre o carrossel de banners ───────── */
+.pq-live-badge {
+  position:absolute; top:12px; left:12px; z-index:5;
+  display:none; align-items:center; gap:7px;
+  background:rgba(20,20,20,.62); backdrop-filter:blur(3px);
+  color:#fff; font-size:.76rem; font-weight:800;
+  padding:7px 13px 7px 10px; border-radius:20px;
+  opacity:0; transform:translateY(-6px);
+  transition:opacity .5s ease, transform .5s ease;
+  box-shadow:0 4px 14px rgba(0,0,0,.18);
+}
+.pq-live-badge.pq-live-in { opacity:1; transform:translateY(0); }
+.pq-live-dot {
+  width:8px; height:8px; border-radius:50%; background:#22c55e; flex-shrink:0;
+  box-shadow:0 0 0 rgba(34,197,94,.6); animation:pqLivePulse 1.8s infinite;
+}
+@keyframes pqLivePulse {
+  0%   { box-shadow:0 0 0 0 rgba(34,197,94,.55); }
+  70%  { box-shadow:0 0 0 8px rgba(34,197,94,0); }
+  100% { box-shadow:0 0 0 0 rgba(34,197,94,0); }
+}
+
+/* ── Entrada suave das seções ao rolar a página ──────────────────── */
+.pq-reveal {
+  opacity:0; transform:translateY(22px);
+  transition:opacity .6s ease, transform .6s ease;
+}
+.pq-reveal.pq-reveal-in { opacity:1; transform:translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .pq-reveal { opacity:1; transform:none; transition:none; }
+  .pq-live-badge { transition:none; }
+  .pq-live-dot { animation:none; }
+}
 .welcome-video-wrap {
   margin-bottom:22px;
   overflow:hidden;
@@ -938,6 +972,10 @@
 
   <section id="bnr-section" class="bnr-section">
     <div class="bnr-carousel" id="bnr-carousel">
+      <div class="pq-live-badge" id="pq-live-badge">
+        <span class="pq-live-dot"></span>
+        <span id="pq-live-badge-txt"></span>
+      </div>
       <div class="bnr-track" id="bnr-track">
         <div class="bnr-slide" onclick="location.href='{{ url_for('catalogo_publico', q='principia') }}'">
           <img src="{{ url_for('static', filename='banners/principia.jpg') }}" alt="Principia">
@@ -2393,5 +2431,49 @@ function _homeSugKeyNav(e) {
     _homeSugHide(true);
   }
 }
+
+/* ── Selo "atividade ao vivo" + entrada suave das seções ──────────
+   Puramente visual/aditivo: nao mexe em nenhum fluxo existente, so
+   busca um numero real (pedidos de hoje) e anima a entrada das
+   seções que ja existem na pagina. */
+(function () {
+  try {
+    const lat = localStorage.getItem('pq_lat') || 0;
+    const lng = localStorage.getItem('pq_lng') || 0;
+    fetch(`/api/home/atividade-ao-vivo?lat=${lat}&lng=${lng}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d || !d.pedidos_hoje) return;
+        const badge = document.getElementById('pq-live-badge');
+        const txt = document.getElementById('pq-live-badge-txt');
+        if (!badge || !txt) return;
+        const n = d.pedidos_hoje;
+        txt.textContent = n === 1
+          ? '1 pedido feito hoje aqui perto'
+          : `${n} pedidos feitos hoje aqui perto`;
+        badge.style.display = 'flex';
+        requestAnimationFrame(() => badge.classList.add('pq-live-in'));
+      })
+      .catch(() => {});
+  } catch (e) {}
+
+  try {
+    const alvos = document.querySelectorAll('.home-section, .dept-strip-wrap, #bnr-section');
+    if (!('IntersectionObserver' in window) || !alvos.length) {
+      alvos.forEach(el => el.classList.add('pq-reveal-in'));
+      return;
+    }
+    alvos.forEach(el => el.classList.add('pq-reveal'));
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('pq-reveal-in');
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    alvos.forEach(el => obs.observe(el));
+  } catch (e) {}
+})();
 </script>
 {% endblock %}

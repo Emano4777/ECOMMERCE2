@@ -11710,6 +11710,50 @@ def api_home_curva_a():
     return jsonify(payload)
 
 
+_HOME_ATIVIDADE_CACHE: dict = {}
+_HOME_ATIVIDADE_CACHE_TTL = 180  # segundos -- precisa ficar "vivo", nao serve cache de dias
+
+
+@app.get("/api/home/atividade-ao-vivo")
+@_rate_limited_api(max_calls=40, window_secs=60)
+def api_home_atividade_ao_vivo():
+    """Numero de pedidos feitos hoje nas farmacias proximas do cliente --
+    so leitura, usado pra um selo de 'atividade ao vivo' na home (nada de
+    novo em termos de funcionalidade, so um dado real pra exibir)."""
+    try:
+        lat = float(request.args.get("lat", 0) or 0)
+        lng = float(request.args.get("lng", 0) or 0)
+    except (ValueError, TypeError):
+        lat = lng = 0.0
+    cnpjs, _sem_farmacia = _home_public_cnpjs(lat, lng)
+    if not cnpjs:
+        return jsonify({"pedidos_hoje": 0})
+    cache_key = ",".join(sorted(cnpjs))
+    entry = _HOME_ATIVIDADE_CACHE.get(cache_key)
+    if entry and time.time() < entry[1]:
+        return jsonify({"pedidos_hoje": entry[0]})
+    n = 0
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COUNT(*) AS n FROM ecommerce_pedidos
+            WHERE cnpjloja = ANY(%s)
+              AND criado_em >= CURRENT_DATE
+              AND status NOT IN ('cancelado')
+            """,
+            (cnpjs,),
+        )
+        row = cur.fetchone()
+        n = int(row["n"]) if row and row.get("n") is not None else 0
+        cur.close()
+    except Exception:
+        n = 0
+    _HOME_ATIVIDADE_CACHE[cache_key] = (n, time.time() + _HOME_ATIVIDADE_CACHE_TTL)
+    return jsonify({"pedidos_hoje": n})
+
+
 @app.get("/api/home/insights")
 @_rate_limited_api(max_calls=20, window_secs=60)
 def api_home_insights():
