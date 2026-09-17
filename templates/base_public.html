@@ -2989,7 +2989,9 @@ window.PQEconomia = (function () {
       body: JSON.stringify({chat_id: pqsChatId, mensagem: mensagem}),
     }).then(r => r.json()).then(d => {
       pensando.remove();
-      if (d.aguardando_humano) {
+      if (d.login_required) {
+        msgsEl.appendChild(pqsBubble('sistema', 'Sua sessão expirou. Atualize a página e faça login para continuar.'));
+      } else if (d.aguardando_humano) {
         msgsEl.appendChild(pqsBubble('sistema', 'Sua mensagem foi enviada. Aguarde a resposta.'));
       } else if (d.resposta) {
         msgsEl.appendChild(pqsBubble('ia', d.resposta));

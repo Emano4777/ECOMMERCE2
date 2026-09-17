@@ -3848,6 +3848,15 @@ def _consumer_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not session.get("consumidor_id"):
+            # Rota /api/* e chamada via fetch() do JS, nunca navegacao direta
+            # -- redirect() vira uma pagina HTML de login que o fetch segue e
+            # tenta ler como JSON, quebra no .json() e cai no catch() generico
+            # (ex: chat de suporte mostrando "Falha de conexao" quando na
+            # verdade a sessao so expirou). JSON com login_required deixa o
+            # front-end tratar isso de forma especifica, igual /api/suporte/abrir
+            # ja faz.
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "login_required": True}), 401
             flash("Faça login para continuar.", "info")
             return redirect(url_for("consumidor_login", next=request.full_path))
         return fn(*args, **kwargs)
