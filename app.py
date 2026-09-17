@@ -15245,7 +15245,16 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg", tenta
     votado por item -- letra cursiva de medico as vezes fica ambigua a ponto
     do proprio modelo ler diferente em tentativas diferentes (ex: "Leduo" vs
     "Ledvo"), e maioria entre algumas leituras e bem mais confiavel do que
-    confiar numa unica chamada."""
+    confiar numa unica chamada.
+
+    Cacheia pelo hash da propria imagem (mesma infra de busca_cache, 3 dias)
+    -- sem isso, reanalisar a mesma foto (usuario tenta de novo, recarrega a
+    pagina, etc) dispara `tentativas` chamadas de IA de novo do zero."""
+    cache_key = "receita_vision:" + hashlib.sha256(image_b64.encode("utf-8")).hexdigest()
+    cacheado = _busca_cache_get(cache_key)
+    if isinstance(cacheado, dict) and isinstance(cacheado.get("medicamentos"), list):
+        return cacheado
+
     from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(max_workers=tentativas) as exc:
@@ -15297,7 +15306,9 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg", tenta
             "confianca_leitura": confianca,
             "principio_ativo": principio_ativo,
         })
-    return {**base, "medicamentos": medicamentos}
+    resultado_final = {**base, "medicamentos": medicamentos}
+    _busca_cache_set(cache_key, resultado_final)
+    return resultado_final
 
 
 def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
