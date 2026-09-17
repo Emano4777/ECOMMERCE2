@@ -22157,6 +22157,17 @@ def api_suporte_mensagem():
     except Exception as exc:
         app.logger.warning("api_suporte_mensagem: erro gerando resposta: %s", exc)
         resposta = None
+        # Se a excecao veio de uma query SQL (ex: _pedido_ctx_para_ia,
+        # _suporte_cache_buscar), a conexao fica com a transacao "abortada"
+        # -- Postgres recusa QUALQUER comando seguinte (incluindo o INSERT
+        # da resposta da IA mais abaixo, fora deste bloco) ate um ROLLBACK
+        # explicito. Sem isso, o catch acima virava so um atraso: o proximo
+        # cur.execute() quebrava de novo, agora sem protecao, e a rota
+        # continuava respondendo 500 mesmo com o fallback em vigor.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
 
     if not resposta:
         resposta = "No momento não consigo responder automaticamente. Vou chamar um atendente pra te ajudar."
@@ -22164,6 +22175,10 @@ def api_suporte_mensagem():
             _ia_tool_escalar_atendimento(chat_id, consumidor_id, "IA nao conseguiu gerar resposta", "sem_resposta")
         except Exception as exc:
             app.logger.warning("api_suporte_mensagem: erro escalando: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         escalou = True
 
     cur.execute(
