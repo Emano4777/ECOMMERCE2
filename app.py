@@ -23,6 +23,7 @@ import html
 from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal
 from functools import wraps
+from collections import Counter
 import re
 import ssl
 import unicodedata
@@ -15159,7 +15160,7 @@ _MED_DOSAGE_RE = re.compile(
 )
 
 
-def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
+def _claude_vision_receita_once(image_b64: str, media_type: str = "image/jpeg"):
     api_key = _anthropic_api_key()
     if not api_key:
         return None
@@ -15174,16 +15175,20 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
         "princípio ativo), NUNCA palavras de instrução como 'tomar', 'usar', 'aplicar' etc. "
         "Essas palavras e a frequência (ex: '1 comprimido de 8/8h', 'uso contínuo') vão no "
         "campo \"posologia\", nunca no \"nome\".\n"
-        "- A letra pode ser difícil de ler. Leia com atenção cada item numerado/marcado da "
-        "receita antes de responder. Só inclua um medicamento se conseguir identificar o nome "
-        "com razoável confiança; se um item estiver genuinamente ilegível, use \"nome\":\"ilegível\" "
-        "para ele em vez de inventar um nome parecido.\n"
+        "- A letra pode ser difícil de ler. Examine cada item numerado/marcado da receita com "
+        "atenção, letra por letra, antes de decidir o nome. Só inclua um medicamento se "
+        "conseguir identificar o nome com razoável confiança; se um item estiver genuinamente "
+        "ilegível, use \"nome\":\"ilegível\" para ele em vez de inventar um nome parecido.\n"
+        "- Quando a grafia exata de uma palavra for ambígua (ex: pode ser lida como \"u\" ou "
+        "\"v\", \"o\" ou \"a\"), prefira SEMPRE a leitura que corresponde a um medicamento "
+        "comercial realmente registrado e vendido no Brasil, em vez da leitura mais literal "
+        "traço-a-traço -- médicos escrevem nomes reais de remédios, não palavras aleatórias.\n"
         "- Não repita o mesmo item duas vezes.\n"
         "Se não for receita ou não tiver medicamentos, retorne: {\"medicamentos\":[]}"
     )
     payload = json.dumps({
         "model": "claude-sonnet-5",
-        "max_tokens": 1024,
+        "max_tokens": 4096,
         "messages": [{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
             {"type": "text", "text": prompt},
@@ -15199,9 +15204,19 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
             data = json.loads(r.read().decode("utf-8"))
-        text = (data.get("content") or [{}])[0].get("text", "").strip()
+        # claude-sonnet-5 pode emitir um bloco "thinking" antes do bloco de
+        # texto final -- pegar sempre o indice 0 deixava `text` vazio nesses
+        # casos (e o "thinking" nao vinha preenchido, so a "signature").
+        text = ""
+        for block in (data.get("content") or []):
+            if block.get("type") == "text":
+                text = (block.get("text") or "").strip()
+                break
         text = re.sub(r"^```[a-z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text.strip())
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            text = match.group(0)
         return json.loads(text)
     except urllib.error.HTTPError as e:
         body = ""
@@ -15214,6 +15229,42 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
     except Exception as e:
         app.logger.error("_claude_vision_receita error: %s", e)
         return None
+
+
+def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg", tentativas: int = 3):
+    """Chama a leitura da receita varias vezes em paralelo e usa o nome mais
+    votado por item -- letra cursiva de medico as vezes fica ambigua a ponto
+    do proprio modelo ler diferente em tentativas diferentes (ex: "Leduo" vs
+    "Ledvo"), e maioria entre algumas leituras e bem mais confiavel do que
+    confiar numa unica chamada."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=tentativas) as exc:
+        resultados = list(exc.map(lambda _: _claude_vision_receita_once(image_b64, media_type), range(tentativas)))
+    resultados = [r for r in resultados if r and isinstance(r.get("medicamentos"), list)]
+    if not resultados:
+        return None
+
+    base = max(resultados, key=lambda r: len(r["medicamentos"]))
+    n = len(base["medicamentos"])
+    medicamentos = []
+    for i in range(n):
+        base_item = base["medicamentos"][i]
+        candidatos_nome = [
+            r["medicamentos"][i].get("nome", "").strip()
+            for r in resultados
+            if len(r["medicamentos"]) > i and (r["medicamentos"][i].get("nome") or "").strip()
+        ]
+        nome_final = base_item.get("nome", "")
+        if candidatos_nome:
+            contagem = Counter(_norm_text(c) for c in candidatos_nome)
+            nome_norm_mais_comum, _ = contagem.most_common(1)[0]
+            for c in candidatos_nome:
+                if _norm_text(c) == nome_norm_mais_comum:
+                    nome_final = c
+                    break
+        medicamentos.append({**base_item, "nome": nome_final})
+    return {**base, "medicamentos": medicamentos}
 
 
 def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
@@ -15236,7 +15287,7 @@ def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
     )
     payload = json.dumps({
         "model": "claude-sonnet-5",
-        "max_tokens": 200,
+        "max_tokens": 1024,
         "messages": [{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
             {"type": "text", "text": prompt},
@@ -15252,7 +15303,15 @@ def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
             resp_data = json.loads(r.read().decode("utf-8"))
-        text = (resp_data.get("content") or [{}])[0].get("text", "").strip()
+        # claude-sonnet-5 pode emitir um bloco "thinking" antes do bloco de
+        # texto final -- pegar sempre o indice 0 deixava `text` vazio nesses
+        # casos, e com max_tokens baixo (200) o thinking sozinho ja estourava
+        # o limite e a chamada nunca devolvia nada (stop_reason=max_tokens).
+        text = ""
+        for block in (resp_data.get("content") or []):
+            if block.get("type") == "text":
+                text = (block.get("text") or "").strip()
+                break
         text = re.sub(r"^```[a-z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text.strip())
         return json.loads(text)

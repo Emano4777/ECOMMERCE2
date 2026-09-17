@@ -255,7 +255,8 @@
   transition: border-color .15s;
 }
 .rx-med-chip:hover { border-color: var(--pq-red); }
-.rx-med-chip-name { line-height: 1.3; }
+.rx-med-chip-name { line-height: 1.3; cursor: pointer; }
+.rx-med-chip-name:hover { text-decoration: underline; }
 .rx-med-chip-conc { font-size: .72rem; color: var(--pq-muted); font-weight: 600; }
 .rx-med-chip-rm {
   width: 20px; height: 20px; border-radius: 50%;
@@ -834,8 +835,8 @@ function rxRenderMeds() {
   const grid = document.getElementById('rx-meds-grid');
   grid.innerHTML = _rxMeds.map((m, idx) => `
     <div class="rx-med-chip" id="chip-${m._id}">
-      <div>
-        <div class="rx-med-chip-name">${escHtml(m.nome)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="rx-med-chip-name" title="Clique pra corrigir o nome, se a leitura estiver errada" onclick="rxEditMed(${m._id})">${escHtml(m.nome)} <i class="fa fa-pen" style="font-size:.65em;opacity:.5"></i></div>
         ${m.concentracao ? `<div class="rx-med-chip-conc">${escHtml(m.concentracao)}${m.forma ? ' · ' + escHtml(m.forma) : ''}</div>` : ''}
       </div>
       <button class="rx-med-chip-rm" onclick="rxRemoveMed(${m._id})" title="Remover"><i class="fa fa-xmark"></i></button>
@@ -846,6 +847,17 @@ function rxRenderMeds() {
 
 function rxRemoveMed(id) {
   _rxMeds = _rxMeds.filter(m => m._id !== id);
+  rxRenderMeds();
+}
+
+function rxEditMed(id) {
+  const m = _rxMeds.find(x => x._id === id);
+  if (!m) return;
+  const novoNome = prompt('A leitura da receita ficou errada? Corrija o nome do medicamento:', m.nome);
+  if (novoNome === null) return;
+  const nomeLimpo = novoNome.trim();
+  if (!nomeLimpo) return;
+  m.nome = nomeLimpo;
   rxRenderMeds();
 }
 
