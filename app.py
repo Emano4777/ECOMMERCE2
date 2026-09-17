@@ -21668,7 +21668,14 @@ _SUPORTE_TOOLS = [
             "de ja ter falado de um medicamento (por nome comercial ou principio ativo), "
             "SEMPRE passe o nome do principio ativo/medicamento discutido no campo `nome` "
             "(nunca so a palavra 'generico' ou 'similar' sozinha, isso nao e nome de "
-            "produto e a busca nunca acha nada) e use o campo `categoria` pra filtrar."
+            "produto e a busca nunca acha nada) e use o campo `categoria` pra filtrar. "
+            "Se pedir generico/similar/referencia e a ferramenta so devolver outras "
+            "categorias (ex: pediu similar e so veio generico), NUNCA invente uma "
+            "explicacao farmacologica pra justificar (ex: nao diga que 'esse principio "
+            "ativo e sempre generico' ou algo do tipo -- isso costuma ser falso, so "
+            "reflete o que ESSA farmacia tem em estoque agora). Diga so que nao achou "
+            "essa categoria especifica em estoque no momento e, se fizer sentido, "
+            "ofereca consultar outra categoria (ex: referencia/marca)."
         ),
         "input_schema": {
             "type": "object",
