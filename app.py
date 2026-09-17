@@ -15169,12 +15169,21 @@ def _claude_vision_receita_once(image_b64: str, media_type: str = "image/jpeg"):
         "de médico, e extraia todos os medicamentos prescritos. "
         "Retorne SOMENTE um JSON válido, sem markdown, no formato:\n"
         '{"medicamentos":[{"nome":"Nome","concentracao":"ex:500mg",'
-        '"forma":"ex:comprimido","posologia":"ex:1cp 3x/dia por 7 dias"}]}\n'
+        '"forma":"ex:comprimido","posologia":"ex:1cp 3x/dia por 7 dias",'
+        '"principio_ativo":"ex:Paracetamol + Codeína"}]}\n'
         "REGRAS IMPORTANTES:\n"
         "- O campo \"nome\" deve conter APENAS o nome do medicamento (nome comercial ou "
         "princípio ativo), NUNCA palavras de instrução como 'tomar', 'usar', 'aplicar' etc. "
         "Essas palavras e a frequência (ex: '1 comprimido de 8/8h', 'uso contínuo') vão no "
         "campo \"posologia\", nunca no \"nome\".\n"
+        "- O campo \"principio_ativo\" é o mais importante pra achar o remédio certo mesmo "
+        "quando a caligrafia for ambígua: baseado no seu conhecimento farmacêutico, diga qual "
+        "é o(s) princípio(s) ativo(s) do medicamento que você acha que é esse (ex: se o nome "
+        "comercial parecer \"Codex\"/\"Codox\"/\"Cadex\", esse é um nome comercial conhecido de "
+        "paracetamol + codeína, então \"principio_ativo\":\"Paracetamol + Codeína\"). Preencha "
+        "sempre que reconhecer o medicamento, mesmo com pequena incerteza na grafia exata do "
+        "nome comercial. Deixe vazio SOMENTE se realmente não reconhecer nenhum medicamento "
+        "parecido com o que está escrito.\n"
         "- A letra pode ser difícil de ler. Examine cada item numerado/marcado da receita com "
         "atenção, letra por letra, antes de decidir o nome. Só inclua um medicamento se "
         "conseguir identificar o nome com razoável confiança; se um item estiver genuinamente "
@@ -15271,7 +15280,23 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg", tenta
                 if _norm_text(c) == nome_norm_mais_comum:
                     nome_final = c
                     break
-        medicamentos.append({**base_item, "nome": nome_final, "confianca_leitura": confianca})
+        # principio_ativo vem do conhecimento farmacologico do proprio modelo
+        # (ex: reconhecer "Codex"/"Codox" como nome comercial de paracetamol+
+        # codeina) -- usa como uma leitura preenche mesmo que as outras nao,
+        # ja que o objetivo aqui e so guiar a busca por generico/similar no
+        # catalogo, nao precisa de consenso exato de texto.
+        principio_ativo = ""
+        for r in resultados:
+            if len(r["medicamentos"]) > i:
+                pa = (r["medicamentos"][i].get("principio_ativo") or "").strip()
+                if pa and len(pa) > len(principio_ativo):
+                    principio_ativo = pa
+        medicamentos.append({
+            **base_item,
+            "nome": nome_final,
+            "confianca_leitura": confianca,
+            "principio_ativo": principio_ativo,
+        })
     return {**base, "medicamentos": medicamentos}
 
 
@@ -15445,36 +15470,46 @@ def _buscar_med_catalogo(nome_med: str, cnpjs: list):
     return resultados
 
 
-def _buscar_alternativas_receita(nome_med: str, cnpjs: list):
+def _buscar_alternativas_receita(nome_med: str, cnpjs: list, principio_ativo_hint: str = ""):
     """Quando o produto exato da receita nao esta disponivel, procura
-    genericos/similares/referencia com o mesmo principio ativo (via
-    descricao de referencia da tabela `medicamentos`), pra nao deixar o
-    cliente sem nenhuma opcao."""
-    q = _norm_text(nome_med)
-    if not q or len(q) < 3 or not _alpha_enabled():
+    genericos/similares/referencia com o mesmo principio ativo, pra nao
+    deixar o cliente sem nenhuma opcao.
+
+    Prioriza o principio_ativo que a propria IA de visao ja reconheceu pelo
+    nome comercial (conhecimento farmaceutico dela, ex: sabe que "Codex" e
+    paracetamol+codeina) -- so cai pra busca por similaridade de texto na
+    tabela de referencia `medicamentos` quando a IA nao informou nada, ja
+    que essa tabela tem cobertura incompleta (varios remedios reais, como
+    combinacoes mais novas, nem estao cadastrados nela)."""
+    if not _alpha_enabled():
         return []
-    try:
-        conn = db()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT descricao
-            FROM medicamentos
-            WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.2
-               OR LOWER(COALESCE(descricao, '')) LIKE %s
-            ORDER BY similarity(LOWER(COALESCE(descricao, '')), %s) DESC
-            LIMIT 1
-            """,
-            (q, f"%{q}%", q),
-        )
-        row = cur.fetchone()
-        cur.close()
-    except Exception:
-        row = None
-    if not row or not row.get("descricao"):
-        return []
-    principio = re.sub(r"\(.*?\)", " ", row["descricao"])
-    principio = re.sub(r"\d+([.,]\d+)?\s*(mg|mcg|g|ml|ui)\b.*$", "", principio, flags=re.IGNORECASE).strip()
+    principio = (principio_ativo_hint or "").strip()
+    if not principio:
+        q = _norm_text(nome_med)
+        if not q or len(q) < 3:
+            return []
+        try:
+            conn = db()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT descricao
+                FROM medicamentos
+                WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.2
+                   OR LOWER(COALESCE(descricao, '')) LIKE %s
+                ORDER BY similarity(LOWER(COALESCE(descricao, '')), %s) DESC
+                LIMIT 1
+                """,
+                (q, f"%{q}%", q),
+            )
+            row = cur.fetchone()
+            cur.close()
+        except Exception:
+            row = None
+        if not row or not row.get("descricao"):
+            return []
+        principio = re.sub(r"\(.*?\)", " ", row["descricao"])
+        principio = re.sub(r"\d+([.,]\d+)?\s*(mg|mcg|g|ml|ui)\b.*$", "", principio, flags=re.IGNORECASE).strip()
     if not principio or len(principio) < 4:
         return []
     try:
@@ -15622,7 +15657,18 @@ def api_receita_buscar():
 
         alternativas = []
         if not enriched:
-            alt_raw = _buscar_alternativas_receita(nome, cnpjs)
+            # So confia no principio_ativo que a IA "chutou" quando a leitura
+            # do proprio nome teve confianca alta -- se o nome ja veio
+            # incerto, o principio ativo associado a ele tambem tende a ser
+            # um chute em cima de outro chute (ex: ja viu "Ledvo" -- nome
+            # errado -- vir com "Cloridrato de Tramadol", sem nenhuma relacao
+            # real). Nesse caso cai pro fallback mais conservador (busca por
+            # similaridade de texto na tabela de referencia).
+            principio_ativo_hint = (
+                (med.get("principio_ativo") or "").strip()
+                if med.get("confianca_leitura") != "baixa" else ""
+            )
+            alt_raw = _buscar_alternativas_receita(nome, cnpjs, principio_ativo_hint)
             alternativas = [_enriquecer(p) for p in alt_raw]
             alternativas.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 0))
 
