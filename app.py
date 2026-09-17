@@ -13733,22 +13733,30 @@ def _recomendacoes_personalizadas_ia(consumidor_id, cnpjs, limit=20):
         _add(e)
 
     # 3) Ultimas buscas: cada termo vira uma consulta de verdade no catalogo
+    # (lenta -- ate 3 queries sequenciais, uma por termo). So roda se recompra
+    # + favoritos ainda nao encheram o limite -- cliente com bastante
+    # historico de compra/favorito nao precisa disso, e antes rodava sempre
+    # (ate 6 consultas sequenciais desperdicadas), somando varios segundos
+    # em cada carregamento da home e as vezes estourando o timeout da funcao.
     eans_busca = []
-    try:
-        _ensure_consumidor_buscas_schema()
-        cur.execute(
-            """
-            SELECT termo, MAX(criado_em) AS ultima
-            FROM ecommerce_consumidor_buscas
-            WHERE consumidor_id=%s
-            GROUP BY termo
-            ORDER BY ultima DESC
-            LIMIT 6
-            """,
-            (consumidor_id,),
-        )
-        termos_busca = [r["termo"] for r in cur.fetchall()]
-    except Exception:
+    if len(eans_ordenados) < limit:
+        try:
+            _ensure_consumidor_buscas_schema()
+            cur.execute(
+                """
+                SELECT termo, MAX(criado_em) AS ultima
+                FROM ecommerce_consumidor_buscas
+                WHERE consumidor_id=%s
+                GROUP BY termo
+                ORDER BY ultima DESC
+                LIMIT 3
+                """,
+                (consumidor_id,),
+            )
+            termos_busca = [r["termo"] for r in cur.fetchall()]
+        except Exception:
+            termos_busca = []
+    else:
         termos_busca = []
     cur.close()
     conn.close()
@@ -13948,18 +13956,28 @@ def api_home_economia_ia():
         "busca": "Baseado no que você andou procurando, separamos {nomes} pra você.",
     }
     if nomes_str and origem in _msgs_por_origem:
-        # Recomendacao pessoal muda por cliente -- nao faz sentido usar o
-        # cache compartilhado de 3 dias (esse cache so serve pro caminho
-        # "trending", que e igual pra qualquer visitante da mesma regiao).
-        prompt = (
-            "Você é Poupinha, a IA da rede de farmácias Poupaqui, falando diretamente com um cliente que já "
-            f"tem histórico na loja. Baseado {'em compras anteriores dele' if origem=='recompra' else ('nos favoritos dele' if origem=='favoritos' else 'em buscas recentes dele')}, "
-            f"você está sugerindo: {nomes_str}. "
-            "Gere UMA frase curta, pessoal e animada (máximo 120 caracteres) convidando o cliente a conferir esses "
-            "produtos. Seja direto, simpático e em português, como se conhecesse o cliente. Sem emojis. "
-            "Retorne SOMENTE a frase, sem aspas nem explicações."
-        )
-        insight_ia = _claude_haiku(prompt, max_tokens=80, timeout=5)
+        # Cache POR CLIENTE (nao compartilhado -- a recomendacao pessoal muda
+        # por cliente, entao a chave inclui consumidor_id). Antes chamava a
+        # Claude (ate 5s de timeout) TODA vez que esse cliente abria a home,
+        # sem cache nenhum -- lento (as vezes estourando o timeout da funcao
+        # serverless, 504) e desnecessario: enquanto o top-3 recomendado nao
+        # mudar, a mesma frase serve de novo.
+        _eco_cache_key_pessoal = f"economia_ia_pessoal:{consumidor_id}:{origem}:{_norm_query_cache(nomes_str)}"
+        _eco_cached_pessoal = _busca_cache_get(_eco_cache_key_pessoal)
+        if isinstance(_eco_cached_pessoal, dict) and _eco_cached_pessoal.get("insight"):
+            insight_ia = _eco_cached_pessoal["insight"]
+        else:
+            prompt = (
+                "Você é Poupinha, a IA da rede de farmácias Poupaqui, falando diretamente com um cliente que já "
+                f"tem histórico na loja. Baseado {'em compras anteriores dele' if origem=='recompra' else ('nos favoritos dele' if origem=='favoritos' else 'em buscas recentes dele')}, "
+                f"você está sugerindo: {nomes_str}. "
+                "Gere UMA frase curta, pessoal e animada (máximo 120 caracteres) convidando o cliente a conferir esses "
+                "produtos. Seja direto, simpático e em português, como se conhecesse o cliente. Sem emojis. "
+                "Retorne SOMENTE a frase, sem aspas nem explicações."
+            )
+            insight_ia = _claude_haiku(prompt, max_tokens=80, timeout=5)
+            if insight_ia:
+                _busca_cache_set(_eco_cache_key_pessoal, {"insight": insight_ia})
         if not insight_ia:
             _nomes_label = nomes_str.split(";")[0].strip().title()
             insight_ia = _msgs_por_origem[origem].format(nomes=_nomes_label)
