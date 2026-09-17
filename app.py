@@ -5534,16 +5534,22 @@ def _busca_fuzzy_pg_trgm(term, limit=60):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT DISTINCT barra_norm AS ean
+            SELECT COALESCE(barra_norm, regexp_replace(barra, '\\D', '', 'g')) AS ean,
+                   similarity(LOWER(COALESCE(descricao, '')), %s) AS sim
             FROM medicamentos
             WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.2
                OR LOWER(COALESCE(descricao, '')) LIKE %s
-            ORDER BY similarity(LOWER(COALESCE(descricao, '')), %s) DESC
+            ORDER BY sim DESC
             LIMIT %s
             """,
-            (norm, f"%{norm}%", norm, limit),
+            (norm, norm, f"%{norm}%", limit),
         )
-        eans = [r["ean"] for r in cur.fetchall() if r.get("ean")]
+        eans, seen = [], set()
+        for r in cur.fetchall():
+            ean = r.get("ean")
+            if ean and ean not in seen:
+                seen.add(ean)
+                eans.append(ean)
         cur.close()
         return eans
     except Exception:
@@ -15158,14 +15164,25 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
     if not api_key:
         return None
     prompt = (
-        "Analise esta receita médica brasileira e extraia todos os medicamentos prescritos. "
+        "Analise esta receita médica brasileira, muitas vezes escrita à mão com letra cursiva "
+        "de médico, e extraia todos os medicamentos prescritos. "
         "Retorne SOMENTE um JSON válido, sem markdown, no formato:\n"
         '{"medicamentos":[{"nome":"Nome","concentracao":"ex:500mg",'
         '"forma":"ex:comprimido","posologia":"ex:1cp 3x/dia por 7 dias"}]}\n'
+        "REGRAS IMPORTANTES:\n"
+        "- O campo \"nome\" deve conter APENAS o nome do medicamento (nome comercial ou "
+        "princípio ativo), NUNCA palavras de instrução como 'tomar', 'usar', 'aplicar' etc. "
+        "Essas palavras e a frequência (ex: '1 comprimido de 8/8h', 'uso contínuo') vão no "
+        "campo \"posologia\", nunca no \"nome\".\n"
+        "- A letra pode ser difícil de ler. Leia com atenção cada item numerado/marcado da "
+        "receita antes de responder. Só inclua um medicamento se conseguir identificar o nome "
+        "com razoável confiança; se um item estiver genuinamente ilegível, use \"nome\":\"ilegível\" "
+        "para ele em vez de inventar um nome parecido.\n"
+        "- Não repita o mesmo item duas vezes.\n"
         "Se não for receita ou não tiver medicamentos, retorne: {\"medicamentos\":[]}"
     )
     payload = json.dumps({
-        "model": "claude-haiku-4-5-20251001",
+        "model": "claude-sonnet-5",
         "max_tokens": 1024,
         "messages": [{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
@@ -15192,9 +15209,6 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
             body = e.read().decode("utf-8", errors="replace")
         except Exception:
             pass
-        # Sem log aqui, falha silenciosa caia direto pro fallback OCR+regex
-        # (bem mais fraco pra letra de medico cursiva) sem deixar rastro
-        # nenhum do motivo real -- impossivel diagnosticar em producao.
         app.logger.error("_claude_vision_receita HTTPError %s: %s", e.code, body)
         return None
     except Exception as e:
@@ -15332,7 +15346,76 @@ def _buscar_med_catalogo(nome_med: str, cnpjs: list):
                     continue
                 seen.add(ean)
                 resultados.append(p)
+
+    # Nome da receita pode vir com letra errada (letra cursiva de médico lida
+    # pela IA de visão nem sempre é 100% exata) -- sem isso a busca por
+    # substring exata acima falha e a receita "some" sem nenhum resultado.
+    if not resultados:
+        try:
+            fuzzy_eans = _busca_fuzzy_pg_trgm(nome_med)
+            real_fuzzy = [e for e in fuzzy_eans if re.match(r"^789\d{10}$", e)]
+        except Exception:
+            real_fuzzy = []
+        if real_fuzzy:
+            try:
+                for p in get_dns_products_batch_by_eans(cnpjs, real_fuzzy[:40]):
+                    ean = (p.get("ean") or "").strip()
+                    if not ean or ean in seen:
+                        continue
+                    seen.add(ean)
+                    resultados.append(p)
+            except Exception:
+                pass
     return resultados
+
+
+def _buscar_alternativas_receita(nome_med: str, cnpjs: list):
+    """Quando o produto exato da receita nao esta disponivel, procura
+    genericos/similares/referencia com o mesmo principio ativo (via
+    descricao de referencia da tabela `medicamentos`), pra nao deixar o
+    cliente sem nenhuma opcao."""
+    q = _norm_text(nome_med)
+    if not q or len(q) < 3 or not _alpha_enabled():
+        return []
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT descricao
+            FROM medicamentos
+            WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.2
+               OR LOWER(COALESCE(descricao, '')) LIKE %s
+            ORDER BY similarity(LOWER(COALESCE(descricao, '')), %s) DESC
+            LIMIT 1
+            """,
+            (q, f"%{q}%", q),
+        )
+        row = cur.fetchone()
+        cur.close()
+    except Exception:
+        row = None
+    if not row or not row.get("descricao"):
+        return []
+    principio = re.sub(r"\(.*?\)", " ", row["descricao"])
+    principio = re.sub(r"\d+([.,]\d+)?\s*(mg|mcg|g|ml|ui)\b.*$", "", principio, flags=re.IGNORECASE).strip()
+    if not principio or len(principio) < 4:
+        return []
+    try:
+        produtos = get_alpha_products_direct_by_query(cnpjs, principio, limit=15)
+    except Exception:
+        produtos = []
+    alternativas, seen = [], set()
+    for p in produtos:
+        cat = (p.get("categoria") or "").strip().lower()
+        if cat not in ("generico", "similar", "referencia"):
+            continue
+        ean = (p.get("ean") or "").strip()
+        if not ean or ean in seen:
+            continue
+        seen.add(ean)
+        alternativas.append({**p, "categoria": cat})
+    return alternativas[:10]
 
 
 @app.get("/receita-medica")
@@ -15432,48 +15515,62 @@ def api_receita_buscar():
     finally:
         cur.close()
 
+    def _enriquecer(p):
+        info  = loja_info.get(p.get("cnpjloja"), {})
+        dist  = info.get("distancia_km")
+        razao = _public_store_name(info) if info else ""
+        categoria = (p.get("categoria") or "").strip().lower() or _classificar_produto(p.get("nome") or "")
+        imagem = p.get("imagem") or None
+        if imagem and _looks_like_other_pharmacy_brand(imagem):
+            imagem = None
+        return {
+            "ean":        p.get("ean") or "",
+            "nome":       p.get("nome") or "",
+            "laboratorio": p.get("laboratorio") or "",
+            "preco":      p.get("preco"),
+            "qty":        p.get("qty"),
+            "imagem":     imagem,
+            "cnpjloja":   p.get("cnpjloja") or "",
+            "razao":      razao,
+            "distancia_km": dist,
+            "categoria":  categoria,
+        }
+
     def _buscar_um(med):
         nome = (med.get("nome") or "").strip()
         if not nome:
-            return nome, []
+            return nome, [], []
         prods = _buscar_med_catalogo(nome, cnpjs)
-        enriched = []
-        for p in prods:
-            info  = loja_info.get(p.get("cnpjloja"), {})
-            dist  = info.get("distancia_km")
-            razao = _public_store_name(info) if info else ""
-            categoria = _classificar_produto(p.get("nome") or "")
-            imagem = p.get("imagem") or None
-            if imagem and _looks_like_other_pharmacy_brand(imagem):
-                imagem = None
-            enriched.append({
-                "ean":        p.get("ean") or "",
-                "nome":       p.get("nome") or "",
-                "laboratorio": p.get("laboratorio") or "",
-                "preco":      p.get("preco"),
-                "qty":        p.get("qty"),
-                "imagem":     imagem,
-                "cnpjloja":   p.get("cnpjloja") or "",
-                "razao":      razao,
-                "distancia_km": dist,
-                "categoria":  categoria,
-            })
+        enriched = [_enriquecer(p) for p in prods]
         enriched.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 0))
-        return nome, enriched[:20]
+
+        alternativas = []
+        if not enriched:
+            alt_raw = _buscar_alternativas_receita(nome, cnpjs)
+            alternativas = [_enriquecer(p) for p in alt_raw]
+            alternativas.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 0))
+
+        return nome, enriched[:20], alternativas[:10]
 
     resultados = {}
     with ThreadPoolExecutor(max_workers=min(len(medicamentos), 5)) as exc:
         futures = {exc.submit(_buscar_um, med): med for med in medicamentos[:10]}
         for future in as_completed(futures, timeout=25):
             try:
-                nome, prods = future.result()
+                nome, prods, alternativas = future.result()
                 if nome:
-                    resultados[nome] = prods
+                    resultados[nome] = {"produtos": prods, "alternativas": alternativas}
             except Exception:
                 med = futures[future]
-                resultados[med.get("nome", "") or ""] = []
+                resultados[med.get("nome", "") or ""] = {"produtos": [], "alternativas": []}
 
-    return jsonify({"ok": True, "resultados": resultados})
+    loja_padrao = None
+    if cnpjs:
+        info0 = loja_info.get(cnpjs[0])
+        if info0:
+            loja_padrao = {"cnpjloja": cnpjs[0], "razao": _public_store_name(info0)}
+
+    return jsonify({"ok": True, "resultados": resultados, "loja_padrao": loja_padrao})
 
 
 @app.get("/api/busca/sugestoes")

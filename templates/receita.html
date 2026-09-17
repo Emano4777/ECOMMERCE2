@@ -330,6 +330,27 @@
 }
 .rx-result-empty i { display: block; font-size: 1.8rem; margin-bottom: 8px; opacity: .4; }
 
+.rx-result-alt {
+  padding: 14px 20px 4px; border-top: 1px dashed var(--pq-border);
+}
+.rx-result-alt-label {
+  font-size: .8rem; color: #8a6d00; background: #fff8e1;
+  border: 1px solid #ffe28a; border-radius: 8px; padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.rx-encomenda-form {
+  padding: 14px 20px; border-top: 1px dashed var(--pq-border);
+  display: flex; justify-content: center;
+}
+.rx-encomenda-form .rx-prod-btn {
+  background: #fff; color: var(--pq-red); border: 1.5px solid var(--pq-red);
+}
+.rx-prod-cat {
+  font-size: .64rem; font-weight: 800; text-transform: uppercase;
+  color: #0a7a3d; background: #e6f8ee; border-radius: 20px;
+  padding: 2px 8px; align-self: center;
+}
+
 .rx-products-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -604,6 +625,7 @@
 /* ─── state ─── */
 let _rxFile = null;
 let _rxMeds = [];
+let _rxLojaPadrao = null;
 let _rxB64  = null;
 let _rxMime = 'image/jpeg';
 
@@ -795,6 +817,7 @@ async function rxBuscar() {
       return rxShowAlert('rx-alert-meds', 'err', data.erro || 'Erro ao buscar.');
     }
 
+    _rxLojaPadrao = data.loja_padrao || null;
     rxRenderResults(data.resultados || {});
     rxSetPhase('results');
     document.getElementById('rx-restart-bar').style.display = 'block';
@@ -845,11 +868,29 @@ function rxRenderResults(resultados) {
 
   let anyFound = false;
   meds.forEach((med, gi) => {
-    const prods = resultados[med.nome] || [];
+    const entry = resultados[med.nome] || {};
+    const prods = entry.produtos || [];
+    const alternativas = entry.alternativas || [];
     if (prods.length > 0) anyFound = true;
     const group = document.createElement('div');
     group.className = 'rx-result-group';
     group.style.animationDelay = (gi * 0.08) + 's';
+
+    const nomeCompleto = med.nome + (med.concentracao ? ' ' + med.concentracao : '');
+    const encomendaHtml = _rxLojaPadrao ? `
+      <form method="POST" action="/encomenda/criar" class="rx-encomenda-form">
+        <input type="hidden" name="cnpjloja" value="${escHtml(_rxLojaPadrao.cnpjloja)}">
+        <input type="hidden" name="produto_nome" value="${escHtml(nomeCompleto)}">
+        <button type="submit" class="rx-prod-btn" style="width:auto;display:inline-flex">
+          <i class="fa fa-box"></i> Encomendar "${escHtml(nomeCompleto)}" na ${escHtml(_rxLojaPadrao.razao || 'farmácia')}
+        </button>
+      </form>` : '';
+
+    const alternativasHtml = alternativas.length > 0 ? `
+      <div class="rx-result-alt">
+        <div class="rx-result-alt-label"><i class="fa fa-lightbulb me-1"></i>Não achamos exatamente "${escHtml(med.nome)}", mas encontramos estas opções com o mesmo princípio ativo:</div>
+        <div class="rx-products-grid">${alternativas.map((p, pi) => rxProdCard(p, pi)).join('')}</div>
+      </div>` : '';
 
     group.innerHTML = `
       <div class="rx-result-group-hd">
@@ -861,7 +902,7 @@ function rxRenderResults(resultados) {
         <span class="rx-result-group-count">${prods.length} opç${prods.length !== 1 ? 'ões' : 'ão'}</span>
       </div>
       ${prods.length === 0
-        ? `<div class="rx-result-empty"><i class="fa fa-box-open"></i>Nenhum produto encontrado nas farmácias próximas para este medicamento.</div>`
+        ? `<div class="rx-result-empty"><i class="fa fa-box-open"></i>Nenhum produto encontrado nas farmácias próximas para este medicamento.</div>${alternativasHtml}${encomendaHtml}`
         : `<div class="rx-products-grid">${prods.map((p, pi) => rxProdCard(p, pi)).join('')}</div>`
       }
     `;
@@ -897,10 +938,14 @@ function rxProdCard(p, idx) {
     ? `/produto/${p.ean}?loja=${encodeURIComponent(p.cnpjloja)}`
     : '#';
 
+  const catLabel = {generico: 'Genérico', similar: 'Similar', referencia: 'Referência'}[p.categoria] || '';
+  const catHtml = catLabel ? `<div class="rx-prod-cat">${catLabel}</div>` : '';
+
   return `
     <div class="rx-prod-card">
       <a href="${detailUrl}" style="text-decoration:none;color:inherit">
         <div class="rx-prod-img-wrap">${imgHtml}</div>
+        ${catHtml}
         <div class="rx-prod-nome">${escHtml(p.nome || '')}</div>
         ${p.laboratorio ? `<div class="rx-prod-lab"><i class="fa fa-flask me-1"></i>${escHtml(p.laboratorio)}</div>` : ''}
         ${preco ? `<div class="rx-prod-price">${preco}</div>` : ''}
