@@ -15186,7 +15186,19 @@ def _claude_vision_receita(image_b64: str, media_type: str = "image/jpeg"):
         text = re.sub(r"^```[a-z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text.strip())
         return json.loads(text)
-    except Exception:
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        # Sem log aqui, falha silenciosa caia direto pro fallback OCR+regex
+        # (bem mais fraco pra letra de medico cursiva) sem deixar rastro
+        # nenhum do motivo real -- impossivel diagnosticar em producao.
+        app.logger.error("_claude_vision_receita HTTPError %s: %s", e.code, body)
+        return None
+    except Exception as e:
+        app.logger.error("_claude_vision_receita error: %s", e)
         return None
 
 
@@ -15275,7 +15287,14 @@ def _ocr_receita_b64(image_b64: str, media_type: str = "image/jpeg"):
 
 def _parse_receita_text(text: str):
     _SKIP_WORDS = re.compile(
-        r"\b(dr|dra|cid|data|nome|paciente|medic[oa]|receita|assinatura|carimbo|tel|cpf|crm|rg|rua|av|bairro|cidade|estado|cep|codigo)\b",
+        r"\b(dr|dra|cid|data|nome|paciente|medic[oa]|receita|assinatura|carimbo|tel|cpf|crm|rg|rua|av|bairro|cidade|estado|cep|codigo"
+        # Palavras de posologia/instrucao (ex: "Tomar 1 comprimido de 8/8h")
+        # tem o mesmo formato "palavra + numero + unidade" que o regex de
+        # medicamento procura -- sem bloquear, viravam "medicamento" fake
+        # (ja aconteceu: "Tomar" extraido como nome de remedio).
+        r"|tomar|tome|usar|use|aplicar|aplique|administrar|ingerir|via|oral|"
+        r"endereco|emitente|identificacao|clinica|fone|assinado|comprador|fornecedor|farmaceutico"
+        r")\b",
         re.IGNORECASE,
     )
     meds, seen = [], set()

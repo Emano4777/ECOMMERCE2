@@ -621,10 +621,60 @@ function rxOnFileSelect(inp) {
   if (inp.files[0]) rxLoadFile(inp.files[0]);
 }
 
-function rxLoadFile(file) {
+// Foto de camera de celular sem compressao nenhuma costuma vir com varios MB
+// -- isso deixava o upload lento e, em fotos grandes o suficiente, chegava a
+// estourar o limite de tamanho de corpo da funcao serverless (a leitura por
+// IA falhava silenciosamente e caia num OCR bem mais fraco pra letra
+// cursiva de medico, misturando instrucao de posologia com nome de
+// remedio). Redimensiona no navegador (lado maior 1600px, JPEG ~85%) antes
+// de mandar -- mantem legivel pra leitura de texto/letra e corta o
+// tamanho do arquivo bastante. PDF passa direto, sem essa etapa.
+function rxComprimirImagem(file, maxLado, qualidade) {
+  return new Promise((resolve) => {
+    const imgEl = new Image();
+    const url = URL.createObjectURL(file);
+    imgEl.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = imgEl;
+      if (width <= maxLado && height <= maxLado) {
+        // Ja pequena o suficiente -- nao reprocessa (evita perder qualidade
+        // ou mudar o mime a toa numa imagem que ja tava ok).
+        resolve(null);
+        return;
+      }
+      const escala = maxLado / Math.max(width, height);
+      width = Math.round(width * escala);
+      height = Math.round(height * escala);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(null); return; }
+        resolve(blob);
+      }, 'image/jpeg', qualidade);
+    };
+    imgEl.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    imgEl.src = url;
+  });
+}
+
+async function rxLoadFile(file) {
   if (!file) return;
   _rxFile = file;
   _rxMime = (file.type && file.type.startsWith('image/')) ? file.type : 'image/jpeg';
+
+  let arquivoFinal = file;
+  if (file.type !== 'application/pdf' && file.type.startsWith('image/')) {
+    try {
+      const comprimido = await rxComprimirImagem(file, 1600, 0.85);
+      if (comprimido) {
+        arquivoFinal = comprimido;
+        _rxMime = 'image/jpeg';
+      }
+    } catch (e) { /* se falhar, segue com o arquivo original */ }
+  }
 
   const reader = new FileReader();
   reader.onload = e => {
@@ -638,7 +688,7 @@ function rxLoadFile(file) {
     document.getElementById('rx-btn-analyze').style.display = '';
     rxClearAlert('rx-alert-upload');
   };
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(arquivoFinal);
 }
 
 function rxRemoveFile() {
