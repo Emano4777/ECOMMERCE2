@@ -629,6 +629,14 @@ function rxOnFileSelect(inp) {
 // remedio). Redimensiona no navegador (lado maior 1600px, JPEG ~85%) antes
 // de mandar -- mantem legivel pra leitura de texto/letra e corta o
 // tamanho do arquivo bastante. PDF passa direto, sem essa etapa.
+// Retorna: um Blob (comprimido), null (ja estava pequena o suficiente, usa
+// o arquivo original do jeito que esta), ou a string 'ERRO_DECODE' (o
+// navegador nao conseguiu nem abrir a imagem pra pre-visualizar -- sinal
+// classico de HEIC/HEIF de iPhone ou outro formato que o Chrome/navegador
+// nao decodifica direto. Nesse caso NAO da pra confiar no file.type: o
+// input teimava em rotular como "image/jpeg" mesmo sendo bytes HEIC, e a
+// Claude recebia um arquivo que dizia ser JPEG mas nao era -- falha muda,
+// cai no fallback de OCR fraco sem o usuario nunca saber o motivo real).
 function rxComprimirImagem(file, maxLado, qualidade) {
   return new Promise((resolve) => {
     const imgEl = new Image();
@@ -651,11 +659,10 @@ function rxComprimirImagem(file, maxLado, qualidade) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(imgEl, 0, 0, width, height);
       canvas.toBlob((blob) => {
-        if (!blob) { resolve(null); return; }
-        resolve(blob);
+        resolve(blob || 'ERRO_DECODE');
       }, 'image/jpeg', qualidade);
     };
-    imgEl.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    imgEl.onerror = () => { URL.revokeObjectURL(url); resolve('ERRO_DECODE'); };
     imgEl.src = url;
   });
 }
@@ -669,6 +676,13 @@ async function rxLoadFile(file) {
   if (file.type !== 'application/pdf' && file.type.startsWith('image/')) {
     try {
       const comprimido = await rxComprimirImagem(file, 1600, 0.85);
+      if (comprimido === 'ERRO_DECODE') {
+        rxShowAlert('rx-alert-upload', 'err',
+          'Não consegui abrir essa imagem (formato pode ser HEIC/HEIF, comum em fotos de iPhone). ' +
+          'Tente exportar/converter para JPG ou PNG antes de enviar, ou tire a foto direto pelo site.');
+        document.getElementById('rx-btn-analyze').style.display = 'none';
+        return;
+      }
       if (comprimido) {
         arquivoFinal = comprimido;
         _rxMime = 'image/jpeg';
