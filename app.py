@@ -22181,11 +22181,21 @@ def api_suporte_mensagem():
                 pass
         escalou = True
 
-    cur.execute(
-        "INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem, origem_cache) VALUES (%s, 'ia', %s, %s)",
-        (chat_id, resposta, from_cache),
-    )
-    conn.commit()
+    try:
+        cur.execute(
+            "INSERT INTO ecommerce_suporte_msgs (chat_id, autor, mensagem, origem_cache) VALUES (%s, 'ia', %s, %s)",
+            (chat_id, resposta, from_cache),
+        )
+        conn.commit()
+    except Exception as exc:
+        # Ultima linha de defesa: se ATE salvar a resposta falhar, ainda
+        # devolve a resposta pro cliente em vez de 500 -- so fica sem
+        # persistir no historico dessa vez.
+        app.logger.warning("api_suporte_mensagem: erro salvando resposta da ia: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
     cur.close()
     return jsonify({"ok": True, "resposta": resposta, "escalado": escalou})
 
