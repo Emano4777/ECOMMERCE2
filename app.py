@@ -21658,11 +21658,31 @@ _SUPORTE_TOOLS = [
         "description": (
             "Consulta em tempo real se um produto esta disponivel e qual o preco atual "
             "na farmacia mais proxima do cliente. Use sempre que o cliente perguntar se "
-            "tem algum produto ou qual o preco, em vez de mandar ele olhar no site."
+            "tem algum produto ou qual o preco, em vez de mandar ele olhar no site. "
+            "Cada resultado vem com a classificacao ANVISA (generico, similar ou "
+            "referencia/marca) entre parenteses. IMPORTANTE sobre generico/similar: sao "
+            "classificacoes regulatorias do MESMO principio ativo, nao um produto separado "
+            "-- 'generico' e a versao com nome do principio ativo (tarja G), 'similar' e "
+            "marca propria de outro fabricante, 'referencia' e o medicamento original/de "
+            "marca. Se o cliente perguntar 'tem generico?' ou 'tem similar desse?' depois "
+            "de ja ter falado de um medicamento (por nome comercial ou principio ativo), "
+            "SEMPRE passe o nome do principio ativo/medicamento discutido no campo `nome` "
+            "(nunca so a palavra 'generico' ou 'similar' sozinha, isso nao e nome de "
+            "produto e a busca nunca acha nada) e use o campo `categoria` pra filtrar."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"nome": {"type": "string", "description": "Nome do produto buscado"}},
+            "properties": {
+                "nome": {
+                    "type": "string",
+                    "description": "Nome do principio ativo ou nome comercial do medicamento/produto buscado (nunca a palavra 'generico'/'similar' sozinha)",
+                },
+                "categoria": {
+                    "type": "string",
+                    "enum": ["generico", "similar", "referencia"],
+                    "description": "Opcional: filtra so por essa classificacao ANVISA quando o cliente pedir especificamente generico, similar ou referencia/marca",
+                },
+            },
             "required": ["nome"],
         },
     },
@@ -21786,9 +21806,48 @@ def _ia_tool_buscar_pedido(consumidor_id, identificador):
     return "\n".join(linhas)
 
 
-def _ia_tool_consultar_produto(consumidor_id, nome):
+_CATEGORIA_LABEL_IA = {
+    "generico": "genérico",
+    "similar": "similar",
+    "referencia": "referência",
+}
+
+# Termos que o cliente usa pra pedir uma CATEGORIA regulatoria (generico/
+# similar/referencia sao as 3 classificacoes da ANVISA pro mesmo principio
+# ativo), nao um nome de produto. Se a IA passar "similar" ou "generico de
+# X" direto pro campo nome, a busca por texto no catalogo nunca acha nada
+# com essas palavras no nome (produto nao se chama "similar") -- precisa
+# tirar isso da query antes de buscar.
+_CONSULTAR_PRODUTO_CATEGORIA_RE = re.compile(
+    r"\b(gen[eé]ricos?|similar(?:es)?|refer[eê]ncias?)\b", re.IGNORECASE
+)
+
+
+def _ia_tool_consultar_produto(consumidor_id, nome, categoria=None):
     if not (nome or "").strip():
         return "Nome do produto nao informado."
+    # Detecta pedido de categoria (genericos/similares/referencia) dentro do
+    # proprio nome, caso a IA nao tenha usado o parametro `categoria`
+    # separado -- e tira essa palavra da busca por texto, senao a query
+    # tenta achar um produto chamado literalmente "similar" e nunca acha
+    # nada (categoria nao e nome de produto, e classificacao ANVISA).
+    _categoria_detectada = categoria
+    _match_cat = _CONSULTAR_PRODUTO_CATEGORIA_RE.search(nome or "")
+    if _match_cat and not _categoria_detectada:
+        _termo_cat = _sem_acento(_match_cat.group(1).lower())
+        if _termo_cat.startswith("gener"):
+            _categoria_detectada = "generico"
+        elif _termo_cat.startswith("similar"):
+            _categoria_detectada = "similar"
+        elif _termo_cat.startswith("referen"):
+            _categoria_detectada = "referencia"
+    nome_busca = _CONSULTAR_PRODUTO_CATEGORIA_RE.sub(" ", nome or "").strip()
+    if not nome_busca:
+        return (
+            "Preciso saber o nome do medicamento pra procurar genericos/similares dele -- "
+            "qual o principio ativo ou nome comercial?"
+        )
+
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT endereco_lat, endereco_lng FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
@@ -21799,20 +21858,29 @@ def _ia_tool_consultar_produto(consumidor_id, nome):
     cnpjs, sem_farmacia = _home_public_cnpjs(lat, lng)
     if not cnpjs or sem_farmacia:
         return "Nao ha farmacia da rede disponivel na regiao desse cliente para consultar estoque."
-    produtos = get_alpha_products_direct_by_query(cnpjs, nome, limit=6)
+    produtos = get_alpha_products_direct_by_query(cnpjs, nome_busca, limit=15)
+    if _categoria_detectada:
+        _filtrados = [p for p in produtos if (p.get("categoria") or "").strip().lower() == _categoria_detectada]
+        # So aplica o filtro se sobrou alguma coisa -- categoria as vezes
+        # nao esta preenchida pra todo produto, melhor mostrar tudo (com o
+        # rotulo de categoria em cada linha) do que devolver vazio.
+        if _filtrados:
+            produtos = _filtrados
     if produtos:
         linhas = [
-            f"{p['nome']} - {fmt_brl(p['preco'])} ({'em estoque' if (p.get('qty') or 0) > 0 else 'sem estoque'})"
-            for p in produtos[:5]
+            f"{p['nome']} - {fmt_brl(p['preco'])} "
+            f"({_CATEGORIA_LABEL_IA.get((p.get('categoria') or '').strip().lower(), 'referência/marca')}) "
+            f"({'em estoque' if (p.get('qty') or 0) > 0 else 'sem estoque'})"
+            for p in produtos[:8]
         ]
         return "\n".join(linhas)
     # Nao achou nada com o termo exato — tenta so a palavra mais significativa
     # antes de desistir (ex: "shampoo infantil de camomila" -> so "shampoo"),
     # e se ainda assim nao achar, sugere os mais vendidos da loja como
     # alternativa em vez de simplesmente dizer que nao tem.
-    termos = [t for t in _search_terms_for_query(nome) if len(t) >= 4]
+    termos = [t for t in _search_terms_for_query(nome_busca) if len(t) >= 4]
     termo_largo = max(termos, key=len) if termos else ""
-    if termo_largo and termo_largo != _norm_text(nome):
+    if termo_largo and termo_largo != _norm_text(nome_busca):
         produtos_largos = get_alpha_products_direct_by_query(cnpjs, termo_largo, limit=5)
         if produtos_largos:
             linhas = [f"{p['nome']} - {fmt_brl(p['preco'])}" for p in produtos_largos[:5]]
@@ -22004,7 +22072,7 @@ def _executar_ferramenta_suporte(nome_ferramenta, entrada, consumidor_id, chat_i
         if nome_ferramenta == "buscar_pedido":
             return _ia_tool_buscar_pedido(consumidor_id, entrada.get("identificador", ""))
         if nome_ferramenta == "consultar_produto":
-            return _ia_tool_consultar_produto(consumidor_id, entrada.get("nome", ""))
+            return _ia_tool_consultar_produto(consumidor_id, entrada.get("nome", ""), entrada.get("categoria"))
         if nome_ferramenta == "verificar_cupom_disponivel":
             return _ia_tool_verificar_cupom(consumidor_id)
         if nome_ferramenta == "verificar_cobertura_entrega":
