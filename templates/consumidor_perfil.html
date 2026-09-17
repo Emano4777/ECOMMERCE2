@@ -114,6 +114,12 @@
               <div class="pq-hint" data-hint-for="documento"></div>
             </div>
             <div class="pq-field full">
+              <label for="data_nascimento">Data de nascimento</label>
+              <input id="data_nascimento" name="data_nascimento" type="date" autocomplete="bday" value="{{ user.data_nascimento.strftime('%Y-%m-%d') if user.data_nascimento else '' }}">
+              <div class="pq-hint" data-hint-for="data_nascimento"></div>
+              <div class="pq-hint">Se ainda não informou, você pode preencher agora. A data é usada em ofertas de aniversário.</div>
+            </div>
+            <div class="pq-field full">
               <label for="email">E-mail</label>
               <input id="email" name="email" type="email" autocomplete="email" value="{{ user.email or '' }}" required>
               <div class="pq-hint" data-hint-for="email"></div>
@@ -302,8 +308,18 @@ function validateStep1() {
   const okNome = setHint('nome', validNome(document.getElementById('nome').value) ? '' : 'Informe nome e sobrenome.');
   const okTel = setHint('telefone', validPhone(document.getElementById('telefone').value) ? '' : 'Informe WhatsApp com DDD.');
   const okDoc = setHint('documento', validDoc(document.getElementById('documento').value) ? '' : 'Informe CPF ou CNPJ valido.');
+  const nascimento = document.getElementById('data_nascimento').value;
+  let nascimentoValido = true;
+  if (nascimento) {
+    const data = new Date(nascimento + 'T12:00:00');
+    const hoje = new Date();
+    let idade = hoje.getFullYear() - data.getFullYear();
+    if (hoje.getMonth() < data.getMonth() || (hoje.getMonth() === data.getMonth() && hoje.getDate() < data.getDate())) idade--;
+    nascimentoValido = !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === nascimento && idade >= 13 && idade <= 120;
+  }
+  const okNascimento = setHint('data_nascimento', nascimentoValido ? '' : 'Informe uma data válida (idade mínima de 13 anos).');
   const okEmail = setHint('email', validEmail(document.getElementById('email').value) ? '' : 'Informe um e-mail valido.');
-  return okNome && okTel && okDoc && okEmail;
+  return okNome && okTel && okDoc && okNascimento && okEmail;
 }
 
 function validateStep2() {

@@ -17792,7 +17792,7 @@ def consumidor_perfil():
     _ensure_consumidor_schema()
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT nome, telefone, documento, email, endereco, endereco_lat, endereco_lng, aceita_whatsapp_marketing FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
+    cur.execute("SELECT nome, telefone, documento, email, data_nascimento, endereco, endereco_lat, endereco_lng, aceita_whatsapp_marketing FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (session["consumidor_id"],))
     user = cur.fetchone()
     cur.close()
     return render_template("consumidor_perfil.html", user=user)
@@ -17806,11 +17806,24 @@ def consumidor_perfil_post():
     telefone = (request.form.get("telefone") or "").strip()
     documento = _digits(request.form.get("documento") or "")
     email = _norm_email(request.form.get("email"))
+    data_nascimento_raw = (request.form.get("data_nascimento") or "").strip()
     senha = request.form.get("senha") or ""
     endereco = (request.form.get("endereco") or "").strip()
     endereco_lat = _to_float_or_none(request.form.get("endereco_lat"))
     endereco_lng = _to_float_or_none(request.form.get("endereco_lng"))
     aceita_whatsapp_marketing = bool(request.form.get("aceita_whatsapp_marketing"))
+
+    data_nascimento = None
+    if data_nascimento_raw:
+        try:
+            data_nascimento = datetime.strptime(data_nascimento_raw, "%Y-%m-%d").date()
+            hoje = datetime.now().date()
+            idade = hoje.year - data_nascimento.year - ((hoje.month, hoje.day) < (data_nascimento.month, data_nascimento.day))
+            if idade < 13 or idade > 120:
+                raise ValueError()
+        except ValueError:
+            flash("Informe uma data de nascimento válida (idade mínima de 13 anos).", "error")
+            return redirect(url_for("consumidor_perfil"))
 
     if not _valid_nome(nome):
         flash("Informe nome e sobrenome reais.", "error")
@@ -17848,19 +17861,19 @@ def consumidor_perfil_post():
             cur.execute(
                 """
                 UPDATE ecommerce_consumidores
-                SET nome=%s, telefone=%s, documento=%s, email=%s, senha_hash=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, aceita_whatsapp_marketing=%s, atualizado_em=NOW()
+                SET nome=%s, telefone=%s, documento=%s, email=%s, senha_hash=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, data_nascimento=COALESCE(%s,data_nascimento), aceita_whatsapp_marketing=%s, atualizado_em=NOW()
                 WHERE id=%s
                 """,
-                (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, aceita_whatsapp_marketing, session["consumidor_id"]),
+                (nome, telefone, documento, email, generate_password_hash(senha), endereco or None, endereco_lat, endereco_lng, data_nascimento, aceita_whatsapp_marketing, session["consumidor_id"]),
             )
         else:
             cur.execute(
                 """
                 UPDATE ecommerce_consumidores
-                SET nome=%s, telefone=%s, documento=%s, email=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, aceita_whatsapp_marketing=%s, atualizado_em=NOW()
+                SET nome=%s, telefone=%s, documento=%s, email=%s, endereco=%s, endereco_lat=%s, endereco_lng=%s, data_nascimento=COALESCE(%s,data_nascimento), aceita_whatsapp_marketing=%s, atualizado_em=NOW()
                 WHERE id=%s
                 """,
-                (nome, telefone, documento, email, endereco or None, endereco_lat, endereco_lng, aceita_whatsapp_marketing, session["consumidor_id"]),
+                (nome, telefone, documento, email, endereco or None, endereco_lat, endereco_lng, data_nascimento, aceita_whatsapp_marketing, session["consumidor_id"]),
             )
         conn.commit()
     except psycopg2.errors.UniqueViolation:
