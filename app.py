@@ -27175,7 +27175,7 @@ _ANVISA_STOP_WORDS = {
     # DIPIRONA/PARACETAMOL/IBUPROFENO apos usuario reportar EANs com mesma
     # dose/forma e tarja divergente.
     "natu","legrand","cimed","geol","prat","teut","vita","vitam","phar",
-    "globlo","alth","althaia","medq","medquimica",
+    "globlo","alth","althaia","medq","medquimica","uniaoq","neoq","germ",
     # Embalagem / apresentacao -- faltavam varios termos comuns aqui, o que
     # fazia a 2a palavra "significativa" da chave virar a embalagem em vez
     # do nome do remedio (ex: "ITRACONAZOL CAPSULAS" em vez de so
@@ -27189,6 +27189,12 @@ _ANVISA_STOP_WORDS = {
     # mole" que nao batiam com as formas ja listadas.
     "cartela","cartelas","compr","comps","frac","gelat","gelatinosa",
     "gelatinosas","mole","moles",
+    # "blister" (tira de comprimidos) e "flac" (flaconete abreviado) faltavam;
+    # "envelope"/"envelopes" e variante nao-acentuada de forma farmaceutica
+    # ja coberta so como "sache". "outros" e um rotulo de categoria (import
+    # antigo agrupando variantes sem nome proprio) que virava 2a palavra da
+    # chave por engano.
+    "blister","flac","envelope","envelopes","outros","sabor",
 }
 
 # Mapeamento nome-comercial → INN para lookup no anvisa_cache.
