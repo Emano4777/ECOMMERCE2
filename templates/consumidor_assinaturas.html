@@ -106,6 +106,27 @@
     </a>
   </div>
 
+  <div id="asn-promo" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#2b1a00;border:1.5px solid #f0b90b;border-radius:10px;padding:9px 15px;margin-bottom:16px;color:#fff;font-size:.8rem">
+    <i class="fa fa-clock" style="color:#fde047"></i>
+    <span>Promoção por tempo limitado: assinatura por <strong>R$ 10/mês</strong> — termina em <strong id="asn-promo-timer" style="font-variant-numeric:tabular-nums">--</strong></span>
+  </div>
+  <script>
+  (function () {
+    var fim = new Date('2026-10-18T23:59:00-03:00').getTime();
+    var el = document.getElementById('asn-promo-timer');
+    var wrap = document.getElementById('asn-promo');
+    function tick() {
+      var diff = fim - Date.now();
+      if (diff <= 0) { if (wrap) wrap.style.display = 'none'; return; }
+      var d = Math.floor(diff / 86400000), h = Math.floor((diff % 86400000) / 3600000),
+          m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+      if (el) el.textContent = d > 0 ? (d + 'd ' + h + 'h ' + m + 'm') : (h + 'h ' + m + 'm ' + s + 's');
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+  </script>
+
   {% if assinaturas %}
   <div class="asn-stats">
     <div class="asn-stat">

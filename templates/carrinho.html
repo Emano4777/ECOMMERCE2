@@ -254,6 +254,13 @@
 .btn-finalizar:disabled { opacity:.5; cursor:not-allowed; }
 
 .cart-club-side { display:flex; flex-direction:column; gap:12px; }
+.pq-cart-promo {
+  display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+  background:rgba(0,0,0,.28); border:1px solid rgba(253,224,71,.5);
+  border-radius:9px; padding:7px 12px; margin:10px 0; font-size:.74rem;
+}
+.pq-cart-promo i { color:#fde047; flex-shrink:0; }
+.pq-cart-promo-timer { font-variant-numeric:tabular-nums; }
 .cart-club-card {
   position:relative;
   overflow:hidden;
@@ -1725,6 +1732,10 @@ function assinaturaCardHtml(cnpj, cfg, economiaClube=0, subAtual=0, economiaFret
         <div class="cart-club-desc">${desc}</div>
       </div>
     </div>
+    <div class="pq-cart-promo" data-pq-promo-fim="2026-10-18T23:59:00-03:00">
+      <i class="fa fa-clock"></i>
+      <span>Promoção por tempo limitado — termina em <strong class="pq-cart-promo-timer">--</strong></span>
+    </div>
     ${simulacaoHtml}
     <div class="cart-club-benefits">${beneficiosHtml}</div>
     <div class="cart-club-price"><strong>${brl(cfg.plano_preco_mensal)}</strong><span>/mes - cancele quando quiser</span></div>
@@ -2379,5 +2390,21 @@ async function verificarPedidoPendente() {
     box.style.display = 'flex';
   } catch {}
 }
+
+/* Timer de promoção do clube (card montado via innerHTML, então roda por
+   delegação: acha qualquer .pq-cart-promo presente na tela a cada tick,
+   em vez de depender de um <script> que não executaria dentro do HTML
+   injetado dinamicamente). */
+setInterval(() => {
+  document.querySelectorAll('.pq-cart-promo[data-pq-promo-fim]').forEach(el => {
+    const fim = new Date(el.dataset.pqPromoFim).getTime();
+    const diff = fim - Date.now();
+    const timerEl = el.querySelector('.pq-cart-promo-timer');
+    if (diff <= 0) { el.style.display = 'none'; return; }
+    const d = Math.floor(diff / 86400000), h = Math.floor((diff % 86400000) / 3600000),
+          m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+    if (timerEl) timerEl.textContent = d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
+  });
+}, 1000);
 </script>
 {% endblock %}

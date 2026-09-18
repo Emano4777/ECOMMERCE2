@@ -837,6 +837,26 @@
         <i class="fa fa-chevron-down arrow"></i>
       </div>
       <div class="pd-section-body">
+        <div id="pd-promo-assinatura" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#2b1a00;border:1.5px solid #f0b90b;border-radius:10px;padding:8px 14px;margin-bottom:10px;color:#fff;font-size:.76rem">
+          <i class="fa fa-clock" style="color:#fde047"></i>
+          <span>Promoção por tempo limitado — termina em <strong id="pd-promo-timer" style="font-variant-numeric:tabular-nums">--</strong></span>
+        </div>
+        <script>
+        (function () {
+          var fim = new Date('2026-10-18T23:59:00-03:00').getTime();
+          var el = document.getElementById('pd-promo-timer');
+          var wrap = document.getElementById('pd-promo-assinatura');
+          function tick() {
+            var diff = fim - Date.now();
+            if (diff <= 0) { if (wrap) wrap.style.display = 'none'; return; }
+            var d = Math.floor(diff / 86400000), h = Math.floor((diff % 86400000) / 3600000),
+                m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+            if (el) el.textContent = d > 0 ? (d + 'd ' + h + 'h ' + m + 'm') : (h + 'h ' + m + 'm ' + s + 's');
+          }
+          tick();
+          setInterval(tick, 1000);
+        })();
+        </script>
         <div class="pd-clube-plan-card">
           <div class="pd-clube-plan-icon"><i class="fa fa-star" style="color:#fff;font-size:.9rem"></i></div>
           <div style="flex:1;min-width:140px">

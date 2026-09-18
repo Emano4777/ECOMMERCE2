@@ -375,6 +375,32 @@
 .pq-meu-cupom.pq-meu-cupom-in { opacity:1; transform:translateY(0); }
 .pq-meu-cupom > i:first-child { color:#d97706; font-size:1rem; }
 .pq-meu-cupom-arrow { margin-left:auto; font-size:.72rem; opacity:.7; }
+
+/* ── Banner de promoção da assinatura por tempo limitado ─────────── */
+.pq-promo-assinatura {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap;
+  background: linear-gradient(90deg, #2b1a00, #4a2c00);
+  border: 1.5px solid var(--pq-yellow, #f0b90b);
+  border-radius: 14px; padding: 12px 18px; margin: 0 0 16px;
+  text-decoration: none; color: #fff;
+}
+.pq-promo-assinatura:hover { color: #fff; opacity: .92; }
+.pq-promo-assinatura-txt {
+  display: flex; align-items: center; gap: 9px;
+  font-size: .86rem; line-height: 1.35;
+}
+.pq-promo-assinatura-txt i { color: var(--pq-yellow, #f0b90b); font-size: 1.05rem; flex-shrink: 0; }
+.pq-promo-assinatura-timer {
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.25);
+  padding: 5px 12px; border-radius: 8px; font-weight: 900; font-size: .82rem;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .pq-promo-assinatura { padding: 10px 14px; }
+  .pq-promo-assinatura-txt { font-size: .78rem; }
+  .pq-promo-assinatura-timer { font-size: .74rem; padding: 4px 9px; }
+}
 .pq-live-dot {
   width:8px; height:8px; border-radius:50%; background:#22c55e; flex-shrink:0;
   box-shadow:0 0 0 rgba(34,197,94,.6); animation:pqLivePulse 1.8s infinite;
@@ -1026,6 +1052,32 @@
     <span id="pq-meu-cupom-txt"></span>
     <i class="fa fa-chevron-right pq-meu-cupom-arrow"></i>
   </a>
+
+  <a href="{{ url_for('seja_assinante') }}" class="pq-promo-assinatura" id="pq-promo-assinatura">
+    <div class="pq-promo-assinatura-txt">
+      <i class="fa fa-crown"></i>
+      <span><strong>Promoção por tempo limitado:</strong> assine o Clube por <strong>R$ 10/mês</strong></span>
+    </div>
+    <div class="pq-promo-assinatura-timer" id="pq-promo-timer-home">--</div>
+  </a>
+  <script>
+  (function () {
+    var fim = new Date('2026-10-18T23:59:00-03:00').getTime();
+    var el = document.getElementById('pq-promo-timer-home');
+    var wrap = document.getElementById('pq-promo-assinatura');
+    function tick() {
+      var diff = fim - Date.now();
+      if (diff <= 0) { if (wrap) wrap.style.display = 'none'; return; }
+      var d = Math.floor(diff / 86400000);
+      var h = Math.floor((diff % 86400000) / 3600000);
+      var m = Math.floor((diff % 3600000) / 60000);
+      var s = Math.floor((diff % 60000) / 1000);
+      if (el) el.textContent = d > 0 ? (d + 'd ' + h + 'h ' + m + 'm') : (h + 'h ' + m + 'm ' + s + 's');
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+  </script>
 
   {# â”€â”€ Departamentos: strip rÃ¡pida acima do hero â”€â”€ #}
   <div class="dept-strip-wrap">

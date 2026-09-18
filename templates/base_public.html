@@ -197,6 +197,17 @@
     }
 
     /* ── LINKS VERTICAIS (ícone + texto) ─────────────── */
+    .pq-nav-promo-chip {
+      display: inline-flex; align-items: center;
+      background: #fde047; color: #111;
+      font-size: .58rem; font-weight: 900;
+      padding: 1px 6px; border-radius: 999px;
+      position: absolute; top: -4px; right: -6px;
+      white-space: nowrap;
+    }
+    .pq-drawer-item .pq-nav-promo-chip {
+      position: static; margin-left: 6px; padding: 2px 8px; font-size: .62rem;
+    }
     .pq-nav-link {
       display: flex;
       flex-direction: column;
@@ -1157,9 +1168,10 @@
       <span>Farmácias<br>Próximas</span>
     </a>
     {% if not consumidor_tem_assinatura %}
-    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('seja_assinante') }}">
+    <a class="pq-nav-link pq-desktop-only" href="{{ url_for('seja_assinante') }}" style="position:relative">
       <i class="fa fa-star" style="font-size:1.1rem"></i>
       <span>Seja<br>Assinante</span>
+      <span class="pq-nav-promo-chip">R$10</span>
     </a>
     {% endif %}
     <a class="pq-nav-link" href="{{ url_for('carrinho') }}" onclick="return abrirCestaLateral(event)">
@@ -1349,7 +1361,7 @@
   </a>
   {% if not consumidor_tem_assinatura %}
   <a class="pq-drawer-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()">
-    <i class="fa fa-star"></i>Seja assinante
+    <i class="fa fa-star"></i>Seja assinante <span class="pq-nav-promo-chip">R$10 por tempo limitado</span>
   </a>
   {% endif %}
   <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer();return abrirCestaLateral(event)">

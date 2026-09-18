@@ -50,6 +50,15 @@
 }
 .sa-hero-price { font-size:.82rem; color:rgba(255,255,255,.85); }
 .sa-hero-price strong { font-size:1.15rem; color:#fff; }
+.sa-hero-promo {
+  display:flex; align-items:center; gap:8px; margin-top:14px;
+  background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28);
+  border-radius:10px; padding:8px 14px; font-size:.8rem; color:#fff;
+  width:fit-content; max-width:100%;
+}
+.sa-hero-promo i { color:#fde047; flex-shrink:0; }
+.sa-hero-promo strong { font-variant-numeric:tabular-nums; }
+@media(max-width:480px){ .sa-hero-promo { font-size:.72rem; padding:7px 11px; } }
 
 /* FEATURE CARDS */
 .sa-features {
@@ -144,7 +153,11 @@
     <p>Preços exclusivos nas farmácias perto de você, entregas grátis e vantagens que só quem é do clube tem. Cancele quando quiser.</p>
     <div class="sa-hero-cta-row">
       <a href="#sa-lojas" class="sa-hero-cta"><i class="fa fa-star"></i>Quero ser assinante</a>
-      <div class="sa-hero-price">a partir de <strong id="sa-hero-preco-min">R$ 19,90</strong>/mês</div>
+      <div class="sa-hero-price">a partir de <strong id="sa-hero-preco-min">R$ 10,00</strong>/mês</div>
+    </div>
+    <div class="sa-hero-promo" id="sa-hero-promo">
+      <i class="fa fa-clock"></i>
+      <span>Promoção por tempo limitado — termina em <strong id="sa-hero-promo-timer">--</strong></span>
     </div>
   </div>
 </div>
@@ -207,6 +220,23 @@
 </div>
 
 <script>
+(function () {
+  var fim = new Date('2026-10-18T23:59:00-03:00').getTime();
+  var el = document.getElementById('sa-hero-promo-timer');
+  var wrap = document.getElementById('sa-hero-promo');
+  function tick() {
+    var diff = fim - Date.now();
+    if (diff <= 0) { if (wrap) wrap.style.display = 'none'; return; }
+    var d = Math.floor(diff / 86400000);
+    var h = Math.floor((diff % 86400000) / 3600000);
+    var m = Math.floor((diff % 3600000) / 60000);
+    var s = Math.floor((diff % 60000) / 1000);
+    if (el) el.textContent = d > 0 ? (d + 'd ' + h + 'h ' + m + 'm') : (h + 'h ' + m + 'm ' + s + 's');
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+
 function brl(v) { return 'R$ ' + (parseFloat(v)||0).toFixed(2).replace('.', ','); }
 function esc(s) { return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
