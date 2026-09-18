@@ -1171,7 +1171,7 @@
     <a class="pq-nav-link pq-desktop-only" href="{{ url_for('seja_assinante') }}" style="position:relative">
       <i class="fa fa-star" style="font-size:1.1rem"></i>
       <span>Seja<br>Assinante</span>
-      <span class="pq-nav-promo-chip">R$10</span>
+      <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10</span>
     </a>
     {% endif %}
     <a class="pq-nav-link" href="{{ url_for('carrinho') }}" onclick="return abrirCestaLateral(event)">
@@ -1361,7 +1361,7 @@
   </a>
   {% if not consumidor_tem_assinatura %}
   <a class="pq-drawer-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()">
-    <i class="fa fa-star"></i>Seja assinante <span class="pq-nav-promo-chip">R$10 por tempo limitado</span>
+    <i class="fa fa-star"></i>Seja assinante <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10 por tempo limitado</span>
   </a>
   {% endif %}
   <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer();return abrirCestaLateral(event)">
@@ -3208,6 +3208,38 @@ function reenviarVerificacao(btn) {
     })
     .catch(() => { btn.textContent = 'Reenviar e-mail'; btn.disabled = false; });
 }
+
+/* ── Promoção da assinatura: só mostra pra quem tem farmácia com clube
+   dentro de ~60km (mesmo raio de "loja próxima" já usado no resto do
+   site) -- sem isso o banner/selo aparecia pra visitante de qualquer
+   região, mesmo sem nenhuma farmácia com clube perto dele. Elementos
+   com a classe .pq-promo-regional começam escondidos no HTML e só são
+   revelados aqui se passar na checagem. */
+(function () {
+  function revelarPromoAssinatura() {
+    var lat = parseFloat(localStorage.getItem('pq_lat') || '0');
+    var lng = parseFloat(localStorage.getItem('pq_lng') || '0');
+    if (!lat && !lng) return;
+    fetch('/api/planos-assinatura-proximos?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var lista = (d && d.planos) || (d && d.lojas) || (Array.isArray(d) ? d : []);
+        var pertoOk = Array.isArray(lista) && lista.some(function (p) {
+          return typeof p.distancia_km === 'number' && p.distancia_km <= 60;
+        });
+        if (!pertoOk) return;
+        document.querySelectorAll('.pq-promo-regional').forEach(function (el) {
+          el.style.display = el.dataset.pqPromoDisplay || 'flex';
+        });
+      })
+      .catch(function () {});
+  }
+  // Da um tempo pro fluxo de geolocalizacao (cache de 24h ou deteccao na
+  // hora) preencher pq_lat/pq_lng antes de checar -- sem isso, na 1a visita
+  // (antes da localizacao resolver) a checagem sempre falharia por falta
+  // de coordenada, mesmo pra quem esta perto de verdade.
+  setTimeout(revelarPromoAssinatura, 1500);
+})();
 </script>
 </body>
 </html>
