@@ -554,20 +554,33 @@ def _finalizar_pos_pagamento_aprovado(pedido_id, notificar=True):
             app.logger.warning("pos pagamento notificar %s error: %s", pedido_id, exc)
         try:
             _pid = str(pedido_id)
-            _ok_wa = _wa_notif_pedido_loja(
-                _pid,
-                f'✅ Pedido pago!\n'
-                f'Pedido #{_pid[:8].upper()} foi confirmado.\n'
-                f'Clique para preparar:\n'
-                f'{_wa_base_url()}/painel/pedidos/{_pid}'
-            )
-            if _ok_wa:
-                try:
-                    _wc = db(); _wcu = _wc.cursor()
-                    _wcu.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NOW() WHERE id=%s", (_pid,))
-                    _wc.commit(); _wcu.close()
-                except Exception:
-                    pass
+            # Esse metodo pode ser chamado mais de uma vez pro mesmo pedido
+            # (webhook do MP + verificacao de status do front podem detectar
+            # "virou pago" quase ao mesmo tempo, cada um numa request
+            # separada) -- sem reservar o envio ANTES de mandar a mensagem,
+            # as duas chamadas mandavam o "Pedido pago" pro WhatsApp da loja
+            # duplicado. UPDATE...WHERE wa_loja_notificado_em IS NULL e
+            # atomico: so uma das chamadas concorrentes consegue "reservar" a
+            # linha, a outra nao afeta nenhuma linha e desiste sem mandar nada.
+            if _wa_reservar_notificacao_pedido(_pid):
+                _ok_wa = _wa_notif_pedido_loja(
+                    _pid,
+                    f'✅ Pedido pago!\n'
+                    f'Pedido #{_pid[:8].upper()} foi confirmado.\n'
+                    f'Clique para preparar:\n'
+                    f'{_wa_base_url()}/painel/pedidos/{_pid}'
+                )
+                if not _ok_wa:
+                    # Falhou o envio de verdade (ex: WA Sender fora do ar) --
+                    # libera a reserva pra tentar de novo depois (cron de
+                    # retry ainda pega esse pedido com wa_loja_notificado_em
+                    # de volta a NULL).
+                    try:
+                        _wc = db(); _wcu = _wc.cursor()
+                        _wcu.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NULL WHERE id=%s", (_pid,))
+                        _wc.commit(); _wcu.close()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -2070,6 +2083,27 @@ def _wa_send(numero: str, msg: str, imagem_url: str = None, retornar_dados: bool
         app.logger.warning("wa_send error to=%s: %s", to, exc)
         if propagar_erro:
             raise RuntimeError(f"Falha ao enviar WhatsApp: {exc}")
+        return False
+
+
+def _wa_reservar_notificacao_pedido(pedido_id: str) -> bool:
+    """Reserva atomicamente o direito de mandar o WA de 'pedido pago' pra
+    loja -- so retorna True pra UMA chamada concorrente (webhook, checagem de
+    status do front, e os crons de retry todos podem competir pelo mesmo
+    pedido). UPDATE condicional com RETURNING garante isso sem precisar de
+    lock explicito: o Postgres so deixa uma transacao "ganhar" a linha."""
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            "UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NOW() "
+            "WHERE id=%s AND wa_loja_notificado_em IS NULL RETURNING id",
+            (pedido_id,),
+        )
+        ganhou = cur.fetchone() is not None
+        conn.commit()
+        cur.close()
+        return ganhou
+    except Exception:
         return False
 
 
@@ -19003,22 +19037,6 @@ def api_checkout():
         except Exception:
             pass
 
-        # Notifica loja via WhatsApp ao receber novo pedido
-        try:
-            _wpp_loja = re.sub(r'\D', '', loja.get('whatsapp_pedidos') or loja.get('telefone') or '')
-            if _wpp_loja and WASENDER_API_KEY:
-                _total_fmt = f"R${round(total, 2):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                _wa_send(
-                    _wpp_loja,
-                    f'🛍️ Novo pedido recebido!\n'
-                    f'Pedido #{pedido_id[:8].upper()}\n'
-                    f'Total: {_total_fmt}\n'
-                    f'Ver pedido:\n'
-                    f'{_wa_base_url()}/painel/pedidos/{pedido_id}'
-                )
-        except Exception:
-            pass
-
         mp_init = None
         mp_payment = {}
         payment_status = "pending"
@@ -19030,6 +19048,40 @@ def api_checkout():
             or (gateway_pagamento == "asaas" and bool(loja.get("asaas_api_key")))
             or (gateway_pagamento == "pagbank" and bool(loja.get("pagbank_token")) and bool(loja.get("pagbank_public_key")))
         )
+        # So o pedido que sera cobrado de fato por gateway automatico (Mercado
+        # Pago/Asaas/PagBank) pode contar com a confirmacao automatica de
+        # pagamento chegando em minutos -- nesses casos o aviso "Pedido pago"
+        # que vem logo depois ja e suficiente, sem precisar avisar 2x (recebido
+        # + pago) pro mesmo pedido. Pedido com receita pendente de aprovacao
+        # (pagamento so criado depois, manualmente) ou sem gateway configurado
+        # (loja teria que conferir PIX manual na chave dela) continua avisando
+        # na hora, senao a loja nunca fica sabendo do pedido.
+        _gateway_automatico_ok = (
+            (gateway_pagamento == "mercadopago" and bool(loja.get("mp_access_token")))
+            or (gateway_pagamento == "asaas" and bool(loja.get("asaas_api_key")))
+            or (gateway_pagamento == "pagbank" and bool(loja.get("pagbank_token")) and bool(loja.get("pagbank_public_key")))
+        )
+        _pagamento_via_gateway_automatico = (
+            receita_status != "pendente"
+            and pagamento in ("mercadopago", "pix")
+            and _gateway_automatico_ok
+        )
+        if not _pagamento_via_gateway_automatico:
+            try:
+                _wpp_loja = re.sub(r'\D', '', loja.get('whatsapp_pedidos') or loja.get('telefone') or '')
+                if _wpp_loja and WASENDER_API_KEY:
+                    _total_fmt = f"R${round(total, 2):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    _wa_send(
+                        _wpp_loja,
+                        f'🛍️ Novo pedido recebido!\n'
+                        f'Pedido #{pedido_id[:8].upper()}\n'
+                        f'Total: {_total_fmt}\n'
+                        f'Ver pedido:\n'
+                        f'{_wa_base_url()}/painel/pedidos/{pedido_id}'
+                    )
+            except Exception:
+                pass
+
         mp_customer_id_checkout = None
         if receita_status == "pendente":
             pass  # pagamento criado apenas após aprovação da receita
@@ -26169,6 +26221,11 @@ def api_cron_wa_notify():
     if not row:
         return jsonify({"ok": True, "msg": "nenhum_pendente"})
     pid = str(row["id"])
+    # Reserva atomicamente antes de mandar -- evita duplicar com o envio
+    # sincrono (_finalizar_pos_pagamento_aprovado) ou com /api/cron/wa-next
+    # pegando o mesmo pedido quase ao mesmo tempo.
+    if not _wa_reservar_notificacao_pedido(pid):
+        return jsonify({"ok": True, "msg": "ja_reservado_por_outro_envio"})
     total_fmt = f"R${float(row['total'] or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     msg = (
         f"✅ Pedido pago!\n"
@@ -26177,10 +26234,10 @@ def api_cron_wa_notify():
         f"{_wa_base_url()}/painel/pedidos/{pid}"
     )
     ok = _wa_notif_pedido_loja(pid, msg)
-    if ok:
+    if not ok:
         try:
             uc = db(); ucu = uc.cursor()
-            ucu.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NOW() WHERE id=%s", (pid,))
+            ucu.execute("UPDATE ecommerce_pedidos SET wa_loja_notificado_em=NULL WHERE id=%s", (pid,))
             uc.commit(); ucu.close()
         except Exception:
             pass
@@ -26217,6 +26274,13 @@ def api_cron_wa_next():
     if not row:
         return jsonify({"ok": True, "pendente": False})
     pid = str(row["id"])
+    # Reserva na hora (nao so quando /api/cron/wa-mark-sent for chamado
+    # depois) -- entre esse GET e o cron do Hostgator mandar de verdade e
+    # chamar wa-mark-sent existe uma janela real (rede + processamento) onde
+    # outro envio (sincrono, ou outra chamada de wa-next/wa-notify) podia
+    # pegar o mesmo pedido ainda sem marca nenhuma e mandar de novo.
+    if not _wa_reservar_notificacao_pedido(pid):
+        return jsonify({"ok": True, "pendente": False})
     wpp = row["wpp"]
     d = re.sub(r'\D', '', wpp)
     to = ('+55' + d) if not d.startswith('55') else ('+' + d)
