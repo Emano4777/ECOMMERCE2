@@ -2468,7 +2468,7 @@ def _ensure_mp_oauth_columns():
     """Colunas do fluxo de marketplace (split de pagamento) -- distintas do
     mp_access_token/mp_public_key colados manualmente (modelo antigo, que
     continua funcionando pra loja que nao conectar via OAuth)."""
-    key = "loja_mp_oauth_v1"
+    key = "loja_mp_oauth_v2"
     if key in _schema_ready:
         return
     _load_db_migrations()
@@ -2483,6 +2483,8 @@ def _ensure_mp_oauth_columns():
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_token_expira_em TIMESTAMPTZ")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_marketplace_user_id TEXT")
         cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_conectado_marketplace BOOLEAN DEFAULT FALSE")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_access_token_backup TEXT")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_public_key_backup TEXT")
         conn.commit()
         cur.close()
         _schema_ready.add(key)
@@ -23852,6 +23854,22 @@ def mp_callback():
     public_key    = token_data.get("public_key", "")
 
     conn = db(); cur = conn.cursor()
+    # Antes de sobrescrever mp_access_token/mp_public_key com o token OAuth,
+    # guarda o que tinha antes (se a loja ja usava o modelo manual) num
+    # backup -- sem isso, "desconectar" nao tinha como voltar pro token
+    # manual de antes, e ficava com o token OAuth "orfao" (sem mais
+    # renovacao automatica, quebra sozinho quando vencer em ~180 dias sem
+    # avisar ninguem). So faz backup na 1a conexao (nao pisa um backup ja
+    # existente numa reconexao).
+    cur.execute(
+        """
+        UPDATE ecommerce_config_loja
+        SET mp_access_token_backup = COALESCE(mp_access_token_backup, NULLIF(mp_access_token, '')),
+            mp_public_key_backup   = COALESCE(mp_public_key_backup, NULLIF(mp_public_key, ''))
+        WHERE cnpjloja = %s AND COALESCE(mp_conectado_marketplace, FALSE) = FALSE
+        """,
+        (cnpjloja,),
+    )
     cur.execute(
         """
         INSERT INTO ecommerce_config_loja
@@ -23883,17 +23901,27 @@ def painel_mp_desconectar():
     _ensure_mp_oauth_columns()
     cnpjloja = session.get("cnpjloja")
     conn = db(); cur = conn.cursor()
+    # Restaura o token manual de antes de conectar (se a loja tinha um --
+    # ver comentario em mp_callback). Loja que nunca teve token manual (foi
+    # direto pro OAuth) fica sem mp_access_token depois de desconectar --
+    # melhor pedir pra reconfigurar do que deixar um token OAuth "orfao"
+    # rodando sem renovacao ate quebrar sozinho sem aviso.
     cur.execute(
         """
         UPDATE ecommerce_config_loja
-        SET mp_refresh_token=NULL, mp_token_expira_em=NULL,
-            mp_marketplace_user_id=NULL, mp_conectado_marketplace=FALSE, updated_at=NOW()
+        SET mp_access_token = mp_access_token_backup,
+            mp_public_key   = COALESCE(mp_public_key_backup, mp_public_key),
+            mp_access_token_backup = NULL,
+            mp_public_key_backup   = NULL,
+            mp_refresh_token = NULL, mp_token_expira_em = NULL,
+            mp_marketplace_user_id = NULL, mp_conectado_marketplace = FALSE,
+            updated_at = NOW()
         WHERE cnpjloja=%s
         """,
         (cnpjloja,),
     )
     conn.commit(); cur.close()
-    flash("Split automático desconectado. O Access Token manual (se configurado) continua valendo pra receber pagamentos, só sem o repasse automático.", "success")
+    flash("Mercado Pago desconectado do split automático. Se você já usava um Access Token manual antes de conectar, ele foi restaurado -- confira em Mercado Pago acima se precisa recolar algum.", "success")
     return redirect(url_for("painel_config"))
 
 
