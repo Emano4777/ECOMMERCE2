@@ -1891,9 +1891,18 @@ function _calcApplicableTotal(cnpjloja, codigo) {
   }, 0);
 }
 
+// Mesma logica do backend (_produto_e_fralda / _TIPO_FRALDA em app.py) --
+// tem que cobrir tambem o nome abreviado do ERP ("FD ..." no comeco), senao
+// uma fralda cadastrada so com essa abreviacao passa como "item fora de
+// fralda" e libera cupons nao_fralda num carrinho 100% fralda (bug do
+// VALEU7SET em 10/09/2026).
+function _produtoEhFralda(nome) {
+  const n = nome || '';
+  return /\bfraldas?\b|^fd\s|pampers|babysec|huggies|pom\s*pom|cotinha|turma da monica fralda/i.test(n);
+}
 function _carrinhoTemItemNaoFralda(cnpjloja) {
   const cart = getCart().filter(i => i.cnpjloja === cnpjloja);
-  return cart.some(i => !/fralda|fraldas|pampers|babysec|huggies|pom\s*pom/i.test(i.nome || ''));
+  return cart.some(i => !_produtoEhFralda(i.nome || ''));
 }
 
 function _prodCat(nome) {
@@ -1940,16 +1949,19 @@ async function aplicarCupom(cnpjloja) {
     } else {
       delete _cupomAplicado[cnpjloja];
       if (msg) {
-        if (d.bloqueio_total_zero) {
-          msg.style.color = '#92400e';
-          msg.innerHTML = `<div style="display:flex;align-items:flex-start;gap:9px;background:#fffbeb;border:1.5px solid #f5c842;border-radius:10px;padding:10px 12px;line-height:1.4;font-size:.8rem">
-            <i class="fa fa-circle-info" style="margin-top:2px;flex-shrink:0"></i>
+        // Qualquer motivo de recusa (valor minimo, escopo nao_fralda, cupom
+        // expirado/esgotado etc.) usa a mesma caixa destacada com o motivo
+        // por extenso -- nao só uma linha de erro genérica -- e quebra linha
+        // normalmente (flex + span sem largura fixa), então continua legível
+        // em tela de celular.
+        msg.style.color = d.bloqueio_total_zero ? '#92400e' : 'var(--pq-red)';
+        const cor = d.bloqueio_total_zero
+          ? { bg: '#fffbeb', bd: '#f5c842', tx: '#92400e', ic: 'fa-circle-info' }
+          : { bg: '#fef2f2', bd: '#fca5a5', tx: 'var(--pq-red)', ic: 'fa-circle-xmark' };
+        msg.innerHTML = `<div style="display:flex;align-items:flex-start;gap:9px;background:${cor.bg};border:1.5px solid ${cor.bd};border-radius:10px;padding:10px 12px;line-height:1.4;font-size:.8rem;color:${cor.tx}">
+            <i class="fa ${cor.ic}" style="margin-top:2px;flex-shrink:0"></i>
             <span><strong>Cupom não aplicado.</strong> ${esc(d.msg)}</span>
           </div>`;
-        } else {
-          msg.style.color = 'var(--pq-red)';
-          msg.innerHTML = `<i class="fa fa-xmark me-1"></i>${esc(d.msg)}`;
-        }
       }
     }
   } catch {

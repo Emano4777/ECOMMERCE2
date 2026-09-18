@@ -13050,8 +13050,19 @@ _FRALDA_KEYWORDS = (
 def _produto_e_fralda(nome: str) -> bool:
     """Deteccao por palavra-chave (nao ANVISA/farmaco) se um produto e
     fralda -- usado pra regra de cupom que exige pelo menos 1 item fora
-    dessa categoria no carrinho."""
-    prod = _norm_text(nome or "")
+    dessa categoria no carrinho.
+
+    Alem das marcas conhecidas, tambem cobre o nome abreviado que o ERP usa
+    pra fralda (ex: "FD BABYSEC XL C/40" comeca com "FD "). Sem isso, um
+    produto de fralda cadastrado so com essa abreviacao nao batia com
+    nenhuma palavra-chave e era contado como "item fora de fralda" -- o que
+    liberava o desconto de cupons com escopo nao_fralda num carrinho 100%
+    fralda (bug identificado em 10/09/2026, cupom VALEU7SET)."""
+    if not nome:
+        return False
+    if _TIPO_FRALDA.search(nome):
+        return True
+    prod = _norm_text(nome)
     return any(_norm_text(w) in prod for w in _FRALDA_KEYWORDS)
 
 
