@@ -113,6 +113,24 @@
   <div class="cfg-help">Aparece na tela "Seja assinante" e em outros locais onde sua farmácia é destacada para o consumidor.</div>
 </div>
 
+<div class="pk-card cfg-section">
+  {% if config.mp_conectado_marketplace %}
+    <div class="cfg-help" style="color:#16a34a;font-weight:700">
+      <i class="fa fa-circle-check"></i> Conta Mercado Pago conectada
+    </div>
+    <form method="post" action="{{ url_for('painel_mp_desconectar') }}"
+          onsubmit="return confirm('Desconectar a conta Mercado Pago?')" style="margin-top:8px">
+      <button type="submit" class="mp-mkt-btn-disconnect">
+        <i class="fa fa-link-slash"></i>Desconectar
+      </button>
+    </form>
+  {% else %}
+    <a href="{{ url_for('painel_mp_conectar') }}" class="mp-mkt-btn-connect">
+      <i class="fa fa-plug"></i>Conecte sua conta do Mercado Pago
+    </a>
+  {% endif %}
+</div>
+
 <form method="post" action="{{ url_for('painel_config_salvar') }}">
   <div class="pk-card cfg-section">
     <div class="cfg-section-title">
@@ -320,70 +338,6 @@
              placeholder="APP_USR-... ou TEST-..."/>
       <div class="cfg-help">
         Necessária para o checkout transparente: o cliente digita o cartão dentro do Poupaqui e o Mercado Pago gera o token do cartão com segurança.
-      </div>
-
-      <div class="mp-guide">
-        <div class="mp-guide-head">
-          <div class="mp-guide-title"><i class="fa fa-route" style="color:var(--pk-yellow)"></i>Como pegar o Access Token</div>
-          <a class="mp-guide-link" href="https://www.mercadopago.com.br/developers/panel/app" target="_blank">
-            <i class="fa fa-arrow-up-right-from-square"></i>Abrir Mercado Pago
-          </a>
-        </div>
-        <div class="mp-steps">
-          <div class="mp-step">
-            <div class="mp-step-num">1</div>
-            <strong>Entre no painel</strong>
-            <span>Acesse sua conta do Mercado Pago Developers com o mesmo login da loja.</span>
-          </div>
-          <div class="mp-step">
-            <div class="mp-step-num">2</div>
-            <strong>Crie ou abra um app</strong>
-            <span>Em Suas integrações, abra uma aplicação existente ou crie uma nova.</span>
-          </div>
-          <div class="mp-step">
-            <div class="mp-step-num">3</div>
-            <strong>Vá em credenciais</strong>
-            <span>Abra Credenciais de produção e copie o campo Access Token.</span>
-          </div>
-          <div class="mp-step">
-            <div class="mp-step-num">4</div>
-            <strong>Cole aqui e salve</strong>
-            <span>Depois de salvar, o Poupaqui gera QR Code PIX, cartão e confirmação automática.</span>
-          </div>
-        </div>
-        <div class="mp-note">
-          <i class="fa fa-shield-halved" style="color:var(--pk-yellow);margin-top:2px"></i>
-          <span>Use o token de produção, normalmente começando com <strong>APP_USR-</strong>. Não compartilhe esse token fora do painel da sua loja.</span>
-        </div>
-      </div>
-
-      <div class="mp-guide" style="margin-top:16px">
-        <div class="mp-guide-head">
-          <div class="mp-guide-title"><i class="fa fa-handshake" style="color:var(--pk-yellow)"></i>Split automático (repasse pra Poupaqui)</div>
-        </div>
-        {% if config.mp_conectado_marketplace %}
-          <div class="cfg-help" style="color:#16a34a;font-weight:700">
-            <i class="fa fa-circle-check"></i> Conectado — {{ mp_marketplace_fee_pct }}% de cada venda paga pelo site já é repassado automaticamente, sem precisar de PIX manual depois.
-          </div>
-          <div style="display:flex;gap:10px;margin-top:10px">
-            <a href="{{ url_for('painel_mp_conectar') }}" class="mp-mkt-btn-connect" style="font-size:.82rem;padding:8px 16px">
-              <i class="fa fa-rotate"></i>Reconectar
-            </a>
-            <form method="post" action="{{ url_for('painel_mp_desconectar') }}"
-                  onsubmit="return confirm('Desconectar o split automático? O Access Token manual continua valendo pra receber pagamentos, só sem o repasse automático.')">
-              <button type="submit" class="mp-mkt-btn-disconnect">
-                <i class="fa fa-link-slash"></i>Desconectar
-              </button>
-            </form>
-          </div>
-        {% else %}
-          <div class="cfg-help">
-            Conecte sua conta Mercado Pago (login e senha, sem precisar copiar token nenhum) pra que {{ mp_marketplace_fee_pct }}% de cada venda paga pelo site já vá direto pro repasse combinado, automaticamente.
-          </div>
-          <a href="{{ url_for('painel_mp_conectar') }}" class="mp-mkt-btn-connect" style="margin-top:10px">
-            <i class="fa fa-plug"></i>Conectar Mercado Pago (split automático)
-          </a>
-        {% endif %}
       </div>
     </div>
   </div>

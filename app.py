@@ -23617,7 +23617,7 @@ def painel_config():
     )
     faixas_frete = cur.fetchall()
     cur.close()
-    return render_template("painel_config.html", config=config, faixas_frete=faixas_frete, mp_marketplace_fee_pct=MP_MKT_FEE_PCT)
+    return render_template("painel_config.html", config=config, faixas_frete=faixas_frete)
 
 
 @app.get("/painel/config/mp-test")
