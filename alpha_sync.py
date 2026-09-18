@@ -369,18 +369,36 @@ def sync_products(limit=5000, mark_processed=True):
     return {"ok": True, "total": len(rows), "ativos": len(active_ids)}
 
 
+def _extrair_cidade_uf(main):
+    """Acha cidade+UF pelo FINAL do endereco, nao por uma posicao fixa de
+    segmento -- o site ja gerou endereco_entrega em formatos bem diferentes
+    ao longo do tempo (checkout com entrega: '...Bairro, Cidade - UF, CEP';
+    endereco cadastrado via geocoding: '...Bairro, Cidade, UF'; digitado a
+    mao: '...Bairro - Cidade/UF'). A versao antiga assumia sempre exatamente
+    3 segmentos separados por ' - ' e pegava o 3o como cidade -- pra
+    qualquer formato com UF no 3o segmento (ex: '...Cidade - UF, CEP') isso
+    devolvia cidade='SP' em vez do nome real da cidade, quebrando a
+    transmissao de NFC-e no Alpha (campo Municipio Destinatario obrigatorio)."""
+    tokens = [t.strip() for t in re.split(r"\s*(?:,|/|\s-\s)\s*", main) if t.strip()]
+    if tokens and re.fullmatch(r"[A-Za-z]{2}", tokens[-1]):
+        uf = tokens[-1].upper()
+        cidade = tokens[-2] if len(tokens) > 1 else ""
+    elif tokens:
+        uf = ""
+        cidade = tokens[-1]
+    else:
+        uf, cidade = "", ""
+    return cidade, uf
+
+
 def _split_address(raw):
     raw = (raw or "").strip()
     cep = _digits(raw)[-8:] if len(_digits(raw)) >= 8 else ""
-    uf = ""
-    m_uf = re.search(r"\b([A-Z]{2})\b(?:,|\s+\d{5}|\s*$)", raw)
-    if m_uf:
-        uf = m_uf.group(1)
     main = re.sub(r",?\s*\d{5}-?\d{3}.*$", "", raw).strip(" ,-")
+    cidade, uf = _extrair_cidade_uf(main)
     parts = [p.strip() for p in re.split(r"\s+-\s+", main) if p.strip()]
     rua_num = parts[0] if parts else main
     bairro = parts[1] if len(parts) > 1 else ""
-    cidade = parts[2] if len(parts) > 2 else ""
     numero = "SN"
     logradouro = rua_num
     m_num = re.match(r"(.+?),\s*([^,\s]+)(?:\s+(.*))?$", rua_num)
