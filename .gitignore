@@ -24,3 +24,4 @@ _tmp_*.py
 .vercel.env.tmp
 .vercel.dev.tmp
 .vercel*.tmp
+_ssh_run.py
