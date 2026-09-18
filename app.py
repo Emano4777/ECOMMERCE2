@@ -13043,24 +13043,25 @@ def _is_incoherent_complement(base_names, product_name):
 
 _FRALDA_KEYWORDS = (
     "fralda", "fraldas", "pampers", "babysec", "huggies", "pom pom", "pompom",
-    "turma da monica fralda", "cotinha", "fralda calcinha",
+    "turma da monica fralda", "cotinha", "fralda calcinha", "hipopo",
 )
+
+# Abreviacao de fralda no comeco do nome, do jeito que o ERP/Alpha cadastra
+# (ex: "FRAL HIPOPO BABY HIPER XXG...", "FD BABYSEC XL C/40", "FR ..."). Sem
+# isso o produto nao bate com nenhuma palavra-chave da lista acima e e
+# contado como "item fora de fralda" -- foi o que liberou o desconto do
+# cupom VALEU7SET (escopo nao_fralda) num carrinho 100% fralda ("FRAL HIPOPO
+# BABY HIPER XXG") em 17/09/2026. Confirmado consultando os pedidos no banco.
+_PREFIXO_FRALDA_ERP = re.compile(r"^(fral\w*|fd|fr)(?=[\s/]|$)", re.IGNORECASE)
 
 
 def _produto_e_fralda(nome: str) -> bool:
     """Deteccao por palavra-chave (nao ANVISA/farmaco) se um produto e
     fralda -- usado pra regra de cupom que exige pelo menos 1 item fora
-    dessa categoria no carrinho.
-
-    Alem das marcas conhecidas, tambem cobre o nome abreviado que o ERP usa
-    pra fralda (ex: "FD BABYSEC XL C/40" comeca com "FD "). Sem isso, um
-    produto de fralda cadastrado so com essa abreviacao nao batia com
-    nenhuma palavra-chave e era contado como "item fora de fralda" -- o que
-    liberava o desconto de cupons com escopo nao_fralda num carrinho 100%
-    fralda (bug identificado em 10/09/2026, cupom VALEU7SET)."""
+    dessa categoria no carrinho."""
     if not nome:
         return False
-    if _TIPO_FRALDA.search(nome):
+    if _TIPO_FRALDA.search(nome) or _PREFIXO_FRALDA_ERP.search(nome.strip()):
         return True
     prod = _norm_text(nome)
     return any(_norm_text(w) in prod for w in _FRALDA_KEYWORDS)

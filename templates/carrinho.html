@@ -1891,14 +1891,16 @@ function _calcApplicableTotal(cnpjloja, codigo) {
   }, 0);
 }
 
-// Mesma logica do backend (_produto_e_fralda / _TIPO_FRALDA em app.py) --
-// tem que cobrir tambem o nome abreviado do ERP ("FD ..." no comeco), senao
-// uma fralda cadastrada so com essa abreviacao passa como "item fora de
-// fralda" e libera cupons nao_fralda num carrinho 100% fralda (bug do
-// VALEU7SET em 10/09/2026).
+// Mesma logica do backend (_produto_e_fralda / _PREFIXO_FRALDA_ERP em
+// app.py) -- tem que cobrir tambem o nome abreviado do ERP no comeco do
+// nome ("FRAL ...", "FD ...", "FR ..."), senao uma fralda cadastrada so com
+// essa abreviacao passa como "item fora de fralda" e libera cupons
+// nao_fralda num carrinho 100% fralda. Foi o que aconteceu com o cupom
+// VALEU7SET em 17/09/2026: o item era "FRAL HIPOPO BABY HIPER XXG...".
 function _produtoEhFralda(nome) {
-  const n = nome || '';
-  return /\bfraldas?\b|^fd\s|pampers|babysec|huggies|pom\s*pom|cotinha|turma da monica fralda/i.test(n);
+  const n = (nome || '').trim();
+  if (/^(fral\w*|fd|fr)(?=[\s/]|$)/i.test(n)) return true;
+  return /\bfraldas?\b|pampers|babysec|huggies|pom\s*pom|cotinha|turma da monica fralda|hipopo/i.test(n);
 }
 function _carrinhoTemItemNaoFralda(cnpjloja) {
   const cart = getCart().filter(i => i.cnpjloja === cnpjloja);
