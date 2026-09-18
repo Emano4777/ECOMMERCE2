@@ -140,6 +140,14 @@ ML_AUTH_URL  = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 ML_API_BASE  = "https://api.mercadolibre.com"
 
+# ─── MERCADO PAGO MARKETPLACE (split de pagamento) ──────────────────────────
+MP_MKT_CLIENT_ID     = os.getenv("MP_MARKETPLACE_CLIENT_ID", "")
+MP_MKT_SECRET        = os.getenv("MP_MARKETPLACE_CLIENT_SECRET", "")
+MP_MKT_REDIRECT      = os.getenv("MP_MARKETPLACE_REDIRECT_URI", "https://www.drogariaspoupaqui.com.br/mp/callback")
+MP_MKT_AUTH_URL      = "https://auth.mercadopago.com/authorization"
+MP_MKT_TOKEN_URL     = "https://api.mercadopago.com/oauth/token"
+MP_MKT_FEE_PCT       = float(os.getenv("MP_MARKETPLACE_FEE_PCT", "2.0"))
+
 # ─── GOOGLE OAUTH (CONSUMIDOR) ───────────────────────────────────────────────
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -2456,6 +2464,31 @@ def _ensure_mp_public_key_column():
         _mark_migration_done(key)
 
 
+def _ensure_mp_oauth_columns():
+    """Colunas do fluxo de marketplace (split de pagamento) -- distintas do
+    mp_access_token/mp_public_key colados manualmente (modelo antigo, que
+    continua funcionando pra loja que nao conectar via OAuth)."""
+    key = "loja_mp_oauth_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_refresh_token TEXT")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_token_expira_em TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_marketplace_user_id TEXT")
+        cur.execute("ALTER TABLE ecommerce_config_loja ADD COLUMN IF NOT EXISTS mp_conectado_marketplace BOOLEAN DEFAULT FALSE")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_logo_url_column():
     key = "loja_logo_url_v1"
     if key in _schema_ready:
@@ -2871,6 +2904,70 @@ def _admin_mp_config():
     row = cur.fetchone()
     cur.close()
     return dict(row) if row else {}
+
+
+def _mp_marketplace_refresh_token(refresh_token, cnpjloja):
+    """Usa o refresh_token pra obter um novo access_token da loja e salva no
+    banco -- mesmo desenho de _ml_refresh_token, so trocando o endpoint."""
+    payload = json.dumps({
+        "grant_type": "refresh_token",
+        "client_id": MP_MKT_CLIENT_ID,
+        "client_secret": MP_MKT_SECRET,
+        "refresh_token": refresh_token,
+    }).encode()
+    req = urllib.request.Request(
+        MP_MKT_TOKEN_URL, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            token_data = json.loads(resp.read())
+    except Exception as e:
+        app.logger.warning("[MP marketplace] erro ao renovar token da loja %s: %s", cnpjloja, e)
+        return None
+    if "access_token" not in token_data:
+        return None
+    access_token = token_data["access_token"]
+    new_refresh  = token_data.get("refresh_token", refresh_token)
+    expires_in   = token_data.get("expires_in", 15552000)  # 180 dias, padrao MP
+    expires_at   = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE ecommerce_config_loja
+        SET mp_access_token=%s, mp_refresh_token=%s, mp_token_expira_em=%s
+        WHERE cnpjloja=%s
+        """,
+        (access_token, new_refresh, expires_at, cnpjloja),
+    )
+    conn.commit(); cur.close()
+    return access_token
+
+
+def _mp_marketplace_get_access_token(cnpjloja):
+    """Retorna o access_token da loja pro modelo marketplace (com split),
+    renovando sozinho se estiver perto de vencer -- mesmo padrao preguicoso
+    de _ml_get_token, sem cron dedicado. Devolve None se a loja nao conectou
+    via OAuth (nesse caso o caller deve cair pro mp_access_token manual)."""
+    _ensure_mp_oauth_columns()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT mp_access_token, mp_refresh_token, mp_token_expira_em
+        FROM ecommerce_config_loja
+        WHERE cnpjloja=%s AND COALESCE(mp_conectado_marketplace, FALSE) = TRUE
+        """,
+        (cnpjloja,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row or not row.get("mp_access_token"):
+        return None
+    expira_em = row.get("mp_token_expira_em")
+    if expira_em and expira_em <= datetime.now(timezone.utc) + timedelta(minutes=5):
+        return _mp_marketplace_refresh_token(row["mp_refresh_token"], cnpjloja)
+    return row["mp_access_token"]
 
 
 def _ensure_receita_schema():
@@ -18985,6 +19082,13 @@ def api_checkout():
         elif pagamento == "pix" and gateway_pagamento != "mercadopago":
             pix_erro = f"Gateway {gateway_pagamento} configurado, mas o PIX automático deste gateway ainda não está ativo."
         elif pagamento == "mercadopago" and loja.get("mp_access_token"):
+            # Loja conectada no modelo marketplace (OAuth com split): usa o
+            # token renovavel do fluxo OAuth em vez do token colado manual, e
+            # calcula a fatia automatica pro admin (application_fee/marketplace_fee).
+            # Loja no modelo antigo (so token colado) continua sem fee nenhum.
+            _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
+            _mp_token_pagto = _mp_token_split or loja["mp_access_token"]
+            _mp_fee = round(float(total) * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
             if loja.get("mp_public_key"):
                 # So busca/cria o Customer quando ha public key (Brick
                 # transparente ativo) — e o que permite o Brick listar
@@ -18994,7 +19098,7 @@ def api_checkout():
                     loja["mp_access_token"], session.get("consumidor_id"), cnpjloja, cliente
                 )
             mp_pref = _criar_preferencia_mp(
-                loja["mp_access_token"], pedido_id, itens, total, cliente
+                _mp_token_pagto, pedido_id, itens, total, cliente, application_fee=_mp_fee
             )
             mp_erro = (mp_pref or {}).get("_erro")
             if mp_pref and not mp_erro:
@@ -19019,8 +19123,11 @@ def api_checkout():
                 )
                 conn.commit()
         elif pagamento == "pix" and loja.get("mp_access_token"):
+            _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
+            _mp_token_pagto = _mp_token_split or loja["mp_access_token"]
+            _mp_fee = round(float(total) * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
             mp_payment = _criar_pagamento_pix_mp(
-                loja["mp_access_token"], pedido_id, itens, total, cliente
+                _mp_token_pagto, pedido_id, itens, total, cliente, application_fee=_mp_fee
             ) or {}
             pix_erro = mp_payment.pop("_erro", None)
             if mp_payment and not pix_erro:
@@ -19158,7 +19265,10 @@ def api_pedido_cartao_transparente(pedido_id):
     consumidor_id = str(row.get("consumidor_id") or "")
     cnpjloja = str(row.get("cnpjloja") or "")
     mp_customer_id = _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
-    pay = _criar_pagamento_cartao_mp(row["mp_access_token"], pedido_id, row["total"], cliente, data, mp_customer_id)
+    _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
+    _mp_token_pagto = _mp_token_split or row["mp_access_token"]
+    _mp_fee = round(float(row["total"]) * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
+    pay = _criar_pagamento_cartao_mp(_mp_token_pagto, pedido_id, row["total"], cliente, data, mp_customer_id, application_fee=_mp_fee)
     erro = pay.get("_erro") if isinstance(pay, dict) else None
     if erro:
         cur.close()
@@ -19669,7 +19779,7 @@ def _payer_payload(cliente):
     return {"email": email, "first_name": first, "last_name": last}
 
 
-def _criar_preferencia_mp(access_token, pedido_id, itens, total, cliente):
+def _criar_preferencia_mp(access_token, pedido_id, itens, total, cliente, application_fee=None):
     try:
         payload = {
             "items": [
@@ -19684,6 +19794,8 @@ def _criar_preferencia_mp(access_token, pedido_id, itens, total, cliente):
             "external_reference": pedido_id,
             "payer": _payer_payload(cliente),
         }
+        if application_fee:
+            payload["marketplace_fee"] = round(float(application_fee), 2)
         notification_url = _mp_notification_url()
         if notification_url:
             payload["notification_url"] = notification_url
@@ -19698,7 +19810,7 @@ def _criar_preferencia_mp(access_token, pedido_id, itens, total, cliente):
         return {"_erro": str(exc)}
 
 
-def _criar_pagamento_pix_mp(access_token, pedido_id, itens, total, cliente):
+def _criar_pagamento_pix_mp(access_token, pedido_id, itens, total, cliente, application_fee=None):
     try:
         payload = {
             "transaction_amount": round(float(total), 2),
@@ -19707,6 +19819,8 @@ def _criar_pagamento_pix_mp(access_token, pedido_id, itens, total, cliente):
             "external_reference": pedido_id,
             "payer": _payer_payload(cliente),
         }
+        if application_fee:
+            payload["application_fee"] = round(float(application_fee), 2)
         notification_url = _mp_notification_url()
         if notification_url:
             payload["notification_url"] = notification_url
@@ -19725,7 +19839,7 @@ def _criar_pagamento_pix_mp(access_token, pedido_id, itens, total, cliente):
         return {"_erro": str(exc)}
 
 
-def _criar_pagamento_cartao_mp(access_token, pedido_id, total, cliente, form, mp_customer_id=None):
+def _criar_pagamento_cartao_mp(access_token, pedido_id, total, cliente, form, mp_customer_id=None, application_fee=None):
     try:
         payer = dict(form.get("payer") or {})
         payer["email"] = (
@@ -19745,6 +19859,8 @@ def _criar_pagamento_cartao_mp(access_token, pedido_id, total, cliente, form, mp
             "external_reference": str(pedido_id),
             "payer": payer,
         }
+        if application_fee:
+            payload["application_fee"] = round(float(application_fee), 2)
         issuer_id = form.get("issuer_id")
         if issuer_id:
             payload["issuer_id"] = issuer_id
@@ -20921,8 +21037,11 @@ def painel_avaliar_receita(pedido_id):
             }
             total_ped = float(ped.get("total") or 0)
             pagamento_ped = ped.get("forma_pagamento") or ""
+            _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
+            _mp_token_pagto = _mp_token_split or ped["mp_access_token"]
+            _mp_fee = round(total_ped * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
             if pagamento_ped == "mercadopago":
-                mp_pref = _criar_preferencia_mp(ped["mp_access_token"], pedido_id, itens_ped, total_ped, cliente_ped)
+                mp_pref = _criar_preferencia_mp(_mp_token_pagto, pedido_id, itens_ped, total_ped, cliente_ped, application_fee=_mp_fee)
                 if mp_pref and not mp_pref.get("_erro"):
                     cur.execute(
                         "UPDATE ecommerce_pedidos SET mp_preference_id=%s, mp_init_point=%s WHERE id=%s",
@@ -20930,7 +21049,7 @@ def painel_avaliar_receita(pedido_id):
                     )
                     conn.commit()
             elif pagamento_ped == "pix":
-                mp_pay = _criar_pagamento_pix_mp(ped["mp_access_token"], pedido_id, itens_ped, total_ped, cliente_ped) or {}
+                mp_pay = _criar_pagamento_pix_mp(_mp_token_pagto, pedido_id, itens_ped, total_ped, cliente_ped, application_fee=_mp_fee) or {}
                 mp_pay.pop("_erro", None)
                 if mp_pay.get("qr_code"):
                     cur.execute(
@@ -23482,6 +23601,7 @@ def painel_relatorios():
 def painel_config():
     _ensure_receita_schema()
     _ensure_mp_public_key_column()
+    _ensure_mp_oauth_columns()
     _ensure_gateway_alt_columns()
     _ensure_logo_url_column()
     _ensure_delivery_schema()
@@ -23497,7 +23617,7 @@ def painel_config():
     )
     faixas_frete = cur.fetchall()
     cur.close()
-    return render_template("painel_config.html", config=config, faixas_frete=faixas_frete)
+    return render_template("painel_config.html", config=config, faixas_frete=faixas_frete, mp_marketplace_fee_pct=MP_MKT_FEE_PCT)
 
 
 @app.get("/painel/config/mp-test")
@@ -23654,6 +23774,126 @@ def painel_config_salvar():
     conn.commit()
     cur.close()
     flash("Configurações salvas com sucesso.", "success")
+    return redirect(url_for("painel_config"))
+
+
+# ── Mercado Pago marketplace (split de pagamento): OAuth ────────────────────
+
+@app.get("/painel/mp/conectar")
+@painel_required
+def painel_mp_conectar():
+    _ensure_mp_oauth_columns()
+    if not MP_MKT_CLIENT_ID or not MP_MKT_SECRET:
+        flash("Integração de split Mercado Pago incompleta. Configure MP_MARKETPLACE_CLIENT_ID e MP_MARKETPLACE_CLIENT_SECRET no ambiente.", "error")
+        return redirect(url_for("painel_config"))
+    cnpjloja = session.get("cnpjloja")
+    state = secrets.token_urlsafe(24)
+    session["mp_oauth_state"] = state
+    session["mp_oauth_cnpjloja"] = cnpjloja
+    params = urllib.parse.urlencode({
+        "client_id": MP_MKT_CLIENT_ID,
+        "response_type": "code",
+        "platform_id": "mp",
+        "state": state,
+        "redirect_uri": MP_MKT_REDIRECT,
+    })
+    return redirect(f"{MP_MKT_AUTH_URL}?{params}")
+
+
+@app.get("/mp/callback")
+def mp_callback():
+    _ensure_mp_oauth_columns()
+    if not MP_MKT_CLIENT_ID or not MP_MKT_SECRET:
+        flash("Integração de split Mercado Pago incompleta.", "error")
+        return redirect(url_for("painel_config"))
+    code = request.args.get("code", "")
+    state = request.args.get("state", "")
+    expected_state = session.get("mp_oauth_state")
+    cnpjloja = session.get("mp_oauth_cnpjloja") or session.get("cnpjloja")
+    if not code:
+        flash("Autorização Mercado Pago cancelada ou inválida.", "error")
+        return redirect(url_for("painel_config"))
+    if not expected_state or state != expected_state or not cnpjloja:
+        flash("Autorização Mercado Pago expirada ou sem loja vinculada. Tente conectar novamente pelo painel.", "error")
+        return redirect(url_for("painel_config"))
+
+    payload = json.dumps({
+        "client_id": MP_MKT_CLIENT_ID,
+        "client_secret": MP_MKT_SECRET,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": MP_MKT_REDIRECT,
+    }).encode()
+    req = urllib.request.Request(
+        MP_MKT_TOKEN_URL, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            token_data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        flash(f"Erro ao obter token Mercado Pago: {body[:200]}", "error")
+        return redirect(url_for("painel_config"))
+    except Exception as e:
+        flash(f"Erro ao obter token Mercado Pago: {e}", "error")
+        return redirect(url_for("painel_config"))
+
+    if "access_token" not in token_data:
+        flash(f"Resposta inválida do Mercado Pago: {token_data}", "error")
+        return redirect(url_for("painel_config"))
+
+    access_token  = token_data["access_token"]
+    refresh_token = token_data.get("refresh_token", "")
+    expires_in    = token_data.get("expires_in", 15552000)
+    expires_at    = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    mp_user_id    = str(token_data.get("user_id", ""))
+    public_key    = token_data.get("public_key", "")
+
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ecommerce_config_loja
+            (cnpjloja, mp_access_token, mp_public_key, mp_refresh_token,
+             mp_token_expira_em, mp_marketplace_user_id, mp_conectado_marketplace, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW())
+        ON CONFLICT (cnpjloja) DO UPDATE SET
+            mp_access_token          = EXCLUDED.mp_access_token,
+            mp_public_key            = COALESCE(NULLIF(EXCLUDED.mp_public_key, ''), ecommerce_config_loja.mp_public_key),
+            mp_refresh_token         = EXCLUDED.mp_refresh_token,
+            mp_token_expira_em       = EXCLUDED.mp_token_expira_em,
+            mp_marketplace_user_id   = EXCLUDED.mp_marketplace_user_id,
+            mp_conectado_marketplace = TRUE,
+            updated_at               = NOW()
+        """,
+        (cnpjloja, access_token, public_key, refresh_token, expires_at, mp_user_id),
+    )
+    conn.commit(); cur.close()
+    session.pop("mp_oauth_state", None)
+    session.pop("mp_oauth_cnpjloja", None)
+
+    flash("Conta Mercado Pago conectada com sucesso! Uma parte de cada venda paga pelo site já passa a ir automaticamente pro repasse combinado.", "success")
+    return redirect(url_for("painel_config"))
+
+
+@app.post("/painel/mp/desconectar")
+@painel_required
+def painel_mp_desconectar():
+    _ensure_mp_oauth_columns()
+    cnpjloja = session.get("cnpjloja")
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE ecommerce_config_loja
+        SET mp_refresh_token=NULL, mp_token_expira_em=NULL,
+            mp_marketplace_user_id=NULL, mp_conectado_marketplace=FALSE, updated_at=NOW()
+        WHERE cnpjloja=%s
+        """,
+        (cnpjloja,),
+    )
+    conn.commit(); cur.close()
+    flash("Split automático desconectado. O Access Token manual (se configurado) continua valendo pra receber pagamentos, só sem o repasse automático.", "success")
     return redirect(url_for("painel_config"))
 
 

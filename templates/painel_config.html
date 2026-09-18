@@ -68,6 +68,21 @@
 .mp-step strong { display:block; font-size:.84rem; margin-bottom:5px; color:var(--pk-txt); }
 .mp-step span { display:block; font-size:.76rem; line-height:1.4; color:var(--pk-muted); }
 .mp-note { padding:12px 14px; border-top:1px solid rgba(255,255,255,.08); font-size:.76rem; color:var(--pk-muted); display:flex; gap:8px; align-items:flex-start; line-height:1.45; }
+.mp-mkt-btn-connect {
+  display:inline-flex; align-items:center; gap:8px;
+  background:var(--pk-yellow); color:#111; font-weight:800;
+  border:none; border-radius:8px; padding:12px 24px;
+  font-size:.9rem; cursor:pointer; text-decoration:none;
+  transition:opacity .15s;
+}
+.mp-mkt-btn-connect:hover { opacity:.85; color:#111; }
+.mp-mkt-btn-disconnect {
+  display:inline-flex; align-items:center; gap:8px;
+  background:transparent; color:#f08090; font-weight:700;
+  border:1px solid #f08090; border-radius:8px; padding:8px 18px;
+  font-size:.82rem; cursor:pointer; text-decoration:none;
+}
+.mp-mkt-btn-disconnect:hover { background:rgba(240,128,144,.12); }
 @media(max-width:900px){ .mp-steps { grid-template-columns:1fr 1fr; } .mp-step:nth-child(2) { border-right:none; } }
 @media(max-width:560px){ .mp-steps { grid-template-columns:1fr; } .mp-step { border-right:none; border-bottom:1px solid rgba(255,255,255,.08); } .cfg-toggle { align-items:flex-start; } .cfg-toggle-desc { margin-left:0; } }
 </style>
@@ -340,6 +355,35 @@
           <i class="fa fa-shield-halved" style="color:var(--pk-yellow);margin-top:2px"></i>
           <span>Use o token de produção, normalmente começando com <strong>APP_USR-</strong>. Não compartilhe esse token fora do painel da sua loja.</span>
         </div>
+      </div>
+
+      <div class="mp-guide" style="margin-top:16px">
+        <div class="mp-guide-head">
+          <div class="mp-guide-title"><i class="fa fa-handshake" style="color:var(--pk-yellow)"></i>Split automático (repasse pra Poupaqui)</div>
+        </div>
+        {% if config.mp_conectado_marketplace %}
+          <div class="cfg-help" style="color:#16a34a;font-weight:700">
+            <i class="fa fa-circle-check"></i> Conectado — {{ mp_marketplace_fee_pct }}% de cada venda paga pelo site já é repassado automaticamente, sem precisar de PIX manual depois.
+          </div>
+          <div style="display:flex;gap:10px;margin-top:10px">
+            <a href="{{ url_for('painel_mp_conectar') }}" class="mp-mkt-btn-connect" style="font-size:.82rem;padding:8px 16px">
+              <i class="fa fa-rotate"></i>Reconectar
+            </a>
+            <form method="post" action="{{ url_for('painel_mp_desconectar') }}"
+                  onsubmit="return confirm('Desconectar o split automático? O Access Token manual continua valendo pra receber pagamentos, só sem o repasse automático.')">
+              <button type="submit" class="mp-mkt-btn-disconnect">
+                <i class="fa fa-link-slash"></i>Desconectar
+              </button>
+            </form>
+          </div>
+        {% else %}
+          <div class="cfg-help">
+            Conecte sua conta Mercado Pago (login e senha, sem precisar copiar token nenhum) pra que {{ mp_marketplace_fee_pct }}% de cada venda paga pelo site já vá direto pro repasse combinado, automaticamente.
+          </div>
+          <a href="{{ url_for('painel_mp_conectar') }}" class="mp-mkt-btn-connect" style="margin-top:10px">
+            <i class="fa fa-plug"></i>Conectar Mercado Pago (split automático)
+          </a>
+        {% endif %}
       </div>
     </div>
   </div>
