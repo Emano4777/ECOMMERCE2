@@ -545,6 +545,11 @@
 const _configLojas = {};
 const _cuponsDisponiveis = {};  // cupons disponíveis por cnpjloja
 const _cupomAplicado = {};     // {cnpjloja: {codigo, desconto, msg}}
+// Ultimo motivo de recusa por loja (cupom digitado mas invalido/nao
+// qualifica mais) -- sobrevive ao renderCart() pra nao sumir o aviso nem
+// deixar o rodape de totais desatualizado quando o cupom para de valer
+// depois de uma mudanca no carrinho. Ver _revalidarCupomApos().
+const _cupomErro = {};         // {cnpjloja: {msg, amber}}
 const _descontosAuto = {};     // {cnpjloja: {pagamento:[], quantidade:[]}}
 const _receitaUrl = {};        // {cnpjloja: url} — receita médica anexada
 const _receitaDeclaracaoOk = {}; // {cnpjloja: true} — cliente confirmou receita digital original
@@ -1463,12 +1468,14 @@ function renderCart() {
           </button>
         </div>
         <div id="cupom-msg-${esc(cnpj)}" style="font-size:.78rem;margin-top:5px;min-height:18px;${(_cupomAplicado[cnpj] && cupomEhMelhor) ? 'color:#16a34a' : ''}">
-          ${!_cupomAplicado[cnpj] ? '' : (cupomEhMelhor
-            ? '<i class="fa fa-circle-check me-1"></i>' + esc(_cupomAplicado[cnpj].msg)
-            : `<div style="display:flex;align-items:flex-start;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 12px;line-height:1.45;color:#92400e">
-                <i class="fa fa-circle-info" style="margin-top:2px;flex-shrink:0"></i>
-                <span>Cupom <strong>${esc(_cupomAplicado[cnpj].codigo)}</strong> é válido, mas as ofertas automáticas dos seus itens já dão <strong>${brl(descontoQtdAuto)}</strong> de desconto — mais que o cupom (${brl(descontoCodigo)}). Elas <strong>não somam</strong> com o cupom; ele fica guardado pra uma próxima compra.</span>
-              </div>`)}
+          ${!_cupomAplicado[cnpj]
+            ? (_cupomErro[cnpj] ? _cupomMsgBoxHtml(_cupomErro[cnpj].msg, _cupomErro[cnpj].amber) : '')
+            : (cupomEhMelhor
+              ? '<i class="fa fa-circle-check me-1"></i>' + esc(_cupomAplicado[cnpj].msg)
+              : `<div style="display:flex;align-items:flex-start;gap:8px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:8px 12px;line-height:1.45;color:#92400e">
+                  <i class="fa fa-circle-info" style="margin-top:2px;flex-shrink:0"></i>
+                  <span>Cupom <strong>${esc(_cupomAplicado[cnpj].codigo)}</strong> é válido, mas as ofertas automáticas dos seus itens já dão <strong>${brl(descontoQtdAuto)}</strong> de desconto — mais que o cupom (${brl(descontoCodigo)}). Elas <strong>não somam</strong> com o cupom; ele fica guardado pra uma próxima compra.</span>
+                </div>`)}
         </div>
       </div>
       <div class="cart-subtotal">
@@ -1855,12 +1862,26 @@ function alterarQty(ean, cnpjloja, delta) {
     item.qty = Math.max(1, (item.qty||1) + delta);
     saveCart(cart);
     renderCart();
+    _revalidarCupomApos(cnpjloja);
   }
 }
 
 function removerItem(ean, cnpjloja) {
   removeFromCart(ean, cnpjloja);
   renderCart();
+  _revalidarCupomApos(cnpjloja);
+}
+
+// Cupom aplicado pode deixar de valer depois que o carrinho muda (ex:
+// escopo nao_fralda perde o unico item elegivel ao ser removido, ou escopo
+// categoria/produto perde o item alvo, ou o total cai abaixo do valor
+// minimo) -- sem isso o cupom ficava "aplicado" na tela com o desconto
+// antigo mesmo o carrinho atual nao qualificando mais (o checkout final
+// sempre recalcula certo, mas a tela ficava mostrando errado ate a pessoa
+// clicar em Aplicar de novo). So reconfere quando ha cupom aplicado pra
+// essa loja, pra nao gerar fetch a toa em carrinho sem cupom.
+function _revalidarCupomApos(cnpjloja) {
+  if (_cupomAplicado[cnpjloja]) aplicarCupom(cnpjloja);
 }
 
 function _calcApplicableTotal(cnpjloja, codigo) {
@@ -1915,12 +1936,28 @@ function _prodCat(nome) {
   return '';
 }
 
+// Caixa destacada com o motivo por extenso -- usada tanto no re-render
+// normal (renderCart, quando ha um erro guardado em _cupomErro) quanto na
+// resposta imediata do fetch em aplicarCupom, pra nao duplicar o HTML em
+// dois lugares. Layout flex + span sem largura fixa, entao quebra linha
+// normalmente e continua legivel em tela de celular.
+function _cupomMsgBoxHtml(msgText, amber) {
+  const cor = amber
+    ? { bg: '#fffbeb', bd: '#f5c842', tx: '#92400e', ic: 'fa-circle-info' }
+    : { bg: '#fef2f2', bd: '#fca5a5', tx: 'var(--pq-red)', ic: 'fa-circle-xmark' };
+  return `<div style="display:flex;align-items:flex-start;gap:9px;background:${cor.bg};border:1.5px solid ${cor.bd};border-radius:10px;padding:10px 12px;line-height:1.4;font-size:.8rem;color:${cor.tx}">
+      <i class="fa ${cor.ic}" style="margin-top:2px;flex-shrink:0"></i>
+      <span><strong>Cupom não aplicado.</strong> ${esc(msgText)}</span>
+    </div>`;
+}
+
 async function aplicarCupom(cnpjloja) {
   const inp = document.getElementById(`cupom-inp-${cnpjloja}`);
   const msg = document.getElementById(`cupom-msg-${cnpjloja}`);
   const codigo = (inp?.value || '').trim().toUpperCase();
   if (!codigo) {
     delete _cupomAplicado[cnpjloja];
+    delete _cupomErro[cnpjloja];
     renderCart();
     return;
   }
@@ -1940,6 +1977,7 @@ async function aplicarCupom(cnpjloja) {
         if (esc === 'nao_fralda') return ' (só vale se o carrinho tiver algum item além de fralda)';
         return '';
       })();
+      delete _cupomErro[cnpjloja];
       _cupomAplicado[cnpjloja] = {
         codigo, desconto: d.desconto,
         msg: d.msg + escopoMsg,
@@ -1947,25 +1985,16 @@ async function aplicarCupom(cnpjloja) {
         escopo_categorias: d.escopo_categorias || '',
         escopo_eans: d.escopo_eans || '',
       };
-      renderCart();
     } else {
+      // Qualquer motivo de recusa (valor minimo, escopo nao_fralda, publico,
+      // limite por cliente, cupom expirado/esgotado etc.) fica guardado em
+      // _cupomErro pra sobreviver ao renderCart() -- que roda em seguida pra
+      // corrigir o rodape de totais (sem isso o total exibido continuava
+      // contando o desconto antigo depois do carrinho deixar de qualificar).
       delete _cupomAplicado[cnpjloja];
-      if (msg) {
-        // Qualquer motivo de recusa (valor minimo, escopo nao_fralda, cupom
-        // expirado/esgotado etc.) usa a mesma caixa destacada com o motivo
-        // por extenso -- nao só uma linha de erro genérica -- e quebra linha
-        // normalmente (flex + span sem largura fixa), então continua legível
-        // em tela de celular.
-        msg.style.color = d.bloqueio_total_zero ? '#92400e' : 'var(--pq-red)';
-        const cor = d.bloqueio_total_zero
-          ? { bg: '#fffbeb', bd: '#f5c842', tx: '#92400e', ic: 'fa-circle-info' }
-          : { bg: '#fef2f2', bd: '#fca5a5', tx: 'var(--pq-red)', ic: 'fa-circle-xmark' };
-        msg.innerHTML = `<div style="display:flex;align-items:flex-start;gap:9px;background:${cor.bg};border:1.5px solid ${cor.bd};border-radius:10px;padding:10px 12px;line-height:1.4;font-size:.8rem;color:${cor.tx}">
-            <i class="fa ${cor.ic}" style="margin-top:2px;flex-shrink:0"></i>
-            <span><strong>Cupom não aplicado.</strong> ${esc(d.msg)}</span>
-          </div>`;
-      }
+      _cupomErro[cnpjloja] = { msg: d.msg, amber: !!d.bloqueio_total_zero };
     }
+    renderCart();
   } catch {
     if (msg) { msg.style.color = 'var(--pq-muted)'; msg.textContent = 'Erro ao verificar cupom.'; }
   }
