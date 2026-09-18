@@ -113,6 +113,9 @@
           {% else %}Todos os produtos{% endif %}
         </span>
         <span><i class="fa fa-chart-bar me-1"></i>Usos (soma das lojas): {{ c.usos_total }}{% if c.uso_maximo %} / {{ c.uso_maximo }} por loja{% else %} (ilimitado){% endif %}</span>
+        {% if c.limite_uso_cliente %}
+        <span><i class="fa fa-user-check me-1"></i>Máx. {{ c.limite_uso_cliente }}x por cliente</span>
+        {% endif %}
         {% if c.valido_ate %}
         <span><i class="fa fa-calendar me-1"></i>Válido até: {{ c.valido_ate.strftime('%d/%m/%Y') }}</span>
         {% else %}
@@ -129,6 +132,7 @@
           data-valor="{{ c.desconto_valor }}"
           data-valido="{{ c.valido_ate.strftime('%Y-%m-%d') if c.valido_ate else '' }}"
           data-uso-maximo="{{ c.uso_maximo or 0 }}"
+          data-limite-uso-cliente="{{ c.limite_uso_cliente or 0 }}"
           data-publico="{{ c.publico or 'todos' }}"
           data-min-compras="{{ c.min_compras or 1 }}"
           data-escopo="{{ c.escopo or 'todos' }}"
@@ -245,6 +249,13 @@
         <div class="nf-field">
           <label>Máx. de usos por loja <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
           <input type="number" name="uso_maximo" min="0" step="1" value="0">
+        </div>
+        <div class="nf-field">
+          <label>Máx. de usos por cliente <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
+          <input type="number" name="limite_uso_cliente" min="0" step="1" value="1">
+          <span style="font-size:.73rem;color:var(--pk-muted);font-weight:400;display:block;margin-top:4px">
+            Ex: 1 = cada cliente só usa esse código uma vez, mesmo com "Máx. de usos por loja" maior.
+          </span>
         </div>
         <div class="nf-field full">
           <label>Para quem é o cupom?</label>
@@ -488,6 +499,13 @@
           <label>Máx. de usos por loja <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
           <input type="number" name="uso_maximo" id="edit-uso-maximo" min="0" step="1">
         </div>
+        <div class="nf-field">
+          <label>Máx. de usos por cliente <span style="font-weight:400;text-transform:none">(0 = ilimitado)</span></label>
+          <input type="number" name="limite_uso_cliente" id="edit-limite-uso-cliente" min="0" step="1">
+          <span style="font-size:.73rem;color:var(--pk-muted);font-weight:400;display:block;margin-top:4px">
+            Ex: 1 = cada cliente só usa esse código uma vez, mesmo com "Máx. de usos por loja" maior.
+          </span>
+        </div>
         <div class="nf-field full">
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:#0d1016;border:1px solid var(--pk-line);border-radius:8px">
             <input type="checkbox" name="so_assinantes" id="edit-so-assinantes" value="1" style="width:16px;height:16px;accent-color:var(--pk-yellow);flex-shrink:0">
@@ -656,6 +674,7 @@ function abrirEdicao(btn) {
   document.getElementById('edit-valor').value      = d.valor;
   document.getElementById('edit-valido').value     = d.valido || '';
   document.getElementById('edit-uso-maximo').value = d.usoMaximo || 0;
+  document.getElementById('edit-limite-uso-cliente').value = d.limiteUsoCliente || 0;
   document.getElementById('edit-escopo').value     = d.escopo || 'todos';
   document.getElementById('edit-so-assinantes').checked = d.soAssinantes === '1';
 

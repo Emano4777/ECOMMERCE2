@@ -1667,14 +1667,15 @@ def _crm_cupons_disponiveis(cnpjloja):
 def _crm_cupom_elegiveis(cupom, cnpjloja, consumidores_ids):
     """Filtra, dentre os IDs recebidos, so quem realmente se qualifica pro
     cupom escolhido -- respeita publico (especifico/primeira compra/
-    frequente) e o limite de uso da loja (esgotado = ninguem mais
-    qualifica). Evita prometer no texto da mensagem um desconto que o
-    cliente nao vai conseguir aplicar de verdade no checkout."""
+    frequente), o limite de uso da loja (esgotado = ninguem mais qualifica)
+    e o limite de uso por cliente (quem ja bateu o limite sai da lista).
+    Evita prometer no texto da mensagem um desconto que o cliente nao vai
+    conseguir aplicar de verdade no checkout."""
     ids = [str(x) for x in (consumidores_ids or [])]
     if not cupom or not ids:
         return set()
     cur = db().cursor()
-    cur.execute("SELECT publico, min_compras, uso_maximo FROM ecommerce_cupons WHERE id=%s", (cupom["id"],))
+    cur.execute("SELECT publico, min_compras, uso_maximo, limite_uso_cliente FROM ecommerce_cupons WHERE id=%s", (cupom["id"],))
     regra = cur.fetchone()
     if not regra:
         cur.close()
@@ -1705,6 +1706,14 @@ def _crm_cupom_elegiveis(cupom, cnpjloja, consumidores_ids):
         elegiveis = {str(r["consumidor_id"]) for r in cur.fetchall()}
     else:
         elegiveis = set(ids)
+    limite_cliente = int(regra.get("limite_uso_cliente") or 0)
+    if limite_cliente and elegiveis:
+        cur.execute("""SELECT consumidor_id FROM ecommerce_pedidos
+            WHERE consumidor_id=ANY(%s::uuid[]) AND cupom_id=%s AND status NOT IN ('cancelado')
+            GROUP BY consumidor_id HAVING COUNT(*) >= %s""",
+            (list(elegiveis), cupom["id"], limite_cliente))
+        ja_esgotaram = {str(r["consumidor_id"]) for r in cur.fetchall()}
+        elegiveis -= ja_esgotaram
     cur.close()
     return elegiveis
 
@@ -18523,6 +18532,7 @@ def api_checkout():
                 WHERE upper(c.codigo)=%(codigo)s AND c.ativo=TRUE
                   AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
                   AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
+                  AND (c.limite_uso_cliente = 0 OR """ + _cupom_usos_cliente_sql() + """ < c.limite_uso_cliente)
                   AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %(is_assinante)s)
                   AND (
                     c.publico = 'todos'
@@ -29109,6 +29119,13 @@ def _ensure_cupons_schema():
         # cupom — diferente de qtd_minima (quantidade de itens) e min_compras
         # (numero de compras anteriores, usado so pro publico 'frequente').
         cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS valor_minimo NUMERIC(10,2) DEFAULT 0")
+        # limite_uso_cliente: quantas vezes CADA cliente pode usar esse cupom
+        # (0 = sem limite por cliente, so vale o uso_maximo global da loja).
+        # Contado por pedidos nao cancelados com esse cupom_id + consumidor_id
+        # -- ver _cupom_usos_cliente(). Adicionado depois do caso VALEU7SET
+        # (17/09/2026), onde a mesma cliente usou um cupom "1x por pessoa" 2x
+        # porque nada no sistema impedia reuso por cliente, so o total da loja.
+        cur.execute("ALTER TABLE ecommerce_cupons ADD COLUMN IF NOT EXISTS limite_uso_cliente INTEGER NOT NULL DEFAULT 0")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_cupons_clientes (
                 id SERIAL PRIMARY KEY,
@@ -29151,6 +29168,32 @@ def _ensure_cupons_schema():
         conn.commit()
         cur.close()
         _schema_ready.add("cupons")
+
+
+def _cupom_usos_cliente_sql():
+    """Subquery reutilizada em todo lugar que valida/lista cupom por
+    cliente: quantos pedidos NAO cancelados esse consumidor ja tem com esse
+    cupom_id. Comparada contra c.limite_uso_cliente (0 = sem limite)."""
+    return """(
+        SELECT COUNT(*) FROM ecommerce_pedidos up
+        WHERE up.consumidor_id = %(consumidor_id)s AND up.cupom_id = c.id
+          AND up.status NOT IN ('cancelado')
+    )"""
+
+
+def _cupom_usos_cliente(cupom_id, consumidor_id):
+    """Quantas vezes (pedidos nao cancelados) esse cliente ja usou esse
+    cupom especifico -- usado pra checar o limite_uso_cliente fora de uma
+    query que ja tenha JOIN pronto (ex: mensagens de erro, CRM)."""
+    if not cupom_id or not consumidor_id:
+        return 0
+    cur = db().cursor()
+    cur.execute(
+        "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE consumidor_id=%s AND cupom_id=%s AND status NOT IN ('cancelado')",
+        (consumidor_id, cupom_id),
+    )
+    row = cur.fetchone(); cur.close()
+    return int((row or {}).get("n") or 0)
 
 
 def _sync_cupom_lojas(cur, cupom_id, cnpjlojas, codigo_upper=""):
@@ -29440,6 +29483,7 @@ def admin_cupons_novo():
     desconto_valor = _to_float_or_none(f.get("desconto_valor")) or 0
     valido_ate = f.get("valido_ate") or None
     uso_maximo = int(f.get("uso_maximo") or 0)
+    limite_uso_cliente = max(0, int(f.get("limite_uso_cliente") or 0))
     forma_pagamento = (f.get("forma_pagamento") or "").strip()
     qtd_minima = int(f.get("qtd_minima") or 0)
     if tipo_regra == "codigo" and not codigo:
@@ -29481,12 +29525,12 @@ def admin_cupons_novo():
         cur.execute("""
             INSERT INTO ecommerce_cupons (cnpjloja, codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
-              tipo_regra, forma_pagamento, qtd_minima, so_assinantes)
-            VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              tipo_regra, forma_pagamento, qtd_minima, so_assinantes, limite_uso_cliente)
+            VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
-              tipo_regra, forma_pagamento, qtd_minima, so_assinantes))
+              tipo_regra, forma_pagamento, qtd_minima, so_assinantes, limite_uso_cliente))
         cupom_id = str(cur.fetchone()["id"])
         _sync_cupom_lojas(cur, cupom_id, lojas_sel, codigo)
         consumidores_ids = request.form.getlist("consumidores_ids")
@@ -29523,6 +29567,7 @@ def admin_cupom_editar(cupom_id):
     desconto_valor = _to_float_or_none(f.get("desconto_valor")) or 0
     valido_ate = f.get("valido_ate") or None
     uso_maximo = int(f.get("uso_maximo") or 0)
+    limite_uso_cliente = max(0, int(f.get("limite_uso_cliente") or 0))
     forma_pagamento = (f.get("forma_pagamento") or "").strip()
     qtd_minima = int(f.get("qtd_minima") or 0)
     if tipo_regra == "codigo" and not codigo:
@@ -29560,12 +29605,13 @@ def admin_cupom_editar(cupom_id):
               codigo=%s, desconto_tipo=%s, desconto_valor=%s, valido_ate=%s,
               uso_maximo=%s, publico=%s, min_compras=%s,
               escopo=%s, escopo_categorias=%s, escopo_eans=%s,
-              tipo_regra=%s, forma_pagamento=%s, qtd_minima=%s, so_assinantes=%s
+              tipo_regra=%s, forma_pagamento=%s, qtd_minima=%s, so_assinantes=%s,
+              limite_uso_cliente=%s
             WHERE id=%s
         """, (codigo, desconto_tipo, desconto_valor, valido_ate, uso_maximo,
               publico, min_compras, escopo, escopo_categorias, escopo_eans,
               tipo_regra, forma_pagamento, qtd_minima, so_assinantes,
-              cupom_id))
+              limite_uso_cliente, cupom_id))
         if cur.rowcount == 0:
             flash("Regra não encontrada.", "error")
         else:
@@ -29655,8 +29701,12 @@ def api_cupom_validar():
     total    = _to_float_or_none(request.args.get("total")) or 0
     if not cnpjloja or not codigo:
         return jsonify({"valido": False, "msg": "Dados incompletos."})
-    is_assinante = _consumidor_e_assinante(session.get("consumidor_id"), cnpjloja)
+    consumidor_id = session.get("consumidor_id")
+    is_assinante = _consumidor_e_assinante(consumidor_id, cnpjloja)
     conn = db(); cur = conn.cursor()
+    # Publico (especifico/primeira_compra/frequente) e limite_uso_cliente sao
+    # checados em passos separados (nao no WHERE) pra cada motivo de recusa
+    # ter uma mensagem clara e especifica, em vez de um generico "invalido".
     cur.execute("""
         SELECT c.* FROM ecommerce_cupons c
         JOIN ecommerce_cupons_lojas cl ON cl.cupom_id = c.id AND cl.cnpjloja = %s
@@ -29667,9 +29717,50 @@ def api_cupom_validar():
           AND (COALESCE(c.so_assinantes, FALSE) = FALSE OR %s)
         LIMIT 1
     """, (cnpjloja, codigo, is_assinante))
-    cupom = cur.fetchone(); cur.close()
+    cupom = cur.fetchone()
     if not cupom:
+        cur.close()
         return jsonify({"valido": False, "msg": "Cupom inválido ou expirado."})
+    publico = cupom.get("publico") or "todos"
+    if publico != "todos" and not consumidor_id:
+        cur.close()
+        return jsonify({"valido": False, "msg": "Faça login pra usar esse cupom."})
+    if publico == "especifico":
+        cur.execute(
+            "SELECT 1 FROM ecommerce_cupons_clientes WHERE cupom_id=%s AND consumidor_id=%s",
+            (cupom["id"], consumidor_id),
+        )
+        if not cur.fetchone():
+            cur.close()
+            return jsonify({"valido": False, "msg": "Esse cupom não está disponível pra sua conta."})
+    elif publico == "primeira_compra":
+        cur.execute(
+            "SELECT 1 FROM ecommerce_pedidos WHERE cnpjloja=%s AND consumidor_id=%s AND status NOT IN ('cancelado') LIMIT 1",
+            (cnpjloja, consumidor_id),
+        )
+        if cur.fetchone():
+            cur.close()
+            return jsonify({"valido": False, "msg": "Esse cupom só vale na primeira compra."})
+    elif publico == "frequente":
+        min_compras = int(cupom.get("min_compras") or 1)
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM ecommerce_pedidos WHERE cnpjloja=%s AND consumidor_id=%s AND status NOT IN ('cancelado')",
+            (cnpjloja, consumidor_id),
+        )
+        if int((cur.fetchone() or {}).get("n") or 0) < min_compras:
+            cur.close()
+            return jsonify({"valido": False, "msg": f"Esse cupom só vale a partir de {min_compras} compras."})
+    limite_cliente = int(cupom.get("limite_uso_cliente") or 0)
+    if limite_cliente:
+        ja_usou = _cupom_usos_cliente(cupom["id"], consumidor_id)
+        if ja_usou >= limite_cliente:
+            cur.close()
+            vezes = "1 vez" if limite_cliente == 1 else f"{limite_cliente} vezes"
+            return jsonify({
+                "valido": False,
+                "msg": f"Você já usou esse cupom o máximo permitido ({vezes}).",
+            })
+    cur.close()
     valor_minimo = float(cupom.get("valor_minimo") or 0)
     if valor_minimo > 0 and total < valor_minimo:
         valor_min_txt = f"{valor_minimo:.2f}".replace(".", ",")
@@ -29875,7 +29966,20 @@ def api_cupons_disponiveis():
             OR (c.publico = 'frequente' AND %s >= c.min_compras AND c.min_compras > 0)
     """ if consumidor_id else ""
     assin_filter = "" if is_assinante else "AND COALESCE(c.so_assinantes, FALSE) = FALSE"
-    params_cupom = (cnpjloja, consumidor_id, n_pedidos, n_pedidos) if consumidor_id else (cnpjloja,)
+    # Cupom com limite_uso_cliente ja esgotado por esse cliente nem aparece
+    # na listinha de "cupons disponiveis" (sem consumidor_id logado nao da
+    # pra checar por cliente, entao so filtra quando ha sessao).
+    limite_filter = """
+          AND (c.limite_uso_cliente = 0 OR (
+              SELECT COUNT(*) FROM ecommerce_pedidos up
+              WHERE up.consumidor_id = %s AND up.cupom_id = c.id AND up.status NOT IN ('cancelado')
+          ) < c.limite_uso_cliente)
+    """ if consumidor_id else ""
+    params_cupom = (cnpjloja,)
+    if consumidor_id:
+        params_cupom += (consumidor_id,)
+    if consumidor_id:
+        params_cupom += (consumidor_id, n_pedidos, n_pedidos)
     cur.execute(f"""
         SELECT c.id, c.codigo, c.desconto_tipo, c.desconto_valor, c.valido_ate, c.publico, c.min_compras,
                COALESCE(c.escopo,'todos') AS escopo,
@@ -29889,6 +29993,7 @@ def api_cupons_disponiveis():
           AND (c.valido_ate IS NULL OR c.valido_ate >= CURRENT_DATE)
           AND (c.uso_maximo = 0 OR cl.usos_count < c.uso_maximo)
           {assin_filter}
+          {limite_filter}
           AND (
             c.publico = 'todos'
             {publico_extra}
