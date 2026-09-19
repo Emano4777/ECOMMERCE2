@@ -235,7 +235,11 @@
   <div class="pd-atraso-banner">
     <i class="fa fa-triangle-exclamation"></i>
     <div class="pd-atraso-banner-text">
+      {% if pedido.tipo_entrega == 'retirada' %}
+      Este pedido passou da previsão{% if pedido.previsao_entrega_em_label %} ({{ pedido.previsao_entrega_em_label }}){% endif %} e ainda não ficou pronto para retirada. Se quiser, você pode reclamar do atraso e perguntar à farmácia o que aconteceu.
+      {% else %}
       Este pedido passou da previsão{% if pedido.previsao_entrega_em_label %} ({{ pedido.previsao_entrega_em_label }}){% endif %}. Se quiser, você pode reclamar do atraso e perguntar à farmácia o que aconteceu.
+      {% endif %}
     </div>
     <a href="#form-reclamacao" onclick="document.getElementById('form-reclamacao').classList.remove('hidden'); var _s=document.getElementById('reclamacao-motivo-select'); if(_s) _s.value='pedido_atrasado';">
       Reclamar do atraso
@@ -292,7 +296,11 @@
     {% if link_rastreio %}
     <div style="display:flex;align-items:center;gap:10px;background:#f7f7f7;border:1px dashed var(--pq-border);border-radius:12px;padding:11px 14px;margin:0 0 16px;flex-wrap:wrap">
       <i class="fa fa-share-nodes" style="color:var(--pq-red)"></i>
+      {% if pedido.tipo_entrega == 'retirada' %}
+      <span style="flex:1;min-width:180px;font-size:.8rem;color:#444"><b>Alguém vai buscar por você?</b> Compartilhe o link de acompanhamento (status e endereço da loja) sem precisar dar acesso à sua conta — o código de retirada continua só com você.</span>
+      {% else %}
       <span style="flex:1;min-width:180px;font-size:.8rem;color:#444"><b>Alguém vai receber por você?</b> Compartilhe o rastreio sem precisar dar acesso à sua conta.</span>
+      {% endif %}
       <button type="button" onclick="pdCopiarRastreio(this)" style="border:1.5px solid var(--pq-red);background:none;color:var(--pq-red);border-radius:8px;padding:8px 13px;font-size:.78rem;font-weight:900;cursor:pointer;font-family:inherit"><i class="fa fa-copy me-1"></i>Copiar link de rastreio</button>
     </div>
     {% endif %}

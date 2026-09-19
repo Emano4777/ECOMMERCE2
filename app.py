@@ -16838,10 +16838,7 @@ def meus_pedidos():
     )
     agora = datetime.now(timezone.utc)
     for p in pedidos:
-        prev_em = p.get("previsao_entrega_em")
-        p["atrasado"] = bool(
-            prev_em and p.get("status") not in ("entregue", "cancelado") and agora > prev_em
-        )
+        p["atrasado"] = _pedido_esta_atrasado(p.get("status"), p.get("tipo_entrega"), p.get("previsao_entrega_em"), agora)
 
     # Mapa pedido_id → reclamação ativa / pendência aberta pela loja + itens (preview de imagens)
     rec_map = {}
@@ -17410,6 +17407,22 @@ def api_favoritos_alertas():
     return jsonify({"ok": True})
 
 
+def _pedido_esta_atrasado(status, tipo_entrega, previsao_em, agora=None):
+    """Se o pedido passou da previsao enquanto ainda depende da loja.
+
+    Pra retirada, a previsao e so uma estimativa de QUANDO FICA PRONTO --
+    uma vez que o status chega em 'pronto_retirada' a bola passa pro
+    cliente ir buscar, entao nao faz sentido continuar marcando "atrasado"
+    (e convidando a reclamar da farmacia) so porque o cliente demorou pra
+    aparecer no balcao. Pra entrega a previsao e do momento em que o
+    pedido chega na mao do cliente, entao continua valendo ate 'entregue'."""
+    if not previsao_em or status in ("entregue", "cancelado"):
+        return False
+    if tipo_entrega == "retirada" and status == "pronto_retirada":
+        return False
+    return (agora or datetime.now(timezone.utc)) > previsao_em
+
+
 def _montar_timeline_pedido(pedido):
     """Monta a timeline vertical do pedido com horario real de cada etapa,
     usando o historico de status quando existe (pedidos criados depois da
@@ -17579,9 +17592,7 @@ def meu_pedido_detalhe(pedido_id):
     timeline = _montar_timeline_pedido(pedido)
 
     previsao_em = pedido.get("previsao_entrega_em")
-    pedido["atrasado"] = bool(
-        previsao_em and pedido.get("status") not in ("entregue", "cancelado") and datetime.now(timezone.utc) > previsao_em
-    )
+    pedido["atrasado"] = _pedido_esta_atrasado(pedido.get("status"), pedido.get("tipo_entrega"), previsao_em)
     if previsao_em:
         pedido["previsao_entrega_em_label"] = previsao_em.strftime("%d/%m às %H:%M")
 
