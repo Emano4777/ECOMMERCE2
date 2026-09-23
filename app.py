@@ -10847,7 +10847,15 @@ def _api_produtos_proximos_impl():
     _attach_quantidade_promos(produtos_view)
 
     if busca_q:
-        if is_nl and not ia_filter_terms:
+        if _alternativa_para:
+            # produtos_view veio do fallback de generico/similar
+            # (_buscar_alternativa_medicamento_sem_estoque) -- o nome do
+            # produto e DE PROPOSITO diferente do termo buscado (ex: buscou
+            # "noex", achou "minoxidil..."), entao nao filtra de novo pelos
+            # termos da busca original ou o filtro abaixo descartaria tudo
+            # que o fallback encontrou.
+            pass
+        elif is_nl and not ia_filter_terms:
             # IA não retornou a tempo: exibe apenas produtos vindos do índice de sintomas.
             # Evita que a busca ampla por texto mostre produtos irrelevantes (ex: sabonetes para "pressão alta").
             _bq_norm_direct = _norm_text(busca_q)
