@@ -8455,27 +8455,140 @@ def _produtos_alpha_por_principio_ativo(cnpjs, principio_ativo, exclude_ean=None
     return _dedupe_products_for_display(rows)[:int(limit)]
 
 
+def _produtos_alpha_por_classe_terapeutica(cnpjs, classe_terapeutica, exclude_ean=None, limit=40):
+    """Produtos em estoque (loja Alpha) que compartilham a mesma
+    classe_terapeutica_ia ja classificada em `medicamentos` -- mesmo criterio
+    que o Passo 2 (IA) usaria pra achar equivalente, so que sem chamar a IA:
+    depende do job em lote scripts/classificar_medicamentos.py ja ter
+    classificado o produto em estoque antes."""
+    if not cnpjs or not (classe_terapeutica or "").strip():
+        return []
+    conn = _new_conn_batch()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT ap.cnpjloja, ap.ean,
+               COALESCE(m.descricao, ap.nome) AS nome,
+               ap.nome AS nome_alpha_raw,
+               COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
+               m.marca AS marca,
+               COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+               ap.classificacao AS classificacao,
+               CAST(ap.estoque AS INTEGER) AS qty,
+               ap.preco_venda AS preco,
+               COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+               'alpha_a7' AS fonte_estoque,
+               ap.preco_promocional AS preco_promocional,
+               ap.promo_inicio AS promo_inicio,
+               ap.promo_fim AS promo_fim
+        FROM ecommerce_alpha_produtos ap
+        JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+        LEFT JOIN ecommerce_lab_ean elab ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+        LEFT JOIN medicamentos5 m5 ON m5.barra = ap.ean
+        WHERE ap.cnpjloja = ANY(%s)
+          AND COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND LOWER(m.classe_terapeutica_ia) = LOWER(%s)
+          AND (%s::text IS NULL OR ap.ean IS DISTINCT FROM %s)
+        ORDER BY ap.nome
+        LIMIT %s
+        """,
+        (cnpjs, classe_terapeutica.strip(), exclude_ean, exclude_ean, limit),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _apply_safe_catalog_images(rows)
+    _apply_saved_categories(rows)
+    _apply_alpha_realtime_promo(rows)
+    try:
+        conn2 = _new_conn()
+        _marcar_tarja_batch(rows, conn2)
+        conn2.close()
+    except Exception:
+        pass
+    rows = [r for r in rows if _has_catalog_image(r)]
+    return _dedupe_products_for_display(rows)[:int(limit)]
+
+
+_DOSE_RE = re.compile(r'(\d+(?:[.,]\d+)?)\s*(mg/ml|mg/g|mcg/dose|mcg/ml|mcg|mg|ui|g/l|ml|g)\b', re.IGNORECASE)
+
+
+def _extrai_doses(texto):
+    """Extrai tokens de concentracao (ex: {"50mg","10g"}) de um nome/descricao
+    de produto. Mesmo principio_ativo_ia NAO significa mesma apresentacao --
+    "ACICLOVIR 200MG comprimido" e "ACICLOVIR 50MG/G creme" sao substancia
+    igual mas produto bem diferente (via oral x topica, concentracao
+    incomparavel); so decidir "e generico de verdade" quando a dose bate."""
+    texto = (texto or "").lower()
+    doses = set()
+    for num, unit in _DOSE_RE.findall(texto):
+        num_norm = num.replace(",", ".")
+        if "." in num_norm:
+            num_norm = num_norm.rstrip("0").rstrip(".")
+        doses.add(f"{num_norm}{unit.lower()}")
+    return doses
+
+
+_FORMA_FARMACEUTICA_MAP = {
+    "creme": "creme", "crem": "creme", "pomada": "creme", "pom": "creme",
+    "comprimido": "comprimido", "comprimidos": "comprimido", "cp": "comprimido",
+    "cpr": "comprimido", "comp": "comprimido",
+    "capsula": "capsula", "capsulas": "capsula", "caps": "capsula", "cps": "capsula",
+    "xarope": "xarope", "xpe": "xarope",
+    "solucao": "solucao", "sol": "solucao", "susp": "solucao", "suspensao": "solucao",
+    "spray": "spray", "aerosol": "spray",
+    "gel": "gel",
+    "gotas": "gotas", "gts": "gotas",
+    "injetavel": "injetavel", "amp": "injetavel", "ampola": "injetavel",
+}
+
+
+def _extrai_forma_farmaceutica(texto):
+    """Extrai forma farmaceutica (creme, comprimido, spray...) do nome/descricao
+    -- mesma dose mas forma diferente (ex: comprimido x injetavel) tambem nao
+    e uma substituicao segura de chamar de "generico" sem ressalva."""
+    formas = set()
+    for token in _norm_text(texto).split():
+        if token in _FORMA_FARMACEUTICA_MAP:
+            formas.add(_FORMA_FARMACEUTICA_MAP[token])
+    return formas
+
+
 def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
     """Fallback quando a busca direta no Alpha (get_alpha_products_direct_by_query)
     nao encontra nada em estoque pro termo buscado.
 
-    Ordem:
-    1. Generico/similar ja disponivel na loja via principio_ativo_ia -- coluna
-       classificada por um job de IA que ja rodou antes, sem custo de API aqui.
-    2. So quando (1) tambem falha E o termo buscado parece ser mesmo um
-       medicamento (classificacao ANVISA/tipo_ia bate) E ainda sobra orcamento
-       de tempo na request: chama a Poupinha (Claude Haiku) como ultimo
-       recurso. Nunca roda pra cosmetico/perfumaria/suplemento/etc -- e
-       justamente a chamada sincrona de IA em toda busca que foi desligada em
-       356611a7 (2026-07-08) por estourar timeout da funcao serverless; aqui
-       ela so roda no caso raro de "sem estoque + sem generico classificado",
-       nao em toda busca.
+    Ordem (Passos 1 e 1.5 sao puro SQL, sem chamada de IA nem custo de API --
+    dependem do job em lote scripts/classificar_medicamentos.py ja ter
+    classificado o produto antes; quanto mais do catalogo em estoque esse job
+    cobrir, menos busca cai no Passo 2):
+    1. Mesmo principio_ativo_ia (generico de verdade). Dose E forma
+       farmaceutica batendo com o produto buscado -> "generico"; PA igual mas
+       apresentacao diferente (ex: 200mg comprimido x 50mg/g creme) ->
+       "generico_outra_apresentacao" -- mesma substancia, mas o site nao pode
+       afirmar que e um substituto direto sem o farmaceutico confirmar.
+    1.5. Mesma classe_terapeutica_ia (substancia diferente, mesmo efeito) --
+       mesmo criterio que o Passo 2 usaria, só que já classificado no banco.
+    2. Ultimo recurso via IA -- so quando (1) e (1.5) tambem falham E o termo
+       buscado parece ser mesmo um medicamento (classificacao ANVISA/tipo_ia
+       bate) E ainda sobra orcamento de tempo na request. Nunca roda pra
+       cosmetico/perfumaria/suplemento/etc -- e justamente a chamada sincrona
+       de IA em toda busca que foi desligada em 356611a7 (2026-07-08) por
+       estourar timeout da funcao serverless; aqui ela so roda no caso raro
+       de "sem estoque + sem classificacao aproveitavel", nao em toda busca.
 
-    Retorna (produtos, principio_ativo_label, tipo) ou ([], None, None).
-    tipo e "generico" (Passo 1, mesmo principio_ativo_ia -- substituicao
-    farmaceutica valida) ou "equivalente" (Passo 2, IA, mesma classe
-    terapeutica mas outra substancia -- distincao importante pra mensagem no
-    front nao chamar de "generico" o que nao e).
+    Retorna (produtos, label, tipo) ou ([], None, None).
+    tipo: "generico" (mesmo PA + apresentacao, Passo 1) |
+          "generico_outra_apresentacao" (mesmo PA, apresentacao nao confirmada, Passo 1) |
+          "equivalente" (classe terapeutica, substancia diferente -- Passo 1.5 ou 2)
+    -- distincao importante pra mensagem no front nao chamar de "generico" o que nao e.
     """
     if not cnpjs or not (query or "").strip():
         return [], None, None
@@ -8523,21 +8636,47 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
 
     # Passo 1: generico/similar ja classificado (sem IA) -- tenta cada
     # candidato ate achar um com principio_ativo_ia preenchido e com estoque.
+    # So marca "generico" (substituicao farmaceutica valida) quando dose E
+    # forma farmaceutica do achado batem com o produto buscado -- mesma
+    # substancia com apresentacao diferente (ex: 200mg comprimido x 50mg/g
+    # creme) fica em "generico_outra_apresentacao", rotulo mais honesto.
     for cand in candidatos:
         pa = (cand.get("principio_ativo_ia") or "").strip()
         if not pa:
             continue
         produtos = _produtos_alpha_por_principio_ativo(cnpjs, pa, exclude_ean=cand.get("ean"))
-        if produtos:
-            return produtos, pa, "generico"
+        if not produtos:
+            continue
+        doses_busca = _extrai_doses(cand.get("descricao") or "")
+        formas_busca = _extrai_forma_farmaceutica(cand.get("descricao") or "")
+        def _mesma_apresentacao(p):
+            dose_ok = (not doses_busca) or bool(doses_busca & _extrai_doses(p.get("nome") or ""))
+            forma_ok = (not formas_busca) or bool(formas_busca & _extrai_forma_farmaceutica(p.get("nome") or ""))
+            return dose_ok and forma_ok
+        mesma_apresentacao = [p for p in produtos if _mesma_apresentacao(p)]
+        if mesma_apresentacao:
+            return mesma_apresentacao, pa, "generico"
+        return produtos, pa, "generico_outra_apresentacao"
 
-    # Passo 2: ultimo recurso via IA -- so pra busca que parece medicamento de
-    # verdade e so se ainda sobra orcamento de tempo na request. Diferente do
-    # Passo 1 (mesmo generico exato), aqui a pergunta pra IA e por
-    # equivalentes de MESMA CLASSE TERAPEUTICA (ver docstring de
-    # _claude_busca_alternativa_generico) -- cobre o caso comum de a loja nao
-    # ter o mesmo principio ativo mas ter outro da mesma classe (ex: buscou
-    # um corticoide nasal especifico sem estoque, a loja tem outro).
+    # Passo 1.5: mesma classe terapeutica ja classificada (sem IA) -- cobre o
+    # caso comum de a loja nao ter o mesmo principio ativo mas ter outro da
+    # mesma classe (ex: buscou um corticoide nasal especifico sem estoque, a
+    # loja tem outro). So funciona pros produtos que o job de classificacao
+    # em lote (scripts/classificar_medicamentos.py) ja processou -- quanto
+    # mais EANs classificados, menos essa busca precisa cair no Passo 2 (IA).
+    for cand in candidatos:
+        classe = (cand.get("classe_terapeutica_ia") or "").strip()
+        if not classe:
+            continue
+        produtos = _produtos_alpha_por_classe_terapeutica(cnpjs, classe, exclude_ean=cand.get("ean"))
+        if produtos:
+            return produtos, classe, "equivalente"
+
+    # Passo 2: ultimo recurso via IA -- so quando nem o principio ativo nem a
+    # classe terapeutica ja classificados acharam nada em estoque, e so pra
+    # busca que parece medicamento de verdade e se ainda sobra orcamento de
+    # tempo na request. Isso deve ficar cada vez mais raro a medida que o job
+    # de classificacao em lote cobre mais do catalogo.
     if not is_medicamento:
         app.logger.info("alt_generico[%s]: pulou IA -- nao parece medicamento", query)
         return [], None, None
@@ -11176,16 +11315,24 @@ def _api_produtos_proximos_impl():
     # neutra — a saudação do Claude tende a mencionar condição médica ("alergia", "dor" etc.)
     # o que caracteriza indicação terapêutica e não pode aparecer no e-commerce de farmácia.
     if _alternativa_para and result:
-        _pa_label = (_principio_ativo_ia or "").title() or "genérico"
-        if _alternativa_tipo == "equivalente":
-            # Passo 2 (IA): outra substancia, mesma classe terapeutica -- NAO
-            # e generico (generico = mesmo principio ativo, outra marca).
-            # Chamar de "generico" aqui seria uma indicacao terapeutica
-            # incorreta (troca de substancia e decisao de farmaceutico, nao
-            # do site).
-            saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo uma alternativa da mesma classe encontrada nas farmácias próximas."
+        # Mensagem curta e objetiva aqui -- o produto e a apresentacao exata
+        # ja aparecem na faixa verde do front (banner), que mostra o nome
+        # completo do item encontrado; repetir os dois so deixa a tela poluida.
+        _busca_titulo = _alternativa_para.title()
+        if _alternativa_tipo == "generico":
+            # Passo 1: mesmo principio_ativo_ia + dose/forma confirmadas
+            # batendo -- substituicao farmaceutica de fato valida.
+            saudacao = f"Não encontramos {_busca_titulo} disponível nas farmácias próximas. Encontramos um genérico com o mesmo princípio ativo e apresentação."
+        elif _alternativa_tipo == "generico_outra_apresentacao":
+            # Passo 1: mesma substancia, mas dose/forma nao confirmadas --
+            # nao afirma equivalencia, so avisa que e a mesma substancia.
+            saudacao = f"Não encontramos {_busca_titulo} disponível nas farmácias próximas. Encontramos o mesmo princípio ativo, em outra apresentação."
         else:
-            saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo o equivalente genérico encontrado nas farmácias próximas."
+            # Passo 1.5/2: substancia diferente, mesma classe terapeutica --
+            # NAO e generico (generico = mesmo principio ativo). Chamar de
+            # "generico" aqui seria uma indicacao terapeutica incorreta
+            # (troca de substancia e decisao de farmaceutico, nao do site).
+            saudacao = f"Não encontramos {_busca_titulo} disponível nas farmácias próximas. Encontramos uma alternativa da mesma classe terapêutica."
     return jsonify({
         "produtos":          result[:90] if home_mode else result[:500],
         "cnpjs_proximos":    [l["cnpjloja"] for l in proximas],

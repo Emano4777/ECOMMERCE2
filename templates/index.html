@@ -1904,14 +1904,12 @@ function carregarProdutos(lat, lng, busca='') {
       const altBannerMsg = document.getElementById('alt-banner-generico-msg');
       if (altBanner && altBannerMsg) {
         if (data.alternativa_para && allProdutos.length) {
-          const paLabel = (data.principio_ativo_ia || '').replace(/\b\w/g, c => c.toUpperCase());
-          // "equivalente" (Passo 2, IA) = outra substancia, mesma classe
-          // terapeutica -- nao e generico (mesmo principio ativo, outra
-          // marca), entao o texto nao pode chamar de "genérico".
-          const _altTexto = data.alternativa_tipo === 'equivalente'
-            ? `Exibindo uma alternativa da mesma classe: <strong>${esc(paLabel)}</strong>.`
-            : `Exibindo o genérico equivalente: <strong>${esc(paLabel)}</strong>.`;
-          altBannerMsg.innerHTML = `<strong>${esc(data.alternativa_para.toUpperCase())}</strong> não disponível agora. ${_altTexto}`;
+          // Objetiva e sem repetir a explicação que já foi dada no balão da
+          // Poupinha (data.saudacao) -- só mostra QUAL produto foi achado,
+          // com nome e apresentação reais (não afirma "genérico"/"equivalente"
+          // aqui de novo, isso já ficou a cargo da mensagem da Poupinha).
+          const _altProdutoNome = allProdutos[0].nome || (data.principio_ativo_ia || '').replace(/\b\w/g, c => c.toUpperCase());
+          altBannerMsg.innerHTML = `Alternativa encontrada: <strong>${esc(_altProdutoNome)}</strong>`;
           altBanner.style.display = 'flex';
           // Botão de encomenda para o produto original
           const encBtn = document.getElementById('alt-banner-encomendar');

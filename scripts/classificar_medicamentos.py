@@ -14,6 +14,7 @@ Uso:
   python scripts/classificar_medicamentos.py --limit 500    # limita qtd
   python scripts/classificar_medicamentos.py --dry-run      # não grava no banco
   python scripts/classificar_medicamentos.py --ean 7891234  # EAN específico
+  python scripts/classificar_medicamentos.py --only-estoque # so EANs com estoque>0 em alguma loja Alpha (prioriza o catalogo que a busca realmente usa)
 """
 
 import os
@@ -48,7 +49,7 @@ def ensure_columns(conn):
 
 # ── BUSCA DE PRODUTOS ────────────────────────────────────────────────────────
 
-def fetch_products(conn, force=False, limit=None, ean_filter=None):
+def fetch_products(conn, force=False, limit=None, ean_filter=None, only_estoque=False):
     conditions = [
         "barra_norm IS NOT NULL",
         "barra_norm != ''",
@@ -58,6 +59,21 @@ def fetch_products(conn, force=False, limit=None, ean_filter=None):
     if ean_filter:
         safe = ean_filter.lstrip("0")
         conditions.append(f"barra_norm = '{safe}'")
+    if only_estoque:
+        # So os EANs que a busca do site realmente pode encontrar em estoque
+        # agora (ecommerce_alpha_produtos, qualquer loja) -- e um recorte bem
+        # menor que o catalogo inteiro (~2 mil vs ~34 mil linhas sem
+        # classificacao) e e o que importa pro fallback de generico/equivalente
+        # em _buscar_alternativa_medicamento_sem_estoque (app.py) parar de
+        # precisar cair na IA ao vivo pra cada busca sem match exato.
+        conditions.append("""
+            EXISTS (
+                SELECT 1 FROM ecommerce_alpha_produtos ap
+                WHERE COALESCE(ap.inativo, false) = false
+                  AND COALESCE(ap.estoque, 0) > 0
+                  AND LTRIM(COALESCE(ap.ean, ''), '0') = LTRIM(medicamentos.barra_norm, '0')
+            )
+        """)
 
     where = " AND ".join(conditions)
     limit_clause = f"LIMIT {limit}" if limit else ""
@@ -301,6 +317,8 @@ def main():
     parser.add_argument("--ean",        type=str, default=None, help="Classifica um EAN específico")
     parser.add_argument("--skip",       type=int, default=0,    help="Pula os primeiros N itens (para retomar)")
     parser.add_argument("--stats",      action="store_true", help="Mostra distribuição atual e sai")
+    parser.add_argument("--only-estoque", action="store_true",
+                         help="So classifica EANs com estoque>0 em alguma loja Alpha agora (recorte menor e mais util pro fallback de busca)")
     args = parser.parse_args()
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
@@ -319,6 +337,7 @@ def main():
         force=args.force or bool(args.ean),
         limit=args.limit,
         ean_filter=args.ean,
+        only_estoque=args.only_estoque,
     )
 
     if args.skip:
