@@ -8325,6 +8325,168 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     return _dedupe_products_for_display(rows)[:int(limit)]
 
 
+def _produtos_alpha_por_principio_ativo(cnpjs, principio_ativo, exclude_ean=None, limit=40):
+    """Produtos em estoque (loja Alpha) que compartilham o mesmo principio_ativo_ia
+    ja classificado em `medicamentos` -- usado pro fallback de generico/similar
+    quando o produto buscado esta sem estoque/inativo. Sem chamada de IA."""
+    if not cnpjs or not (principio_ativo or "").strip():
+        return []
+    conn = _new_conn_batch()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT ap.cnpjloja, ap.ean,
+               COALESCE(m.descricao, ap.nome) AS nome,
+               ap.nome AS nome_alpha_raw,
+               COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
+               m.marca AS marca,
+               COALESCE(m.tipo_ia, pc.categoria) AS categoria,
+               ap.classificacao AS classificacao,
+               CAST(ap.estoque AS INTEGER) AS qty,
+               ap.preco_venda AS preco,
+               COALESCE(ap.imagem_url, epi.imagem_url, mi.cloudinary_url, pc.imagem_cosmos, NULLIF(TRIM(m.imagem), ''), NULLIF(TRIM(m5.imagem), '')) AS imagem,
+               'alpha_a7' AS fonte_estoque,
+               ap.preco_promocional AS preco_promocional,
+               ap.promo_inicio AS promo_inicio,
+               ap.promo_fim AS promo_fim
+        FROM ecommerce_alpha_produtos ap
+        JOIN medicamentos m ON LTRIM(COALESCE(m.barra_norm, m.barra, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0')
+        LEFT JOIN medicamentos_imagens mi ON mi.medicamento_id = m.id
+        LEFT JOIN produto_canon pc ON LTRIM(COALESCE(pc.ean, ''), '0') = LTRIM(COALESCE(ap.ean, ''), '0') AND pc.fonte NOT IN ('cosmos_miss', 'ia_miss', 'placeholder_broken')
+        LEFT JOIN ecommerce_lab_ean elab ON LTRIM(COALESCE(elab.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+        LEFT JOIN ecommerce_produto_imagens epi ON epi.cnpjloja = ap.cnpjloja AND LTRIM(COALESCE(epi.ean,''),'0') = LTRIM(COALESCE(ap.ean,''),'0')
+        LEFT JOIN medicamentos5 m5 ON m5.barra = ap.ean
+        WHERE ap.cnpjloja = ANY(%s)
+          AND COALESCE(ap.inativo, false) = false
+          AND COALESCE(ap.estoque, 0) > 0
+          AND LOWER(m.principio_ativo_ia) = LOWER(%s)
+          AND (%s::text IS NULL OR ap.ean IS DISTINCT FROM %s)
+        ORDER BY ap.nome
+        LIMIT %s
+        """,
+        (cnpjs, principio_ativo.strip(), exclude_ean, exclude_ean, limit),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
+    _apply_safe_catalog_images(rows)
+    _apply_saved_categories(rows)
+    _apply_alpha_realtime_promo(rows)
+    try:
+        conn2 = _new_conn()
+        _marcar_tarja_batch(rows, conn2)
+        conn2.close()
+    except Exception:
+        pass
+    rows = [r for r in rows if _has_catalog_image(r)]
+    return _dedupe_products_for_display(rows)[:int(limit)]
+
+
+def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
+    """Fallback quando a busca direta no Alpha (get_alpha_products_direct_by_query)
+    nao encontra nada em estoque pro termo buscado.
+
+    Ordem:
+    1. Generico/similar ja disponivel na loja via principio_ativo_ia -- coluna
+       classificada por um job de IA que ja rodou antes, sem custo de API aqui.
+    2. So quando (1) tambem falha E o termo buscado parece ser mesmo um
+       medicamento (classificacao ANVISA/tipo_ia bate) E ainda sobra orcamento
+       de tempo na request: chama a Poupinha (Claude Haiku) como ultimo
+       recurso. Nunca roda pra cosmetico/perfumaria/suplemento/etc -- e
+       justamente a chamada sincrona de IA em toda busca que foi desligada em
+       356611a7 (2026-07-08) por estourar timeout da funcao serverless; aqui
+       ela so roda no caso raro de "sem estoque + sem generico classificado",
+       nao em toda busca.
+
+    Retorna (produtos, principio_ativo_label) ou ([], None).
+    """
+    if not cnpjs or not (query or "").strip():
+        return [], None
+    q_norm = _norm_text(query)
+    if not q_norm:
+        return [], None
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(barra_norm, regexp_replace(barra, '\\D', '', 'g')) AS ean,
+                   principio_ativo_ia, tipo_ia, classe_anvisa, descricao,
+                   similarity(LOWER(COALESCE(descricao, '')), %s) AS sim
+            FROM medicamentos
+            WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.25
+               OR LOWER(COALESCE(descricao, '')) LIKE %s
+            ORDER BY sim DESC
+            LIMIT 5
+            """,
+            (q_norm, q_norm, f"%{q_norm}%"),
+        )
+        candidatos = cur.fetchall()
+        cur.close()
+    except Exception:
+        candidatos = []
+    if not candidatos:
+        return [], None
+
+    # Olha todos os top-5 candidatos (nao so o de maior similaridade) pra
+    # decidir se "parece medicamento" -- o match textual mais forte muitas
+    # vezes e uma linha sem classificacao, enquanto uma variante do mesmo
+    # produto (outro EAN/embalagem) logo abaixo no ranking ja foi classificada.
+    is_medicamento = False
+    for cand in candidatos:
+        _classe = (cand.get("classe_anvisa") or "").strip().lower()
+        _tipo = (cand.get("tipo_ia") or "").strip().lower()
+        if (
+            _tipo in ("generico", "similar", "referencia")
+            or any(t in _classe for t in ("generico", "similar", "prescricao", "rx_"))
+            or (cand.get("principio_ativo_ia") or "").strip()
+        ):
+            is_medicamento = True
+            break
+
+    # Passo 1: generico/similar ja classificado (sem IA) -- tenta cada
+    # candidato ate achar um com principio_ativo_ia preenchido e com estoque.
+    for cand in candidatos:
+        pa = (cand.get("principio_ativo_ia") or "").strip()
+        if not pa:
+            continue
+        produtos = _produtos_alpha_por_principio_ativo(cnpjs, pa, exclude_ean=cand.get("ean"))
+        if produtos:
+            return produtos, pa
+
+    # Passo 2: ultimo recurso via IA -- so pra busca que parece medicamento de
+    # verdade e so se ainda sobra orcamento de tempo na request.
+    if not is_medicamento or (time.monotonic() - busca_inicio) > 5.0:
+        return [], None
+
+    ia_result = _claude_busca_interpret(query)
+    if not ia_result:
+        return [], None
+    ia_terms = []
+    for campo in ("principios_ativos", "nomes_tecnicos", "termos_busca"):
+        for termo in (ia_result.get(campo) or []):
+            termo = _norm_text(termo)
+            if termo and len(termo) >= 4 and termo not in ia_terms:
+                ia_terms.append(termo)
+    if not ia_terms:
+        return [], None
+
+    seen, produtos_ia = set(), []
+    for termo in ia_terms[:4]:
+        for p in get_alpha_products_direct_by_query(cnpjs, termo, limit=40):
+            key = (p.get("cnpjloja"), p.get("ean"))
+            if key not in seen:
+                seen.add(key)
+                produtos_ia.append(p)
+    if not produtos_ia:
+        return [], None
+    label = (ia_result.get("principios_ativos") or ia_terms)[0]
+    return produtos_ia, label
+
+
 # Mesmo mapa de alias/superset que _categoria_bate_filtro usa (definido perto
 # de _categoria_produto) -- filtro de categoria aqui e feito em 2 passos: uma
 # busca leve (so ean/classificacao/nome/categoria, sem os JOINs pesados de
@@ -10603,6 +10765,18 @@ def _api_produtos_proximos_impl():
             if key not in seen_alpha_direct:
                 produtos_raw.append(p)
                 seen_alpha_direct.add(key)
+
+        # Ainda sem nada em estoque pro termo buscado -- tenta achar um
+        # generico/similar disponivel (ver docstring de
+        # _buscar_alternativa_medicamento_sem_estoque). Alimenta a mesma
+        # mensagem "nao encontramos X, exibindo equivalente generico" que ja
+        # existe pronta no front (banner + bolha da Poupinha em index.html).
+        if not produtos_raw:
+            _alt_produtos, _alt_pa = _buscar_alternativa_medicamento_sem_estoque(cnpjs, busca_q, _busca_inicio)
+            if _alt_produtos:
+                produtos_raw = _alt_produtos
+                _alternativa_para = busca_q
+                _principio_ativo_ia = _alt_pa
 
     # Resolve a categoria de cada produto antes do filtro: produtos vindos da
     # vitrine por curva A (_curve_a_products_for_cnpjs, caminho sem busca por
