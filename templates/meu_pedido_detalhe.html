@@ -218,6 +218,9 @@
         {% else %}{{ status_msg.get(pedido.status) }}{% endif %}
       </div>
       <div class="pd-banner-sub">{{ status_msg.get(pedido.status) }}</div>
+      {% if pedido.status == 'pronto_retirada' and (pedido.previsao_entrega_em_label or pedido.previsao_entrega) %}
+      <div class="pd-banner-sub" style="opacity:.85">Esse horário é só uma estimativa pra você se organizar — pode retirar depois também, sem problema, é só avisar a farmácia se atrasar.</div>
+      {% endif %}
     </div>
   </div>
   {% else %}

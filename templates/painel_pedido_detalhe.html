@@ -493,10 +493,11 @@
 
     <!-- Painel de previsão de entrega/retirada -->
     <div id="previsao-box" style="display:none;margin-top:14px;background:#111827;border:1px solid var(--pk-line);border-radius:10px;padding:14px 16px">
-      <div style="font-size:.78rem;font-weight:700;color:var(--pk-yellow);margin-bottom:10px">
-        <i class="fa fa-clock me-1"></i>Previsão de <span id="previsao-tipo-label">entrega</span>
+      <div style="font-size:.78rem;font-weight:700;color:var(--pk-yellow);margin-bottom:2px">
+        <i class="fa fa-clock me-1"></i><span id="previsao-tipo-label">Previsão de entrega</span>
         <span style="font-weight:400;color:var(--pk-muted);margin-left:4px">(opcional — será exibida ao cliente)</span>
       </div>
+      <div id="previsao-tipo-hint" style="font-size:.72rem;color:var(--pk-muted);margin-bottom:10px"></div>
 
       <div style="font-size:.72rem;color:var(--pk-muted);margin-bottom:6px">Escolha um prazo rápido</div>
       <div id="previsao-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
@@ -576,9 +577,22 @@
   {% endif %}
 
   <script>
-  const _previsaoTipoTexto = { retirada: { verbo: 'Pronto para retirada', ate: 'Disponível para retirada até' }, entrega: { verbo: 'Chega', ate: 'Chega até' } };
+  const _previsaoTipoTexto = {
+    retirada: {
+      verbo: 'Pronto para retirada', ate: 'Disponível para retirada até',
+      titulo: 'Prazo para o cliente retirar',
+      hint: 'Esse é o horário-limite que o cliente vai ver pra vir buscar o pedido na loja depois de pronto — é só uma orientação, não bloqueia nada automaticamente se ele atrasar.',
+    },
+    entrega: {
+      verbo: 'Chega', ate: 'Chega até',
+      titulo: 'Previsão de entrega',
+      hint: 'É o horário estimado em que o pedido deve chegar na casa do cliente.',
+    },
+  };
   function abrirPrevisao(statusVal, tipo) {
-    document.getElementById('previsao-tipo-label').textContent = tipo === 'retirada' ? 'retirada' : 'entrega';
+    const _t = _previsaoTipoTexto[tipo === 'retirada' ? 'retirada' : 'entrega'];
+    document.getElementById('previsao-tipo-label').textContent = _t.titulo;
+    document.getElementById('previsao-tipo-hint').textContent = _t.hint;
     document.getElementById('previsao-box').dataset.tipo = tipo;
     document.getElementById('status-pending').value = statusVal;
     document.getElementById('previsao-box').style.display = 'block';
