@@ -174,7 +174,7 @@
     <a class="back-link" href="{{ url_for('meus_pedidos') }}"><i class="fa fa-chevron-left"></i>Voltar</a>
     <div class="pd-top-title">
       <h1>Pedido #{{ pedido.id[:8].upper() }}</h1>
-      <span class="status {{ pedido.status }}"><i class="fa fa-circle"></i>{{ {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue','cancelado':'Cancelado'}.get(pedido.status, pedido.status|capitalize) }}</span>
+      <span class="status {{ pedido.status }}"><i class="fa fa-circle"></i>{{ {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':('Retirado' if pedido.tipo_entrega == 'retirada' else 'Entregue'),'cancelado':'Cancelado'}.get(pedido.status, pedido.status|capitalize) }}</span>
     </div>
     <div class="pd-top-actions">
       <button type="button" class="pd-btn-outline" onclick="abrirNotaFiscalPedido('{{ pedido.id }}', this)">

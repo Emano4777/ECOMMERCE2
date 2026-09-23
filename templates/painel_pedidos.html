@@ -145,7 +145,7 @@
           {{ p.criado_em | brt }}
         </td>
         <td>
-          {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':'Entregue ✓','cancelado':'Cancelado'} %}
+          {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':('Retirado ✓' if p.tipo_entrega == 'retirada' else 'Entregue ✓'),'cancelado':'Cancelado'} %}
           <span class="status-badge s-{{ p.status }}">{{ _sl.get(p.status, p.status) }}</span>
           {% if p.receita_status == 'pendente' %}
           <div style="margin-top:4px">

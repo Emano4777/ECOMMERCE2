@@ -408,7 +408,7 @@
     {% for p in pedidos %}
     {% set rec = rec_map.get(p.id|string) %}
     {% set pend = pend_map.get(p.id|string) %}
-    {% set _sl = {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':'Entregue','cancelado':'Cancelado'} %}
+    {% set _sl = {'pendente':'Pendente','pago':'Pago','pronto_retirada':'Pronto para retirada','enviado':'Enviado','entregue':('Retirado' if p.tipo_entrega == 'retirada' else 'Entregue'),'cancelado':'Cancelado'} %}
     {% set grupo = 'andamento' if p.status in ['pendente', 'pago', 'pronto_retirada', 'enviado'] else p.status %}
     <article class="order-card" data-status="{{ p.status }}" data-group="{{ grupo }}" data-search="{{ (p.razao ~ ' ' ~ p.id ~ ' ' ~ p.forma_pagamento ~ ' ' ~ _sl.get(p.status, p.status))|lower }}">
       <a class="order-link" href="{{ url_for('meu_pedido_detalhe', pedido_id=p.id) }}">
