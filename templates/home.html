@@ -1889,16 +1889,30 @@ let _storiesLista = [];
 let _storiesIdx = 0;
 const _STORY_ICO = { chegou_agora:'fa-sparkles', produto_dia:'fa-fire', avaliacao:'fa-star', dica_saude:'fa-comment-medical' };
 
+function _storiesEsconder() {
+  const wrap = document.getElementById('stories-strip-wrap');
+  const strip = document.getElementById('stories-strip');
+  _storiesLista = [];
+  if (strip) strip.innerHTML = '';
+  if (wrap) wrap.style.display = 'none';
+  const viewer = document.getElementById('stories-viewer');
+  if (viewer && viewer.classList.contains('aberto')) storiesFechar();
+}
+
 function carregarStories(lat, lng) {
-  if (!lat || !lng) return;
   const wrap = document.getElementById('stories-strip-wrap');
   const strip = document.getElementById('stories-strip');
   if (!wrap || !strip) return;
+  if (!lat || !lng) { _storiesEsconder(); return; }
+  // Sempre reconsulta na troca de localizacao -- se a nova regiao nao tiver
+  // loja integrada (ou a loja nao tiver nenhum story com conteudo), some
+  // com o que estava mostrado antes em vez de deixar a faixa da localizacao
+  // anterior grudada na tela.
   fetch(`/api/home/stories?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
     .then(r => r.json())
     .then(d => {
       const lista = d.stories || [];
-      if (!lista.length) return;
+      if (!lista.length) { _storiesEsconder(); return; }
       _storiesLista = lista;
       const hojeChave = new Date().toISOString().slice(0, 10);
       strip.innerHTML = lista.map((s, i) => {
@@ -1914,7 +1928,7 @@ function carregarStories(lat, lng) {
       }).join('');
       wrap.style.display = '';
     })
-    .catch(() => {});
+    .catch(() => { _storiesEsconder(); });
 }
 
 function storiesAbrir(idx) {
