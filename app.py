@@ -9460,6 +9460,15 @@ def painel_stories():
     return render_template("painel_stories.html", stories=stories, config=config, produto_dia=produto_dia)
 
 
+def _invalidar_cache_home_stories(cnpjloja):
+    """Sem isso, qualquer mudanca no painel (fixar produto do dia, publicar
+    dica de saude, ligar/desligar tipo) so aparecia na home depois dos 5min
+    de cache do /api/home/stories passarem -- confuso pra quem acabou de
+    salvar e vai conferir na hora."""
+    with _home_api_cache_lock:
+        _home_api_cache.pop(("home_stories_v1", cnpjloja), None)
+
+
 @app.post("/painel/stories/salvar")
 @painel_required
 def painel_stories_salvar():
@@ -9519,6 +9528,7 @@ def painel_stories_salvar():
         flash("Story publicado.", "success")
     conn.commit()
     cur.close()
+    _invalidar_cache_home_stories(cnpjloja)
     return redirect(url_for("painel_stories"))
 
 
@@ -9526,13 +9536,15 @@ def painel_stories_salvar():
 @painel_required
 def painel_stories_toggle(story_id):
     _ensure_stories_schema()
+    cnpjloja = session["cnpjloja"]
     conn = db(); cur = conn.cursor()
     cur.execute(
         "UPDATE ecommerce_stories SET ativo = NOT ativo WHERE id=%s AND cnpjloja=%s",
-        (story_id, session["cnpjloja"]),
+        (story_id, cnpjloja),
     )
     conn.commit()
     cur.close()
+    _invalidar_cache_home_stories(cnpjloja)
     return redirect(url_for("painel_stories"))
 
 
@@ -9540,10 +9552,12 @@ def painel_stories_toggle(story_id):
 @painel_required
 def painel_stories_excluir(story_id):
     _ensure_stories_schema()
+    cnpjloja = session["cnpjloja"]
     conn = db(); cur = conn.cursor()
-    cur.execute("DELETE FROM ecommerce_stories WHERE id=%s AND cnpjloja=%s", (story_id, session["cnpjloja"]))
+    cur.execute("DELETE FROM ecommerce_stories WHERE id=%s AND cnpjloja=%s", (story_id, cnpjloja))
     conn.commit()
     cur.close()
+    _invalidar_cache_home_stories(cnpjloja)
     flash("Story excluído.", "success")
     return redirect(url_for("painel_stories"))
 
@@ -9573,6 +9587,7 @@ def painel_stories_config():
     )
     conn.commit()
     cur.close()
+    _invalidar_cache_home_stories(cnpjloja)
     flash("Configuração dos stories salva.", "success")
     return redirect(url_for("painel_stories"))
 
@@ -12693,6 +12708,7 @@ def api_home_stories():
     # ── Produto do dia: fixado pela loja, ou o de maior desconto ativo ──
     if cfg.get("produto_dia_ativo", True):
         pd = None
+        pd_manual = False
         ean_fixo = (cfg.get("produto_dia_ean") or "").strip()
         if ean_fixo:
             cur.execute(
@@ -12701,6 +12717,7 @@ def api_home_stories():
                 (cnpjloja, ean_fixo),
             )
             pd = cur.fetchone()
+            pd_manual = bool(pd)
         if not pd:
             cur.execute(
                 """
@@ -12717,10 +12734,17 @@ def api_home_stories():
                 (cnpjloja,),
             )
             pd = cur.fetchone()
-        if pd and pd.get("preco_promocional"):
+        # Produto fixado manualmente aparece sempre (a loja escolheu de
+        # proposito), com ou sem promocao ativa -- so o auto-pick exige
+        # desconto (e o criterio de escolha dele). Sem isso, fixar um
+        # produto sem preco_promocional ativo era ignorado silenciosamente
+        # e a home continuava mostrando o pick automatico antigo.
+        if pd and (pd_manual or pd.get("preco_promocional")):
             preco = float(pd["preco_venda"] or 0)
-            promo = float(pd["preco_promocional"] or 0)
-            pct = round((1 - promo / preco) * 100) if preco > 0 else 0
+            promo_raw = pd.get("preco_promocional")
+            tem_promo = bool(promo_raw) and float(promo_raw) > 0 and preco > 0 and float(promo_raw) < preco
+            promo = float(promo_raw) if tem_promo else preco
+            pct = round((1 - promo / preco) * 100) if tem_promo else 0
             stories.append({
                 "id": "produto_dia", "tipo": "produto_dia",
                 "titulo": "Produto do dia", "imagem": pd.get("imagem_url") or "",
