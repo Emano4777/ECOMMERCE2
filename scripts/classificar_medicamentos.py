@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Classifica os registros da tabela `medicamentos` usando Claude (Anthropic).
-Usa barra_norm (EAN) como chave única — sem ambiguidade.
+Usa COALESCE(barra_norm, barra) como chave — a maioria dos EANs realmente em
+estoque no catalogo Alpha so tem `barra` preenchido (barra_norm fica NULL
+pra eles), entao exigir so barra_norm deixava de fora justamente o catalogo
+que a busca do site usa. Ver fetch_products/UPDATE_SQL.
 
 Adiciona 3 colunas novas em `medicamentos` (não sobrescreve `classe`):
   tipo_ia               → generico | similar | referencia | suplemento | cosmetico | outro
@@ -50,15 +53,22 @@ def ensure_columns(conn):
 # ── BUSCA DE PRODUTOS ────────────────────────────────────────────────────────
 
 def fetch_products(conn, force=False, limit=None, ean_filter=None, only_estoque=False):
+    # A maioria dos EANs realmente em estoque no catalogo Alpha (ecommerce_alpha_produtos)
+    # so bate via `barra` -- `barra_norm` esta NULL pra eles (import mais
+    # antigo/outra fonte). Usar COALESCE(barra_norm, barra) em tudo aqui
+    # (filtro, EXISTS e UPDATE) pra nao deixar de fora justamente os produtos
+    # que a busca do site precisa. Aliasa pra "barra_norm" no SELECT so pra
+    # nao precisar mexer no resto do script (classify_batch/save_classifications
+    # ja esperam esse nome de campo).
     conditions = [
-        "barra_norm IS NOT NULL",
-        "barra_norm != ''",
+        "COALESCE(barra_norm, barra) IS NOT NULL",
+        "COALESCE(barra_norm, barra) != ''",
     ]
     if not force and ean_filter is None:
         conditions.append("tipo_ia IS NULL")
     if ean_filter:
         safe = ean_filter.lstrip("0")
-        conditions.append(f"barra_norm = '{safe}'")
+        conditions.append(f"COALESCE(barra_norm, barra) = '{safe}'")
     if only_estoque:
         # So os EANs que a busca do site realmente pode encontrar em estoque
         # agora (ecommerce_alpha_produtos, qualquer loja) -- e um recorte bem
@@ -71,7 +81,7 @@ def fetch_products(conn, force=False, limit=None, ean_filter=None, only_estoque=
                 SELECT 1 FROM ecommerce_alpha_produtos ap
                 WHERE COALESCE(ap.inativo, false) = false
                   AND COALESCE(ap.estoque, 0) > 0
-                  AND LTRIM(COALESCE(ap.ean, ''), '0') = LTRIM(medicamentos.barra_norm, '0')
+                  AND LTRIM(COALESCE(ap.ean, ''), '0') = LTRIM(COALESCE(medicamentos.barra_norm, medicamentos.barra, ''), '0')
             )
         """)
 
@@ -79,7 +89,7 @@ def fetch_products(conn, force=False, limit=None, ean_filter=None, only_estoque=
     limit_clause = f"LIMIT {limit}" if limit else ""
 
     sql = f"""
-        SELECT id, barra_norm, descricao, classe, laboratorio, marca
+        SELECT id, COALESCE(barra_norm, barra) AS barra_norm, descricao, classe, laboratorio, marca
         FROM medicamentos
         WHERE {where}
         ORDER BY id
@@ -103,7 +113,7 @@ UPDATE medicamentos SET
     principio_ativo_ia    = %s,
     classe_terapeutica_ia = %s,
     confianca_ia          = %s
-WHERE barra_norm = %s
+WHERE COALESCE(barra_norm, barra) = %s
 """
 
 
