@@ -5761,6 +5761,74 @@ def _claude_busca_interpret(query):
         return None
 
 
+def _claude_busca_alternativa_generico(query, principio_ativo_ref=None):
+    """
+    Ultimo recurso do fallback de estoque (_buscar_alternativa_medicamento_sem_estoque):
+    o produto buscado nao tem estoque em lugar nenhum da loja E nao existe
+    outro produto com o MESMO principio_ativo_ia classificado no banco (ver
+    _produtos_alpha_por_principio_ativo). Aqui a pergunta pra IA e diferente
+    da busca geral (_claude_busca_interpret): nao "o que e esse produto", mas
+    "que outras substancias da MESMA CLASSE TERAPEUTICA podem substituir esse
+    produto" -- cobre o caso comum de farmacia (ex: buscou Noex/fluticasona,
+    a loja so tem Budesonida/Mometasona -- outro corticoide nasal, nao o
+    mesmo generico, mas serve como alternativa real).
+
+    Cache proprio (prefixo "altgen:") pra nao colidir com o cache de
+    _claude_busca_interpret, que responde outra pergunta.
+    Retorna dict {substitutos, termos_busca} ou None.
+    """
+    api_key = _anthropic_api_key()
+    if not api_key:
+        return None
+    query_norm = f"altgen:{_norm_query_cache(query)}:{_norm_text(principio_ativo_ref or '')}"
+    cached = _busca_cache_get(query_norm)
+    if cached is not None:
+        return cached
+    contexto_pa = f' Principio ativo do produto buscado, se conhecido: "{principio_ativo_ref}".' if principio_ativo_ref else ""
+    prompt = (
+        "Voce e Poupinha, assistente da Drogarias Poupaqui. Um cliente buscou um "
+        f'produto ("{query}") que esta SEM ESTOQUE nesta farmacia.{contexto_pa} '
+        "Sugira outras substancias que sejam alternativas farmacologicamente "
+        "equivalentes (mesma classe terapeutica / mesmo efeito), mesmo que NAO "
+        "sejam o mesmo generico exato -- e comum uma farmacia ter uma marca "
+        "diferente da mesma classe (ex: buscou um corticoide nasal especifico, "
+        "a farmacia tem outro corticoide nasal disponivel).\n"
+        "Retorne SOMENTE um JSON valido sem markdown:\n"
+        '{"substitutos":["budesonida","mometasona"],"termos_busca":["budesonida","mometasona","corticoide nasal"]}\n'
+        "REGRAS OBRIGATORIAS:\n"
+        "- substitutos: nomes de substancias ativas (principios ativos) que podem substituir o produto buscado, mesma classe terapeutica\n"
+        "- termos_busca: palavras curtas (substancias, sinonimos, classe) que podem aparecer literalmente no nome de produtos no estoque\n"
+        "- NUNCA mencione doencas, sintomas ou condicoes medicas -- so nomes de substancias/classe farmacologica\n"
+        "- Use somente termos em portugues SEM acentos e SEM hifens\n"
+        "- Se nao souber uma alternativa segura, retorne listas vazias -- nao invente\n"
+        f"Produto buscado: {query}"
+    )
+    payload = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        method="POST",
+    )
+    try:
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        text = (data.get("content") or [{}])[0].get("text", "").strip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text.strip())
+        resultado = json.loads(text)
+        if any(resultado.get(k) for k in ("substitutos", "termos_busca")):
+            _busca_cache_set(query_norm, resultado)
+        return resultado
+    except Exception:
+        return None
+
+
 def _catalog_product_key(nome):
     text = _norm_text(nome)
     text = re.sub(r"\b(capsulas|capsula|caps|cps|comprimidos|comprimido|comp|cp)\b", "cp", text)
@@ -8401,13 +8469,17 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
        ela so roda no caso raro de "sem estoque + sem generico classificado",
        nao em toda busca.
 
-    Retorna (produtos, principio_ativo_label) ou ([], None).
+    Retorna (produtos, principio_ativo_label, tipo) ou ([], None, None).
+    tipo e "generico" (Passo 1, mesmo principio_ativo_ia -- substituicao
+    farmaceutica valida) ou "equivalente" (Passo 2, IA, mesma classe
+    terapeutica mas outra substancia -- distincao importante pra mensagem no
+    front nao chamar de "generico" o que nao e).
     """
     if not cnpjs or not (query or "").strip():
-        return [], None
+        return [], None, None
     q_norm = _norm_text(query)
     if not q_norm:
-        return [], None
+        return [], None, None
     try:
         conn = db()
         cur = conn.cursor()
@@ -8429,7 +8501,7 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
     except Exception:
         candidatos = []
     if not candidatos:
-        return [], None
+        return [], None, None
 
     # Olha todos os top-5 candidatos (nao so o de maior similaridade) pra
     # decidir se "parece medicamento" -- o match textual mais forte muitas
@@ -8455,24 +8527,30 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
             continue
         produtos = _produtos_alpha_por_principio_ativo(cnpjs, pa, exclude_ean=cand.get("ean"))
         if produtos:
-            return produtos, pa
+            return produtos, pa, "generico"
 
     # Passo 2: ultimo recurso via IA -- so pra busca que parece medicamento de
-    # verdade e so se ainda sobra orcamento de tempo na request.
+    # verdade e so se ainda sobra orcamento de tempo na request. Diferente do
+    # Passo 1 (mesmo generico exato), aqui a pergunta pra IA e por
+    # equivalentes de MESMA CLASSE TERAPEUTICA (ver docstring de
+    # _claude_busca_alternativa_generico) -- cobre o caso comum de a loja nao
+    # ter o mesmo principio ativo mas ter outro da mesma classe (ex: buscou
+    # um corticoide nasal especifico sem estoque, a loja tem outro).
     if not is_medicamento or (time.monotonic() - busca_inicio) > 5.0:
-        return [], None
+        return [], None, None
 
-    ia_result = _claude_busca_interpret(query)
+    _pa_ref = next((c.get("principio_ativo_ia") for c in candidatos if (c.get("principio_ativo_ia") or "").strip()), None)
+    ia_result = _claude_busca_alternativa_generico(query, principio_ativo_ref=_pa_ref)
     if not ia_result:
-        return [], None
+        return [], None, None
     ia_terms = []
-    for campo in ("principios_ativos", "nomes_tecnicos", "termos_busca"):
+    for campo in ("substitutos", "termos_busca"):
         for termo in (ia_result.get(campo) or []):
             termo = _norm_text(termo)
             if termo and len(termo) >= 4 and termo not in ia_terms:
                 ia_terms.append(termo)
     if not ia_terms:
-        return [], None
+        return [], None, None
 
     seen, produtos_ia = set(), []
     for termo in ia_terms[:4]:
@@ -8482,9 +8560,9 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
                 seen.add(key)
                 produtos_ia.append(p)
     if not produtos_ia:
-        return [], None
-    label = (ia_result.get("principios_ativos") or ia_terms)[0]
-    return produtos_ia, label
+        return [], None, None
+    label = (ia_result.get("substitutos") or ia_terms)[0]
+    return produtos_ia, label, "equivalente"
 
 
 # Mesmo mapa de alias/superset que _categoria_bate_filtro usa (definido perto
@@ -10518,6 +10596,7 @@ def _api_produtos_proximos_impl():
     _nl_ean_src = set()    # EANs do índice de sintomas; base limpa para fallback NL sem IA
     _alternativa_para   = None  # nome da marca buscada quando não encontrada diretamente
     _principio_ativo_ia = None  # genérico/PA encontrado pela IA em substituição
+    _alternativa_tipo   = None  # "generico" (mesmo principio_ativo_ia) ou "equivalente" (outra classe terapeutica, via IA)
 
     is_nl = _is_natural_language_query(busca_q) if busca_q else False
 
@@ -10772,11 +10851,12 @@ def _api_produtos_proximos_impl():
         # mensagem "nao encontramos X, exibindo equivalente generico" que ja
         # existe pronta no front (banner + bolha da Poupinha em index.html).
         if not produtos_raw:
-            _alt_produtos, _alt_pa = _buscar_alternativa_medicamento_sem_estoque(cnpjs, busca_q, _busca_inicio)
+            _alt_produtos, _alt_pa, _alt_tipo = _buscar_alternativa_medicamento_sem_estoque(cnpjs, busca_q, _busca_inicio)
             if _alt_produtos:
                 produtos_raw = _alt_produtos
                 _alternativa_para = busca_q
                 _principio_ativo_ia = _alt_pa
+                _alternativa_tipo = _alt_tipo
 
     # Resolve a categoria de cada produto antes do filtro: produtos vindos da
     # vitrine por curva A (_curve_a_products_for_cnpjs, caminho sem busca por
@@ -11088,7 +11168,15 @@ def _api_produtos_proximos_impl():
     # o que caracteriza indicação terapêutica e não pode aparecer no e-commerce de farmácia.
     if _alternativa_para and result:
         _pa_label = (_principio_ativo_ia or "").title() or "genérico"
-        saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo o equivalente genérico encontrado nas farmácias próximas."
+        if _alternativa_tipo == "equivalente":
+            # Passo 2 (IA): outra substancia, mesma classe terapeutica -- NAO
+            # e generico (generico = mesmo principio ativo, outra marca).
+            # Chamar de "generico" aqui seria uma indicacao terapeutica
+            # incorreta (troca de substancia e decisao de farmaceutico, nao
+            # do site).
+            saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo uma alternativa da mesma classe encontrada nas farmácias próximas."
+        else:
+            saudacao = f"Não encontramos {_alternativa_para.title()} disponível. Exibindo o equivalente genérico encontrado nas farmácias próximas."
     return jsonify({
         "produtos":          result[:90] if home_mode else result[:500],
         "cnpjs_proximos":    [l["cnpjloja"] for l in proximas],
@@ -11101,6 +11189,7 @@ def _api_produtos_proximos_impl():
         "saudacao":          saudacao,
         "alternativa_para":  _alternativa_para,
         "principio_ativo_ia": _principio_ativo_ia,
+        "alternativa_tipo":  _alternativa_tipo,
     })
 
 

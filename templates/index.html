@@ -1905,7 +1905,13 @@ function carregarProdutos(lat, lng, busca='') {
       if (altBanner && altBannerMsg) {
         if (data.alternativa_para && allProdutos.length) {
           const paLabel = (data.principio_ativo_ia || '').replace(/\b\w/g, c => c.toUpperCase());
-          altBannerMsg.innerHTML = `<strong>${esc(data.alternativa_para.toUpperCase())}</strong> não disponível agora. Exibindo o genérico equivalente: <strong>${esc(paLabel)}</strong>.`;
+          // "equivalente" (Passo 2, IA) = outra substancia, mesma classe
+          // terapeutica -- nao e generico (mesmo principio ativo, outra
+          // marca), entao o texto nao pode chamar de "genérico".
+          const _altTexto = data.alternativa_tipo === 'equivalente'
+            ? `Exibindo uma alternativa da mesma classe: <strong>${esc(paLabel)}</strong>.`
+            : `Exibindo o genérico equivalente: <strong>${esc(paLabel)}</strong>.`;
+          altBannerMsg.innerHTML = `<strong>${esc(data.alternativa_para.toUpperCase())}</strong> não disponível agora. ${_altTexto}`;
           altBanner.style.display = 'flex';
           // Botão de encomenda para o produto original
           const encBtn = document.getElementById('alt-banner-encomendar');
