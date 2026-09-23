@@ -263,14 +263,18 @@
 .stories-strip-wrap { margin-bottom:16px; }
 .stories-strip { display:flex; gap:14px; overflow-x:auto; scrollbar-width:none; padding:2px 2px 4px; }
 .stories-strip::-webkit-scrollbar { display:none; }
-.story-circle { flex:0 0 auto; width:68px; display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:0; cursor:pointer; font-family:inherit; padding:0; }
+.story-circle { flex:0 0 auto; width:78px; display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:0; cursor:pointer; font-family:inherit; padding:0; }
 .story-circle-ring { width:64px; height:64px; border-radius:50%; padding:2.5px; background:linear-gradient(135deg,#f59e0b,#d6112e 60%,#a21caf); display:flex; align-items:center; justify-content:center; transition:transform .15s ease; }
 .story-circle:active .story-circle-ring { transform:scale(.93); }
 .story-circle.vista .story-circle-ring { background:#d8dce2; }
 .story-circle-ring-inner { width:100%; height:100%; border-radius:50%; background:#fff; padding:2.5px; }
 .story-circle-img { width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; background:#f2f2f2; }
 .story-circle-img-ph { width:100%; height:100%; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#f2f2f2; color:#fff; font-size:1.1rem; }
-.story-circle-label { font-size:.68rem; font-weight:700; color:#333; text-align:center; line-height:1.2; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.story-circle-label {
+  font-size:.68rem; font-weight:700; color:#333; text-align:center; line-height:1.2; max-width:100%;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  word-break:break-word;
+}
 
 .stories-viewer { display:none; position:fixed; inset:0; z-index:3000; background:rgba(10,8,10,.88); align-items:center; justify-content:center; padding:16px; }
 .stories-viewer.aberto { display:flex; }
@@ -314,8 +318,9 @@
 .sv-ca-item-nome { font-size:.72rem; font-weight:700; padding:8px 8px 2px; line-height:1.3; max-height:2.6em; overflow:hidden; }
 .sv-ca-item-preco { font-size:.78rem; font-weight:900; color:#22c55e; padding:0 8px 9px; }
 @media (max-width:480px) {
-  .story-circle { width:62px; }
-  .story-circle-ring { width:58px; height:58px; }
+  .story-circle { width:70px; }
+  .story-circle-ring { width:60px; height:60px; }
+  .story-circle-label { font-size:.64rem; }
   .stories-viewer-card { height:100%; border-radius:0; max-width:100%; }
   .stories-viewer { padding:0; }
 }
@@ -1902,7 +1907,7 @@ function carregarStories(lat, lng) {
         const img = s.imagem
           ? `<img class="story-circle-img" src="${hEsc(s.imagem)}" alt="" loading="lazy">`
           : `<div class="story-circle-img-ph" style="background:${s.cor || '#ccc'}"><i class="fa ${_STORY_ICO[s.tipo] || 'fa-circle'}"></i></div>`;
-        return `<button type="button" class="story-circle ${visto}" data-idx="${i}" onclick="storiesAbrir(${i})">
+        return `<button type="button" class="story-circle ${visto}" data-idx="${i}" onclick="storiesAbrir(${i})" title="${hEsc(s.titulo)}">
           <span class="story-circle-ring"><span class="story-circle-ring-inner">${img}</span></span>
           <span class="story-circle-label">${hEsc(s.titulo)}</span>
         </button>`;
