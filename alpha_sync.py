@@ -82,7 +82,7 @@ def _alpha_connect(timeout_ms=20000):
     return _connect(dsn, timeout_ms=timeout_ms)
 
 
-_SCHEMA_MIG_KEY = "alpha_local_schema_v1"
+_SCHEMA_MIG_KEY = "alpha_local_schema_v2"
 
 def ensure_local_schema(conn=None):
     global _local_schema_done
@@ -161,12 +161,21 @@ def _do_ensure_local_schema(conn=None):
                 alpha_integracao_concluida BOOLEAN DEFAULT FALSE,
                 alpha_updated_at TIMESTAMPTZ,
                 synced_at TIMESTAMPTZ DEFAULT NOW(),
+                primeiro_visto_em TIMESTAMPTZ DEFAULT NOW(),
                 PRIMARY KEY (cnpjloja, alpha_o_id)
             )
             """
         )
+        # primeiro_visto_em: quando essa linha (cnpjloja+alpha_o_id) apareceu
+        # pela primeira vez no sync -- diferente de synced_at/alpha_updated_at,
+        # que mudam a cada rodada. Usado pra "chegou agora" na home (story).
+        # So e setado no INSERT (ver upsert em sync_alpha_produtos); o ON
+        # CONFLICT DO UPDATE de proposito nao mexe nessa coluna, pra manter o
+        # valor original pra sempre.
+        cur.execute("ALTER TABLE ecommerce_alpha_produtos ADD COLUMN IF NOT EXISTS primeiro_visto_em TIMESTAMPTZ")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_alpha_produtos_cnpj_ean ON ecommerce_alpha_produtos(cnpjloja, ean)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_alpha_produtos_cnpj_ativo ON ecommerce_alpha_produtos(cnpjloja, inativo, estoque)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_alpha_produtos_cnpj_novo ON ecommerce_alpha_produtos(cnpjloja, primeiro_visto_em)")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS alpha_status TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS alpha_enviado_em TIMESTAMPTZ")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS alpha_erro TEXT")
@@ -325,7 +334,7 @@ def sync_products(limit=5000, mark_processed=True):
                 promo_inicio, promo_fim, preco_atual, estoque, fabricante,
                 principio_ativo, classificacao, inativo, medicamento_sngpc,
                 altura, largura, comprimento, peso, imagem_url,
-                alpha_integracao_concluida
+                alpha_integracao_concluida, primeiro_visto_em
             ) VALUES %s
             ON CONFLICT (cnpjloja, alpha_o_id) DO UPDATE SET
                 ean=EXCLUDED.ean,
@@ -349,7 +358,13 @@ def sync_products(limit=5000, mark_processed=True):
                 alpha_integracao_concluida=EXCLUDED.alpha_integracao_concluida,
                 synced_at=NOW()
             """,
+            # primeiro_visto_em de proposito NAO entra no DO UPDATE SET: so e
+            # gravado pela metade "INSERT" do upsert (produto novo de verdade),
+            # pra linha existente o valor original (ou NULL, pra quem
+            # sincronizou antes dessa coluna existir) fica intocado pra sempre.
+            # NOW() vem direto no template, nao no tuple de cada linha.
             values,
+            template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
         )
         lconn.commit()
         lcur.close()

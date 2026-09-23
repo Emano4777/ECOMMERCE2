@@ -259,7 +259,67 @@
 .kit-add-btn:disabled { opacity:.4; cursor:not-allowed; }
 .kit-drawer-loading { padding:32px; text-align:center; color:var(--pq-muted); font-size:.9rem; }
 .home-empty { background:#fff; border:1px solid var(--pq-border); border-radius:14px; padding:22px; color:var(--pq-muted); text-align:center; }
-/* â”€â”€ DEPARTAMENTOS (strip acima do hero) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── STORIES (faixa de círculos entre o banner e as categorias) ───────── */
+.stories-strip-wrap { margin-bottom:16px; }
+.stories-strip { display:flex; gap:14px; overflow-x:auto; scrollbar-width:none; padding:2px 2px 4px; }
+.stories-strip::-webkit-scrollbar { display:none; }
+.story-circle { flex:0 0 auto; width:68px; display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:0; cursor:pointer; font-family:inherit; padding:0; }
+.story-circle-ring { width:64px; height:64px; border-radius:50%; padding:2.5px; background:linear-gradient(135deg,#f59e0b,#d6112e 60%,#a21caf); display:flex; align-items:center; justify-content:center; transition:transform .15s ease; }
+.story-circle:active .story-circle-ring { transform:scale(.93); }
+.story-circle.vista .story-circle-ring { background:#d8dce2; }
+.story-circle-ring-inner { width:100%; height:100%; border-radius:50%; background:#fff; padding:2.5px; }
+.story-circle-img { width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; background:#f2f2f2; }
+.story-circle-img-ph { width:100%; height:100%; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#f2f2f2; color:#fff; font-size:1.1rem; }
+.story-circle-label { font-size:.68rem; font-weight:700; color:#333; text-align:center; line-height:1.2; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.stories-viewer { display:none; position:fixed; inset:0; z-index:3000; background:rgba(10,8,10,.88); align-items:center; justify-content:center; padding:16px; }
+.stories-viewer.aberto { display:flex; }
+.stories-viewer-card { position:relative; width:100%; max-width:420px; height:min(720px,88vh); background:#151515; border-radius:18px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+.stories-viewer-bar { display:flex; gap:5px; padding:10px 12px 0; position:relative; z-index:3; }
+.stories-viewer-bar-seg { flex:1; height:3px; border-radius:3px; background:rgba(255,255,255,.3); overflow:hidden; }
+.stories-viewer-bar-seg.done::before, .stories-viewer-bar-seg.atual::before { content:''; display:block; height:100%; background:#fff; border-radius:3px; }
+.stories-viewer-bar-seg.done::before { width:100%; }
+.stories-viewer-bar-seg.atual::before { width:100%; }
+.stories-viewer-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; position:relative; z-index:3; }
+.stories-viewer-titulo { color:#fff; font-weight:800; font-size:.86rem; text-shadow:0 1px 4px rgba(0,0,0,.5); }
+.stories-viewer-close { width:32px; height:32px; border-radius:50%; border:0; background:rgba(255,255,255,.15); color:#fff; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.stories-viewer-body { flex:1; overflow-y:auto; position:relative; z-index:2; color:#fff; display:flex; flex-direction:column; }
+.stories-viewer-nav-zone { position:absolute; top:50px; bottom:0; width:32%; z-index:1; }
+.stories-viewer-nav-prev { left:0; }
+.stories-viewer-nav-next { right:0; }
+/* Corpos por tipo de story */
+.sv-dica { padding:18px 20px 24px; flex:1; display:flex; flex-direction:column; }
+.sv-dica-cover { width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:12px; margin-bottom:16px; background:#222; }
+.sv-dica-texto { font-size:.92rem; line-height:1.55; color:#eee; white-space:pre-wrap; flex:1; }
+.sv-dica-cta { margin-top:16px; display:inline-flex; align-items:center; justify-content:center; gap:8px; background:#fff; color:#151515; font-weight:800; border-radius:10px; padding:12px; text-decoration:none; font-size:.86rem; }
+.sv-pd { flex:1; display:flex; flex-direction:column; }
+.sv-pd-img { width:100%; aspect-ratio:1/1; object-fit:contain; background:#fff; }
+.sv-pd-info { padding:16px 20px 22px; }
+.sv-pd-nome { font-size:1.02rem; font-weight:800; color:#fff; margin-bottom:8px; line-height:1.3; }
+.sv-pd-precos { display:flex; align-items:baseline; gap:9px; margin-bottom:14px; }
+.sv-pd-preco-promo { font-size:1.5rem; font-weight:900; color:#22c55e; }
+.sv-pd-preco-de { font-size:.85rem; color:#999; text-decoration:line-through; }
+.sv-pd-badge { display:inline-block; background:#d6112e; color:#fff; font-weight:900; font-size:.74rem; padding:3px 9px; border-radius:6px; margin-bottom:10px; }
+.sv-pd-cta { display:block; text-align:center; background:#fff; color:#151515; font-weight:800; border-radius:10px; padding:13px; text-decoration:none; font-size:.9rem; }
+.sv-av { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:28px 26px; text-align:center; background:linear-gradient(160deg,#2a1a0a,#151515); }
+.sv-av-estrelas { color:#f59e0b; font-size:1.3rem; margin-bottom:16px; letter-spacing:3px; }
+.sv-av-texto { font-size:1.08rem; font-weight:700; line-height:1.5; color:#fff; font-style:italic; margin-bottom:16px; }
+.sv-av-autor { font-size:.82rem; color:#bbb; font-weight:700; }
+.sv-ca { flex:1; display:flex; flex-direction:column; padding:16px 0 20px; }
+.sv-ca-lead { padding:0 20px 14px; font-size:.86rem; color:#ddd; }
+.sv-ca-row { display:flex; gap:12px; overflow-x:auto; padding:0 20px 6px; scrollbar-width:none; }
+.sv-ca-row::-webkit-scrollbar { display:none; }
+.sv-ca-item { flex:0 0 128px; background:#1f1f1f; border-radius:12px; overflow:hidden; text-decoration:none; color:#fff; }
+.sv-ca-item img { width:100%; height:100px; object-fit:cover; background:#111; display:block; }
+.sv-ca-item-nome { font-size:.72rem; font-weight:700; padding:8px 8px 2px; line-height:1.3; max-height:2.6em; overflow:hidden; }
+.sv-ca-item-preco { font-size:.78rem; font-weight:900; color:#22c55e; padding:0 8px 9px; }
+@media (max-width:480px) {
+  .story-circle { width:62px; }
+  .story-circle-ring { width:58px; height:58px; }
+  .stories-viewer-card { height:100%; border-radius:0; max-width:100%; }
+  .stories-viewer { padding:0; }
+}
+/* ── DEPARTAMENTOS (strip acima do hero) ──────────────────────────────── */
 .dept-strip-wrap { position:relative; margin-bottom:20px; }
 .dept-strip-wrap::after { content:''; position:absolute; right:0; top:0; bottom:0; width:40px; background:linear-gradient(to right,transparent,#f4f6f9); pointer-events:none; border-radius:0 18px 18px 0; }
 .dept-strip { display:flex; gap:10px; overflow-x:auto; scrollbar-width:none; padding-bottom:4px; }
@@ -1079,6 +1139,24 @@
   })();
   </script>
 
+  {# ── Stories: faixa fina entre o banner e as categorias, so aparece se a
+       loja mais proxima tiver algum conteudo (nunca em regiao sem loja) ── #}
+  <div class="stories-strip-wrap" id="stories-strip-wrap" style="display:none">
+    <div class="stories-strip" id="stories-strip"></div>
+  </div>
+  <div class="stories-viewer" id="stories-viewer" onclick="if(event.target===this) storiesFechar()">
+    <div class="stories-viewer-card" id="stories-viewer-card">
+      <div class="stories-viewer-bar" id="stories-viewer-bar"></div>
+      <div class="stories-viewer-head">
+        <div class="stories-viewer-titulo" id="stories-viewer-titulo"></div>
+        <button type="button" class="stories-viewer-close" onclick="storiesFechar()" aria-label="Fechar"><i class="fa fa-xmark"></i></button>
+      </div>
+      <div class="stories-viewer-body" id="stories-viewer-body"></div>
+      <div class="stories-viewer-nav-zone stories-viewer-nav-prev" onclick="storiesNav(-1)"></div>
+      <div class="stories-viewer-nav-zone stories-viewer-nav-next" onclick="storiesNav(1)"></div>
+    </div>
+  </div>
+
   {# â”€â”€ Departamentos: strip rÃ¡pida acima do hero â”€â”€ #}
   <div class="dept-strip-wrap">
   <nav class="dept-strip" aria-label="Departamentos">
@@ -1642,7 +1720,7 @@ function renderCupons(produtos){
       <div class="coupon-store">${hEsc(c.razao || 'Cupom Poupaqui')}${c.valido_ate ? ' · até ' + hEsc(c.valido_ate) : ''}</div>
     </div>`).join('') || '<div class="home-empty">Nenhum cupom disponível para sua região no momento.</div>';
 }
-function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); atualizarAvisoSemFarmacia(); }
+function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); carregarStories(lat,lng); atualizarAvisoSemFarmacia(); }
 
 // â”€â”€ Economia com IA Poupinha â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function carregarEconomiaIa(lat, lng, produtosProximos) {
@@ -1672,7 +1750,7 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
 }
 const lat = localStorage.getItem('pq_lat');
 const lng = localStorage.getItem('pq_lng');
-if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
+if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); carregarStories(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
 
 // â”€â”€ Mais comprados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function carregarMaisComprados(){
@@ -1829,6 +1907,135 @@ function fecharPopupLoja() {
     window._popupLojaAberto = false;
   }, 230);
 }
+
+// ── Stories (faixa de círculos entre o banner e as categorias) ─────────────
+let _storiesLista = [];
+let _storiesIdx = 0;
+const _STORY_ICO = { chegou_agora:'fa-sparkles', produto_dia:'fa-fire', avaliacao:'fa-star', dica_saude:'fa-comment-medical' };
+
+function carregarStories(lat, lng) {
+  if (!lat || !lng) return;
+  const wrap = document.getElementById('stories-strip-wrap');
+  const strip = document.getElementById('stories-strip');
+  if (!wrap || !strip) return;
+  fetch(`/api/home/stories?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
+    .then(r => r.json())
+    .then(d => {
+      const lista = d.stories || [];
+      if (!lista.length) return;
+      _storiesLista = lista;
+      const hojeChave = new Date().toISOString().slice(0, 10);
+      strip.innerHTML = lista.map((s, i) => {
+        const vistoKey = `pq_story_visto_${s.id}_${hojeChave}`;
+        const visto = localStorage.getItem(vistoKey) ? 'vista' : '';
+        const img = s.imagem
+          ? `<img class="story-circle-img" src="${hEsc(s.imagem)}" alt="" loading="lazy">`
+          : `<div class="story-circle-img-ph" style="background:${s.cor || '#ccc'}"><i class="fa ${_STORY_ICO[s.tipo] || 'fa-circle'}"></i></div>`;
+        return `<button type="button" class="story-circle ${visto}" data-idx="${i}" onclick="storiesAbrir(${i})">
+          <span class="story-circle-ring"><span class="story-circle-ring-inner">${img}</span></span>
+          <span class="story-circle-label">${hEsc(s.titulo)}</span>
+        </button>`;
+      }).join('');
+      wrap.style.display = '';
+    })
+    .catch(() => {});
+}
+
+function storiesAbrir(idx) {
+  _storiesIdx = idx;
+  const viewer = document.getElementById('stories-viewer');
+  viewer.classList.add('aberto');
+  document.body.style.overflow = 'hidden';
+  storiesRender();
+}
+
+function storiesFechar() {
+  document.getElementById('stories-viewer').classList.remove('aberto');
+  document.body.style.overflow = '';
+}
+
+function storiesNav(dir) {
+  const novo = _storiesIdx + dir;
+  if (novo < 0) { storiesFechar(); return; }
+  if (novo >= _storiesLista.length) { storiesFechar(); return; }
+  _storiesIdx = novo;
+  storiesRender();
+}
+
+function _svProdutoCard(p) {
+  return `<a class="sv-ca-item" href="${hEsc(p.url)}">
+    ${p.imagem ? `<img src="${hEsc(p.imagem)}" alt="" loading="lazy">` : ''}
+    <div class="sv-ca-item-nome">${hEsc(p.nome)}</div>
+    ${p.preco > 0 ? `<div class="sv-ca-item-preco">${hBrl(p.preco)}</div>` : ''}
+  </a>`;
+}
+
+function storiesRender() {
+  const s = _storiesLista[_storiesIdx];
+  if (!s) { storiesFechar(); return; }
+
+  // marca como vista (fica cinza na faixa de circulos ate virar o dia)
+  try {
+    const hojeChave = new Date().toISOString().slice(0, 10);
+    localStorage.setItem(`pq_story_visto_${s.id}_${hojeChave}`, '1');
+    const circ = document.querySelector(`.story-circle[data-idx="${_storiesIdx}"]`);
+    if (circ) circ.classList.add('vista');
+  } catch {}
+
+  document.getElementById('stories-viewer-titulo').textContent = s.titulo || '';
+  document.getElementById('stories-viewer-bar').innerHTML = _storiesLista.map((_, i) =>
+    `<div class="stories-viewer-bar-seg ${i < _storiesIdx ? 'done' : (i === _storiesIdx ? 'atual' : '')}"></div>`
+  ).join('');
+
+  const body = document.getElementById('stories-viewer-body');
+  const card = document.getElementById('stories-viewer-card');
+  card.style.background = '#151515';
+
+  if (s.tipo === 'dica_saude') {
+    body.innerHTML = `<div class="sv-dica">
+      ${s.imagem ? `<img class="sv-dica-cover" src="${hEsc(s.imagem)}" alt="">` : ''}
+      <div class="sv-dica-texto">${hEsc(s.conteudo || '')}</div>
+      ${s.cta_url ? `<a class="sv-dica-cta" href="${hEsc(s.cta_url)}" target="_blank" rel="noopener">${hEsc(s.cta_label || 'Saiba mais')}</a>` : ''}
+    </div>`;
+  } else if (s.tipo === 'produto_dia' && s.produto) {
+    const p = s.produto;
+    body.innerHTML = `<div class="sv-pd">
+      ${p.imagem ? `<img class="sv-pd-img" src="${hEsc(p.imagem)}" alt="">` : ''}
+      <div class="sv-pd-info">
+        ${p.desconto_pct > 0 ? `<span class="sv-pd-badge">-${p.desconto_pct}% hoje</span>` : ''}
+        <div class="sv-pd-nome">${hEsc(p.nome)}</div>
+        <div class="sv-pd-precos">
+          <span class="sv-pd-preco-promo">${hBrl(p.preco_promo)}</span>
+          ${p.preco > p.preco_promo ? `<span class="sv-pd-preco-de">${hBrl(p.preco)}</span>` : ''}
+        </div>
+        <a class="sv-pd-cta" href="${hEsc(p.url)}"><i class="fa fa-cart-plus me-2"></i>Ver produto</a>
+      </div>
+    </div>`;
+  } else if (s.tipo === 'avaliacao') {
+    const estrelas = '★'.repeat(s.estrelas || 5) + '☆'.repeat(Math.max(0, 5 - (s.estrelas || 5)));
+    body.innerHTML = `<div class="sv-av">
+      <div class="sv-av-estrelas">${estrelas}</div>
+      <div class="sv-av-texto">"${hEsc(s.comentario || '')}"</div>
+      <div class="sv-av-autor">— ${hEsc(s.cliente_nome || 'Cliente Poupaqui')}</div>
+    </div>`;
+  } else if (s.tipo === 'chegou_agora') {
+    const produtos = s.produtos || [];
+    body.innerHTML = `<div class="sv-ca">
+      <div class="sv-ca-lead">Chegou nas últimas 72h — dá uma olhada antes que acabe.</div>
+      <div class="sv-ca-row">${produtos.map(_svProdutoCard).join('')}</div>
+    </div>`;
+  } else {
+    body.innerHTML = '';
+  }
+}
+
+document.addEventListener('keydown', e => {
+  const viewer = document.getElementById('stories-viewer');
+  if (!viewer || !viewer.classList.contains('aberto')) return;
+  if (e.key === 'Escape') storiesFechar();
+  else if (e.key === 'ArrowRight') storiesNav(1);
+  else if (e.key === 'ArrowLeft') storiesNav(-1);
+});
 
 _cFetch('comprar_novamente', 180e3, '/api/comprar-novamente')
   .then(d=>{

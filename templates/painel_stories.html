@@ -1,0 +1,284 @@
+{% extends "painel_base.html" %}
+{% block title %}Poupaqui - Stories{% endblock %}
+
+{% block extra_style %}
+<style>
+.stc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; margin-bottom:28px; }
+.stc-card { background:#0d1016; border:1px solid var(--pk-line); border-radius:12px; overflow:hidden; position:relative; }
+.stc-card.inativo { opacity:.5; }
+.stc-img { width:100%; height:150px; object-fit:cover; display:block; background:#111; }
+.stc-img-ph { width:100%; height:150px; display:flex; align-items:center; justify-content:center; background:#111; color:#333; font-size:2.5rem; }
+.stc-body { padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+.stc-titulo { font-size:.88rem; font-weight:700; color:var(--pk-txt); }
+.stc-status { font-size:.72rem; font-weight:700; padding:3px 9px; border-radius:6px; display:inline-flex; align-items:center; gap:5px; }
+.stc-status.on  { background:#0d2d1a; color:#22c55e; border:1px solid #22c55e55; }
+.stc-status.off { background:#1e0810; color:#f08090; border:1px solid #f0809055; }
+.stc-actions { display:flex; gap:8px; }
+.stc-btn { flex:1; padding:7px 0; border-radius:8px; border:1px solid var(--pk-line); background:#181c24; color:var(--pk-txt); font-size:.78rem; font-weight:700; cursor:pointer; text-align:center; transition:.15s; }
+.stc-btn:hover { border-color:var(--pk-yellow); color:var(--pk-yellow); }
+.stc-btn.danger:hover { border-color:#f87171; color:#f87171; }
+.stc-upload-box { border:2px dashed var(--pk-line); border-radius:12px; padding:28px 24px; text-align:center; background:#0d1016; transition:.2s; }
+.stc-upload-box:hover { border-color:var(--pk-yellow); }
+.stc-upload-box input[type=file] { display:none; }
+.stc-upload-label { display:flex; flex-direction:column; align-items:center; gap:10px; cursor:pointer; color:var(--pk-muted); }
+.stc-upload-label i { font-size:2rem; color:var(--pk-yellow); }
+.stc-preview { width:140px; height:140px; object-fit:cover; border-radius:50%; margin-top:10px; display:none; border:3px solid var(--pk-yellow); }
+.pk-input, .pk-textarea { background:#0d1016; border:1.5px solid var(--pk-line); border-radius:8px; color:var(--pk-txt); padding:9px 12px; font-size:.85rem; width:100%; outline:none; transition:.15s; font-family:inherit; }
+.pk-input:focus, .pk-textarea:focus { border-color:var(--pk-yellow); }
+.stc-limit { font-size:.72rem; color:var(--pk-muted); }
+.stc-auto-card { border:1px solid var(--pk-line); border-radius:12px; padding:16px 18px; background:#0d1016; margin-bottom:14px; }
+.stc-auto-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+.stc-auto-title { font-size:.86rem; font-weight:800; color:var(--pk-txt); display:flex; align-items:center; gap:8px; }
+.stc-switch { position:relative; width:42px; height:24px; flex-shrink:0; }
+.stc-switch input { opacity:0; width:0; height:0; }
+.stc-switch-track { position:absolute; inset:0; background:#333; border-radius:999px; cursor:pointer; transition:.2s; }
+.stc-switch-track::before { content:''; position:absolute; width:18px; height:18px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+.stc-switch input:checked + .stc-switch-track { background:#16a34a; }
+.stc-switch input:checked + .stc-switch-track::before { transform:translateX(18px); }
+.stc-auto-desc { font-size:.78rem; color:var(--pk-muted); line-height:1.5; }
+.stc-sug-box { position:relative; }
+.stc-sug-list { position:absolute; top:100%; left:0; right:0; background:#181c24; border:1px solid var(--pk-line); border-radius:8px; margin-top:4px; max-height:220px; overflow-y:auto; z-index:20; display:none; }
+.stc-sug-item { display:flex; align-items:center; gap:8px; padding:8px 10px; cursor:pointer; font-size:.8rem; color:var(--pk-txt); }
+.stc-sug-item:hover { background:#20242e; }
+.stc-sug-item img { width:26px; height:26px; object-fit:cover; border-radius:4px; background:#111; }
+.stc-pd-atual { display:flex; align-items:center; gap:10px; padding:8px 10px; background:#101418; border-radius:8px; margin-top:8px; font-size:.8rem; color:var(--pk-txt); }
+.stc-pd-atual img { width:34px; height:34px; object-fit:cover; border-radius:6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page-head">
+  <h1 class="pk-page-title"><i class="fa fa-circle-notch me-2" style="color:var(--pk-yellow)"></i>Stories da home</h1>
+  <p class="pk-page-sub">Faixa de círculos entre o banner e o menu de categoria. Cada tipo só aparece se tiver conteúdo de verdade.</p>
+</div>
+
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in msgs %}
+    <div class="alert alert-{{ 'success' if cat=='success' else 'danger' }} mb-3" style="border-radius:10px;font-size:.85rem">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<!-- Tipos automáticos -->
+<form method="post" action="{{ url_for('painel_stories_config') }}">
+  <div class="stc-auto-card">
+    <div class="stc-auto-head">
+      <div class="stc-auto-title"><i class="fa fa-sparkles" style="color:#16a34a"></i>Chegou agora</div>
+      <label class="stc-switch">
+        <input type="checkbox" name="chegou_agora_ativo" value="1" {% if config.get('chegou_agora_ativo', True) %}checked{% endif %}>
+        <span class="stc-switch-track"></span>
+      </label>
+    </div>
+    <div class="stc-auto-desc">Automático — mostra produtos que entraram no seu catálogo nos últimos 3 dias. Some sozinho se não tiver nenhum produto novo.</div>
+  </div>
+
+  <div class="stc-auto-card">
+    <div class="stc-auto-head">
+      <div class="stc-auto-title"><i class="fa fa-fire" style="color:var(--pk-yellow)"></i>Produto do dia</div>
+      <label class="stc-switch">
+        <input type="checkbox" name="produto_dia_ativo" value="1" {% if config.get('produto_dia_ativo', True) %}checked{% endif %}>
+        <span class="stc-switch-track"></span>
+      </label>
+    </div>
+    <div class="stc-auto-desc" style="margin-bottom:10px">Escolha um produto pra destacar hoje. Se deixar em branco, o sistema escolhe sozinho o item com maior desconto ativo no momento.</div>
+    <div class="stc-sug-box">
+      <input type="text" id="stc-pd-busca" class="pk-input" placeholder="Buscar produto por nome ou EAN..." autocomplete="off">
+      <div class="stc-sug-list" id="stc-pd-sug"></div>
+    </div>
+    <input type="hidden" name="produto_dia_ean" id="stc-pd-ean" value="{{ config.get('produto_dia_ean') or '' }}">
+    {% if produto_dia %}
+    <div class="stc-pd-atual">
+      {% if produto_dia.imagem_url %}<img src="{{ produto_dia.imagem_url }}" alt="">{% endif %}
+      <span>Fixado: <strong>{{ produto_dia.nome }}</strong></span>
+      <button type="button" class="stc-btn" style="flex:0 0 auto;padding:4px 10px" onclick="document.getElementById('stc-pd-ean').value='';this.closest('.stc-pd-atual').remove()">Remover</button>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="stc-auto-card">
+    <div class="stc-auto-head">
+      <div class="stc-auto-title"><i class="fa fa-star" style="color:#f59e0b"></i>Quem comprou amou</div>
+      <label class="stc-switch">
+        <input type="checkbox" name="avaliacao_ativo" value="1" {% if config.get('avaliacao_ativo', True) %}checked{% endif %}>
+        <span class="stc-switch-track"></span>
+      </label>
+    </div>
+    <div class="stc-auto-desc">Automático — destaca a avaliação mais recente com 4-5 estrelas e comentário. Some sozinho se não tiver nenhuma avaliação assim ainda.</div>
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="border-radius:8px;font-weight:700;padding:10px 28px;background:var(--pk-yellow);color:#111;border:none;margin-bottom:28px">
+    <i class="fa fa-check me-2"></i>Salvar configuração
+  </button>
+</form>
+
+<!-- Dica de saúde / aviso -->
+<h2 style="font-size:1rem;font-weight:800;color:var(--pk-txt);margin:8px 0 12px"><i class="fa fa-comment-medical me-2" style="color:var(--pk-yellow)"></i>Dicas de saúde e avisos (manual)</h2>
+
+{% if stories|length < 8 %}
+<div class="stc-upload-box mb-4">
+  <form method="post" action="{{ url_for('painel_stories_salvar') }}" enctype="multipart/form-data" id="stc-form">
+    <label class="stc-upload-label" for="stc-file-input">
+      <i class="fa fa-cloud-upload-alt"></i>
+      <span style="font-weight:700;color:var(--pk-txt)">Clique para enviar a capa do story</span>
+      <span class="stc-limit">JPG, PNG ou WEBP · Máx 4 MB · imagem quadrada fica melhor · até 8 stories</span>
+    </label>
+    <input type="file" id="stc-file-input" name="imagem" accept="image/jpeg,image/png,image/webp" onchange="stcPreview(this)">
+    <div style="display:flex;justify-content:center"><img id="stc-preview-img" class="stc-preview" alt="preview"></div>
+
+    <div id="stc-form-fields" style="display:none;margin-top:16px">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Título curto (aparece embaixo do círculo)</label>
+          <input type="text" name="titulo" class="pk-input" placeholder="Ex: Cuidados no inverno" maxlength="60" required>
+        </div>
+        <div>
+          <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Texto do story (tela cheia)</label>
+          <textarea name="conteudo" class="pk-textarea" rows="4" maxlength="600" placeholder="Ex: Com a queda de temperatura, hidrate a pele diariamente e redobre a atenção com quem tem asma ou bronquite..."></textarea>
+        </div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Texto do botão (opcional)</label>
+            <input type="text" name="cta_label" class="pk-input" placeholder="Ex: Ver produtos" maxlength="40">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Link do botão (opcional)</label>
+            <input type="url" name="cta_url" class="pk-input" placeholder="https://...">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="border-radius:8px;font-weight:700;padding:10px 28px;background:var(--pk-yellow);color:#111;border:none;width:fit-content">
+          <i class="fa fa-upload me-2"></i>Publicar story
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="alert mb-4" style="background:#1a1200;border:1px solid #fbbf2455;border-radius:10px;color:#fbbf24;font-size:.85rem">
+  <i class="fa fa-triangle-exclamation me-2"></i>Limite de 8 stories manuais atingido. Exclua um pra adicionar novo.
+</div>
+{% endif %}
+
+{% if stories %}
+<div class="stc-grid">
+  {% for s in stories %}
+  <div class="stc-card {% if not s.ativo %}inativo{% endif %}">
+    {% if s.imagem_url %}
+      <img class="stc-img" src="{{ s.imagem_url }}" alt="{{ s.titulo }}" loading="lazy">
+    {% else %}
+      <div class="stc-img-ph"><i class="fa fa-image"></i></div>
+    {% endif %}
+    <div class="stc-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span class="stc-titulo">{{ s.titulo }}</span>
+        <span class="stc-status {% if s.ativo %}on{% else %}off{% endif %}">
+          <i class="fa fa-circle" style="font-size:.5rem"></i>{{ 'Ativo' if s.ativo else 'Inativo' }}
+        </span>
+      </div>
+      {% if s.conteudo %}<div style="font-size:.76rem;color:var(--pk-muted);max-height:54px;overflow:hidden">{{ s.conteudo }}</div>{% endif %}
+      <div class="stc-actions">
+        <form method="post" action="{{ url_for('painel_stories_toggle', story_id=s.id) }}" style="flex:1">
+          <button type="submit" class="stc-btn" style="width:100%">
+            <i class="fa fa-{% if s.ativo %}eye-slash{% else %}eye{% endif %} me-1"></i>{{ 'Desativar' if s.ativo else 'Ativar' }}
+          </button>
+        </form>
+        <button type="button" class="stc-btn" style="flex:1" onclick="stcToggleEdit('{{ s.id }}')">
+          <i class="fa fa-pen me-1"></i>Editar
+        </button>
+        <form method="post" action="{{ url_for('painel_stories_excluir', story_id=s.id) }}"
+              style="flex:1" onsubmit="return confirm('Excluir este story?')">
+          <button type="submit" class="stc-btn danger" style="width:100%">
+            <i class="fa fa-trash me-1"></i>Excluir
+          </button>
+        </form>
+      </div>
+      <form method="post" action="{{ url_for('painel_stories_salvar') }}" enctype="multipart/form-data" id="stc-edit-{{ s.id }}"
+            style="display:none;flex-direction:column;gap:8px;margin-top:6px;padding-top:10px;border-top:1px solid var(--pk-line)">
+        <input type="hidden" name="id" value="{{ s.id }}">
+        <div>
+          <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Título</label>
+          <input type="text" name="titulo" class="pk-input" maxlength="60" value="{{ s.titulo }}" required>
+        </div>
+        <div>
+          <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Texto</label>
+          <textarea name="conteudo" class="pk-textarea" rows="3" maxlength="600">{{ s.conteudo or '' }}</textarea>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input type="text" name="cta_label" class="pk-input" placeholder="Texto do botão" maxlength="40" value="{{ s.cta_label or '' }}">
+          <input type="url" name="cta_url" class="pk-input" placeholder="Link do botão" value="{{ s.cta_url or '' }}">
+        </div>
+        <div>
+          <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Trocar imagem de capa (opcional)</label>
+          <input type="file" name="imagem" accept="image/jpeg,image/png,image/webp" class="pk-input" style="padding:6px">
+        </div>
+        <button type="submit" class="stc-btn" style="background:var(--pk-yellow);color:#111;border:none">
+          <i class="fa fa-check me-1"></i>Salvar alterações
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:40px 24px;color:var(--pk-muted)">
+  <i class="fa fa-comment-medical" style="font-size:2.5rem;margin-bottom:12px;display:block;opacity:.3"></i>
+  <div style="font-size:.9rem">Nenhum story manual cadastrado ainda.</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function stcPreview(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const preview = document.getElementById('stc-preview-img');
+  const fields  = document.getElementById('stc-form-fields');
+  const reader  = new FileReader();
+  reader.onload = e => {
+    preview.src = e.target.result;
+    preview.style.display = 'block';
+    fields.style.display  = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+function stcToggleEdit(id) {
+  const form = document.getElementById('stc-edit-' + id);
+  form.style.display = (form.style.display === 'flex') ? 'none' : 'flex';
+}
+
+// Autocomplete do "produto do dia"
+(function () {
+  const inp = document.getElementById('stc-pd-busca');
+  const list = document.getElementById('stc-pd-sug');
+  const hidden = document.getElementById('stc-pd-ean');
+  if (!inp) return;
+  let t = null;
+  inp.addEventListener('input', () => {
+    clearTimeout(t);
+    const q = inp.value.trim();
+    if (q.length < 2) { list.style.display = 'none'; return; }
+    t = setTimeout(() => {
+      fetch(`/api/painel/stories/buscar-produto?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(rows => {
+          if (!rows.length) { list.style.display = 'none'; return; }
+          list.innerHTML = rows.map(p => `
+            <div class="stc-sug-item" data-ean="${p.ean}" data-nome="${(p.nome||'').replace(/"/g,'&quot;')}">
+              ${p.imagem ? `<img src="${p.imagem}" alt="">` : ''}<span>${p.nome}</span>
+            </div>`).join('');
+          list.style.display = 'block';
+          list.querySelectorAll('.stc-sug-item').forEach(el => {
+            el.onclick = () => {
+              hidden.value = el.dataset.ean;
+              inp.value = el.dataset.nome;
+              list.style.display = 'none';
+            };
+          });
+        }).catch(() => { list.style.display = 'none'; });
+    }, 250);
+  });
+  document.addEventListener('click', e => {
+    if (!list.contains(e.target) && e.target !== inp) list.style.display = 'none';
+  });
+})();
+</script>
+{% endblock %}

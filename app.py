@@ -2685,6 +2685,57 @@ def _ensure_popup_schema():
         _mark_migration_done(key)
 
 
+def _ensure_stories_schema():
+    """Stories da home (faixa de circulos entre o banner e o menu de
+    categoria). Duas tabelas:
+    - ecommerce_stories: conteudo editorial que a loja cadastra na mao
+      (hoje so tipo='dica_saude', mas o campo fica aberto pra outros tipos
+      manuais no futuro sem migration nova).
+    - ecommerce_stories_config: 1 linha por loja com liga/desliga dos tipos
+      automaticos (chegou_agora / produto_dia / avaliacao) e o EAN fixado
+      manualmente pra "produto do dia" (se a loja nao fixar nenhum, o
+      backend escolhe sozinho o de maior desconto ativo)."""
+    key = "stories_v1"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_stories (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                cnpjloja TEXT NOT NULL,
+                tipo TEXT NOT NULL DEFAULT 'dica_saude',
+                titulo TEXT NOT NULL,
+                imagem_url TEXT NOT NULL,
+                conteudo TEXT,
+                cta_label TEXT,
+                cta_url TEXT,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                ordem INTEGER NOT NULL DEFAULT 0,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_stories_loja_ativo ON ecommerce_stories(cnpjloja, ativo, ordem)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_stories_config (
+                cnpjloja TEXT PRIMARY KEY,
+                chegou_agora_ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                produto_dia_ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                produto_dia_ean TEXT,
+                avaliacao_ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_consumidor_enderecos_schema():
     key = "consumidor_enderecos_v1"
     _load_db_migrations()
@@ -9382,6 +9433,173 @@ def painel_popups_excluir():
     return redirect(url_for("painel_popups"))
 
 
+# ── Stories da home (faixa de circulos) ─────────────────────────────────────
+
+@app.get("/painel/stories")
+@painel_required
+def painel_stories():
+    _ensure_stories_schema()
+    cnpjloja = session["cnpjloja"]
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM ecommerce_stories WHERE cnpjloja=%s AND tipo='dica_saude' ORDER BY ordem, criado_em DESC",
+        (cnpjloja,),
+    )
+    stories = cur.fetchall()
+    cur.execute("SELECT * FROM ecommerce_stories_config WHERE cnpjloja=%s", (cnpjloja,))
+    config = cur.fetchone() or {}
+    produto_dia = None
+    ean_fixado = (config.get("produto_dia_ean") or "").strip()
+    if ean_fixado:
+        cur.execute(
+            "SELECT ean, nome, imagem_url FROM ecommerce_alpha_produtos WHERE cnpjloja=%s AND ean=%s LIMIT 1",
+            (cnpjloja, ean_fixado),
+        )
+        produto_dia = cur.fetchone()
+    cur.close()
+    return render_template("painel_stories.html", stories=stories, config=config, produto_dia=produto_dia)
+
+
+@app.post("/painel/stories/salvar")
+@painel_required
+def painel_stories_salvar():
+    _ensure_stories_schema()
+    cnpjloja = session["cnpjloja"]
+    story_id = (request.form.get("id") or "").strip()
+    titulo   = (request.form.get("titulo") or "").strip()[:60]
+    conteudo = (request.form.get("conteudo") or "").strip()[:600]
+    cta_label = (request.form.get("cta_label") or "").strip()[:40]
+    cta_url   = (request.form.get("cta_url") or "").strip()[:300]
+    if not titulo:
+        flash("Dê um título curto pro story (aparece embaixo do círculo).", "danger")
+        return redirect(url_for("painel_stories"))
+
+    conn = db(); cur = conn.cursor()
+    imagem_url = None
+    f = request.files.get("imagem")
+    if f and f.filename:
+        ext = (f.filename.rsplit(".", 1)[-1] or "jpg").lower()
+        if ext not in ("jpg", "jpeg", "png", "webp"):
+            flash("Formato inválido. Use JPG, PNG ou WEBP.", "danger")
+            cur.close()
+            return redirect(url_for("painel_stories"))
+        raw = f.read(4 * 1024 * 1024)
+        ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+        path = f"stories/{cnpjloja}/{secrets.token_hex(8)}.{ext}"
+        imagem_url = upload_to_supabase_storage(raw, path, ct_map.get(ext, "image/jpeg"))
+        if not imagem_url:
+            flash("Erro ao enviar imagem. Tente novamente.", "danger")
+            cur.close()
+            return redirect(url_for("painel_stories"))
+
+    if story_id:
+        if imagem_url:
+            cur.execute(
+                """UPDATE ecommerce_stories SET titulo=%s, conteudo=%s, cta_label=%s, cta_url=%s,
+                   imagem_url=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s""",
+                (titulo, conteudo or None, cta_label or None, cta_url or None, imagem_url, story_id, cnpjloja),
+            )
+        else:
+            cur.execute(
+                """UPDATE ecommerce_stories SET titulo=%s, conteudo=%s, cta_label=%s, cta_url=%s,
+                   atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s""",
+                (titulo, conteudo or None, cta_label or None, cta_url or None, story_id, cnpjloja),
+            )
+        flash("Story atualizado.", "success")
+    else:
+        if not imagem_url:
+            flash("Envie uma imagem de capa pro story novo.", "danger")
+            cur.close()
+            return redirect(url_for("painel_stories"))
+        cur.execute(
+            """INSERT INTO ecommerce_stories (cnpjloja, tipo, titulo, imagem_url, conteudo, cta_label, cta_url)
+               VALUES (%s, 'dica_saude', %s, %s, %s, %s, %s)""",
+            (cnpjloja, titulo, imagem_url, conteudo or None, cta_label or None, cta_url or None),
+        )
+        flash("Story publicado.", "success")
+    conn.commit()
+    cur.close()
+    return redirect(url_for("painel_stories"))
+
+
+@app.post("/painel/stories/<story_id>/toggle")
+@painel_required
+def painel_stories_toggle(story_id):
+    _ensure_stories_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_stories SET ativo = NOT ativo WHERE id=%s AND cnpjloja=%s",
+        (story_id, session["cnpjloja"]),
+    )
+    conn.commit()
+    cur.close()
+    return redirect(url_for("painel_stories"))
+
+
+@app.post("/painel/stories/<story_id>/excluir")
+@painel_required
+def painel_stories_excluir(story_id):
+    _ensure_stories_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("DELETE FROM ecommerce_stories WHERE id=%s AND cnpjloja=%s", (story_id, session["cnpjloja"]))
+    conn.commit()
+    cur.close()
+    flash("Story excluído.", "success")
+    return redirect(url_for("painel_stories"))
+
+
+@app.post("/painel/stories/config")
+@painel_required
+def painel_stories_config():
+    _ensure_stories_schema()
+    cnpjloja = session["cnpjloja"]
+    chegou_agora_ativo = request.form.get("chegou_agora_ativo") == "1"
+    produto_dia_ativo  = request.form.get("produto_dia_ativo") == "1"
+    avaliacao_ativo    = request.form.get("avaliacao_ativo") == "1"
+    produto_dia_ean = (request.form.get("produto_dia_ean") or "").strip()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ecommerce_stories_config (cnpjloja, chegou_agora_ativo, produto_dia_ativo, produto_dia_ean, avaliacao_ativo)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (cnpjloja) DO UPDATE SET
+            chegou_agora_ativo=EXCLUDED.chegou_agora_ativo,
+            produto_dia_ativo=EXCLUDED.produto_dia_ativo,
+            produto_dia_ean=EXCLUDED.produto_dia_ean,
+            avaliacao_ativo=EXCLUDED.avaliacao_ativo,
+            atualizado_em=NOW()
+        """,
+        (cnpjloja, chegou_agora_ativo, produto_dia_ativo, produto_dia_ean or None, avaliacao_ativo),
+    )
+    conn.commit()
+    cur.close()
+    flash("Configuração dos stories salva.", "success")
+    return redirect(url_for("painel_stories"))
+
+
+@app.get("/api/painel/stories/buscar-produto")
+@painel_required
+def api_painel_stories_buscar_produto():
+    """Autocomplete pra loja fixar manualmente o 'produto do dia' -- so
+    cobre a integracao Alpha por enquanto (unica em producao hoje)."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    cnpjloja = session["cnpjloja"]
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT ean, nome, imagem_url FROM ecommerce_alpha_produtos
+        WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
+          AND (nome ILIKE %s OR ean ILIKE %s)
+        ORDER BY nome LIMIT 15
+        """,
+        (cnpjloja, f"%{q}%", f"%{q}%"),
+    )
+    rows = cur.fetchall(); cur.close()
+    return jsonify([{"ean": r["ean"], "nome": r["nome"], "imagem": r.get("imagem_url") or ""} for r in rows])
+
+
 @app.get("/")
 def index():
     return render_template("home.html")
@@ -12374,6 +12592,189 @@ def api_home_meu_cupom():
         "valor_label": valor_label,
         "valido_ate": row["valido_ate"].strftime("%d/%m") if row["valido_ate"] else None,
     })
+
+
+_STORY_TIPO_COR = {
+    "chegou_agora": "#16a34a",
+    "produto_dia":  "#d6112e",
+    "avaliacao":    "#f59e0b",
+    "dica_saude":   "#2563eb",
+}
+
+
+@app.get("/api/home/stories")
+@_rate_limited_api(max_calls=30, window_secs=60)
+def api_home_stories():
+    """Faixa de stories da home (circulos entre o banner e as categorias).
+    So aparece pra quem tem uma loja integrada perto (mesma resolucao de
+    'loja mais proxima' do /api/popup-loja) -- regiao sem loja cadastrada
+    nunca recebe story nenhum. Cada tipo some sozinho se nao tiver conteudo
+    (produto novo, promocao ativa, avaliacao com comentario, story
+    cadastrado) em vez de aparecer vazio."""
+    _ensure_stories_schema()
+    try:
+        lat = float(request.args.get("lat", 0))
+        lng = float(request.args.get("lng", 0))
+        raio = min(max(float(request.args.get("raio", 30)), 1), 200)
+    except (TypeError, ValueError):
+        return jsonify({"stories": []})
+    if not (lat and lng):
+        return jsonify({"stories": []})
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT u.cnpjloja, u.razao,
+               (6371 * acos(
+                   cos(radians(%s)) * cos(radians(g.lat)) *
+                   cos(radians(g.lng) - radians(%s)) +
+                   sin(radians(%s)) * sin(radians(g.lat))
+               )) AS distancia_km
+        FROM users u
+        JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
+        LEFT JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+        WHERE u.is_admin = FALSE AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+          AND (6371 * acos(
+                   cos(radians(%s)) * cos(radians(g.lat)) *
+                   cos(radians(g.lng) - radians(%s)) +
+                   sin(radians(%s)) * sin(radians(g.lat))
+               )) <= %s
+        ORDER BY distancia_km LIMIT 1
+        """,
+        (lat, lng, lat, lat, lng, lat, raio),
+    )
+    loja = cur.fetchone()
+    if not loja:
+        cur.close()
+        return jsonify({"stories": []})
+    cnpjloja = loja["cnpjloja"]
+
+    cache_key = ("home_stories_v1", cnpjloja)
+    cached = _home_api_cache_get(cache_key, 300)
+    if cached is not None:
+        cur.close()
+        return jsonify(cached)
+
+    cur.execute("SELECT * FROM ecommerce_stories_config WHERE cnpjloja=%s", (cnpjloja,))
+    cfg = cur.fetchone() or {}
+    stories = []
+
+    def _prod_url(ean, nome):
+        q = urllib.parse.quote
+        return f"/produto/{q(ean or '')}?cnpj={q(cnpjloja)}&nome={q(nome or '')}"
+
+    # ── Chegou agora: produtos vistos pela 1a vez nos ultimos 3 dias ──
+    if cfg.get("chegou_agora_ativo", True):
+        cur.execute(
+            """
+            SELECT ean, nome, imagem_url, preco_venda
+            FROM ecommerce_alpha_produtos
+            WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
+              AND primeiro_visto_em IS NOT NULL AND primeiro_visto_em >= NOW() - INTERVAL '3 days'
+              AND ean IS NOT NULL AND ean <> ''
+            ORDER BY primeiro_visto_em DESC LIMIT 10
+            """,
+            (cnpjloja,),
+        )
+        novos = cur.fetchall()
+        if novos:
+            stories.append({
+                "id": "chegou_agora", "tipo": "chegou_agora",
+                "titulo": "Chegou agora", "imagem": novos[0].get("imagem_url") or "",
+                "cor": _STORY_TIPO_COR["chegou_agora"],
+                "produtos": [
+                    {"ean": p["ean"], "nome": p["nome"], "imagem": p.get("imagem_url") or "",
+                     "preco": float(p.get("preco_venda") or 0), "url": _prod_url(p["ean"], p["nome"])}
+                    for p in novos
+                ],
+            })
+
+    # ── Produto do dia: fixado pela loja, ou o de maior desconto ativo ──
+    if cfg.get("produto_dia_ativo", True):
+        pd = None
+        ean_fixo = (cfg.get("produto_dia_ean") or "").strip()
+        if ean_fixo:
+            cur.execute(
+                """SELECT ean, nome, imagem_url, preco_venda, preco_promocional FROM ecommerce_alpha_produtos
+                   WHERE cnpjloja=%s AND ean=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0 LIMIT 1""",
+                (cnpjloja, ean_fixo),
+            )
+            pd = cur.fetchone()
+        if not pd:
+            cur.execute(
+                """
+                SELECT ean, nome, imagem_url, preco_venda, preco_promocional
+                FROM ecommerce_alpha_produtos
+                WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
+                  AND preco_promocional IS NOT NULL AND preco_promocional > 0
+                  AND preco_venda IS NOT NULL AND preco_promocional < preco_venda
+                  AND (promo_inicio IS NULL OR promo_inicio <= NOW())
+                  AND (promo_fim IS NULL OR promo_fim >= NOW())
+                ORDER BY (preco_venda - preco_promocional) / preco_venda DESC, ean
+                LIMIT 1
+                """,
+                (cnpjloja,),
+            )
+            pd = cur.fetchone()
+        if pd and pd.get("preco_promocional"):
+            preco = float(pd["preco_venda"] or 0)
+            promo = float(pd["preco_promocional"] or 0)
+            pct = round((1 - promo / preco) * 100) if preco > 0 else 0
+            stories.append({
+                "id": "produto_dia", "tipo": "produto_dia",
+                "titulo": "Produto do dia", "imagem": pd.get("imagem_url") or "",
+                "cor": _STORY_TIPO_COR["produto_dia"],
+                "produto": {
+                    "ean": pd["ean"], "nome": pd["nome"], "imagem": pd.get("imagem_url") or "",
+                    "preco": preco, "preco_promo": promo, "desconto_pct": pct,
+                    "url": _prod_url(pd["ean"], pd["nome"]),
+                },
+            })
+
+    # ── Avaliação em destaque: review recente com comentario e nota alta ──
+    if cfg.get("avaliacao_ativo", True):
+        cur.execute(
+            """
+            SELECT a.estrelas, a.comentario, a.criado_em, co.nome AS cliente_nome
+            FROM ecommerce_avaliacoes_loja a
+            LEFT JOIN ecommerce_consumidores co ON co.id = a.consumidor_id
+            WHERE a.cnpjloja=%s AND a.estrelas >= 4
+              AND a.comentario IS NOT NULL AND length(trim(a.comentario)) >= 8
+            ORDER BY a.criado_em DESC LIMIT 1
+            """,
+            (cnpjloja,),
+        )
+        av = cur.fetchone()
+        if av:
+            primeiro_nome = (av.get("cliente_nome") or "Cliente").strip().split(" ")[0]
+            stories.append({
+                "id": "avaliacao", "tipo": "avaliacao",
+                "titulo": "Quem comprou amou", "imagem": "",
+                "cor": _STORY_TIPO_COR["avaliacao"],
+                "estrelas": int(av["estrelas"]), "comentario": av["comentario"],
+                "cliente_nome": primeiro_nome,
+            })
+
+    # ── Dicas de saude / avisos cadastrados pela loja ──
+    cur.execute(
+        "SELECT id, titulo, imagem_url, conteudo, cta_label, cta_url FROM ecommerce_stories "
+        "WHERE cnpjloja=%s AND tipo='dica_saude' AND ativo=TRUE ORDER BY ordem, criado_em DESC LIMIT 8",
+        (cnpjloja,),
+    )
+    for d in cur.fetchall():
+        stories.append({
+            "id": str(d["id"]), "tipo": "dica_saude",
+            "titulo": d["titulo"], "imagem": d.get("imagem_url") or "",
+            "cor": _STORY_TIPO_COR["dica_saude"],
+            "conteudo": d.get("conteudo") or "",
+            "cta_label": d.get("cta_label") or "", "cta_url": d.get("cta_url") or "",
+        })
+
+    cur.close()
+    payload = {"stories": stories, "razao": _public_store_name(loja) or ""}
+    _home_api_cache_set(cache_key, payload, ttl_seconds=300)
+    return jsonify(payload)
 
 
 @app.get("/api/home/insights")
