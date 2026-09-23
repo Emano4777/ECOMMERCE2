@@ -2695,7 +2695,7 @@ def _ensure_stories_schema():
       automaticos (chegou_agora / produto_dia / avaliacao) e o EAN fixado
       manualmente pra "produto do dia" (se a loja nao fixar nenhum, o
       backend escolhe sozinho o de maior desconto ativo)."""
-    key = "stories_v1"
+    key = "stories_v2"
     if key in _schema_ready:
         return
     with _schema_lock:
@@ -2719,6 +2719,13 @@ def _ensure_stories_schema():
                 atualizado_em TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        # Agendamento: agendado_para (some da home ate essa data/hora chegar)
+        # e expira_em (some depois dela) -- junto com o campo duracao_dias no
+        # form do painel, cobre o pedido de "publicar automaticamente por X
+        # dias a partir de uma data" sem precisar de um job de verdade rodando:
+        # e so um filtro de janela de tempo na hora de montar a home.
+        cur.execute("ALTER TABLE ecommerce_stories ADD COLUMN IF NOT EXISTS agendado_para TIMESTAMPTZ")
+        cur.execute("ALTER TABLE ecommerce_stories ADD COLUMN IF NOT EXISTS expira_em TIMESTAMPTZ")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_stories_loja_ativo ON ecommerce_stories(cnpjloja, ativo, ordem)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_stories_config (
@@ -9457,7 +9464,7 @@ def painel_stories():
         )
         produto_dia = cur.fetchone()
     cur.close()
-    return render_template("painel_stories.html", stories=stories, config=config, produto_dia=produto_dia)
+    return render_template("painel_stories.html", stories=stories, config=config, produto_dia=produto_dia, now=datetime.now(timezone.utc))
 
 
 def _invalidar_cache_home_stories(cnpjloja):
@@ -9467,6 +9474,49 @@ def _invalidar_cache_home_stories(cnpjloja):
     salvar e vai conferir na hora."""
     with _home_api_cache_lock:
         _home_api_cache.pop(("home_stories_v1", cnpjloja), None)
+
+
+def _stories_parse_agendamento(form):
+    """Le os campos de agendamento do form e devolve (agendado_para,
+    expira_em) prontos pra gravar. Sem data de inicio, publica na hora
+    (agendado_para fica NULL). Sem prazo, fica no ar ate a loja
+    desativar/excluir na mao -- 'todo dia por 1 semana' vira so uma janela
+    de tempo: comeca na data escolhida e some sozinho quando o prazo acaba,
+    sem precisar de nenhum cron rodando de verdade (mesmo padrao ja usado
+    pelo expira_em de banners/popups: filtro de data na hora de montar a
+    home, nao uma acao disparada por job).
+
+    'duracao_dias' (numero relativo, form de story NOVO) e 'expira_em'
+    (data absoluta, form de EDICAO -- ja vem preenchida com o valor atual)
+    sao dois jeitos de mandar a mesma coisa; expira_em explicito tem
+    prioridade. Editar so o texto sem mexer nesse campo preserva o prazo
+    que ja estava -- se usasse duracao_dias tambem na edicao, deixar em
+    branco por engano apagaria o agendamento sem querer."""
+    def _parse_dt(raw):
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=_BRT)
+            except ValueError:
+                continue
+        return None
+
+    agendado_para = _parse_dt(form.get("agendado_para"))
+    if "expira_em" in form:
+        expira_em = _parse_dt(form.get("expira_em"))
+    else:
+        expira_em = None
+        duracao_raw = (form.get("duracao_dias") or "").strip()
+        if duracao_raw:
+            try:
+                dias = max(1, min(90, int(duracao_raw)))
+                base = agendado_para or datetime.now(timezone.utc)
+                expira_em = base + timedelta(days=dias)
+            except ValueError:
+                pass
+    return agendado_para, expira_em
 
 
 @app.post("/painel/stories/salvar")
@@ -9482,6 +9532,7 @@ def painel_stories_salvar():
     if not titulo:
         flash("Dê um título curto pro story (aparece embaixo do círculo).", "danger")
         return redirect(url_for("painel_stories"))
+    agendado_para, expira_em = _stories_parse_agendamento(request.form)
 
     conn = db(); cur = conn.cursor()
     imagem_url = None
@@ -9505,14 +9556,18 @@ def painel_stories_salvar():
         if imagem_url:
             cur.execute(
                 """UPDATE ecommerce_stories SET titulo=%s, conteudo=%s, cta_label=%s, cta_url=%s,
-                   imagem_url=%s, atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s""",
-                (titulo, conteudo or None, cta_label or None, cta_url or None, imagem_url, story_id, cnpjloja),
+                   imagem_url=%s, agendado_para=%s, expira_em=%s, atualizado_em=NOW()
+                   WHERE id=%s AND cnpjloja=%s""",
+                (titulo, conteudo or None, cta_label or None, cta_url or None, imagem_url,
+                 agendado_para, expira_em, story_id, cnpjloja),
             )
         else:
             cur.execute(
                 """UPDATE ecommerce_stories SET titulo=%s, conteudo=%s, cta_label=%s, cta_url=%s,
-                   atualizado_em=NOW() WHERE id=%s AND cnpjloja=%s""",
-                (titulo, conteudo or None, cta_label or None, cta_url or None, story_id, cnpjloja),
+                   agendado_para=%s, expira_em=%s, atualizado_em=NOW()
+                   WHERE id=%s AND cnpjloja=%s""",
+                (titulo, conteudo or None, cta_label or None, cta_url or None,
+                 agendado_para, expira_em, story_id, cnpjloja),
             )
         flash("Story atualizado.", "success")
     else:
@@ -9521,11 +9576,14 @@ def painel_stories_salvar():
             cur.close()
             return redirect(url_for("painel_stories"))
         cur.execute(
-            """INSERT INTO ecommerce_stories (cnpjloja, tipo, titulo, imagem_url, conteudo, cta_label, cta_url)
-               VALUES (%s, 'dica_saude', %s, %s, %s, %s, %s)""",
-            (cnpjloja, titulo, imagem_url, conteudo or None, cta_label or None, cta_url or None),
+            """INSERT INTO ecommerce_stories (cnpjloja, tipo, titulo, imagem_url, conteudo, cta_label, cta_url, agendado_para, expira_em)
+               VALUES (%s, 'dica_saude', %s, %s, %s, %s, %s, %s, %s)""",
+            (cnpjloja, titulo, imagem_url, conteudo or None, cta_label or None, cta_url or None, agendado_para, expira_em),
         )
-        flash("Story publicado.", "success")
+        if agendado_para and agendado_para > datetime.now(timezone.utc):
+            flash(f"Story agendado pra {agendado_para.astimezone(_BRT).strftime('%d/%m/%Y às %H:%M')}.", "success")
+        else:
+            flash("Story publicado.", "success")
     conn.commit()
     cur.close()
     _invalidar_cache_home_stories(cnpjloja)
@@ -12786,7 +12844,10 @@ def api_home_stories():
     # ── Dicas de saude / avisos cadastrados pela loja ──
     cur.execute(
         "SELECT id, titulo, imagem_url, conteudo, cta_label, cta_url FROM ecommerce_stories "
-        "WHERE cnpjloja=%s AND tipo='dica_saude' AND ativo=TRUE ORDER BY ordem, criado_em DESC LIMIT 8",
+        "WHERE cnpjloja=%s AND tipo='dica_saude' AND ativo=TRUE "
+        "  AND (agendado_para IS NULL OR agendado_para <= NOW()) "
+        "  AND (expira_em IS NULL OR expira_em > NOW()) "
+        "ORDER BY ordem, criado_em DESC LIMIT 8",
         (cnpjloja,),
     )
     for d in cur.fetchall():

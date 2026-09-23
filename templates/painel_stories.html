@@ -110,8 +110,9 @@
   </button>
 </form>
 
-<!-- Dica de saúde / aviso -->
-<h2 style="font-size:1rem;font-weight:800;color:var(--pk-txt);margin:8px 0 12px"><i class="fa fa-comment-medical me-2" style="color:var(--pk-yellow)"></i>Dicas de saúde e avisos (manual)</h2>
+<!-- Story personalizado -->
+<h2 style="font-size:1rem;font-weight:800;color:var(--pk-txt);margin:8px 0 4px"><i class="fa fa-comment-medical me-2" style="color:var(--pk-yellow)"></i>Stories personalizados</h2>
+<p style="font-size:.8rem;color:var(--pk-muted);margin:0 0 12px">Imagem própria + link clicável — serve pra dica de saúde, aviso da loja, promoção, o que quiser. Dá pra agendar pra publicar automaticamente numa data futura e ficar no ar por X dias.</p>
 
 {% if stories|length < 8 %}
 <div class="stc-upload-box mb-4">
@@ -144,6 +145,17 @@
             <input type="url" name="cta_url" class="pk-input" placeholder="https://...">
           </div>
         </div>
+        <div style="display:flex;gap:10px;padding-top:8px;border-top:1px solid var(--pk-line)">
+          <div style="flex:1">
+            <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block"><i class="fa fa-clock me-1"></i>Publicar a partir de (opcional)</label>
+            <input type="datetime-local" name="agendado_para" class="pk-input">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:.8rem;color:var(--pk-muted);margin-bottom:4px;display:block">Ficar no ar por quantos dias (opcional)</label>
+            <input type="number" name="duracao_dias" class="pk-input" min="1" max="90" placeholder="Ex: 7">
+          </div>
+        </div>
+        <div class="stc-limit">Deixe os dois em branco pra publicar agora e ficar no ar até você desativar. Com data + dias, some sozinho quando o prazo acabar.</div>
         <button type="submit" class="btn btn-primary" style="border-radius:8px;font-weight:700;padding:10px 28px;background:var(--pk-yellow);color:#111;border:none;width:fit-content">
           <i class="fa fa-upload me-2"></i>Publicar story
         </button>
@@ -167,12 +179,19 @@
       <div class="stc-img-ph"><i class="fa fa-image"></i></div>
     {% endif %}
     <div class="stc-body">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <span class="stc-titulo">{{ s.titulo }}</span>
         <span class="stc-status {% if s.ativo %}on{% else %}off{% endif %}">
           <i class="fa fa-circle" style="font-size:.5rem"></i>{{ 'Ativo' if s.ativo else 'Inativo' }}
         </span>
       </div>
+      {% if s.ativo and s.agendado_para and s.agendado_para > now %}
+      <div style="font-size:.72rem;color:#60a5fa"><i class="fa fa-clock me-1"></i>Agendado pra {{ s.agendado_para | brt }}</div>
+      {% elif s.ativo and s.expira_em and s.expira_em <= now %}
+      <div style="font-size:.72rem;color:#f08090"><i class="fa fa-calendar-xmark me-1"></i>Prazo encerrado em {{ s.expira_em | brt }} — some sozinho da home</div>
+      {% elif s.ativo and s.expira_em %}
+      <div style="font-size:.72rem;color:#22c55e"><i class="fa fa-calendar-check me-1"></i>No ar até {{ s.expira_em | brt }}</div>
+      {% endif %}
       {% if s.conteudo %}<div style="font-size:.76rem;color:var(--pk-muted);max-height:54px;overflow:hidden">{{ s.conteudo }}</div>{% endif %}
       <div class="stc-actions">
         <form method="post" action="{{ url_for('painel_stories_toggle', story_id=s.id) }}" style="flex:1">
@@ -208,6 +227,16 @@
         <div>
           <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Trocar imagem de capa (opcional)</label>
           <input type="file" name="imagem" accept="image/jpeg,image/png,image/webp" class="pk-input" style="padding:6px">
+        </div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Publicar a partir de</label>
+            <input type="datetime-local" name="agendado_para" class="pk-input" value="{{ s.agendado_para | brt('%Y-%m-%dT%H:%M') if s.agendado_para else '' }}">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:.75rem;color:var(--pk-muted);margin-bottom:4px;display:block">Sem prazo até (deixe em branco pra não ter prazo)</label>
+            <input type="datetime-local" name="expira_em" class="pk-input" value="{{ s.expira_em | brt('%Y-%m-%dT%H:%M') if s.expira_em else '' }}">
+          </div>
         </div>
         <button type="submit" class="stc-btn" style="background:var(--pk-yellow);color:#111;border:none">
           <i class="fa fa-check me-1"></i>Salvar alterações
