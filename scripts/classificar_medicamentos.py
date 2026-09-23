@@ -25,6 +25,11 @@ import sys
 import json
 import time
 import argparse
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 import psycopg2
 import psycopg2.extras
 from pathlib import Path
