@@ -768,6 +768,11 @@ def sync_prices_from_staging(cnpjloja=None):
               AND ean IS NOT NULL AND ean <> ''
               AND preco_promocional IS NOT NULL AND preco_promocional > 0
               AND preco_promocional < preco_venda
+              -- desconto acima de 70% e quase sempre preco_venda corrompido no
+              -- Alpha (ex: visto no Tadalafila, preco_venda=399 com
+              -- preco_promocional=18,99), nao promocao real -- nao propaga pra
+              -- ecommerce_promocoes (mesmo teto de app.py:_apply_alpha_realtime_promo)
+              AND (preco_venda - preco_promocional) / preco_venda <= 0.70
               AND (promo_inicio IS NULL OR promo_inicio <= NOW())
               AND (promo_fim IS NULL OR promo_fim >= NOW())
             """,

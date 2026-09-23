@@ -12726,12 +12726,15 @@ def api_home_stories():
                 WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
                   AND preco_promocional IS NOT NULL AND preco_promocional > 0
                   AND preco_venda IS NOT NULL AND preco_promocional < preco_venda
+                  -- desconto acima de 70%% e quase sempre preco_venda corrompido
+                  -- no sync do Alpha, nao oferta de verdade (ver _apply_alpha_realtime_promo)
+                  AND (preco_venda - preco_promocional) / preco_venda <= %s
                   AND (promo_inicio IS NULL OR promo_inicio <= NOW())
                   AND (promo_fim IS NULL OR promo_fim >= NOW())
                 ORDER BY (preco_venda - preco_promocional) / preco_venda DESC, ean
                 LIMIT 1
                 """,
-                (cnpjloja,),
+                (cnpjloja, _DESCONTO_PLAUSIVEL_MAX),
             )
             pd = cur.fetchone()
         # Produto fixado manualmente aparece sempre (a loja escolheu de
@@ -13389,6 +13392,9 @@ def _sales_scores_for_cnpjs(cnpjs, limit=800):
     return scores
 
 
+_DESCONTO_PLAUSIVEL_MAX = 0.70  # acima disso, trata como preco_venda corrompido, nao oferta real
+
+
 def _apply_alpha_realtime_promo(rows):
     """Aplica preco_promocional do Alpha direto da ecommerce_alpha_produtos, em
     tempo real (sem depender do sync assincrono para ecommerce_promocoes, que
@@ -13413,6 +13419,18 @@ def _apply_alpha_realtime_promo(rows):
         if inicio and inicio > now:
             continue
         if fim and fim < now:
+            continue
+        # Guarda de sanidade: o preco_venda as vezes vem corrompido do sync
+        # do Alpha (achado real: "TADALAFILA 5MG C/30 (EUR)" com
+        # preco_venda=399,83 e preco_promocional=18,99 -- um "desconto" de
+        # 95% que nunca existiu). Acima do teto, o preco_venda e que esta
+        # errado, nao o promocional (que e sempre um valor plausivel de
+        # campanha) -- mostra so ele como preco normal, sem badge de
+        # desconto nem "de" riscado mentindo um preco antigo inventado.
+        if (1 - preco_promo / preco_original) > _DESCONTO_PLAUSIVEL_MAX:
+            r["preco"] = preco_promo
+            r.pop("preco_original", None)
+            r.pop("promo", None)
             continue
         r["preco_original"] = preco_original
         r["preco"] = preco_promo
