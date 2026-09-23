@@ -5779,6 +5779,7 @@ def _claude_busca_alternativa_generico(query, principio_ativo_ref=None):
     """
     api_key = _anthropic_api_key()
     if not api_key:
+        app.logger.warning("alt_generico[%s]: ANTHROPIC_API_KEY ausente/vazia", query)
         return None
     query_norm = f"altgen:{_norm_query_cache(query)}:{_norm_text(principio_ativo_ref or '')}"
     cached = _busca_cache_get(query_norm)
@@ -5825,7 +5826,8 @@ def _claude_busca_alternativa_generico(query, principio_ativo_ref=None):
         if any(resultado.get(k) for k in ("substitutos", "termos_busca")):
             _busca_cache_set(query_norm, resultado)
         return resultado
-    except Exception:
+    except Exception as exc:
+        app.logger.warning("alt_generico[%s]: chamada a Claude falhou: %s", query, exc)
         return None
 
 
@@ -8536,12 +8538,17 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
     # _claude_busca_alternativa_generico) -- cobre o caso comum de a loja nao
     # ter o mesmo principio ativo mas ter outro da mesma classe (ex: buscou
     # um corticoide nasal especifico sem estoque, a loja tem outro).
-    if not is_medicamento or (time.monotonic() - busca_inicio) > 5.0:
+    if not is_medicamento:
+        app.logger.info("alt_generico[%s]: pulou IA -- nao parece medicamento", query)
+        return [], None, None
+    if (time.monotonic() - busca_inicio) > 5.0:
+        app.logger.info("alt_generico[%s]: pulou IA -- orcamento de tempo estourado", query)
         return [], None, None
 
     _pa_ref = next((c.get("principio_ativo_ia") for c in candidatos if (c.get("principio_ativo_ia") or "").strip()), None)
     ia_result = _claude_busca_alternativa_generico(query, principio_ativo_ref=_pa_ref)
     if not ia_result:
+        app.logger.warning("alt_generico[%s]: IA nao respondeu (sem chave, timeout ou erro de parse)", query)
         return [], None, None
     ia_terms = []
     for campo in ("substitutos", "termos_busca"):
@@ -8550,6 +8557,7 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
             if termo and len(termo) >= 4 and termo not in ia_terms:
                 ia_terms.append(termo)
     if not ia_terms:
+        app.logger.info("alt_generico[%s]: IA respondeu sem termos uteis: %r", query, ia_result)
         return [], None, None
 
     seen, produtos_ia = set(), []
@@ -8560,6 +8568,7 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
                 seen.add(key)
                 produtos_ia.append(p)
     if not produtos_ia:
+        app.logger.info("alt_generico[%s]: IA sugeriu %r mas nada disso tem estoque na loja", query, ia_terms)
         return [], None, None
     label = (ia_result.get("substitutos") or ia_terms)[0]
     return produtos_ia, label, "equivalente"
