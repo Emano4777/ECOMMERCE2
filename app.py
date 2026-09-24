@@ -21701,6 +21701,44 @@ def _sincronizar_authorized_payment(authorized_payment_id: str):
         pass
 
 
+def _sincronizar_authorized_payment_recorrencia(authorized_payment_id: str):
+    """Mesma ideia de _sincronizar_authorized_payment, mas pra recorrencia de
+    loja: o authorized_payment vive na conta MP de CADA loja, entao nao da
+    pra usar o token do admin -- tenta o token de cada loja configurada ate
+    um responder (mesmo mecanismo que _aplicar_webhook_pagamento ja usa pra
+    pagamento avulso multi-loja). Quando acha, confirma o preapproval_id,
+    sincroniza o status da assinatura e, se o pagamento desse ciclo foi
+    aprovado, cria o pedido real pra loja."""
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("SELECT cnpjloja, mp_access_token FROM ecommerce_config_loja WHERE COALESCE(mp_access_token,'')<>''")
+        configs = cur.fetchall()
+        cur.close()
+        for cfg in configs:
+            try:
+                data = _mp_request(cfg["mp_access_token"], f"/authorized_payments/{authorized_payment_id}", method="GET")
+            except Exception:
+                continue
+            preapproval_id = data.get("preapproval_id")
+            if not preapproval_id:
+                continue
+            _sincronizar_recorrencia_preapproval(str(preapproval_id))
+            pagamento = data.get("payment") or {}
+            if (pagamento.get("status") or "").lower() == "approved":
+                conn2 = db(); cur2 = conn2.cursor()
+                cur2.execute(
+                    "SELECT id FROM ecommerce_recorrencias WHERE mp_preapproval_id=%s LIMIT 1",
+                    (str(preapproval_id),),
+                )
+                row = cur2.fetchone()
+                cur2.close()
+                if row:
+                    _criar_pedido_de_recorrencia(str(row["id"]), pagamento.get("id"))
+            return
+    except Exception:
+        pass
+
+
 @app.route("/api/mercadopago/webhook", methods=["GET", "POST"])
 def mercado_pago_webhook():
     body = request.get_json(silent=True) or {}
@@ -21723,9 +21761,13 @@ def mercado_pago_webhook():
         # e essa checagem propaga isso pro nosso banco na hora.
         if os.environ.get("VERCEL"):
             _sincronizar_authorized_payment(str(payment_id))
+            _sincronizar_authorized_payment_recorrencia(str(payment_id))
         else:
             threading.Thread(
-                target=lambda: _sincronizar_authorized_payment(str(payment_id)),
+                target=lambda: (
+                    _sincronizar_authorized_payment(str(payment_id)),
+                    _sincronizar_authorized_payment_recorrencia(str(payment_id)),
+                ),
                 daemon=True,
             ).start()
         return jsonify({"ok": True})
