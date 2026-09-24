@@ -253,6 +253,55 @@
 .btn-finalizar:hover { filter:brightness(.96); }
 .btn-finalizar:disabled { opacity:.5; cursor:not-allowed; }
 
+/* ── Botão + modal de recorrência (compra automatica em cima da cesta) ── */
+.rec-trigger-btn {
+  width:100%; margin-top:2px; padding:10px 12px;
+  background:#f3e8ff; color:#6d28d9; border:1.5px dashed #d8b4fe; border-radius:10px;
+  font-weight:800; font-size:.8rem; cursor:pointer; font-family:inherit;
+  display:flex; align-items:center; justify-content:center; gap:7px;
+}
+.rec-trigger-btn:hover { background:#ede1fb; }
+.rec-overlay {
+  display:none; position:fixed; inset:0; z-index:2500;
+  background:rgba(20,10,30,.55); align-items:center; justify-content:center; padding:16px;
+}
+.rec-overlay.open { display:flex; }
+.rec-modal {
+  background:#fff; border-radius:18px; width:100%; max-width:440px; max-height:92vh;
+  overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.3);
+}
+.rec-modal-head {
+  padding:18px 20px 14px; background:linear-gradient(135deg,#6d28d9,#8b3fe0); color:#fff;
+  border-radius:18px 18px 0 0; position:relative;
+}
+.rec-modal-head h3 { margin:0 0 4px; font-size:1.1rem; font-weight:900; display:flex; align-items:center; gap:8px; }
+.rec-modal-head p { margin:0; font-size:.8rem; opacity:.9; line-height:1.4; }
+.rec-modal-close {
+  position:absolute; top:14px; right:14px; width:28px; height:28px; border-radius:50%;
+  border:0; background:rgba(255,255,255,.2); color:#fff; cursor:pointer;
+}
+.rec-modal-body { padding:16px 20px 22px; display:flex; flex-direction:column; gap:14px; }
+.rec-field label { display:block; font-size:.76rem; font-weight:800; color:var(--pq-muted); margin-bottom:5px; }
+.rec-field select, .rec-field input[type=text], .rec-field input[type=time] {
+  width:100%; padding:10px 12px; border:1.5px solid var(--pq-border); border-radius:10px;
+  font-family:inherit; font-size:.86rem; box-sizing:border-box;
+}
+.rec-itens-preview { background:#faf7ff; border:1px solid #e9d8fd; border-radius:10px; padding:10px 12px; font-size:.78rem; color:#4c1d95; max-height:110px; overflow-y:auto; }
+.rec-itens-preview div { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+.rec-total-line { display:flex; justify-content:space-between; align-items:baseline; padding-top:8px; border-top:1px dashed #e9d8fd; font-weight:900; }
+.rec-total-line b { color:#6d28d9; font-size:1.15rem; }
+.rec-doc-row { display:flex; gap:8px; }
+.rec-doc-row select { flex:0 0 90px; }
+.rec-submit-btn {
+  width:100%; padding:13px; border:0; border-radius:11px; background:#6d28d9; color:#fff;
+  font-weight:900; font-size:.9rem; cursor:pointer; font-family:inherit;
+}
+.rec-submit-btn:disabled { opacity:.5; cursor:not-allowed; }
+.rec-status-msg { font-size:.78rem; min-height:16px; text-align:center; }
+.rec-status-msg.err { color:var(--pq-red); }
+.rec-status-msg.ok { color:#16a34a; }
+@media(max-width:480px) { .rec-modal { max-width:100%; align-self:flex-end; border-radius:18px 18px 0 0; max-height:94vh; } .rec-overlay { align-items:flex-end; padding:0; } }
+
 .cart-club-side { display:flex; flex-direction:column; gap:12px; }
 .pq-cart-promo {
   display:flex; align-items:center; gap:7px; flex-wrap:wrap;
@@ -542,6 +591,45 @@
       <button id="asaas-pay-btn" type="submit" style="width:100%;margin-top:14px;border:none;border-radius:10px;background:#d10a2c;color:white;font-weight:900;padding:13px;cursor:pointer">Pagar com cartão</button>
       <div id="asaas-card-msg" style="display:none;margin-top:12px;border-radius:9px;padding:10px 12px;font-size:.82rem;font-weight:800"></div>
     </form>
+  </div>
+</div>
+
+{# ── Modal de recorrencia: compra automatica repetida em cima da cesta
+     montada de UMA loja (nao item isolado). Cartao por enquanto -- PIX
+     Automatico entra quando confirmar com o Mercado Pago se ja da pra
+     integrar. Fluxo de checkout normal nao é tocado em nada por isso. ── #}
+<div class="rec-overlay" id="rec-overlay" onclick="if(event.target===this) fecharRecorrencia()">
+  <div class="rec-modal">
+    <div class="rec-modal-head">
+      <button type="button" class="rec-modal-close" onclick="fecharRecorrencia()"><i class="fa fa-xmark"></i></button>
+      <h3><i class="fa fa-rotate"></i>Comprar sempre, sem voltar aqui</h3>
+      <p>A gente cobra automático no cartão a cada tantos dias. Se o preço de algum item mudar, a cobrança para sozinha — sem susto.</p>
+    </div>
+    <div class="rec-modal-body">
+      <div class="rec-itens-preview" id="rec-itens-preview"></div>
+      <div class="rec-field">
+        <label>A cada quantos dias?</label>
+        <select id="rec-frequencia">
+          <option value="7">7 dias</option>
+          <option value="15">15 dias</option>
+          <option value="30" selected>30 dias</option>
+          <option value="60">60 dias</option>
+        </select>
+      </div>
+      <div class="rec-field" id="rec-horario-wrap" style="display:none">
+        <label>Horário preferido pra entrega</label>
+        <input type="time" id="rec-horario">
+      </div>
+      <div class="rec-field">
+        <label>CPF/CNPJ do pagador</label>
+        <div class="rec-doc-row">
+          <select id="rec-doc-type"><option value="CPF">CPF</option><option value="CNPJ">CNPJ</option></select>
+          <input type="text" id="rec-doc-number" inputmode="numeric" placeholder="Só números">
+        </div>
+      </div>
+      <div id="rec-card-brick"></div>
+      <div class="rec-status-msg" id="rec-status"></div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -1497,6 +1585,9 @@ function renderCart() {
         <span>Total desta farmácia</span>
         <strong id="total-loja-${esc(cnpj)}" style="color:var(--pq-red)">${brl(Math.max(0, sub - descontoAplicado))}</strong>
       </div>` : ''}
+      <button type="button" class="rec-trigger-btn" onclick="abrirRecorrencia('${esc(cnpj)}')">
+        <i class="fa fa-rotate"></i>Compra sempre isso? Deixar recorrente
+      </button>
     </div>`;
   });
 
@@ -2392,5 +2483,123 @@ setInterval(() => {
     if (timerEl) timerEl.textContent = d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
   });
 }, 1000);
+
+// ── Recorrência (compra automática repetida em cima da cesta de 1 loja) ────
+let _recCnpj = null;
+let _recBrickController = null;
+
+function fecharRecorrencia() {
+  document.getElementById('rec-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+async function abrirRecorrencia(cnpj) {
+  const itens = getCart().filter(i => i.cnpjloja === cnpj);
+  if (!itens.length) return;
+  _recCnpj = cnpj;
+
+  const preview = document.getElementById('rec-itens-preview');
+  const totalRec = itens.reduce((s, i) => s + (parseFloat(i.preco) || 0) * (i.qty || 1), 0);
+  preview.innerHTML = itens.map(i => `<div><span>${(i.qty||1)}x ${esc(i.nome)}</span><b>${brl((parseFloat(i.preco)||0)*(i.qty||1))}</b></div>`).join('')
+    + `<div class="rec-total-line"><span>Total por ciclo</span><b>${brl(totalRec)}</b></div>`;
+
+  const tipoEntrega = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
+  document.getElementById('rec-horario-wrap').style.display = tipoEntrega === 'entrega' ? 'block' : 'none';
+
+  document.getElementById('rec-status').textContent = '';
+  document.getElementById('rec-status').className = 'rec-status-msg';
+  document.getElementById('rec-card-brick').innerHTML = '<div style="text-align:center;padding:20px;color:#94a3b8;font-size:.82rem">Carregando formulário de cartão...</div>';
+  document.getElementById('rec-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const r = await fetch(`/api/recorrencia/mp-config?cnpjloja=${encodeURIComponent(cnpj)}`);
+    const cfg = await r.json();
+    if (!r.ok || cfg.error) {
+      document.getElementById('rec-card-brick').innerHTML =
+        `<div style="text-align:center;padding:16px;color:var(--pq-red);font-size:.85rem">${esc(cfg.error || 'Essa loja ainda não aceita pagamento recorrente.')}</div>`;
+      return;
+    }
+    montarRecorrenciaBrick(cfg, itens, totalRec);
+  } catch {
+    document.getElementById('rec-card-brick').innerHTML =
+      '<div style="text-align:center;padding:16px;color:var(--pq-red);font-size:.85rem">Não foi possível carregar o formulário agora.</div>';
+  }
+}
+
+function montarRecorrenciaBrick(cfg, itens, totalRec) {
+  const mp = new MercadoPago(cfg.mp_public_key, { locale: 'pt-BR' });
+  const bricksBuilder = mp.bricks();
+  document.getElementById('rec-card-brick').innerHTML = '';
+  bricksBuilder.create('cardPayment', 'rec-card-brick', {
+    initialization: {
+      amount: totalRec,
+      payer: { email: cfg.email || undefined, customerId: cfg.mp_customer_id || undefined },
+    },
+    customization: { paymentMethods: { maxInstallments: 1 } },
+    callbacks: {
+      onReady: () => {},
+      onSubmit: (cardFormData) => new Promise((resolve, reject) => {
+        const statusEl = document.getElementById('rec-status');
+        const docType = document.getElementById('rec-doc-type').value;
+        const docNumber = (document.getElementById('rec-doc-number').value || '').replace(/\D/g, '');
+        const expected = docType === 'CNPJ' ? 14 : 11;
+        if (docNumber.length !== expected) {
+          statusEl.textContent = `Informe um ${docType} válido.`;
+          statusEl.className = 'rec-status-msg err';
+          reject(); return;
+        }
+        const tipoEntrega = document.querySelector(`input[name="delivery-${_recCnpj}"]:checked`)?.value || 'retirada';
+        const enderecoInfo = getDeliveryAddressChoice();
+        const payload = {
+          cnpjloja: _recCnpj,
+          itens: itens.map(i => ({ean: i.ean, nome: i.nome, qty: i.qty || 1, preco: i.preco, imagem: i.imagem || ''})),
+          frequencia_dias: parseInt(document.getElementById('rec-frequencia').value) || 30,
+          tipo_entrega: tipoEntrega,
+          horario_entrega_preferido: document.getElementById('rec-horario').value || '',
+          endereco_entrega: tipoEntrega === 'entrega' ? (enderecoInfo.label || '') : '',
+          entrega_lat: tipoEntrega === 'entrega' ? enderecoInfo.lat : null,
+          entrega_lng: tipoEntrega === 'entrega' ? enderecoInfo.lng : null,
+          token: cardFormData.token,
+          payer: { ...(cardFormData.payer || {}), identification: { type: docType, number: docNumber } },
+        };
+        statusEl.textContent = 'Confirmando...';
+        statusEl.className = 'rec-status-msg';
+        fetch('/api/recorrencia/criar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then(r => r.json())
+          .then(d => {
+            if (d.error) {
+              statusEl.textContent = d.error;
+              statusEl.className = 'rec-status-msg err';
+              reject(); return;
+            }
+            if (d.ok) {
+              statusEl.textContent = 'Recorrência criada! Você já pode acompanhar em "Minhas recorrências".';
+              statusEl.className = 'rec-status-msg ok';
+              setTimeout(() => { fecharRecorrencia(); window.location.href = '/minhas-recorrencias'; }, 1400);
+              resolve(); return;
+            }
+            statusEl.textContent = 'Status: ' + (d.status || 'pendente');
+            statusEl.className = 'rec-status-msg';
+            reject();
+          })
+          .catch(() => {
+            statusEl.textContent = 'Não foi possível confirmar agora.';
+            statusEl.className = 'rec-status-msg err';
+            reject();
+          });
+      }),
+      onError: (error) => {
+        console.error(error);
+        document.getElementById('rec-status').textContent = 'Erro ao carregar o formulário de cartão.';
+        document.getElementById('rec-status').className = 'rec-status-msg err';
+      },
+    },
+  });
+}
 </script>
 {% endblock %}

@@ -21084,6 +21084,174 @@ def _criar_recorrencia_cartao_mp(loja_access_token, recorrencia_id, valor, frequ
         return {"_erro": str(exc)}
 
 
+def _criar_pedido_de_recorrencia(recorrencia_id, mp_payment_id=None):
+    """Cobranca recorrente aprovada pelo MP vira um pedido real no painel da
+    loja, a partir do snapshot de itens travado na hora que a recorrencia foi
+    criada. Idempotente por mp_payment_id -- o MP reenvia webhook as vezes."""
+    try:
+        _ensure_recorrencias_schema()
+        conn = db(); cur = conn.cursor()
+        if mp_payment_id:
+            cur.execute("SELECT id FROM ecommerce_pedidos WHERE mp_payment_id=%s LIMIT 1", (str(mp_payment_id),))
+            if cur.fetchone():
+                cur.close()
+                return None
+        cur.execute("SELECT * FROM ecommerce_recorrencias WHERE id=%s LIMIT 1", (recorrencia_id,))
+        r = cur.fetchone()
+        if not r or r["status"] not in ("ativo", "pendente"):
+            cur.close()
+            return None
+        itens = r["itens"] if isinstance(r["itens"], list) else json.loads(r["itens"] or "[]")
+        if not itens:
+            cur.close()
+            return None
+        cur.execute(
+            "SELECT nome, telefone, documento, email FROM ecommerce_consumidores WHERE id=%s LIMIT 1",
+            (r["consumidor_id"],),
+        )
+        cliente = cur.fetchone() or {}
+        endereco_final = r.get("endereco_entrega")
+        if r.get("tipo_entrega") == "entrega" and r.get("horario_entrega_preferido"):
+            endereco_final = f"{endereco_final or ''} (Horário preferido: {r['horario_entrega_preferido']})".strip()
+
+        pedido_id = str(_uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO ecommerce_pedidos (
+                id, cnpjloja, consumidor_id, cliente_nome, cliente_telefone, cliente_documento, cliente_email,
+                forma_pagamento, total, status, pagamento_status, mp_payment_id, pagamento_confirmado_em,
+                tipo_entrega, endereco_entrega, entrega_lat, entrega_lng, origem, criado_em, atualizado_em
+            ) VALUES (
+                %s,%s,%s,%s,%s,%s,%s,
+                'mercadopago',%s,'pago','approved',%s,NOW(),
+                %s,%s,%s,%s,'recorrencia',NOW(),NOW()
+            )
+            """,
+            (
+                pedido_id, r["cnpjloja"], r["consumidor_id"],
+                cliente.get("nome") or "Cliente Poupaqui", cliente.get("telefone") or "",
+                _digits(cliente.get("documento")) or None, cliente.get("email") or "",
+                round(float(r["valor_total"]), 2), str(mp_payment_id) if mp_payment_id else None,
+                r["tipo_entrega"], endereco_final, r.get("entrega_lat"), r.get("entrega_lng"),
+            ),
+        )
+        for it in itens:
+            cur.execute(
+                """INSERT INTO ecommerce_pedido_itens (pedido_id, ean, nome, qty, preco_unitario, imagem)
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                (
+                    pedido_id, it.get("ean", ""), it.get("nome", "Produto"), int(it.get("qty", 1)),
+                    float(it.get("preco", 0)), it.get("imagem") or None,
+                ),
+            )
+        cur.execute(
+            "UPDATE ecommerce_recorrencias SET status='ativo', ultimo_pedido_id=%s, atualizado_em=NOW() WHERE id=%s",
+            (pedido_id, recorrencia_id),
+        )
+        conn.commit()
+        cur.close()
+
+        _registrar_status_pedido(pedido_id, "pago")
+        try:
+            _notificar_consumidor(
+                r["consumidor_id"], "pedido", "Compra recorrente cobrada",
+                f"Sua recorrência foi cobrada e o pedido #{pedido_id[:8].upper()} já está com a farmácia.",
+                url=url_for("meu_pedido_detalhe", pedido_id=pedido_id),
+                pedido_id=pedido_id,
+            )
+        except Exception:
+            pass
+        try:
+            _total_fmt = f"R${round(float(r['valor_total']), 2):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            _wa_notif_pedido_loja(
+                pedido_id,
+                f'🔁 Cobrança recorrente confirmada!\n'
+                f'Pedido #{pedido_id[:8].upper()}\n'
+                f'Total: {_total_fmt}\n'
+                f'Ver pedido:\n'
+                f'{_wa_base_url()}/painel/pedidos/{pedido_id}',
+            )
+        except Exception:
+            pass
+        try:
+            _alpha_export_paid_order_safe(pedido_id)
+        except Exception:
+            pass
+        return pedido_id
+    except Exception:
+        return None
+
+
+def _sincronizar_recorrencia_preapproval(preapproval_id: str):
+    """Recorrencia roda na conta MP de CADA loja -- ao contrario da assinatura
+    central (admin), aqui da pra achar o token certo direto pelo banco (o
+    cnpjloja ja fica gravado na recorrencia), sem precisar tentar token por
+    token. So sincroniza o estado da autorizacao; o pedido em si nasce quando
+    o pagamento de cada ciclo chega (ver _criar_pedido_de_recorrencia)."""
+    try:
+        _ensure_recorrencias_schema()
+        conn = db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, cnpjloja, status FROM ecommerce_recorrencias WHERE mp_preapproval_id=%s LIMIT 1",
+            (str(preapproval_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            return None
+        cur.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s", (row["cnpjloja"],))
+        loja_row = cur.fetchone()
+        token = (loja_row or {}).get("mp_access_token") or ""
+        if not token:
+            cur.close()
+            return None
+        data = _mp_request(token, f"/preapproval/{preapproval_id}", method="GET")
+        status = (data.get("status") or "").lower()
+        if status in {"authorized", "active"} and row["status"] not in {"cancelado", "preco_mudou"}:
+            cur.execute("UPDATE ecommerce_recorrencias SET status='ativo', atualizado_em=NOW() WHERE id=%s", (row["id"],))
+        elif status in {"cancelled", "paused"} and row["status"] not in {"cancelado", "preco_mudou"}:
+            cur.execute(
+                """UPDATE ecommerce_recorrencias
+                   SET status='cancelado', motivo_cancelamento=COALESCE(motivo_cancelamento,'Cancelado no Mercado Pago'), cancelado_em=NOW()
+                   WHERE id=%s""",
+                (row["id"],),
+            )
+        conn.commit()
+        cur.close()
+        return status
+    except Exception:
+        return None
+
+
+@app.get("/api/recorrencia/mp-config")
+def api_recorrencia_mp_config():
+    """Chave publica + customer id da LOJA (nao do admin), pro Brick de
+    cartao do popup de recorrencia no carrinho conseguir tokenizar direto
+    pra conta certa. So carrega quando o popup abre (nao em toda visita
+    ao carrinho)."""
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login para criar uma recorrência."}), 401
+    cnpjloja = (request.args.get("cnpjloja") or "").strip()
+    if not cnpjloja:
+        return jsonify({"error": "Loja não informada."}), 400
+    _ensure_cartoes_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT mp_public_key, mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s", (cnpjloja,))
+    row = cur.fetchone()
+    if not row or not row.get("mp_public_key") or not row.get("mp_access_token"):
+        cur.close()
+        return jsonify({"error": "Essa loja ainda não aceita pagamento recorrente."}), 400
+    cliente = _consumidor_from_session() or {}
+    mp_customer_id = _obter_ou_criar_mp_customer(row["mp_access_token"], str(consumidor_id), cnpjloja, cliente)
+    cur.close()
+    return jsonify({
+        "mp_public_key": row["mp_public_key"],
+        "mp_customer_id": mp_customer_id or "",
+        "email": cliente.get("email") or "",
+    })
+
+
 @app.post("/api/recorrencia/criar")
 def api_recorrencia_criar():
     """Cria uma recorrencia de compra (cartao, ate o Pix Automatico ser
@@ -21105,7 +21273,7 @@ def api_recorrencia_criar():
     endereco_entrega = (data.get("endereco_entrega") or "").strip() if tipo_entrega == "entrega" else None
     entrega_lat = _to_float_or_none(data.get("entrega_lat")) if tipo_entrega == "entrega" else None
     entrega_lng = _to_float_or_none(data.get("entrega_lng")) if tipo_entrega == "entrega" else None
-    card_token = (data.get("card_token") or "").strip()
+    card_token = (data.get("token") or data.get("card_token") or "").strip()
     payer = data.get("payer") or {}
     identification = payer.get("identification") or {}
     doc_number = _digits(identification.get("number"))
@@ -21416,7 +21584,12 @@ def _aplicar_webhook_pagamento(payment_id):
             data = _mp_request(cfg["mp_access_token"], f"/v1/payments/{payment_id}", method="GET")
         except Exception:
             continue
-        pedido_id = data.get("external_reference")
+        ext_ref = str(data.get("external_reference") or "")
+        if ext_ref.startswith("recorrencia:"):
+            if (data.get("status") or "").lower() == "approved":
+                _criar_pedido_de_recorrencia(ext_ref.split(":", 1)[1], payment_id)
+            return None
+        pedido_id = ext_ref
         if not pedido_id:
             continue
         cur = conn.cursor()
@@ -21540,6 +21713,7 @@ def mercado_pago_webhook():
     )
     if event_type and "preapproval" in str(event_type).lower() and payment_id:
         _sincronizar_assinatura_preapproval(str(payment_id))
+        _sincronizar_recorrencia_preapproval(str(payment_id))
         return jsonify({"ok": True})
     if event_type and "authorized_payment" in str(event_type).lower() and payment_id:
         # Cada cobranca recorrente (aprovada ou recusada) do MP gera esse evento —
