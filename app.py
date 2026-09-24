@@ -22026,6 +22026,7 @@ def pedido_confirmacao():
                        p.pix_qr_code, p.pix_qr_base64,
                        p.pagamento_status, p.pagamento_status_detail, p.pagamento_confirmado_em,
                        p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
+                       p.entrega_lat, p.entrega_lng,
                        p.previsao_entrega_em, p.data_entrega_agendada,
                        p.receita_status,
                        u.razao, u.telefone,
@@ -22057,6 +22058,7 @@ def pedido_confirmacao():
                                p.pix_qr_code, p.pix_qr_base64,
                                p.pagamento_status, p.pagamento_status_detail, p.pagamento_confirmado_em,
                                p.tipo_entrega, p.codigo_entrega, p.codigo_retirada, p.endereco_entrega,
+                               p.entrega_lat, p.entrega_lng,
                                p.previsao_entrega_em, p.data_entrega_agendada,
                                p.receita_status,
                                u.razao, u.telefone,
@@ -22075,6 +22077,15 @@ def pedido_confirmacao():
                 )
                 itens = [dict(i) for i in cur.fetchall()]
                 pedido_dict = dict(p)
+                # Recorrencia so pode ser oferecida se a loja tiver token/chave
+                # MP configurados (mesmo requisito de /api/recorrencia/mp-config)
+                # e o pedido ja estiver pago -- nao faz sentido oferecer em
+                # cima de um pedido que ainda nem foi confirmado.
+                pedido_dict["recorrencia_elegivel"] = bool(
+                    pedido_dict.get("mp_access_token")
+                    and pedido_dict.get("mp_public_key")
+                    and pedido_dict.get("status") == "pago"
+                )
                 pedido_dict.pop("mp_access_token", None)
                 pedidos.append({"pedido": pedido_dict, "itens": itens})
         except Exception:

@@ -78,6 +78,30 @@
 .csc-cta:hover { opacity:.88; color:#fff; }
 .csc-skip { background:none; border:none; color:#94a3b8; font-size:.78rem; cursor:pointer; text-decoration:underline; padding:2px; }
 @media(max-width:400px) { .csc-prods { grid-template-columns:repeat(2,1fr); } }
+
+/* popup de recorrencia pos-checkout (mesmo bottom-sheet do cross-sell, cor roxa) */
+.reccheckout-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.48); z-index:9910; backdrop-filter:blur(2px); align-items:flex-end; justify-content:center; }
+.reccheckout-overlay.open { display:flex; }
+.reccheckout-pop { width:100%; max-width:540px; max-height:90vh; overflow-y:auto; background:#fff; border-radius:28px 28px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,.18); animation:cscSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards; }
+.reccheckout-handle { display:flex; justify-content:center; padding:12px 0 0; }
+.reccheckout-handle span { width:40px; height:4px; border-radius:99px; background:#e2e8f0; }
+.reccheckout-head { padding:16px 20px 10px; }
+.reccheckout-head h3 { margin:0 0 4px; font-size:1.05rem; font-weight:900; color:#4c1d95; display:flex; align-items:center; gap:8px; }
+.reccheckout-head p { margin:0; font-size:.82rem; color:#64748b; line-height:1.4; }
+.reccheckout-body { padding:6px 20px 22px; display:flex; flex-direction:column; gap:14px; }
+.reccheckout-itens { background:#faf7ff; border:1px solid #e9d8fd; border-radius:10px; padding:10px 12px; font-size:.78rem; color:#4c1d95; max-height:100px; overflow-y:auto; }
+.reccheckout-itens div { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+.reccheckout-field label { display:block; font-size:.76rem; font-weight:800; color:#64748b; margin-bottom:5px; }
+.reccheckout-field input[type=number] { width:100%; padding:10px 12px; border:1.5px solid var(--pq-border); border-radius:10px; font-family:inherit; font-size:.86rem; box-sizing:border-box; }
+.reccheckout-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.reccheckout-chip { border:1.5px solid var(--pq-border); background:#fff; color:var(--pq-text); border-radius:999px; padding:5px 12px; font-size:.74rem; font-weight:800; cursor:pointer; font-family:inherit; }
+.reccheckout-chip.active, .reccheckout-chip:hover { border-color:#6d28d9; color:#6d28d9; background:#faf7ff; }
+.reccheckout-modo { display:flex; align-items:center; gap:8px; background:#faf7ff; border:1px solid #e9d8fd; border-radius:10px; padding:9px 12px; font-size:.8rem; font-weight:800; color:#4c1d95; }
+.reccheckout-status { font-size:.78rem; min-height:16px; text-align:center; }
+.reccheckout-status.err { color:var(--pq-red); }
+.reccheckout-status.ok { color:#16a34a; }
+.reccheckout-submit { width:100%; padding:13px; border:0; border-radius:11px; background:#6d28d9; color:#fff; font-weight:900; font-size:.9rem; cursor:pointer; font-family:inherit; }
+.reccheckout-submit:disabled { opacity:.5; cursor:not-allowed; }
 </style>
 {% endblock %}
 
@@ -456,6 +480,8 @@ if (pedidosPagamento.length) {
       var msgEl = document.getElementById('csc-msg');
       if (msgEl) msgEl.textContent = mensagem;
       setTimeout(function(){
+        var reccOverlay = document.getElementById('reccheckout-overlay');
+        if (reccOverlay && reccOverlay.classList.contains('open')) return; // nao empilha em cima do popup de recorrencia
         var el = document.getElementById('csc-overlay');
         if (el) el.style.display = 'flex';
       }, 3000);
@@ -469,6 +495,124 @@ function fecharCscPop() {
   setTimeout(function(){ el.style.display = 'none'; }, 290);
 }
 </script>
+
+{% if recc_entry %}
+<script src="https://sdk.mercadopago.com/js/v2"></script>
+<script>
+(function(){
+  var reccP = {{ recc_entry.pedido | tojson }};
+  var reccItens = {{ recc_entry.itens | tojson }};
+  var reccTotal = reccItens.reduce(function(s, i){ return s + (parseFloat(i.preco_unitario)||0) * (i.qty||1); }, 0);
+
+  document.getElementById('reccheckout-itens').innerHTML = reccItens.map(function(i){
+    return '<div><span>' + (i.qty||1) + 'x ' + i.nome + '</span><b>R$ ' + ((parseFloat(i.preco_unitario)||0)*(i.qty||1)).toFixed(2).replace('.', ',') + '</b></div>';
+  }).join('');
+
+  var tipoEntrega = reccP.tipo_entrega === 'entrega' ? 'entrega' : 'retirada';
+  document.getElementById('reccheckout-horario-wrap').style.display = tipoEntrega === 'entrega' ? 'block' : 'none';
+  document.getElementById('reccheckout-modo').innerHTML = tipoEntrega === 'entrega'
+    ? '<i class="fa fa-truck"></i><span>Entrega no mesmo endereço deste pedido · frete normal em cada ciclo</span>'
+    : '<i class="fa fa-store"></i><span>Retirada na loja · sem frete</span>';
+
+  document.getElementById('reccheckout-chips').addEventListener('click', function(e){
+    var chip = e.target.closest('.reccheckout-chip');
+    if (!chip) return;
+    document.getElementById('reccheckout-frequencia').value = chip.dataset.dias;
+    document.querySelectorAll('.reccheckout-chip').forEach(function(c){ c.classList.toggle('active', c === chip); });
+  });
+  document.getElementById('reccheckout-frequencia').addEventListener('input', function(e){
+    document.querySelectorAll('.reccheckout-chip').forEach(function(c){ c.classList.toggle('active', c.dataset.dias === e.target.value); });
+  });
+
+  window.fecharReccheckout = function() {
+    var el = document.getElementById('reccheckout-overlay');
+    if (el) el.classList.remove('open');
+  };
+
+  fetch('/api/recorrencia/mp-config?cnpjloja=' + encodeURIComponent(reccP.cnpjloja))
+    .then(function(r){ return r.json(); })
+    .then(function(cfg){
+      if (cfg.error) return;
+      var mp = new MercadoPago(cfg.mp_public_key, { locale: 'pt-BR' });
+      var bricksBuilder = mp.bricks();
+      bricksBuilder.create('cardPayment', 'reccheckout-card-brick', {
+        initialization: {
+          amount: reccTotal,
+          payer: { email: cfg.email || undefined, customerId: cfg.mp_customer_id || undefined },
+        },
+        customization: { paymentMethods: { maxInstallments: 1 } },
+        callbacks: {
+          onReady: function(){},
+          onSubmit: function(cardFormData) {
+            return new Promise(function(resolve, reject){
+              var statusEl = document.getElementById('reccheckout-status');
+              var ident = (cardFormData.payer && cardFormData.payer.identification) || {};
+              var docNumber = (ident.number || '').replace(/\D/g, '');
+              var docType = (ident.type || 'CPF').toUpperCase();
+              var expected = docType === 'CNPJ' ? 14 : 11;
+              if (docNumber.length !== expected) {
+                statusEl.textContent = 'Não foi possível confirmar o CPF/CNPJ informado no cartão.';
+                statusEl.className = 'reccheckout-status err';
+                reject(); return;
+              }
+              var payload = {
+                cnpjloja: reccP.cnpjloja,
+                itens: reccItens.map(function(i){ return {ean: i.ean, nome: i.nome, qty: i.qty||1, preco: i.preco_unitario, imagem: i.imagem||''}; }),
+                frequencia_dias: Math.min(90, Math.max(1, parseInt(document.getElementById('reccheckout-frequencia').value) || 30)),
+                tipo_entrega: tipoEntrega,
+                horario_entrega_preferido: document.getElementById('reccheckout-horario').value || '',
+                endereco_entrega: tipoEntrega === 'entrega' ? (reccP.endereco_entrega || '') : '',
+                entrega_lat: tipoEntrega === 'entrega' ? reccP.entrega_lat : null,
+                entrega_lng: tipoEntrega === 'entrega' ? reccP.entrega_lng : null,
+                token: cardFormData.token,
+                payer: Object.assign({}, cardFormData.payer || {}, { identification: { type: docType, number: docNumber } }),
+              };
+              statusEl.textContent = 'Confirmando...';
+              statusEl.className = 'reccheckout-status';
+              fetch('/api/recorrencia/criar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              })
+                .then(function(r){ return r.json(); })
+                .then(function(d){
+                  if (d.error) {
+                    statusEl.textContent = d.error;
+                    statusEl.className = 'reccheckout-status err';
+                    reject(); return;
+                  }
+                  if (d.ok) {
+                    statusEl.textContent = 'Recorrência criada! Você pode acompanhar em "Minhas recorrências".';
+                    statusEl.className = 'reccheckout-status ok';
+                    setTimeout(fecharReccheckout, 1600);
+                    resolve(); return;
+                  }
+                  statusEl.textContent = 'Status: ' + (d.status || 'pendente');
+                  statusEl.className = 'reccheckout-status';
+                  reject();
+                })
+                .catch(function(){
+                  statusEl.textContent = 'Não foi possível confirmar agora.';
+                  statusEl.className = 'reccheckout-status err';
+                  reject();
+                });
+            });
+          },
+          onError: function(error) {
+            console.error(error);
+            document.getElementById('reccheckout-status').textContent = 'Erro ao carregar o formulário de cartão.';
+            document.getElementById('reccheckout-status').className = 'reccheckout-status err';
+          },
+        },
+      });
+      setTimeout(function(){
+        document.getElementById('reccheckout-overlay').classList.add('open');
+      }, 1200);
+    })
+    .catch(function(){});
+})();
+</script>
+{% endif %}
 
 {# ── Popup cross-sell pós-checkout ── #}
 <div id="csc-overlay" class="csc-overlay" style="display:none"
@@ -496,5 +640,44 @@ function fecharCscPop() {
     </div>
   </div>
 </div>
+
+{% set recc_entry = pedidos|selectattr('pedido.recorrencia_elegivel')|first %}
+{% if recc_entry %}
+{# ── Popup de recorrencia logo apos confirmar o pedido -- usa os itens e o
+     tipo de entrega desse mesmo pedido, sem perguntar de novo. Dizer "nao"
+     ou concluir o "sim" so fecha o popup; a tela de confirmacao por baixo
+     continua exatamente igual, nada muda no fluxo normal. ── #}
+<div class="reccheckout-overlay" id="reccheckout-overlay" onclick="if(event.target===this) fecharReccheckout()">
+  <div class="reccheckout-pop">
+    <div class="reccheckout-handle"><span></span></div>
+    <div class="reccheckout-head">
+      <h3><i class="fa fa-rotate"></i>Compra sempre isso?</h3>
+      <p>Deixa esse pedido recorrente e a gente cobra automático no cartão a cada tantos dias, sem você precisar voltar aqui. Se o preço mudar, a cobrança para sozinha.</p>
+    </div>
+    <div class="reccheckout-body">
+      <div class="reccheckout-modo" id="reccheckout-modo"></div>
+      <div class="reccheckout-itens" id="reccheckout-itens"></div>
+      <div class="reccheckout-field">
+        <label>A cada quantos dias?</label>
+        <input type="number" id="reccheckout-frequencia" min="1" max="90" step="1" value="30" inputmode="numeric">
+        <div class="reccheckout-chips" id="reccheckout-chips">
+          <button type="button" class="reccheckout-chip" data-dias="7">7 dias</button>
+          <button type="button" class="reccheckout-chip" data-dias="15">15 dias</button>
+          <button type="button" class="reccheckout-chip active" data-dias="30">30 dias</button>
+          <button type="button" class="reccheckout-chip" data-dias="60">60 dias</button>
+          <button type="button" class="reccheckout-chip" data-dias="90">90 dias</button>
+        </div>
+      </div>
+      <div class="reccheckout-field" id="reccheckout-horario-wrap" style="display:none">
+        <label>Horário preferido pra entrega</label>
+        <input type="time" id="reccheckout-horario">
+      </div>
+      <div id="reccheckout-card-brick"></div>
+      <div class="reccheckout-status" id="reccheckout-status"></div>
+      <button type="button" class="csc-skip" onclick="fecharReccheckout()">Agora não</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}
