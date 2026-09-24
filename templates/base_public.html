@@ -510,13 +510,20 @@
       color: var(--pq-muted);
     }
     .pq-drawer-item {
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
       padding: 13px 18px;
       color: var(--pq-text); text-decoration: none;
       font-weight: 800; font-size: .9rem;
       transition: background .12s, transform .12s;
     }
     .pq-drawer-item:hover { background: #fff7d6; transform:translateX(2px); }
+    /* pq-drawer-badge (contador, ex: "3" em Encomendas) continua colado a
+       direita na mesma linha via margin-left:auto (nao mexe aqui). Ja o
+       chip de promo, se nao couber do lado do texto, quebra pra linha de
+       baixo recuado alinhado com o texto (nao com o icone) em vez de
+       vazar pra fora do drawer -- foi o que aconteceu com "Seja assinante
+       · R$10 por tempo limitado". */
+    .pq-drawer-item .pq-nav-promo-chip { margin-left: 46px; }
     .pq-drawer-item i {
       width: 34px;
       height:34px;
@@ -530,7 +537,7 @@
       flex-shrink:0;
     }
     .pq-drawer-item.danger { color: #b00020; }
-    .pq-drawer-item.danger i { color: #b00020; }
+    .pq-drawer-item.danger i { color: #b00020; background:#fdeaea; }
     .pq-drawer-badge {
       background: var(--pq-red); color: #fff;
       border-radius: 999px; font-size: .65rem;
@@ -548,6 +555,7 @@
       flex:0 0 auto;
       border-top:1px solid var(--pq-border);
       background:#fff;
+      padding: 6px 0;
     }
 
     /* ── RESPONSIVE ─────────────────────────────────────── */
@@ -1327,6 +1335,7 @@
     <div class="pq-pontos-bar"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta_d != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
   </a>
   <div style="padding:4px 0">
+    <div class="pq-drawer-section">Minha conta</div>
     <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
       <i class="fa fa-receipt"></i>Meus pedidos
     </a>
@@ -1338,12 +1347,12 @@
     </a>
     {% if consumidor_rec_abertas > 0 %}
     <a class="pq-drawer-item" href="{{ url_for('minhas_reclamacoes') }}" onclick="fecharDrawer()">
-      <i class="fa fa-triangle-exclamation" style="color:#d97706"></i>Reclamações
+      <i class="fa fa-triangle-exclamation" style="color:#d97706;background:#fef3e2"></i>Reclamações
       <span class="pq-drawer-badge">{{ consumidor_rec_abertas }}</span>
     </a>
     {% endif %}
     <a class="pq-drawer-item" href="{{ url_for('minhas_encomendas') }}" onclick="fecharDrawer()">
-      <i class="fa fa-box-open" style="color:#1d4ed8"></i>Encomendas
+      <i class="fa fa-box-open" style="color:#1d4ed8;background:#e8f0fe"></i>Encomendas
       {% if consumidor_encomendas_abertas > 0 %}
       <span class="pq-drawer-badge">{{ consumidor_encomendas_abertas }}</span>
       {% endif %}
@@ -1355,7 +1364,7 @@
       <i class="fa fa-gift"></i>Lista de presentes
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_indicar') }}" onclick="fecharDrawer()">
-      <i class="fa fa-user-plus" style="color:#25d366"></i>Indique um amigo
+      <i class="fa fa-user-plus" style="color:#25d366;background:#e8f9ee"></i>Indique um amigo
     </a>
     <a class="pq-drawer-item" href="{{ url_for('minhas_assinaturas') }}" onclick="fecharDrawer()">
       <i class="fa fa-star"></i>Minhas assinaturas
@@ -1384,7 +1393,7 @@
     <i class="fa fa-table-cells-large"></i>Catálogo
   </a>
   <a class="pq-drawer-item" href="{{ url_for('vitnatu_page') }}" onclick="fecharDrawer()" style="color:#2e7d32;font-weight:800">
-    <i class="fa fa-leaf" style="color:#2e7d32"></i>Nossa Marca Própria
+    <i class="fa fa-leaf" style="color:#2e7d32;background:#e8f9ee"></i>Nossa Marca Própria
   </a>
   <a class="pq-drawer-item" href="{{ url_for('receita_medica') }}" onclick="fecharDrawer()">
     <i class="fa fa-file-medical"></i>Busca por Receita
@@ -1393,8 +1402,8 @@
     <i class="fa fa-store"></i>Nossas lojas
   </a>
   {% if not consumidor_tem_assinatura %}
-  <a class="pq-drawer-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()">
-    <i class="fa fa-star"></i>Seja assinante <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10 por tempo limitado</span>
+  <a class="pq-drawer-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()" style="color:#b45309;font-weight:800">
+    <i class="fa fa-star" style="color:#b45309;background:#fef3e2"></i>Seja assinante <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10/mês</span>
   </a>
   {% endif %}
   <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer();return abrirCestaLateral(event)">
