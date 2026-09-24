@@ -509,6 +509,35 @@
       text-transform: uppercase; letter-spacing: .5px;
       color: var(--pq-muted);
     }
+    /* ── Atalhos rapidos (grade 3x2 logo abaixo do cartao do usuario) ── */
+    .pq-drawer-quick {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;
+      padding: 10px 10px 6px;
+      border-bottom: 1px solid var(--pq-border);
+    }
+    .pq-drawer-quick-item {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      padding: 8px 2px; border-radius: 14px; text-decoration: none;
+      color: var(--pq-text); position: relative;
+      transition: background .12s, transform .1s;
+    }
+    .pq-drawer-quick-item:active { background: #fff7d6; transform: scale(.95); }
+    .pq-drawer-quick-ico {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: #fff3f5; color: var(--pq-red);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      box-shadow: 0 2px 6px rgba(200,16,46,.12);
+    }
+    .pq-drawer-quick-item span:last-child {
+      font-size: .66rem; font-weight: 800; text-align: center; line-height: 1.15;
+    }
+    .pq-drawer-quick-badge {
+      position: absolute; top: 4px; right: 14%;
+      background: var(--pq-red); color: #fff; border-radius: 999px;
+      font-size: .58rem; font-weight: 900; min-width: 15px; height: 15px;
+      display: flex; align-items: center; justify-content: center; padding: 0 3px;
+    }
     .pq-drawer-item {
       display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
       padding: 13px 18px;
@@ -1334,6 +1363,44 @@
     </div>
     <div class="pq-pontos-bar"><div style="width:{{ ((consumidor_pontos_compras % consumidor_pontos_meta) if _pontos_falta_d != 0 else consumidor_pontos_meta) * 100 // consumidor_pontos_meta }}%"></div></div>
   </a>
+
+  {# ── Atalhos rapidos: os 6 destinos mais usados, 1 toque, sem precisar
+       rolar ate achar na lista comprida embaixo. ── #}
+  <div class="pq-drawer-quick">
+    <a class="pq-drawer-quick-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-receipt"></i></span>
+      <span>Meus pedidos</span>
+    </a>
+    <a class="pq-drawer-quick-item" href="{{ url_for('consumidor_cupons') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-ticket"></i></span>
+      <span>Cupons</span>
+    </a>
+    <a class="pq-drawer-quick-item" href="{{ url_for('consumidor_favoritos') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-heart"></i></span>
+      <span>Favoritos</span>
+    </a>
+    <a class="pq-drawer-quick-item" href="{{ url_for('catalogo_publico') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-table-cells-large"></i></span>
+      <span>Catálogo</span>
+    </a>
+    {% if consumidor_tem_assinatura %}
+    <a class="pq-drawer-quick-item" href="{{ url_for('minhas_assinaturas') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-star"></i></span>
+      <span>Assinatura</span>
+    </a>
+    {% else %}
+    <a class="pq-drawer-quick-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-star"></i></span>
+      <span>Assine</span>
+    </a>
+    {% endif %}
+    <a class="pq-drawer-quick-item" href="{{ url_for('consumidor_notificacoes') }}" onclick="fecharDrawer()">
+      <span class="pq-drawer-quick-ico"><i class="fa fa-bell"></i></span>
+      <span>Avisos</span>
+      {% if consumidor_notif_nao_lidas > 0 %}<span class="pq-drawer-quick-badge">{{ consumidor_notif_nao_lidas }}</span>{% endif %}
+    </a>
+  </div>
+
   <div style="padding:4px 0">
     <div class="pq-drawer-section">Minha conta</div>
     <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
@@ -1406,9 +1473,6 @@
     <i class="fa fa-star" style="color:#b45309;background:#fef3e2"></i>Seja assinante <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10/mês</span>
   </a>
   {% endif %}
-  <a class="pq-drawer-item" href="{{ url_for('carrinho') }}" onclick="fecharDrawer();return abrirCestaLateral(event)">
-    <i class="fa fa-basket-shopping"></i>Minha cesta
-  </a>
   </div>
 
   {% if consumidor %}
