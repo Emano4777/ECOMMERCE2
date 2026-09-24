@@ -282,10 +282,17 @@
 }
 .rec-modal-body { padding:16px 20px 22px; display:flex; flex-direction:column; gap:14px; }
 .rec-field label { display:block; font-size:.76rem; font-weight:800; color:var(--pq-muted); margin-bottom:5px; }
-.rec-field select, .rec-field input[type=text], .rec-field input[type=time] {
+.rec-field select, .rec-field input[type=text], .rec-field input[type=time], .rec-field input[type=number] {
   width:100%; padding:10px 12px; border:1.5px solid var(--pq-border); border-radius:10px;
   font-family:inherit; font-size:.86rem; box-sizing:border-box;
 }
+.rec-freq-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.rec-freq-chip {
+  border:1.5px solid var(--pq-border); background:#fff; color:var(--pq-text); border-radius:999px;
+  padding:5px 12px; font-size:.74rem; font-weight:800; cursor:pointer; font-family:inherit;
+}
+.rec-freq-chip.active, .rec-freq-chip:hover { border-color:#6d28d9; color:#6d28d9; background:#faf7ff; }
+.rec-freq-hint { display:block; font-size:.68rem; color:var(--pq-muted); margin-top:5px; }
 .rec-itens-preview { background:#faf7ff; border:1px solid #e9d8fd; border-radius:10px; padding:10px 12px; font-size:.78rem; color:#4c1d95; max-height:110px; overflow-y:auto; }
 .rec-itens-preview div { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
 .rec-total-line { display:flex; justify-content:space-between; align-items:baseline; padding-top:8px; border-top:1px dashed #e9d8fd; font-weight:900; }
@@ -609,12 +616,15 @@
       <div class="rec-itens-preview" id="rec-itens-preview"></div>
       <div class="rec-field">
         <label>A cada quantos dias?</label>
-        <select id="rec-frequencia">
-          <option value="7">7 dias</option>
-          <option value="15">15 dias</option>
-          <option value="30" selected>30 dias</option>
-          <option value="60">60 dias</option>
-        </select>
+        <input type="number" id="rec-frequencia" min="1" max="90" step="1" value="30" inputmode="numeric">
+        <div class="rec-freq-chips" id="rec-freq-chips">
+          <button type="button" class="rec-freq-chip" data-dias="7">7 dias</button>
+          <button type="button" class="rec-freq-chip" data-dias="15">15 dias</button>
+          <button type="button" class="rec-freq-chip active" data-dias="30">30 dias</button>
+          <button type="button" class="rec-freq-chip" data-dias="60">60 dias</button>
+          <button type="button" class="rec-freq-chip" data-dias="90">90 dias</button>
+        </div>
+        <small class="rec-freq-hint">Escolha um atalho ou digite o número de dias que quiser (1 a 90)</small>
       </div>
       <div class="rec-field" id="rec-horario-wrap" style="display:none">
         <label>Horário preferido pra entrega</label>
@@ -2493,6 +2503,16 @@ function fecharRecorrencia() {
   document.body.style.overflow = '';
 }
 
+document.getElementById('rec-freq-chips')?.addEventListener('click', (e) => {
+  const chip = e.target.closest('.rec-freq-chip');
+  if (!chip) return;
+  document.getElementById('rec-frequencia').value = chip.dataset.dias;
+  document.querySelectorAll('.rec-freq-chip').forEach(c => c.classList.toggle('active', c === chip));
+});
+document.getElementById('rec-frequencia')?.addEventListener('input', (e) => {
+  document.querySelectorAll('.rec-freq-chip').forEach(c => c.classList.toggle('active', c.dataset.dias === e.target.value));
+});
+
 async function abrirRecorrencia(cnpj) {
   const itens = getCart().filter(i => i.cnpjloja === cnpj);
   if (!itens.length) return;
@@ -2505,6 +2525,8 @@ async function abrirRecorrencia(cnpj) {
 
   const tipoEntrega = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
   document.getElementById('rec-horario-wrap').style.display = tipoEntrega === 'entrega' ? 'block' : 'none';
+  document.getElementById('rec-frequencia').value = 30;
+  document.querySelectorAll('.rec-freq-chip').forEach(c => c.classList.toggle('active', c.dataset.dias === '30'));
 
   document.getElementById('rec-status').textContent = '';
   document.getElementById('rec-status').className = 'rec-status-msg';
@@ -2554,7 +2576,7 @@ function montarRecorrenciaBrick(cfg, itens, totalRec) {
         const payload = {
           cnpjloja: _recCnpj,
           itens: itens.map(i => ({ean: i.ean, nome: i.nome, qty: i.qty || 1, preco: i.preco, imagem: i.imagem || ''})),
-          frequencia_dias: parseInt(document.getElementById('rec-frequencia').value) || 30,
+          frequencia_dias: Math.min(90, Math.max(1, parseInt(document.getElementById('rec-frequencia').value) || 30)),
           tipo_entrega: tipoEntrega,
           horario_entrega_preferido: document.getElementById('rec-horario').value || '',
           endereco_entrega: tipoEntrega === 'entrega' ? (enderecoInfo.label || '') : '',

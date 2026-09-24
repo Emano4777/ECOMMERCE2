@@ -1320,6 +1320,7 @@
         <a class="pq-user-item" href="{{ url_for('consumidor_lista_presentes') }}"><i class="fa fa-gift"></i><span>Lista de presentes<small>Compartilhe pra ganhar de alguém</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_indicar') }}"><i class="fa fa-user-plus" style="color:#25d366"></i><span>Indique um amigo<small>Ganhe cupom a cada indicação</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('minhas_assinaturas') }}"><i class="fa fa-star"></i><span>Minhas assinaturas<small>Farmácias que você assina</small></span><b class="pq-user-item-arrow">›</b></a>
+        <a class="pq-user-item" href="{{ url_for('minhas_recorrencias') }}"><i class="fa fa-rotate"></i><span>Minhas recorrências<small>Compras automáticas agendadas</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item js-baixar-app-link" href="{{ url_for('baixar_app') }}"><i class="fa fa-mobile-screen-button"></i><span>Baixar app<small>Instale no seu celular</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="{{ url_for('consumidor_perfil') }}"><i class="fa fa-user-pen"></i><span>Editar perfil<small>Dados e contato</small></span><b class="pq-user-item-arrow">›</b></a>
         <a class="pq-user-item" href="#" onclick="return pqSuporteAbrirDoMenu(event)"><i class="fa fa-circle-question"></i><span>Ajuda / Suporte<small>Fale com a Poupinha</small></span><b class="pq-user-item-arrow">›</b></a>
@@ -1442,6 +1443,9 @@
       <i class="fa fa-star"></i>Minhas assinaturas
     </a>
     {% endif %}
+    <a class="pq-drawer-item" href="{{ url_for('minhas_recorrencias') }}" onclick="fecharDrawer()">
+      <i class="fa fa-rotate"></i>Minhas recorrências
+    </a>
     <a class="pq-drawer-item js-baixar-app-link" href="{{ url_for('baixar_app') }}" onclick="fecharDrawer()">
       <i class="fa fa-mobile-screen-button"></i>Baixar app
     </a>
