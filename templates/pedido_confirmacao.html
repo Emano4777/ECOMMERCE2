@@ -496,6 +496,7 @@ function fecharCscPop() {
 }
 </script>
 
+{% set recc_entry = pedidos|selectattr('pedido.recorrencia_elegivel')|first %}
 {% if recc_entry %}
 <script src="https://sdk.mercadopago.com/js/v2"></script>
 <script>
@@ -641,7 +642,6 @@ function fecharCscPop() {
   </div>
 </div>
 
-{% set recc_entry = pedidos|selectattr('pedido.recorrencia_elegivel')|first %}
 {% if recc_entry %}
 {# ── Popup de recorrencia logo apos confirmar o pedido -- usa os itens e o
      tipo de entrega desse mesmo pedido, sem perguntar de novo. Dizer "nao"
