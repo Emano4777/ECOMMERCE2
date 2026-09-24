@@ -546,20 +546,23 @@
   overflow: hidden;
 }
 .prod-cupom-badge i { margin-top: 2px; }
-/* Oferta por quantidade ("leve N+") ganha cor propria (roxo, nao vermelho
-   de promo normal) pra dar pra reconhecer o TIPO de oferta so pela cor,
-   mesmo sem ler o texto todo -- e um pulso sutil no contorno pra chamar
-   mais atencao, sem ser um blink berrante. */
-.prod-cupom-badge-qtd {
-  background: #f3e8ff; color: #6d28d9; border-color: #d8b4fe;
-  animation: pq-qtd-pulse 2.2s ease-in-out infinite;
+/* Selo de promocao no canto da imagem (Amazon/Shopee-style) -- substitui a
+   faixa que ficava embaixo do preco. Vermelho pra promo normal, roxo com
+   pulso sutil pra oferta por quantidade (cor propria = reconhece o TIPO
+   sem precisar ler o texto todo). */
+.prod-corner-badge {
+  position: absolute; top: 8px; left: 8px; z-index: 2;
+  display: flex; align-items: center; gap: 4px;
+  color: #fff; font-size: .66rem; font-weight: 900;
+  padding: 4px 8px; border-radius: 8px; line-height: 1;
+  box-shadow: 0 3px 9px rgba(0,0,0,.2);
 }
 @keyframes pq-qtd-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(109,40,217,.32); }
   50% { box-shadow: 0 0 0 4px rgba(109,40,217,0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .prod-cupom-badge-qtd { animation: none; }
+  .prod-corner-badge { animation: none !important; }
 }
 .prod-loja-row {
   margin-top: auto;
@@ -1223,6 +1226,7 @@ function cardHtml(p, idx) {
       <button class="prod-fav-btn ${favActive ? 'active' : ''}" type="button" title="${favActive ? 'Remover dos favoritos' : 'Favoritar e ativar alertas'}" onclick="toggleFavorito(${idx}, this, event)">
         <i class="fa-${favActive ? 'solid' : 'regular'} fa-heart"></i>
       </button>
+      <div id="cornerbadge-${idx}">${cornerBadgeHtml(p, 1)}</div>
       <div class="prod-img">
         ${imgTag}
         <div class="prod-placeholder" style="${phStyle}"><i class="fa fa-pills"></i></div>
@@ -1275,6 +1279,31 @@ function cardHtml(p, idx) {
     </div>`;
 }
 
+// Selo no canto da imagem (topo-esquerdo, o favorito fica no topo-direito)
+// -- avisa o TIPO de oferta de cara, sem precisar ler o preço/texto
+// embaixo. Vermelho = promo normal/assinante, roxo com pulso = oferta por
+// quantidade (cor propria pra reconhecer o tipo so de relance).
+function cornerBadgeHtml(p, qty) {
+  const promo = p.promo || null;
+  const precoAtual = parseFloat(p.preco) || 0;
+  const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual) || precoAtual;
+  if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
+    const pct = precoOriginal > 0 ? Math.round((1 - promo.preco_promo / precoOriginal) * 100) : 0;
+    return `<div class="prod-corner-badge" style="background:var(--pq-red)"><i class="fa fa-bolt"></i>${pct > 0 ? '-' + pct + '%' : 'PROMO'}</div>`;
+  }
+  if (promo && promo.so_assinantes) {
+    return `<div class="prod-corner-badge" style="background:#b45309"><i class="fa fa-star"></i>Assinante</div>`;
+  }
+  const pq = p.promo_qtd;
+  if (pq) {
+    const atingiu = qty >= pq.qtd_minima;
+    return `<div class="prod-corner-badge" style="background:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
+      <i class="fa fa-${atingiu ? 'circle-check' : 'layer-group'}"></i>${atingiu ? 'Oferta ativa' : 'Leve ' + pq.qtd_minima + '+'}
+    </div>`;
+  }
+  return '';
+}
+
 // Monta o bloco de preço do card — cupom de código, promoção normal (ou
 // so-assinante) e oferta por quantidade usam sempre o mesmo padrão visual
 // (preço riscado + novo valor em destaque), em vez de avisos separados.
@@ -1305,41 +1334,27 @@ function priceBlockHtml(p, qty) {
   const promo = p.promo || null;
   const precoAtual = parseFloat(p.preco)||0;
   const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual)||precoAtual;
+  // Selo de promocao (normal ou por quantidade) mudou pro canto da imagem
+  // -- ver cornerBadgeHtml() -- entao aqui embaixo do preco so sobra o
+  // valor riscado/atual, sem repetir selo nenhum (menos poluido).
   if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
-    const economia = (precoOriginal - parseFloat(promo.preco_promo)).toFixed(2).replace('.', ',');
-    const badgeLabel = promo.so_assinantes
-      ? `<i class="fa fa-circle-check" style="flex-shrink:0"></i><span>Preço de assinante aplicado</span>`
-      : `<i class="fa fa-tag" style="flex-shrink:0"></i><span>Economize R$ ${economia}</span>`;
     return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
       <span class="prod-preco">${brl(promo.preco_promo)}</span>
       <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoOriginal)}</span>
-    </div>
-    <div class="prod-cupom-badge" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">
-      ${badgeLabel}
     </div>`;
   }
   if (promo && promo.so_assinantes && promo.preco_promo && promo.preco_promo < precoAtual) {
-    return `<div class="prod-preco">${brl(precoAtual)}</div>
-    <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
-      <i class="fa fa-star" style="flex-shrink:0"></i><span>Assine e pague ${brl(promo.preco_promo)}</span>
-    </div>`;
+    return `<div class="prod-preco">${brl(precoAtual)}</div>`;
   }
   const pq = p.promo_qtd;
   if (pq && qty >= pq.qtd_minima) {
-    const economia = ((precoAtual - pq.preco_unit_promo) * qty).toFixed(2).replace('.', ',');
     return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
       <span class="prod-preco">${brl(pq.preco_unit_promo)}</span>
       <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoAtual)}</span>
-    </div>
-    <div class="prod-cupom-badge prod-cupom-badge-qtd">
-      <i class="fa fa-layer-group" style="flex-shrink:0"></i><span>Oferta por quantidade — economize R$ ${economia}</span>
     </div>`;
   }
   if (pq) {
-    return `<div class="prod-preco">${brl(precoAtual)}</div>
-    <div class="prod-cupom-badge prod-cupom-badge-qtd">
-      <i class="fa fa-layer-group" style="flex-shrink:0"></i><span>Leve ${pq.qtd_minima}+ por ${brl(pq.preco_unit_promo)} cada</span>
-    </div>`;
+    return `<div class="prod-preco">${brl(precoAtual)}</div>`;
   }
   return `<div class="prod-preco">${brl(precoAtual)}</div>
   <div class="prod-cupom-badge" style="visibility:hidden" aria-hidden="true">
@@ -1355,6 +1370,8 @@ function renderCardQtyBar(idx, qtyRaw) {
   const max = parseInt(inp?.max) || 99;
   const qty = Math.max(1, Math.min(max, parseInt(qtyRaw) || 1));
   wrap.innerHTML = priceBlockHtml(p, qty);
+  const badgeWrap = document.getElementById('cornerbadge-' + idx);
+  if (badgeWrap) badgeWrap.innerHTML = cornerBadgeHtml(p, qty);
 }
 
 function changeCardQty(idx, delta) {

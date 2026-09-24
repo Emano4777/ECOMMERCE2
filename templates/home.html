@@ -177,6 +177,14 @@
 .home-prod-meta { color:var(--pq-muted); font-size:.68rem; font-weight:400; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:4px; }
 .home-prod-price { order:20; color:#c8102e; font-size:1.03rem; font-weight:600; margin-top:auto; padding-top:8px; }
 .home-prod-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; background:#fff0f2; color:var(--pq-red); padding:3px 8px; font-size:.66rem; font-weight:900; margin-top:6px; }
+/* selo de promocao no canto da imagem (em vez da faixa embaixo do preco) */
+.home-prod-corner-badge {
+  position:absolute; top:7px; left:7px; z-index:2;
+  display:flex; align-items:center; gap:4px;
+  color:#fff; font-size:.64rem; font-weight:900;
+  padding:4px 8px; border-radius:8px; line-height:1;
+  box-shadow:0 3px 9px rgba(0,0,0,.2);
+}
 .home-prod-cart-btn {
   flex:0 0 40px;
   width:40px;
@@ -1493,18 +1501,15 @@ function _homeCardUpdatePrice(wrap, qty) {
   } else {
     priceEl.innerHTML = hBrl(precoBase);
   }
-  // Badge "Leve N+ por R$X cada" vira "economize R$X" (valor real, mesmo
-  // padrao do catalogo/index.html) quando a quantidade selecionada ja bate
-  // o minimo, em vez de continuar mostrando o convite como se ainda nao
-  // tivesse sido aproveitado. Cor fica sempre no vermelho da marca (igual
-  // ao catalogo) -- so o icone/texto mudam com o estado.
+  // Selo no canto da imagem: "Leve N+" convida ate a quantidade bater o
+  // minimo, depois vira confirmacao curta (cabe pouco texto num selo de
+  // canto, o valor economizado real ja aparece riscado no preco acima).
   const badgeEl = card?.querySelector('.home-prod-qtd-badge');
   if (badgeEl) {
     if (atingiu) {
-      const economia = ((precoBase - pq.preco_unit_promo) * qty).toFixed(2).replace('.', ',');
-      badgeEl.innerHTML = `<i class="fa fa-layer-group" style="font-size:.58rem;flex-shrink:0"></i><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">Oferta por quantidade — economize R$ ${economia}</span>`;
+      badgeEl.innerHTML = `<i class="fa fa-circle-check" style="font-size:.56rem;flex-shrink:0"></i><span>Oferta ativa</span>`;
     } else {
-      badgeEl.innerHTML = `<i class="fa fa-layer-group" style="font-size:.58rem;flex-shrink:0"></i><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">Leve ${pq.qtd_minima}+ por ${hBrl(pq.preco_unit_promo)} cada</span>`;
+      badgeEl.innerHTML = `<i class="fa fa-layer-group" style="font-size:.56rem;flex-shrink:0"></i><span>Leve ${pq.qtd_minima}+</span>`;
     }
   }
 }
@@ -1563,16 +1568,6 @@ function homeCartButton(p, preco, label) {
 function prodCard(p, badge){
   const url = `/produto/${encodeURIComponent(p.ean||'')}?cnpj=${encodeURIComponent(p.cnpjloja||'')}&nome=${encodeURIComponent(p.nome||'')}`;
   const plano = planosAssinatura[p.cnpjloja];
-  const promoBadge = (() => {
-    if (!p.promo) return '';
-    const s = 'margin:4px -10px -2px;border-radius:0;padding:4px 10px;display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:.64rem;font-weight:800;';
-    if (p.promo.so_assinantes && !p.promo.preco_promo)
-      return `<div style="${s}border-top:1px solid #fde68a;background:#fffbeb;color:#92400e"><span style="display:flex;align-items:center;gap:3px"><i class="fa fa-star" style="font-size:.5rem"></i>Preço para assinantes</span></div>`;
-    const precoDe = parseFloat(p.preco)||0, precoBaseDe = parseFloat(p.preco_original || p.promo.preco_original || precoDe)||precoDe, precoPor = p.promo.preco_promo;
-    if (precoPor < precoBaseDe)
-      return `<div style="${s}border-top:1px solid #fca5a5;background:#fff1f2;color:var(--pq-red)"><span style="display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.5rem"></i>PROMO${p.promo.so_assinantes?' · Assinante':''}</span><span><s style="opacity:.5;font-weight:400">${hBrl(precoBaseDe)}</s> ${hBrl(precoPor)}</span></div>`;
-    return `<div style="${s}border-top:1px solid #fde68a;background:#fffbeb;color:#92400e"><span style="display:flex;align-items:center;gap:3px"><i class="fa fa-star" style="font-size:.5rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span>${hBrl(precoPor)}</span></div>`;
-  })();
   const assinBadge = plano && !plano.ja_assina && plano.frete_gratis_primeira_entrega
     ? `<div style="border-top:1px solid #ffd0d8;background:#fff5f6;margin:4px -10px -10px;border-radius:0 0 12px 12px;padding:5px 8px;display:flex;align-items:center;gap:4px;font-size:.62rem;line-height:1.25;color:var(--pq-red);font-weight:800"><i class="fa fa-truck-fast" style="font-size:.55rem;flex-shrink:0"></i><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">1ª e outras entregas grátis com o clube</span></div>`
     : (plano && plano.ja_assina ? `<div style="border-top:1px solid #bbf7d0;background:#f0fdf4;margin:4px -10px -10px;border-radius:0 0 12px 12px;padding:5px 10px;font-size:.66rem;color:#16a34a;font-weight:800;display:flex;align-items:center;gap:4px"><i class="fa fa-check-circle" style="font-size:.6rem"></i>Você é assinante</div>` : '');
@@ -1581,28 +1576,39 @@ function prodCard(p, badge){
   const precoHtml = p.promo?.aplicada && p.promo?.preco_promo && p.promo.preco_promo < precoOriginal
     ? `<div class="home-prod-price">${hBrl(p.promo.preco_promo)} <s style="font-size:.72rem;color:var(--pq-muted);font-weight:600">${hBrl(precoOriginal)}</s></div>`
     : `<div class="home-prod-price">${hBrl(precoAtual)}</div>`;
-  // "Leve N+ por R$X cada" -- antes so aparecia depois da pessoa tocar o "+"
-  // pra aumentar a quantidade no card; com 1 unidade (o padrao) a promocao
-  // era invisivel. Agora fica sempre visivel, e _homeCardUpdatePrice troca
-  // o texto pra "economize R$X" (valor real) quando a quantidade
-  // selecionada bate o minimo -- mesmo padrao/cores do catalogo
-  // (index.html: priceBlockHtml), fundo vermelho da marca sempre, so o
-  // texto/icone mudam com o estado. Nao empilha com preco de assinante ja
-  // aplicado, mesma regra que homeCartButton ja usa pra decidir se manda
-  // o data-promo-qtd.
+  // Selo de promocao movido pra cima, no canto da imagem (mais parecido
+  // com o que app grande faz -- Shopee/AliExpress/Amazon), em vez da
+  // faixa embaixo do preco que ocupava espaco e nao chamava tanta atencao.
+  // Prioridade: preco de assinante aplicado > promo normal (%) > so
+  // "assinante sem preco definido" > oferta por quantidade (cor propria,
+  // roxa, com pulso -- ver home-prod-qtd-badge, que _homeCardUpdatePrice
+  // ja sabe achar e atualizar quando a quantidade do stepper muda).
   const temPromoAssinanteCard = p.promo?.aplicada && p.promo?.preco_promo && p.promo.preco_promo < precoOriginal;
-  const promoQtdBadge = (p.promo_qtd && !temPromoAssinanteCard) ? `<div class="home-prod-qtd-badge" style="margin:4px -10px -2px;border-radius:0;padding:5px 10px;display:flex;align-items:center;gap:5px;font-size:.64rem;font-weight:800;border-top:1px solid #d8b4fe;background:#f3e8ff;color:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
-      <i class="fa fa-layer-group" style="font-size:.58rem;flex-shrink:0"></i><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">Leve ${p.promo_qtd.qtd_minima}+ por ${hBrl(p.promo_qtd.preco_unit_promo)} cada</span>
-    </div>` : '';
+  const cornerBadge = (() => {
+    if (temPromoAssinanteCard) {
+      const pct = precoOriginal > 0 ? Math.round((1 - p.promo.preco_promo / precoOriginal) * 100) : 0;
+      return `<div class="home-prod-corner-badge" style="background:var(--pq-red)"><i class="fa fa-bolt" style="font-size:.56rem"></i>${pct > 0 ? '-' + pct + '%' : 'PROMO'}</div>`;
+    }
+    if (p.promo?.so_assinantes) {
+      return `<div class="home-prod-corner-badge" style="background:#b45309"><i class="fa fa-star" style="font-size:.56rem"></i>Assinante</div>`;
+    }
+    if (p.promo_qtd) {
+      return `<div class="home-prod-corner-badge home-prod-qtd-badge" style="background:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
+        <i class="fa fa-layer-group" style="font-size:.56rem;flex-shrink:0"></i><span>Leve ${p.promo_qtd.qtd_minima}+</span>
+      </div>`;
+    }
+    return '';
+  })();
   return `<a class="home-prod" href="${url}">
-    ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
+    <div style="position:relative">
+      ${p.imagem ? `<img class="home-prod-img" src="${hEsc(p.imagem)}" alt="${hEsc(p.nome)}">` : `<div class="home-prod-img" style="display:flex;align-items:center;justify-content:center;color:#ccc;font-size:2rem"><i class="fa fa-pills"></i></div>`}
+      ${cornerBadge}
+    </div>
     <div class="home-prod-name">${hEsc(p.nome)}</div>
     <div class="home-prod-meta">${homeLojaIcoHtml(p)}${hEsc(fixRazao(p.razao) || 'Drogarias Poupaqui')}</div>
     ${precoHtml}
     ${homeCartButton(p, p.promo?.aplicada && p.promo?.preco_promo ? p.promo.preco_promo : precoAtual, 'Adicionar')}
     ${badge ? `<div class="home-prod-badge">${badge}</div>` : ''}
-    ${promoBadge}
-    ${promoQtdBadge}
     ${assinBadge}
   </a>`;
 }
