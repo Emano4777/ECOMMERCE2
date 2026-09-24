@@ -12614,6 +12614,68 @@ def api_home_atividade_ao_vivo():
     return jsonify({"pedidos_hoje": n})
 
 
+_PEDIDO_ANDAMENTO_LABEL = {
+    # (status, tipo_entrega) -> (titulo, icone, classe)
+    ("pendente", "retirada"): ("Falta pagar pra confirmar seu pedido", "fa-triangle-exclamation", "pendente"),
+    ("pendente", "entrega"):  ("Falta pagar pra confirmar seu pedido", "fa-triangle-exclamation", "pendente"),
+    ("pago", "retirada"):     ("Pedido confirmado — a farmácia está separando", "fa-box", ""),
+    ("pago", "entrega"):      ("Pedido confirmado — a farmácia está preparando", "fa-box", ""),
+    ("pronto_retirada", "retirada"): ("Pronto para retirada!", "fa-store", "pronto"),
+    ("enviado", "entrega"):   ("Seu pedido está a caminho!", "fa-motorcycle", "enviado"),
+}
+
+
+@app.get("/api/home/pedido-andamento")
+@_rate_limited_api(max_calls=30, window_secs=60)
+def api_home_pedido_andamento():
+    """Pedido ativo mais recente do cliente logado, pra faixa fixa no topo
+    da home -- some sozinho assim que o pedido vira 'entregue'/'cancelado'
+    (o filtro do WHERE ja exclui os dois). De proposito inclui 'pendente'
+    (pagamento ainda nao confirmado) pra incentivar terminar de pagar, nao
+    so status ja pago."""
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"pedido": None})
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT p.id, p.status, p.tipo_entrega, p.cnpjloja, u.razao
+        FROM ecommerce_pedidos p
+        LEFT JOIN users u ON u.cnpjloja = p.cnpjloja
+        WHERE p.consumidor_id = %s AND COALESCE(p.status,'') NOT IN ('entregue', 'cancelado')
+        ORDER BY p.criado_em DESC
+        LIMIT 1
+        """,
+        (consumidor_id,),
+    )
+    pedido = cur.fetchone()
+    cur.close()
+    if not pedido:
+        return jsonify({"pedido": None})
+    pedido = dict(pedido)
+    status = (pedido.get("status") or "").lower()
+    if status in ("", "pendente") and _pedido_pagamento_aprovado(pedido):
+        corrigido = _normalizar_pedido_pago(pedido["id"])
+        if corrigido:
+            pedido.update(corrigido)
+            status = (pedido.get("status") or "").lower()
+    if status in ("entregue", "cancelado"):
+        return jsonify({"pedido": None})
+    tipo_entrega = (pedido.get("tipo_entrega") or "retirada").lower()
+    titulo, icone, classe = _PEDIDO_ANDAMENTO_LABEL.get(
+        (status, tipo_entrega), ("Acompanhe seu pedido", "fa-box", "")
+    )
+    razao = _public_store_name(pedido) or "Drogaria Poupaqui"
+    return jsonify({"pedido": {
+        "id": str(pedido["id"]),
+        "titulo": titulo,
+        "sub": razao,
+        "icone": icone,
+        "classe": classe,
+    }})
+
+
 @app.get("/api/home/meu-cupom")
 @_rate_limited_api(max_calls=30, window_secs=60)
 def api_home_meu_cupom():
