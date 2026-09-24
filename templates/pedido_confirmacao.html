@@ -507,7 +507,11 @@ function fecharCscPop() {
 {% if recc_entry %}
 <script src="https://sdk.mercadopago.com/js/v2"></script>
 <script>
-(function(){
+// O HTML do popup (#reccheckout-itens, #reccheckout-overlay etc.) so aparece
+// mais abaixo neste mesmo bloco -- sem esperar o DOM terminar de montar,
+// document.getElementById(...) aqui retorna null (o script roda ANTES desse
+// markup existir na pagina) e quebra com TypeError antes de chegar no fetch.
+document.addEventListener('DOMContentLoaded', function(){
   var reccP = {{ recc_entry.pedido | tojson }};
   var reccItens = {{ recc_entry.itens | tojson }};
   var reccTotal = reccItens.reduce(function(s, i){ return s + (parseFloat(i.preco_unitario)||0) * (i.qty||1); }, 0);
@@ -618,7 +622,7 @@ function fecharCscPop() {
       }, 1200);
     })
     .catch(function(e){ console.error('popup de recorrencia pos-checkout falhou ao montar:', e); });
-})();
+});
 </script>
 {% endif %}
 
