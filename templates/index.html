@@ -546,6 +546,21 @@
   overflow: hidden;
 }
 .prod-cupom-badge i { margin-top: 2px; }
+/* Oferta por quantidade ("leve N+") ganha cor propria (roxo, nao vermelho
+   de promo normal) pra dar pra reconhecer o TIPO de oferta so pela cor,
+   mesmo sem ler o texto todo -- e um pulso sutil no contorno pra chamar
+   mais atencao, sem ser um blink berrante. */
+.prod-cupom-badge-qtd {
+  background: #f3e8ff; color: #6d28d9; border-color: #d8b4fe;
+  animation: pq-qtd-pulse 2.2s ease-in-out infinite;
+}
+@keyframes pq-qtd-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(109,40,217,.32); }
+  50% { box-shadow: 0 0 0 4px rgba(109,40,217,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prod-cupom-badge-qtd { animation: none; }
+}
 .prod-loja-row {
   margin-top: auto;
   padding-top: 6px;
@@ -1316,13 +1331,13 @@ function priceBlockHtml(p, qty) {
       <span class="prod-preco">${brl(pq.preco_unit_promo)}</span>
       <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoAtual)}</span>
     </div>
-    <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
+    <div class="prod-cupom-badge prod-cupom-badge-qtd">
       <i class="fa fa-layer-group" style="flex-shrink:0"></i><span>Oferta por quantidade — economize R$ ${economia}</span>
     </div>`;
   }
   if (pq) {
     return `<div class="prod-preco">${brl(precoAtual)}</div>
-    <div class="prod-cupom-badge" style="background:#fff5f6;color:var(--pq-red);border-color:#ffd0d8">
+    <div class="prod-cupom-badge prod-cupom-badge-qtd">
       <i class="fa fa-layer-group" style="flex-shrink:0"></i><span>Leve ${pq.qtd_minima}+ por ${brl(pq.preco_unit_promo)} cada</span>
     </div>`;
   }

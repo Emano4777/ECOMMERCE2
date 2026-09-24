@@ -12,6 +12,16 @@
 <style>
 .pd-wrap { max-width: 900px; margin: 0 auto; padding: 28px 16px 60px; }
 
+/* pulso sutil no cartao de oferta por quantidade -- mesmo tratamento do
+   catalogo/home, pra chamar atencao sem ser um blink berrante. */
+@keyframes pq-qtd-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(109,40,217,.32); }
+  50% { box-shadow: 0 0 0 4px rgba(109,40,217,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd-qtd-card { animation: none !important; }
+}
+
 /* BREADCRUMB */
 .pd-bc { font-size:.8rem; color:var(--pq-muted); margin-bottom:20px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .pd-bc a { color:var(--pq-muted); text-decoration:none; }
@@ -595,10 +605,10 @@
           <div id="pd-price-qtd-wrap">
             <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
             <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
-            <div class="pd-qtd-card" style="margin-top:10px;display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#fff5f6,#ffe9eb);border:1.5px solid #ffb8c4;border-radius:14px;padding:11px 14px;max-width:400px">
-              <div style="width:38px;height:38px;border-radius:50%;background:var(--pq-red);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0"><i class="fa fa-layer-group"></i></div>
+            <div class="pd-qtd-card" style="margin-top:10px;display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#f3e8ff,#ede1fb);border:1.5px solid #d8b4fe;border-radius:14px;padding:11px 14px;max-width:400px;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
+              <div style="width:38px;height:38px;border-radius:50%;background:#6d28d9;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0"><i class="fa fa-layer-group"></i></div>
               <div style="min-width:0">
-                <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.3px;color:var(--pq-red);opacity:.85">Oferta por quantidade</div>
+                <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.3px;color:#6d28d9;opacity:.85">Oferta por quantidade</div>
                 <div style="font-size:.92rem;font-weight:900;color:#1a1a1a;line-height:1.3">Leve {{ promo_qtd.qtd_minima }}+ por R$ {{ "%.2f"|format(promo_qtd.preco_unit_promo|float) | replace(".", ",") }} cada</div>
               </div>
             </div>
@@ -1025,8 +1035,8 @@ function renderPdQtyBar(qty) {
   if (!wrap || !_pdPromoQtd) return;
   const pq = _pdPromoQtd;
   const rotulo = pq.so_assinantes ? 'Exclusivo assinante' : 'Oferta por quantidade';
-  const cardStyle = 'margin-top:10px;display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#fff5f6,#ffe9eb);border:1.5px solid #ffb8c4;border-radius:14px;padding:11px 14px;max-width:400px';
-  const icoStyle = 'width:38px;height:38px;border-radius:50%;background:var(--pq-red);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0';
+  const cardStyle = 'margin-top:10px;display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#f3e8ff,#ede1fb);border:1.5px solid #d8b4fe;border-radius:14px;padding:11px 14px;max-width:400px;animation:pq-qtd-pulse 2.2s ease-in-out infinite';
+  const icoStyle = 'width:38px;height:38px;border-radius:50%;background:#6d28d9;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0';
   if (qty >= pq.qtd_minima) {
     const economia = Math.max(0, (_pdPreco - pq.preco_unit_promo) * qty);
     wrap.innerHTML = `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
@@ -1036,7 +1046,7 @@ function renderPdQtyBar(qty) {
     <div class="pd-qtd-card" style="${cardStyle}">
       <div style="${icoStyle}"><i class="fa fa-circle-check"></i></div>
       <div style="min-width:0">
-        <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.3px;color:var(--pq-red);opacity:.85">${rotulo}</div>
+        <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.3px;color:#6d28d9;opacity:.85">${rotulo}</div>
         <div style="font-size:.92rem;font-weight:900;color:#1a1a1a;line-height:1.3">Você está economizando ${pdBrl(economia)}</div>
       </div>
     </div>`;
@@ -1046,7 +1056,7 @@ function renderPdQtyBar(qty) {
     <div class="pd-qtd-card" style="${cardStyle}">
       <div style="${icoStyle}"><i class="fa fa-layer-group"></i></div>
       <div style="min-width:0">
-        <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.3px;color:var(--pq-red);opacity:.85">Oferta por quantidade</div>
+        <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.3px;color:#6d28d9;opacity:.85">Oferta por quantidade</div>
         <div style="font-size:.92rem;font-weight:900;color:#1a1a1a;line-height:1.3">Leve ${pq.qtd_minima}+ por ${pdBrl(pq.preco_unit_promo)} cada</div>
       </div>
     </div>`;

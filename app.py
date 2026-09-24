@@ -11487,8 +11487,19 @@ def _api_produtos_proximos_impl():
                 elif t in nome_n:
                     score += len(t)       # bate so como substring solta -- mais fraco ainda
             return -score
+        def _tem_promo_busca(p):
+            promo = p.get("promo") or {}
+            if promo.get("aplicada") and promo.get("preco_promo"):
+                return True
+            return bool(p.get("promo_qtd"))
+        # Entre resultados com a MESMA relevancia de texto, o que ta em
+        # promocao (preco cheio ou por quantidade) vem primeiro -- nao
+        # atropela um match melhor sem promo (relevancia continua sendo o
+        # 1o criterio), so desempata a favor de quem ja tem a promo
+        # anexada nesse ponto (_attach_quantidade_promos ja rodou acima).
         result = sorted(produtos_view, key=lambda x: (
             _relevancia_busca(x),
+            not _tem_promo_busca(x),
             x.get("distancia_km") is None,
             x.get("distancia_km") or 0,
             (x.get("nome") or "").lower(),
@@ -11593,6 +11604,7 @@ def _api_produtos_proximos_impl():
             if busca_q:
                 result.sort(key=lambda x: (
                     _relevancia_busca(x),
+                    not (((x.get("promo") or {}).get("aplicada") and (x.get("promo") or {}).get("preco_promo")) or x.get("promo_qtd")),
                     x.get("distancia_km") is None,
                     x.get("distancia_km") or 0,
                     (x.get("nome") or "").lower(),
