@@ -8406,14 +8406,16 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
             ap.cnpjloja,
             ap.ean,
             CASE
-                WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
-                    THEN COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome)
-                -- Fora de medicamentos (cosmetico/higiene/perfumaria etc), o nome
-                -- padronizado por IA (produto_canon) tem prioridade sobre a
-                -- descricao abreviada da tabela de referencia (ex: "SH" vira
-                -- "Shampoo") — vale tanto pra exibicao quanto pro filtro de
-                -- relevancia da busca, que usa esse mesmo campo "nome".
-                ELSE COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                -- So confia no nome padronizado por IA (produto_canon) quando o
+                -- produto JA foi classificado como algo fora de medicamento (ex:
+                -- "SH" vira "Shampoo" em perfumaria/cosmetico) -- produto sem
+                -- classificacao (a maioria do catalogo) ou classificado como
+                -- medicamento sempre usa o nome real (medicamentos/Alpha) primeiro.
+                -- A IA ja errou nome de marca por generico aqui (ex: "Tylenol"
+                -- virou "Paracetamol 750mg Comprimido" no produto_canon).
+                WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('perfumaria', 'dermocosmetico', 'higiene', 'suplemento', 'nutricao', 'varejo')
+                    THEN COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                ELSE COALESCE(m.descricao, ap.nome, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END))
             END AS nome,
             ap.nome AS nome_alpha_raw,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
@@ -8898,9 +8900,14 @@ def get_alpha_products_direct(cnpjs, limit=200, categoria_filter=None):
             ap.cnpjloja,
             ap.ean,
             CASE
-                WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
-                    THEN COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome)
-                ELSE COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                -- Ver comentario na mesma logica em get_alpha_products_direct_by_query:
+                -- so confia no nome da IA (produto_canon) pra categorias explicitamente
+                -- fora de medicamento; sem classificacao ou classificado como
+                -- medicamento usa o nome real primeiro (produto_canon ja errou
+                -- marca por generico, ex: Tylenol virando "Paracetamol...").
+                WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('perfumaria', 'dermocosmetico', 'higiene', 'suplemento', 'nutricao', 'varejo')
+                    THEN COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                ELSE COALESCE(m.descricao, ap.nome, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END))
             END AS nome,
             COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
             m.marca AS marca,
@@ -13336,7 +13343,10 @@ def api_produto(ean):
             "classe":      med["classe"]      or "",
             "imagem_med":  imagem_med,
         })
-        nome_busca = nome_busca or (med["descricao"] or "")
+        # med["descricao"] (nome real) tem prioridade sobre nome_param (?nome=
+        # da URL, nao confiavel) pra decidir a chave ANVISA -- mesma correcao
+        # de seguranca aplicada em produto_detalhe (ver comentario la).
+        nome_busca = (med["descricao"] or "") or nome_busca
 
     if nome_busca:
         try:
@@ -14957,9 +14967,13 @@ def _produtos_atuais_por_ean(cnpjs, eans, limit=60):
             SELECT
                 ap.cnpjloja, ap.ean,
                 CASE
-                    WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('medicamento', 'generico', 'similar', 'referencia')
-                        THEN COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome)
-                    ELSE COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                    -- Ver comentario em get_alpha_products_direct_by_query: so confia
+                    -- no nome da IA (produto_canon) pra categorias explicitamente fora
+                    -- de medicamento; sem classificacao ou medicamento usa nome real
+                    -- primeiro (produto_canon ja errou marca por generico aqui).
+                    WHEN COALESCE(m.tipo_ia, pc.categoria) IN ('perfumaria', 'dermocosmetico', 'higiene', 'suplemento', 'nutricao', 'varejo')
+                        THEN COALESCE((CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), m.descricao, ap.nome)
+                    ELSE COALESCE(m.descricao, ap.nome, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END))
                 END AS nome,
                 COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante) AS laboratorio,
                 COALESCE(m.tipo_ia, pc.categoria) AS categoria,
@@ -16160,7 +16174,21 @@ def produto_detalhe(ean):
 
     # ANVISA cache lookup (same cursor, before closing)
     anvisa = {}
-    _chave_anvisa = _anvisa_chave(nome_busca) if nome_busca else ""
+    # nome_busca prioriza nome_hint (?nome= da URL -- pode vir de link antigo,
+    # gerado com nome errado do produto_canon, ou simplesmente manipulado) em
+    # primeiro lugar. Pra decidir tarja/bloqueio de imagem (safety-critical),
+    # usa a MESMA prioridade confiavel da variavel "nome" exibida na tela
+    # (dado real primeiro, nome_hint so como ultimo fallback) -- sem isso, um
+    # nome_hint incorreto podia fazer a chave nao bater com o anvisa_cache e
+    # a imagem real ficar visivel sem o bloqueio de tarja preta/vermelha.
+    _nome_para_anvisa = (
+        (med["descricao"] if med else None)
+        or _descricao_canon
+        or (produto["nome"] if produto else None)
+        or nome_hint
+        or ""
+    )
+    _chave_anvisa = _anvisa_chave(_nome_para_anvisa) if _nome_para_anvisa else ""
     if _chave_anvisa and _chave_anvisa not in _CHAVES_OTC_ISENTO:
         try:
             _anvisa_schema()   # ensure table exists (idempotent, own connection)
