@@ -500,8 +500,20 @@
       flex:0 0 auto;
     }
     .pq-drawer-user-copy { min-width:0; }
-    .pq-drawer-user strong { display:block; font-weight:900; font-size:.92rem; color:var(--pq-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pq-drawer-user-name-row { display:flex; align-items:center; gap:6px; min-width:0; }
+    .pq-drawer-user strong { display:block; min-width:0; font-weight:900; font-size:.92rem; color:var(--pq-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .pq-drawer-user span   { display:block; color:var(--pq-muted); font-size:.75rem; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    /* lapis ao lado do nome -- edita o perfil sem precisar de um item a
+       mais na lista comprida embaixo (pedido do Emanuel, mais enxuto e
+       "onde a pessoa ja espera achar" -- padrao comum em app de conta). */
+    .pq-drawer-edit-btn {
+      flex-shrink:0; width:24px; height:24px; border-radius:50%;
+      background:#fff3f5; color:var(--pq-red);
+      display:flex; align-items:center; justify-content:center;
+      font-size:.68rem; text-decoration:none;
+      transition:background .12s, transform .12s;
+    }
+    .pq-drawer-edit-btn:active { background:#ffe1e6; transform:scale(.92); }
 
     .pq-drawer-section {
       padding: 12px 18px 4px;
@@ -1343,7 +1355,10 @@
   <div class="pq-drawer-user">
     <div class="pq-drawer-user-icon"><i class="fa fa-user"></i></div>
     <div class="pq-drawer-user-copy">
-      <strong>{{ consumidor.nome }}</strong>
+      <div class="pq-drawer-user-name-row">
+        <strong>{{ consumidor.nome }}</strong>
+        <a class="pq-drawer-edit-btn" href="{{ url_for('consumidor_perfil') }}" onclick="fecharDrawer()" title="Editar perfil" aria-label="Editar perfil"><i class="fa fa-pen"></i></a>
+      </div>
       <span>{{ consumidor.email }}</span>
     </div>
   </div>
@@ -1428,9 +1443,6 @@
     {% endif %}
     <a class="pq-drawer-item js-baixar-app-link" href="{{ url_for('baixar_app') }}" onclick="fecharDrawer()">
       <i class="fa fa-mobile-screen-button"></i>Baixar app
-    </a>
-    <a class="pq-drawer-item" href="{{ url_for('consumidor_perfil') }}" onclick="fecharDrawer()">
-      <i class="fa fa-user-pen"></i>Editar perfil
     </a>
     <a class="pq-drawer-item" href="#" onclick="fecharDrawer();return pqSuporteAbrirDoMenu(event)">
       <i class="fa fa-circle-question"></i>Ajuda / Suporte
