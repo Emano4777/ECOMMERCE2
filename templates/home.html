@@ -1007,6 +1007,23 @@
 .home-topbar-action:disabled { opacity:.55; cursor:default; }
 .home-topbar-action.listening { color:var(--pq-red); animation:voice-pulse .8s ease-in-out infinite; }
 .pq-topbar-search.has-media input { padding-right:8px; }
+
+/* ── busca no mobile: barra mais alta (alvo de toque melhor), e o botao
+   de busca vira um circulo vermelho preenchido -- separa visualmente "os
+   ajudantes" (voz/foto, ghost cinza) da acao que de fato busca, em vez de
+   3 bolinhas cinzas identicas amontoadas que nao deixam claro qual delas
+   executa a pesquisa. ── */
+@media(max-width:680px) {
+  .pq-topbar-search.has-media { height:46px; border-radius:23px; }
+  .pq-topbar-search.has-media input { font-size:.88rem; padding-left:18px; }
+  .home-topbar-actions { gap:1px; padding-right:4px; }
+  .home-topbar-action { width:38px; height:38px; font-size:.92rem; }
+  .pq-topbar-search-btn {
+    width:38px; height:38px; padding:0; margin-left:2px;
+    border-radius:50%; background:var(--pq-red); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+  }
+}
 </style>
 {% endblock %}
 
