@@ -2538,9 +2538,10 @@ async function abrirRecorrencia(cnpj) {
   // pagamento (documentado, mas sem numero fixo unico -- varia por cartao
   // escolhido) e, se o total do ciclo for baixo demais, falha com um erro
   // cru ("Erro ao carregar o formulario de cartao") sem dizer o motivo real.
-  // Trava aqui antes, com valor conservador, pra dar uma mensagem que faca
-  // sentido em vez do erro do SDK.
-  const REC_VALOR_MINIMO = 5;
+  // Trava aqui antes, pra dar uma mensagem que faca sentido em vez do erro
+  // do SDK. R$0,30 falhou e R$0,60 abriu normal em teste real -- usa 0,60
+  // como piso confirmado.
+  const REC_VALOR_MINIMO = 0.60;
   if (totalRec < REC_VALOR_MINIMO) {
     document.getElementById('rec-card-brick').innerHTML =
       `<div style="text-align:center;padding:16px;color:var(--pq-red);font-size:.85rem">O total do ciclo (${brl(totalRec)}) está abaixo do mínimo aceito pelo Mercado Pago para pagamento recorrente (${brl(REC_VALOR_MINIMO)}). Adicione mais itens ou aumente a quantidade antes de configurar a recorrência.</div>`;
