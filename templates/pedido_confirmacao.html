@@ -310,9 +310,16 @@
 
 {% block extra_js %}
 {% if gcr_data %}
-<!-- Google Avaliações do Consumidor: exibido somente após uma compra real -->
+<!-- Google Avaliações do Consumidor: exibido somente após uma compra real.
+     Essa pagina recarrega sozinha quando o Pix confirma (ver aplicarStatusUI),
+     entao sem essa trava o popup do Google aparecia 2x: uma vez na carga
+     inicial (antes de pagar) e outra de novo apos o reload -- o gcr_data
+     nao depende do status do pedido, roda em toda carga de pagina. -->
 <script>
 window.renderOptIn = function() {
+  var _gcrChave = 'pq_gcr_mostrado_' + {{ gcr_data.order_id|tojson }};
+  if (sessionStorage.getItem(_gcrChave)) return;
+  sessionStorage.setItem(_gcrChave, '1');
   window.gapi.load('surveyoptin', function() {
     const dadosAvaliacao = {{ gcr_data|tojson }};
     dadosAvaliacao.opt_in_style = 'CENTER_DIALOG';
