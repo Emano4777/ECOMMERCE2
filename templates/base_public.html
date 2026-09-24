@@ -586,17 +586,48 @@
       .pq-loc-btn { max-width: 200px; padding: 5px 10px; }
     }
 
-    /* mobile ≤ 680px */
+    /* mobile ≤ 680px -- header compacto, estilo app: logo pequena, botoes
+       (localizacao / cesta / menu) todos com a mesma linguagem visual
+       (circulo translucido sobre o vermelho), sem misturar caixa branca
+       com borda (hamburger antigo) e pilula com borda (localizacao antiga)
+       com link de texto empilhado (cesta antiga). */
     @media(max-width:680px) {
-      .pq-brand { flex-basis:72px; }
-      .pq-brand-logo { height: 72px; max-width:72px; }
-      .pq-loc-btn { flex: 1 1 auto; max-width: none; min-width: 0; padding: 6px 10px; }
+      .pq-brand { flex-basis:40px; }
+      .pq-brand-logo { height: 40px; max-width:40px; border-radius:8px; }
       .pq-brand-text { display: none; }
+
+      .pq-loc-btn {
+        flex: 1 1 auto; max-width: none; min-width: 0;
+        padding: 6px 10px 6px 6px; gap: 5px;
+        border-color: transparent; background: rgba(255,255,255,.15);
+      }
+      .pq-loc-icon-wrap {
+        width: 26px; height: 26px; border-radius: 50%;
+        background: rgba(255,255,255,.2);
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+      }
+      .pq-loc-label { display: none; }
+      .pq-loc-addr { font-size: .78rem; max-width: 30vw; }
+
+      .pq-topbar-right { gap: 6px; }
+      .pq-cart-link, .pq-hamburger {
+        width: 36px; height: 36px; padding: 0;
+        border-radius: 50%; border: 0;
+        background: rgba(255,255,255,.15);
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+      }
+      .pq-cart-link .pq-custom-ico { width: 19px; height: 19px; filter: brightness(0) invert(1); }
+      .pq-cart-link-txt { display: none; }
+      .pq-cart-link #cart-badge { top: -2px; right: -2px; }
+      .pq-hamburger { color: #fff; font-size: .95rem; }
+      .pq-hamburger:hover { border-color: transparent; color: #fff; background: rgba(255,255,255,.28); }
     }
 
-    /* tela muito pequena ≤ 400px: localização vira só ícone */
+    /* tela muito pequena ≤ 400px: localização mostra só o ícone */
     @media(max-width:400px) {
-      .pq-loc-btn { padding: 5px 8px; flex: 0 0 auto; }
+      .pq-loc-btn { padding: 6px; flex: 0 0 auto; background: transparent; }
       .pq-loc-texts { display: none; }
       .pq-loc-arrow { display: none; }
     }
@@ -1137,7 +1168,9 @@
     <a class="pq-brand" href="{{ url_for('index') }}"><img class="pq-brand-logo" src="{{ url_for('static', filename='poupaqui-logo.png') }}" alt=""><span class="pq-brand-text">Poupaqu<span class="pq-brand-highlight">i</span></span></a>
 
     <div class="pq-loc-btn" id="loc-btn" onclick="abrirModalLoc()">
-      <img src="{{ url_for('static', filename='icons/location.png') }}" alt="" class="pq-custom-ico" style="width:18px;height:18px;flex-shrink:0">
+      <span class="pq-loc-icon-wrap">
+        <img src="{{ url_for('static', filename='icons/location.png') }}" alt="" class="pq-custom-ico" style="width:18px;height:18px;flex-shrink:0">
+      </span>
       <div class="pq-loc-texts">
         <span class="pq-loc-label">sua localização</span>
         <span class="pq-loc-addr" id="loc-addr-text">Detectando…</span>
@@ -1174,9 +1207,9 @@
       <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10</span>
     </a>
     {% endif %}
-    <a class="pq-nav-link" href="{{ url_for('carrinho') }}" onclick="return abrirCestaLateral(event)">
+    <a class="pq-nav-link pq-cart-link" href="{{ url_for('carrinho') }}" onclick="return abrirCestaLateral(event)" aria-label="Sua cesta">
       <img src="{{ url_for('static', filename='icons/shopping-bag.png') }}" alt="" class="pq-custom-ico">
-      <span>Sua<br>Cesta</span>
+      <span class="pq-cart-link-txt">Sua<br>Cesta</span>
       <span id="cart-badge" style="position:absolute;top:-3px;right:-3px;background:#fff;color:var(--pq-red);font-size:.58rem;font-weight:800;min-width:17px;height:17px;border-radius:9px;padding:0 3px;display:none;align-items:center;justify-content:center;line-height:1">0</span>
     </a>
     {% if consumidor %}
