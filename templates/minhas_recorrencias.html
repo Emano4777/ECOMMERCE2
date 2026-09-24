@@ -29,6 +29,20 @@
 .rec-cancel-btn:hover { border-color:var(--pq-red); color:var(--pq-red); }
 .rec-empty { text-align:center; padding:60px 20px; color:var(--pq-muted); }
 .rec-empty i { font-size:2.4rem; opacity:.3; margin-bottom:12px; display:block; }
+
+.rc-overlay { display:none; position:fixed; inset:0; z-index:2600; background:rgba(20,10,30,.5); align-items:center; justify-content:center; padding:16px; }
+.rc-overlay.open { display:flex; }
+.rc-modal { background:#fff; border-radius:16px; width:100%; max-width:380px; padding:22px 22px 18px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+.rc-modal h3 { margin:0 0 8px; font-size:1.05rem; font-weight:900; }
+.rc-modal p { margin:0 0 14px; font-size:.84rem; color:var(--pq-muted); line-height:1.4; }
+.rc-estorno-opt { display:flex; align-items:flex-start; gap:9px; background:#faf7ff; border:1.5px solid #e9d8fd; border-radius:10px; padding:11px 12px; margin-bottom:16px; cursor:pointer; }
+.rc-estorno-opt input { margin-top:2px; width:16px; height:16px; flex-shrink:0; accent-color:#6d28d9; }
+.rc-estorno-opt span { font-size:.82rem; font-weight:700; color:#4c1d95; }
+.rc-estorno-opt small { display:block; font-weight:600; color:var(--pq-muted); font-size:.72rem; margin-top:2px; }
+.rc-modal-actions { display:flex; gap:8px; }
+.rc-modal-actions button { flex:1; padding:11px; border-radius:10px; font-weight:900; font-size:.84rem; cursor:pointer; font-family:inherit; }
+.rc-btn-manter { border:1.5px solid var(--pq-border); background:#fff; color:var(--pq-text); }
+.rc-btn-confirmar { border:0; background:var(--pq-red); color:#fff; }
 </style>
 {% endblock %}
 
@@ -91,19 +105,51 @@
   </div>
   {% endif %}
 </div>
+
+<div class="rc-overlay" id="rc-overlay" onclick="if(event.target===this) rcFecharCancelar()">
+  <div class="rc-modal">
+    <h3>Cancelar recorrência?</h3>
+    <p>As próximas cobranças param de acontecer. Isso não pode ser desfeito.</p>
+    <label class="rc-estorno-opt" id="rc-estorno-wrap" style="display:none">
+      <input type="checkbox" id="rc-estorno-check">
+      <span>Também estornar o último pedido (<b id="rc-estorno-valor"></b>)<small>Ainda está "pago", a loja não começou a preparar</small></span>
+    </label>
+    <div class="rc-modal-actions">
+      <button type="button" class="rc-btn-manter" onclick="rcFecharCancelar()">Manter</button>
+      <button type="button" class="rc-btn-confirmar" onclick="rcConfirmarCancelar()">Cancelar recorrência</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+let _rcCancelId = null;
+
 function recCancelar(id, podeEstornar, valorLabel) {
-  if (!confirm('Cancelar essa recorrência? As próximas cobranças param de acontecer.')) return;
-  let estornar = false;
+  _rcCancelId = id;
+  const wrap = document.getElementById('rc-estorno-wrap');
+  const check = document.getElementById('rc-estorno-check');
+  check.checked = false;
   if (podeEstornar) {
-    estornar = confirm(
-      `O último pedido dessa recorrência (R$ ${valorLabel}) ainda está "pago", sem preparo iniciado.\n\n` +
-      `Quer estornar esse valor também?\n\nOK = cancelar e estornar\nCancelar = só parar as próximas cobranças (mantém esse pedido)`
-    );
+    document.getElementById('rc-estorno-valor').textContent = `R$ ${valorLabel}`;
+    wrap.style.display = 'flex';
+  } else {
+    wrap.style.display = 'none';
   }
+  document.getElementById('rc-overlay').classList.add('open');
+}
+
+function rcFecharCancelar() {
+  document.getElementById('rc-overlay').classList.remove('open');
+  _rcCancelId = null;
+}
+
+function rcConfirmarCancelar() {
+  if (!_rcCancelId) return;
+  const id = _rcCancelId;
+  const estornar = document.getElementById('rc-estorno-check').checked;
+  rcFecharCancelar();
   fetch(`/minhas-recorrencias/${id}/cancelar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
