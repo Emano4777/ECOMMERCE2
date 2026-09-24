@@ -60,6 +60,11 @@
       {% if r.motivo_cancelamento and r.status in ['preco_mudou', 'erro'] %}
       <div class="rec-motivo"><i class="fa fa-circle-info me-1"></i>{{ r.motivo_cancelamento }}</div>
       {% endif %}
+      {% if r.status in ['ativo', 'pendente'] and r.ultimo_pedido_status and r.ultimo_pedido_status != 'pago' %}
+      <div class="rec-motivo" style="color:#1d4ed8;background:#eff6ff">
+        <i class="fa fa-circle-info me-1"></i>O último pedido já está em preparo/entrega — pra estorno ou problema com ele, acesse Meus Pedidos.
+      </div>
+      {% endif %}
       <div class="rec-foot">
         <div>
           <div class="rec-total">R$ {{ "%.2f"|format(r.valor_total|float) | replace(".", ",") }}</div>
@@ -69,7 +74,10 @@
           {% endif %}
         </div>
         {% if r.status in ['ativo', 'pendente'] %}
-        <button type="button" class="rec-cancel-btn" onclick="recCancelar('{{ r.id }}')">Cancelar</button>
+        <button type="button" class="rec-cancel-btn"
+          onclick="recCancelar('{{ r.id }}', {{ 'true' if r.pode_estornar else 'false' }}, '{{ ("%.2f"|format(r.ultimo_pedido_total|float)|replace(".", ",")) if r.ultimo_pedido_total else "" }}')">
+          Cancelar
+        </button>
         {% endif %}
       </div>
     </div>
@@ -87,12 +95,27 @@
 
 {% block extra_js %}
 <script>
-function recCancelar(id) {
+function recCancelar(id, podeEstornar, valorLabel) {
   if (!confirm('Cancelar essa recorrência? As próximas cobranças param de acontecer.')) return;
-  fetch(`/minhas-recorrencias/${id}/cancelar`, { method: 'POST' })
+  let estornar = false;
+  if (podeEstornar) {
+    estornar = confirm(
+      `O último pedido dessa recorrência (R$ ${valorLabel}) ainda está "pago", sem preparo iniciado.\n\n` +
+      `Quer estornar esse valor também?\n\nOK = cancelar e estornar\nCancelar = só parar as próximas cobranças (mantém esse pedido)`
+    );
+  }
+  fetch(`/minhas-recorrencias/${id}/cancelar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ estornar }),
+  })
     .then(r => r.json())
     .then(d => {
-      if (d.ok) { location.reload(); }
+      if (d.ok) {
+        if (estornar && !d.estornado) alert(d.estorno_erro || 'Recorrência cancelada, mas não foi possível estornar o pedido.');
+        else if (d.estornado) alert('Recorrência cancelada e pedido estornado.');
+        location.reload();
+      }
       else { alert(d.error || 'Erro ao cancelar.'); }
     })
     .catch(() => alert('Erro ao cancelar.'));

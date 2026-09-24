@@ -21364,14 +21364,20 @@ def minhas_recorrencias():
     _ensure_recorrencias_schema()
     conn = db(); cur = conn.cursor()
     cur.execute(
-        """SELECT r.*, u.razao FROM ecommerce_recorrencias r
+        """SELECT r.*, u.razao, p.status AS ultimo_pedido_status, p.total AS ultimo_pedido_total
+           FROM ecommerce_recorrencias r
            LEFT JOIN users u ON u.cnpjloja = r.cnpjloja
+           LEFT JOIN ecommerce_pedidos p ON p.id = r.ultimo_pedido_id
            WHERE r.consumidor_id=%s ORDER BY r.criado_em DESC""",
         (str(consumidor_id),),
     )
     recorrencias = [dict(r) for r in cur.fetchall()]
     for r in recorrencias:
         r["razao"] = _public_store_name(r)
+        # so oferece estorno self-service se o ultimo pedido ainda esta so
+        # "pago" -- depois que a loja avanca o status (preparo/entrega), o
+        # estorno vira decisao da loja via Meus Pedidos, nao automatico aqui.
+        r["pode_estornar"] = r.get("ultimo_pedido_status") == "pago"
     cur.close()
     return render_template("minhas_recorrencias.html", recorrencias=recorrencias)
 
@@ -21382,6 +21388,8 @@ def api_recorrencia_cancelar(recorrencia_id):
     if not consumidor_id:
         return jsonify({"error": "Faça login."}), 401
     _ensure_recorrencias_schema()
+    data = request.get_json(silent=True) or {}
+    quer_estornar = bool(data.get("estornar"))
     conn = db(); cur = conn.cursor()
     cur.execute(
         "SELECT * FROM ecommerce_recorrencias WHERE id=%s AND consumidor_id=%s LIMIT 1",
@@ -21404,8 +21412,28 @@ def api_recorrencia_cancelar(recorrencia_id):
         "UPDATE ecommerce_recorrencias SET status='cancelado', cancelado_em=NOW() WHERE id=%s",
         (recorrencia_id,),
     )
-    conn.commit(); cur.close()
-    return jsonify({"ok": True})
+    conn.commit()
+
+    # Estorno self-service: so permitido se o ultimo pedido dessa recorrencia
+    # ainda esta exatamente em "pago" (loja ainda nao comecou a separar/
+    # preparar). Depois que o status avanca, o cliente precisa passar pelo
+    # fluxo normal de reclamacao em Meus Pedidos -- ali quem decide e a loja,
+    # porque ela pode ja ter gasto produto/trabalho preparando o pedido.
+    estornado = False
+    estorno_erro = None
+    if quer_estornar and row.get("ultimo_pedido_id"):
+        cur.execute("SELECT status FROM ecommerce_pedidos WHERE id=%s", (row["ultimo_pedido_id"],))
+        pedido_row = cur.fetchone()
+        if pedido_row and pedido_row.get("status") == "pago":
+            ok, info = _mp_estornar_pagamento(str(row["ultimo_pedido_id"]), row["cnpjloja"])
+            if ok:
+                estornado = True
+            else:
+                estorno_erro = info
+        else:
+            estorno_erro = "Esse pedido já mudou de status na loja e não pode mais ser estornado por aqui."
+    cur.close()
+    return jsonify({"ok": True, "estornado": estornado, "estorno_erro": estorno_erro})
 
 
 def _ativar_assinatura_row(cur, assinatura_id, recorrente=False):
