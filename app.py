@@ -21058,6 +21058,57 @@ def _criar_assinatura_recorrente_cartao_mp(access_token, assinatura_id, plano, c
         return {"_erro": str(exc)}
 
 
+_MP_ERRO_CARTAO_MSGS = {
+    "cc_rejected_high_risk": (
+        "O Mercado Pago recusou por suspeita de fraude — geralmente acontece com tentativas repetidas "
+        "usando o mesmo cartão e valor em sequência. Espere alguns minutos e tente de novo, ou use outro cartão."
+    ),
+    "cc_val_433": (
+        "O cartão não passou na validação de segurança do Mercado Pago — geralmente é o antifraude "
+        "bloqueando tentativas repetidas. Espere alguns minutos e tente de novo, ou use outro cartão."
+    ),
+    "cc_rejected_insufficient_amount": "O cartão não tem limite disponível para esse valor.",
+    "cc_rejected_bad_filled_card_number": "Número do cartão incorreto. Confira e tente de novo.",
+    "cc_rejected_bad_filled_date": "Validade do cartão incorreta. Confira e tente de novo.",
+    "cc_rejected_bad_filled_security_code": "Código de segurança (CVV) incorreto. Confira e tente de novo.",
+    "cc_rejected_bad_filled_other": "Algum dado do cartão está incorreto. Confira e tente de novo.",
+    "cc_rejected_call_for_authorize": "O banco pediu autorização manual pra essa compra — entre em contato com o seu banco ou tente outro cartão.",
+    "cc_rejected_card_disabled": "Esse cartão está desabilitado pra compras online. Fale com o banco ou use outro cartão.",
+    "cc_rejected_card_error": "Não foi possível processar esse cartão agora. Tente outro cartão.",
+    "cc_rejected_duplicated_payment": "Já existe uma cobrança igual muito recente com esse cartão. Se não foi você duplicando, espere um pouco e tente de novo.",
+    "cc_rejected_max_attempts": "Esse cartão atingiu o limite de tentativas permitidas. Tente mais tarde ou use outro cartão.",
+    "cc_rejected_blacklist": "O Mercado Pago recusou esse cartão por segurança. Tente outro cartão ou fale com seu banco.",
+    "cc_rejected_other_reason": "O banco recusou o cartão sem detalhar o motivo. Tente outro cartão.",
+    "cc_rejected_invalid_installments": "Esse cartão não aceita a forma de pagamento escolhida. Tente outro cartão.",
+}
+
+
+def _mp_erro_cartao_amigavel(erro_raw):
+    """Traduz o erro cru do Mercado Pago (formato 'MP 400 /path: {json}',
+    ver _mp_request) numa mensagem que o cliente final entende, em vez do
+    json tecnico. Cai num texto generico quando nao reconhece o motivo."""
+    if not erro_raw:
+        return "Não foi possível confirmar o pagamento com o Mercado Pago."
+    texto = str(erro_raw)
+    code, message = "", ""
+    m = re.search(r"\{.*\}", texto)
+    if m:
+        try:
+            body = json.loads(m.group(0))
+            code = str(body.get("code") or "").lower()
+            message = str(body.get("message") or "")
+            cause = body.get("cause")
+            if isinstance(cause, list) and cause and not message:
+                message = str((cause[0] or {}).get("description") or "")
+        except Exception:
+            pass
+    busca = f"{code} {message} {texto}".lower()
+    for chave, amigavel in _MP_ERRO_CARTAO_MSGS.items():
+        if chave in busca:
+            return amigavel
+    return "O Mercado Pago recusou o cartão nessa tentativa. Confira os dados ou tente outro cartão."
+
+
 def _criar_recorrencia_cartao_mp(loja_access_token, recorrencia_id, valor, frequencia_dias, cliente, razao, card_token_id):
     """Mesmo mecanismo de _criar_assinatura_recorrente_cartao_mp, mas: (1)
     roda no token da LOJA (venda de produto de verdade, nao receita da
@@ -21339,9 +21390,10 @@ def api_recorrencia_criar():
     )
     erro = pre.get("_erro") if isinstance(pre, dict) else "resposta inválida do Mercado Pago"
     if erro:
-        cur.execute("UPDATE ecommerce_recorrencias SET status='erro', motivo_cancelamento=%s WHERE id=%s", (erro, recorrencia_id))
+        erro_amigavel = _mp_erro_cartao_amigavel(erro)
+        cur.execute("UPDATE ecommerce_recorrencias SET status='erro', motivo_cancelamento=%s WHERE id=%s", (erro_amigavel, recorrencia_id))
         conn.commit(); cur.close()
-        return jsonify({"error": erro}), 400
+        return jsonify({"error": erro_amigavel}), 400
 
     pre_id = str(pre.get("id") or "")
     status_mp = (pre.get("status") or "").lower()
@@ -35885,7 +35937,7 @@ def assinatura_cartao_transparente(cnpjloja):
     erro = pre.get("_erro") if isinstance(pre, dict) else None
     if erro:
         cur.close()
-        return jsonify({"error": erro}), 400
+        return jsonify({"error": _mp_erro_cartao_amigavel(erro)}), 400
     pre_id = str(pre.get("id") or "")
     cur.execute(
         "UPDATE ecommerce_assinantes SET mp_preapproval_id=%s, mp_preapproval_init_point=NULL WHERE id=%s",
