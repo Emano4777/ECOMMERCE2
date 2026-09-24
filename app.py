@@ -27462,8 +27462,18 @@ def _cron_authorized():
 
 @app.post("/api/cron/recorrencias-verificar")
 def api_cron_recorrencias_verificar():
-    """Roda 1x por dia (cron externo, mesmo padrao dos outros /api/cron/*).
-    Duas checagens separadas, prazos diferentes:
+    """Roda a cada 30 minutos (cron externo, mesmo padrao dos outros
+    /api/cron/*) -- frequencia alta porque o webhook do MP nao esta
+    confiavel pra recorrencia de loja (confirmado: notification_url nao
+    fica salvo na preapproval nessa conta, mesmo mandando no payload de
+    criacao), entao essa reconciliacao periodica e o jeito real do pedido
+    aparecer sem demora depois de uma cobranca aprovada.
+
+    Tres checagens separadas, prazos diferentes:
+
+    0) Reconciliacao de pedido: consulta authorized_payments de cada
+       recorrencia ativa direto no MP e cria o pedido que faltar --
+       idempotente (dedup por mp_payment_id), seguro rodar toda hora.
 
     1) Pre-aviso de estoque (ate 3 dias antes da cobranca): se algum item
        da recorrencia esta sem estoque suficiente, abre uma encomenda pra
