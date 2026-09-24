@@ -526,22 +526,26 @@
 }
 .prod-cupom-badge {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   background: #fff0f2;
   color: var(--pq-red);
   border-radius: 6px;
-  padding: 2px 7px;
+  padding: 3px 7px;
   font-size: .68rem;
   font-weight: 800;
   max-width: 100%;
-  overflow: hidden;
 }
+/* texto do selo quebra em ate 2 linhas em vez de cortar com reticencias --
+   "Leve 2+ por R$44,99 cada" ficava "Leve 2+ por R$44,..." ilegivel numa
+   busca no mobile, onde o card e mais estreito. */
 .prod-cupom-badge span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+.prod-cupom-badge i { margin-top: 2px; }
 .prod-loja-row {
   margin-top: auto;
   padding-top: 6px;
