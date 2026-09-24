@@ -21114,6 +21114,7 @@ def _criar_pedido_de_recorrencia(recorrencia_id, mp_payment_id=None):
         if r.get("tipo_entrega") == "entrega" and r.get("horario_entrega_preferido"):
             endereco_final = f"{endereco_final or ''} (Horário preferido: {r['horario_entrega_preferido']})".strip()
 
+        import uuid as _uuid
         pedido_id = str(_uuid.uuid4())
         cur.execute(
             """
