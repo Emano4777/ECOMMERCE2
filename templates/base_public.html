@@ -1403,15 +1403,6 @@
 
   <div style="padding:4px 0">
     <div class="pq-drawer-section">Minha conta</div>
-    <a class="pq-drawer-item" href="{{ url_for('meus_pedidos') }}" onclick="fecharDrawer()">
-      <i class="fa fa-receipt"></i>Meus pedidos
-    </a>
-    <a class="pq-drawer-item" href="{{ url_for('consumidor_notificacoes') }}" onclick="fecharDrawer()">
-      <i class="fa fa-bell"></i>Notificacoes
-      {% if consumidor_notif_nao_lidas > 0 %}
-      <span class="pq-drawer-badge">{{ consumidor_notif_nao_lidas }}</span>
-      {% endif %}
-    </a>
     {% if consumidor_rec_abertas > 0 %}
     <a class="pq-drawer-item" href="{{ url_for('minhas_reclamacoes') }}" onclick="fecharDrawer()">
       <i class="fa fa-triangle-exclamation" style="color:#d97706;background:#fef3e2"></i>Reclamações
@@ -1424,23 +1415,19 @@
       <span class="pq-drawer-badge">{{ consumidor_encomendas_abertas }}</span>
       {% endif %}
     </a>
-    <a class="pq-drawer-item" href="{{ url_for('consumidor_cupons') }}" onclick="fecharDrawer()">
-      <i class="fa fa-ticket"></i>Meus cupons
-    </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_lista_presentes') }}" onclick="fecharDrawer()">
       <i class="fa fa-gift"></i>Lista de presentes
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_indicar') }}" onclick="fecharDrawer()">
       <i class="fa fa-user-plus" style="color:#25d366;background:#e8f9ee"></i>Indique um amigo
     </a>
+    {% if not consumidor_tem_assinatura %}
     <a class="pq-drawer-item" href="{{ url_for('minhas_assinaturas') }}" onclick="fecharDrawer()">
       <i class="fa fa-star"></i>Minhas assinaturas
     </a>
+    {% endif %}
     <a class="pq-drawer-item js-baixar-app-link" href="{{ url_for('baixar_app') }}" onclick="fecharDrawer()">
       <i class="fa fa-mobile-screen-button"></i>Baixar app
-    </a>
-    <a class="pq-drawer-item" href="{{ url_for('consumidor_favoritos') }}" onclick="fecharDrawer()">
-      <i class="fa fa-heart"></i>Favoritos
     </a>
     <a class="pq-drawer-item" href="{{ url_for('consumidor_perfil') }}" onclick="fecharDrawer()">
       <i class="fa fa-user-pen"></i>Editar perfil
@@ -1456,9 +1443,11 @@
   {% endif %}
 
   <div class="pq-drawer-section">Navegação</div>
+  {% if not consumidor %}
   <a class="pq-drawer-item" href="{{ url_for('catalogo_publico') }}" onclick="fecharDrawer()">
     <i class="fa fa-table-cells-large"></i>Catálogo
   </a>
+  {% endif %}
   <a class="pq-drawer-item" href="{{ url_for('vitnatu_page') }}" onclick="fecharDrawer()" style="color:#2e7d32;font-weight:800">
     <i class="fa fa-leaf" style="color:#2e7d32;background:#e8f9ee"></i>Nossa Marca Própria
   </a>
@@ -1468,7 +1457,7 @@
   <a class="pq-drawer-item" href="{{ url_for('lojas_vitrine') }}" onclick="fecharDrawer()">
     <i class="fa fa-store"></i>Nossas lojas
   </a>
-  {% if not consumidor_tem_assinatura %}
+  {% if not consumidor_tem_assinatura and not consumidor %}
   <a class="pq-drawer-item" href="{{ url_for('seja_assinante') }}" onclick="fecharDrawer()" style="color:#b45309;font-weight:800">
     <i class="fa fa-star" style="color:#b45309;background:#fef3e2"></i>Seja assinante <span class="pq-nav-promo-chip pq-promo-regional" style="display:none" data-pq-promo-display="inline-flex">R$10/mês</span>
   </a>
