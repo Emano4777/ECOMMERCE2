@@ -31,8 +31,9 @@
 }
 .pd-qtd-tile:active { transform: scale(.97); }
 .pd-qtd-tile-qty { font-size: .74rem; font-weight: 700; color: var(--pq-muted); }
-.pd-qtd-tile-price { font-size: 1rem; font-weight: 900; color: #1a1a1a; white-space: nowrap; }
-.pd-qtd-tile-price small { font-size: .68rem; font-weight: 700; color: var(--pq-muted); }
+.pd-qtd-tile-price { font-size: 1rem; font-weight: 900; color: #1a1a1a; overflow-wrap: break-word; }
+.pd-qtd-tile-price small { font-size: .68rem; font-weight: 700; color: var(--pq-muted); white-space: nowrap; }
+@media (max-width: 360px) { .pd-qtd-tile-price { font-size: .88rem; } }
 .pd-qtd-tile.active {
   border-color: #6d28d9; background: #f3e8ff;
   animation: pq-qtd-pulse 2.2s ease-in-out infinite;

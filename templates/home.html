@@ -1501,15 +1501,19 @@ function _homeCardUpdatePrice(wrap, qty) {
   } else {
     priceEl.innerHTML = hBrl(precoBase);
   }
-  // Selo no canto da imagem: "Leve N+" convida ate a quantidade bater o
-  // minimo, depois vira confirmacao curta (cabe pouco texto num selo de
-  // canto, o valor economizado real ja aparece riscado no preco acima).
+  // Selo no canto da imagem: "Leve N+" sozinho nao dizia nada pra quem
+  // nao conhece o termo -- agora mostra o % de desconto junto (mesma
+  // linguagem do selo vermelho de promo normal), da pra entender o
+  // beneficio so olhando o numero, sem precisar saber o que "leve" quer
+  // dizer. Depois de atingir vira confirmacao curta (valor economizado
+  // real ja aparece riscado no preco acima).
   const badgeEl = card?.querySelector('.home-prod-qtd-badge');
   if (badgeEl) {
+    const pct = precoBase > 0 ? Math.round((1 - pq.preco_unit_promo / precoBase) * 100) : 0;
     if (atingiu) {
       badgeEl.innerHTML = `<i class="fa fa-circle-check" style="font-size:.56rem;flex-shrink:0"></i><span>Oferta ativa</span>`;
     } else {
-      badgeEl.innerHTML = `<i class="fa fa-layer-group" style="font-size:.56rem;flex-shrink:0"></i><span>Leve ${pq.qtd_minima}+</span>`;
+      badgeEl.innerHTML = `<i class="fa fa-layer-group" style="font-size:.56rem;flex-shrink:0"></i><span>Leve ${pq.qtd_minima}+ ${pct > 0 ? '· -' + pct + '%' : ''}</span>`;
     }
   }
 }
@@ -1593,8 +1597,9 @@ function prodCard(p, badge){
       return `<div class="home-prod-corner-badge" style="background:#b45309"><i class="fa fa-star" style="font-size:.56rem"></i>Assinante</div>`;
     }
     if (p.promo_qtd) {
+      const pqPct = precoAtual > 0 ? Math.round((1 - p.promo_qtd.preco_unit_promo / precoAtual) * 100) : 0;
       return `<div class="home-prod-corner-badge home-prod-qtd-badge" style="background:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
-        <i class="fa fa-layer-group" style="font-size:.56rem;flex-shrink:0"></i><span>Leve ${p.promo_qtd.qtd_minima}+</span>
+        <i class="fa fa-layer-group" style="font-size:.56rem;flex-shrink:0"></i><span>Leve ${p.promo_qtd.qtd_minima}+ ${pqPct > 0 ? '· -' + pqPct + '%' : ''}</span>
       </div>`;
     }
     return '';

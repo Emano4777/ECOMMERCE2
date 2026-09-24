@@ -1297,8 +1297,10 @@ function cornerBadgeHtml(p, qty) {
   const pq = p.promo_qtd;
   if (pq) {
     const atingiu = qty >= pq.qtd_minima;
+    const pqPct = precoAtual > 0 ? Math.round((1 - pq.preco_unit_promo / precoAtual) * 100) : 0;
+    const texto = atingiu ? 'Oferta ativa' : `Leve ${pq.qtd_minima}+ ${pqPct > 0 ? '· -' + pqPct + '%' : ''}`;
     return `<div class="prod-corner-badge" style="background:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
-      <i class="fa fa-${atingiu ? 'circle-check' : 'layer-group'}"></i>${atingiu ? 'Oferta ativa' : 'Leve ' + pq.qtd_minima + '+'}
+      <i class="fa fa-${atingiu ? 'circle-check' : 'layer-group'}"></i>${texto}
     </div>`;
   }
   return '';
