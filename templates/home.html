@@ -275,6 +275,11 @@
 .home-pa-titulo { font-size:.86rem; font-weight:900; color:#fff; line-height:1.3; }
 .home-pa-sub { font-size:.74rem; color:#c9c9c9; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .home-pa-arrow { color:#888; flex-shrink:0; }
+.home-pa-strip.carrinho { background:#fff5f7; border:1.5px solid var(--pq-red); box-shadow:none; }
+.home-pa-strip.carrinho .home-pa-ico { background:var(--pq-red); color:#fff; }
+.home-pa-strip.carrinho .home-pa-titulo { color:#1a1a1a; }
+.home-pa-strip.carrinho .home-pa-sub { color:#8a5a60; }
+.home-pa-strip.carrinho .home-pa-arrow { color:var(--pq-red); }
 @media (max-width:480px) {
   .home-pa-strip { padding:11px 13px; gap:10px; border-radius:14px; }
   .home-pa-titulo { font-size:.8rem; }
@@ -1050,6 +1055,21 @@
     <div class="home-pa-body">
       <div class="home-pa-titulo" id="home-pa-titulo"></div>
       <div class="home-pa-sub" id="home-pa-sub"></div>
+    </div>
+    <i class="fa fa-chevron-right home-pa-arrow"></i>
+  </a>
+
+  {# ── Carrinho anterior: cliente logado que tem item salvo no carrinho do
+       servidor (ecommerce_carrinho) mas a cesta local desse navegador tá
+       vazia -- ex: trocou de aparelho, limpou dados do site, ou voltou
+       depois de muito tempo. So mostra quando NAO tem pedido em andamento
+       (evita empilhar duas faixas parecidas no topo) e quando a cesta local
+       ja nao tem nada (senao a pessoa ja ta no meio de uma compra ativa). ── #}
+  <a href="#" id="home-carrinho-anterior" class="home-pa-strip carrinho" style="display:none">
+    <div class="home-pa-ico"><i class="fa fa-basket-shopping"></i></div>
+    <div class="home-pa-body">
+      <div class="home-pa-titulo" id="home-ca-titulo"></div>
+      <div class="home-pa-sub" id="home-ca-sub"></div>
     </div>
     <i class="fa fa-chevron-right home-pa-arrow"></i>
   </a>
@@ -2767,6 +2787,36 @@ function _pqAnimaContagem(el, valorFinal, formatFn) {
   requestAnimationFrame(passo);
 }
 
+function _carregarCarrinhoAnterior() {
+  // So mostra se a cesta LOCAL desse navegador ja ta vazia (senao a pessoa
+  // ja ta no meio de uma compra ativa e o badge do header ja cobre isso) e
+  // so entra em jogo quando nao tem pedido em andamento (evita empilhar
+  // duas faixas parecidas no topo). Reusa /api/carrinho (mesmo endpoint que
+  // a pagina do carrinho usa) pra pegar preco/promo/estoque ja recalculados
+  // na hora -- nao reinventa esse calculo aqui.
+  if (getCart().length) return;
+  fetch('/api/carrinho')
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      const itens = (d && d.items) || [];
+      if (!itens.length) return;
+      const el = document.getElementById('home-carrinho-anterior');
+      if (!el) return;
+      const totalItens = itens.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+      const totalValor = itens.reduce((s, i) => s + (parseFloat(i.preco) || 0) * (parseInt(i.qty) || 1), 0);
+      document.getElementById('home-ca-titulo').textContent =
+        `Você deixou ${totalItens} ${totalItens === 1 ? 'item' : 'itens'} na cesta`;
+      document.getElementById('home-ca-sub').textContent =
+        `${hBrl(totalValor)} · ${itens[0].razao || 'continuar de onde parou'}`;
+      // Nao precisa mesclar aqui: /carrinho ja faz merge com o banco sozinho
+      // quando a cesta local ta vazia (mesmo endpoint /api/carrinho, mesma
+      // logica) -- so leva pra la.
+      el.href = '/carrinho';
+      el.style.display = 'flex';
+    })
+    .catch(() => {});
+}
+
 (function () {
   // Pedido em andamento (so aparece com pedido ativo de verdade -- nem
   // entregue/retirado nem cancelado -- some sozinho quando finaliza)
@@ -2776,7 +2826,8 @@ function _pqAnimaContagem(el, valorFinal, formatFn) {
       .then(d => {
         const p = d && d.pedido;
         const el = document.getElementById('home-pedido-andamento');
-        if (!p || !el) return;
+        if (!p) { _carregarCarrinhoAnterior(); return; }
+        if (!el) return;
         el.className = 'home-pa-strip ' + (p.classe || '');
         document.getElementById('home-pa-ico').className = 'fa ' + (p.icone || 'fa-box');
         document.getElementById('home-pa-titulo').textContent = p.titulo;
@@ -2784,7 +2835,7 @@ function _pqAnimaContagem(el, valorFinal, formatFn) {
         el.href = `/meus-pedidos/${p.id}`;
         el.style.display = 'flex';
       })
-      .catch(() => {});
+      .catch(() => { _carregarCarrinhoAnterior(); });
   } catch (e) {}
 
   // Aviso de cupom ativo pro cliente logado (nada aparece se nao tiver)
