@@ -20618,7 +20618,12 @@ def _ensure_payment_schema():
 
 
 def _public_base_url():
-    base = (os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_URL") or "").strip().rstrip("/")
+    # Sem fallback, qualquer preapproval (assinatura Clube ou recorrencia) que
+    # rode sem PUBLIC_BASE_URL/APP_URL configurada na Vercel fica sem
+    # notification_url -- o Mercado Pago nunca chama nosso webhook nesse caso
+    # (confirmado: assinaturas antigas do Clube tambem estavam sem essa url).
+    # Mesmo dominio hardcoded que _wa_base_url() ja usa como default.
+    base = (os.getenv("PUBLIC_BASE_URL") or os.getenv("APP_URL") or "https://www.drogariaspoupaqui.com.br").strip().rstrip("/")
     return base or None
 
 
@@ -21327,7 +21332,7 @@ def api_recorrencia_criar():
 
     cliente = _consumidor_from_session() or {}
     cliente["documento"] = doc_number
-    _obter_ou_criar_mp_customer(loja_token, consumidor_id, cnpjloja, cliente)
+    mp_customer_id = _obter_ou_criar_mp_customer(loja_token, consumidor_id, cnpjloja, cliente)
     pre = _criar_recorrencia_cartao_mp(
         loja_token, recorrencia_id, valor_total, frequencia_dias, cliente,
         _public_store_name(loja_info), card_token,
@@ -21347,6 +21352,18 @@ def api_recorrencia_criar():
                WHERE id=%s""",
             (pre_id, frequencia_dias, recorrencia_id),
         )
+        # Salva o cartao no customer da loja -- assim, na proxima recorrencia
+        # (ou assinatura) dessa mesma loja, o Brick ja mostra ele pronto pra
+        # escolher em vez do cliente ter que digitar tudo de novo.
+        if mp_customer_id:
+            try:
+                card_resp = _mp_request(
+                    loja_token, f"/v1/customers/{mp_customer_id}/cards", {"token": card_token}, method="POST",
+                )
+                if card_resp.get("id"):
+                    _registrar_cartao_de_pagamento(conn, {"card": card_resp}, consumidor_id, cnpjloja)
+            except Exception:
+                pass
     else:
         cur.execute(
             "UPDATE ecommerce_recorrencias SET mp_preapproval_id=%s, status='erro', motivo_cancelamento=%s WHERE id=%s",
@@ -27407,7 +27424,34 @@ def api_cron_recorrencias_verificar():
         return jsonify({"ok": False}), 401
     _ensure_recorrencias_schema()
     conn = db(); cur = conn.cursor()
-    resultado = {"encomenda_criada": 0, "cancelado_preco": 0, "seguiu_ativo": 0}
+    resultado = {"encomenda_criada": 0, "cancelado_preco": 0, "seguiu_ativo": 0, "pedido_reconciliado": 0}
+
+    # Rede de seguranca: cobranca recorrente cria pedido em tempo real via
+    # webhook (authorized_payment), mas se por qualquer motivo o MP nao
+    # notificar (ex.: notification_url ausente numa preapproval antiga,
+    # entrega de webhook perdida), reconcilia aqui 1x por dia -- consulta
+    # direto no MP se teve cobranca aprovada sem pedido correspondente ainda.
+    cur.execute("SELECT id, cnpjloja, mp_preapproval_id FROM ecommerce_recorrencias WHERE status='ativo' AND mp_preapproval_id IS NOT NULL")
+    for r in [dict(x) for x in cur.fetchall()]:
+        cur.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s", (r["cnpjloja"],))
+        loja_row = cur.fetchone()
+        loja_token = (loja_row or {}).get("mp_access_token") or ""
+        if not loja_token:
+            continue
+        try:
+            data = _mp_request(loja_token, f"/authorized_payments/search?preapproval_id={r['mp_preapproval_id']}", method="GET")
+        except Exception:
+            continue
+        for res in (data.get("results") or []):
+            pagamento = res.get("payment") or {}
+            payment_id = pagamento.get("id")
+            if not payment_id or (pagamento.get("status") or "").lower() != "approved":
+                continue
+            cur.execute("SELECT 1 FROM ecommerce_pedidos WHERE mp_payment_id=%s LIMIT 1", (str(payment_id),))
+            if cur.fetchone():
+                continue
+            if _criar_pedido_de_recorrencia(r["id"], payment_id):
+                resultado["pedido_reconciliado"] += 1
 
     cur.execute(
         """SELECT * FROM ecommerce_recorrencias

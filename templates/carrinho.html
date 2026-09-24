@@ -635,13 +635,6 @@
         <label>Horário preferido pra entrega</label>
         <input type="time" id="rec-horario">
       </div>
-      <div class="rec-field">
-        <label>CPF/CNPJ do pagador</label>
-        <div class="rec-doc-row">
-          <select id="rec-doc-type"><option value="CPF">CPF</option><option value="CNPJ">CNPJ</option></select>
-          <input type="text" id="rec-doc-number" inputmode="numeric" placeholder="Só números">
-        </div>
-      </div>
       <div id="rec-card-brick"></div>
       <div class="rec-status-msg" id="rec-status"></div>
     </div>
@@ -2571,11 +2564,14 @@ function montarRecorrenciaBrick(cfg, itens, totalRec) {
       onReady: () => {},
       onSubmit: (cardFormData) => new Promise((resolve, reject) => {
         const statusEl = document.getElementById('rec-status');
-        const docType = document.getElementById('rec-doc-type').value;
-        const docNumber = (document.getElementById('rec-doc-number').value || '').replace(/\D/g, '');
+        // O proprio card do MP ja pede CPF/CNPJ do titular -- reaproveita esse
+        // dado em vez de pedir nos dois lugares (era irritante digitar 2x).
+        const ident = cardFormData.payer?.identification || {};
+        const docType = (ident.type || 'CPF').toUpperCase();
+        const docNumber = (ident.number || '').replace(/\D/g, '');
         const expected = docType === 'CNPJ' ? 14 : 11;
         if (docNumber.length !== expected) {
-          statusEl.textContent = `Informe um ${docType} válido.`;
+          statusEl.textContent = 'Não foi possível confirmar o CPF/CNPJ informado no cartão.';
           statusEl.className = 'rec-status-msg err';
           reject(); return;
         }
