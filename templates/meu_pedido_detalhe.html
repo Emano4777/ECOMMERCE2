@@ -183,6 +183,11 @@
       <button type="button" class="pd-btn-outline" onclick="repetirPedido('{{ pedido.id }}', this)">
         <i class="fa fa-rotate"></i>Repetir pedido
       </button>
+      {% if pedido.recorrencia_elegivel %}
+      <a class="pd-btn-outline" href="{{ url_for('pedido_confirmacao', ids=pedido.id) }}">
+        <i class="fa fa-repeat"></i>Comprar sempre isso
+      </a>
+      {% endif %}
     </div>
   </div>
 

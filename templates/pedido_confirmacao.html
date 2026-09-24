@@ -82,10 +82,18 @@
 /* popup de recorrencia pos-checkout (mesmo bottom-sheet do cross-sell, cor roxa) */
 .reccheckout-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.48); z-index:9910; backdrop-filter:blur(2px); align-items:flex-end; justify-content:center; }
 .reccheckout-overlay.open { display:flex; }
-.reccheckout-pop { width:100%; max-width:540px; max-height:90vh; overflow-y:auto; background:#fff; border-radius:28px 28px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,.18); animation:cscSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards; }
+.reccheckout-pop { position:relative; width:100%; max-width:540px; max-height:90vh; overflow-y:auto; background:#fff; border-radius:28px 28px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,.18); animation:cscSlideUp .36s cubic-bezier(.32,1.2,.46,1) forwards; box-sizing:border-box; }
 .reccheckout-handle { display:flex; justify-content:center; padding:12px 0 0; }
 .reccheckout-handle span { width:40px; height:4px; border-radius:99px; background:#e2e8f0; }
-.reccheckout-head { padding:16px 20px 10px; }
+.reccheckout-close { position:absolute; top:14px; right:14px; width:32px; height:32px; border:0; border-radius:50%; background:#f1f5f9; color:#475569; font-size:.9rem; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1; }
+.reccheckout-close:hover { background:#e2e8f0; }
+.reccheckout-head { padding:16px 44px 10px 20px; }
+@media (max-width:420px) {
+  .reccheckout-pop { max-height:94vh; }
+  .reccheckout-head h3 { font-size:.98rem; }
+  .reccheckout-head p { font-size:.78rem; }
+  .reccheckout-body { padding:6px 16px 18px; }
+}
 .reccheckout-head h3 { margin:0 0 4px; font-size:1.05rem; font-weight:900; color:#4c1d95; display:flex; align-items:center; gap:8px; }
 .reccheckout-head p { margin:0; font-size:.82rem; color:#64748b; line-height:1.4; }
 .reccheckout-body { padding:6px 20px 22px; display:flex; flex-direction:column; gap:14px; }
@@ -658,9 +666,10 @@ document.addEventListener('DOMContentLoaded', function(){
      tipo de entrega desse mesmo pedido, sem perguntar de novo. Dizer "nao"
      ou concluir o "sim" so fecha o popup; a tela de confirmacao por baixo
      continua exatamente igual, nada muda no fluxo normal. ── #}
-<div class="reccheckout-overlay" id="reccheckout-overlay" onclick="if(event.target===this) fecharReccheckout()">
+<div class="reccheckout-overlay" id="reccheckout-overlay">
   <div class="reccheckout-pop">
     <div class="reccheckout-handle"><span></span></div>
+    <button type="button" class="reccheckout-close" onclick="fecharReccheckout()" aria-label="Fechar"><i class="fa fa-xmark"></i></button>
     <div class="reccheckout-head">
       <h3><i class="fa fa-rotate"></i>Compra sempre isso?</h3>
       <p><strong>Isso não é sobre o pedido que você acabou de pagar</strong> — é pra criar uma assinatura nova e separada: a partir da próxima vez, a gente repete essa mesma cesta e cobra automático no cartão a cada tantos dias, sem você precisar voltar aqui. Se o preço mudar, a cobrança para sozinha.</p>

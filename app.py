@@ -18649,6 +18649,13 @@ def meu_pedido_detalhe(pedido_id):
         _nome_dia_ag = next((n for d, n in _DIAS_SEMANA if d == _dia_ag), "")
         pedido["data_entrega_agendada_label"] = f"{_nome_dia_ag}, {_data_ag.strftime('%d/%m/%Y')}"
 
+    # Permite reabrir o popup "compra sempre isso?" a partir do detalhe do
+    # pedido (ex: cliente fechou sem decidir na tela de confirmacao) -- mesmo
+    # criterio de elegibilidade que pedido_confirmacao() usa.
+    pedido["recorrencia_elegivel"] = bool(
+        mp_access_token and pedido.get("mp_public_key") and pedido.get("status") == "pago"
+    )
+
     timeline = _montar_timeline_pedido(pedido)
 
     previsao_em = pedido.get("previsao_entrega_em")
