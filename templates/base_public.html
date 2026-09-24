@@ -2368,6 +2368,44 @@ function saveCart(c) {
   _syncCartToDB(c);
 }
 
+// Funde o carrinho salvo na CONTA (banco, via /api/carrinho) com a cesta
+// local desse navegador -- o carrinho de quem esta logado fica vinculado a
+// CONTA, nao ao navegador: troca de aparelho, limpa dados do site, ou volta
+// depois de semanas, e o item continua la sem precisar clicar em nada.
+// So faz sentido logado -- /api/carrinho ja devolve vazio sem sessao, entao
+// anonimo continua 100% local (do jeito que tem que ser ate criar conta;
+// o que ja foi adicionado anonimo sincroniza pra conta sozinho no proximo
+// saveCart() depois do login, ja que o sync so e recusado sem sessao).
+// Roda uma vez por carregamento de pagina em qualquer lugar do site (nao
+// so na tela do carrinho), pra "esta na conta" ser o padrao mesmo, nao so
+// um aviso que a pessoa pode nem notar.
+let _cartMergedFromServer = false;
+async function mesclarCarrinhoDaConta() {
+  if (_cartMergedFromServer) return getCart();
+  _cartMergedFromServer = true;
+  try {
+    const r = await fetch('/api/carrinho');
+    if (!r.ok) return getCart();
+    const data = await r.json();
+    const dbItems = data.items || [];
+    if (!dbItems.length) return getCart();
+    const local = getCart();
+    const merged = [...dbItems];
+    local.forEach(li => {
+      if (!merged.find(m => m.ean === li.ean && m.cnpjloja === li.cnpjloja)) merged.push(li);
+    });
+    // Grava direto (sem passar por saveCart) pra nao disparar sync de volta
+    // ao banco por cima do que acabou de vir de la -- evita loop.
+    localStorage.setItem(CART_KEY, JSON.stringify(merged));
+    updateCartBadge();
+    if (typeof renderCestaLateral === 'function') renderCestaLateral();
+    return merged;
+  } catch {
+    return getCart();
+  }
+}
+mesclarCarrinhoDaConta();
+
 function addToCart(item) {
   const cart = getCart();
   const qty = Math.max(1, parseInt(item.qty) || 1);

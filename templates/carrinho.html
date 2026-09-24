@@ -2339,24 +2339,10 @@ async function finalizarPedido() {
 
 // Init — carrega do banco (se logado) e faz merge com localStorage
 (async () => {
-  try {
-    const r = await fetch('/api/carrinho');
-    if (r.ok) {
-      const data = await r.json();
-      const dbItems = data.items || [];
-      if (dbItems.length) {
-        const local = getCart();
-        const merged = [...dbItems];
-        local.forEach(li => {
-          if (!merged.find(m => m.ean === li.ean && m.cnpjloja === li.cnpjloja))
-            merged.push(li);
-        });
-        // saveCart sem disparar sync de volta ao banco (evita loop)
-        localStorage.setItem('pq_cart', JSON.stringify(merged));
-        updateCartBadge();
-      }
-    }
-  } catch {}
+  // Mesma funcao compartilhada de base_public.html usada em toda pagina do
+  // site agora -- aqui so garante que ja rodou antes de montar a tela
+  // (idempotente: se o base ja tiver mesclado, so devolve o carrinho atual).
+  await mesclarCarrinhoDaConta();
   await recalcularCarrinhoServidor();
   await carregarEnderecosCheckout();
   await carregarConfigLojas();
