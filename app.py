@@ -21354,14 +21354,21 @@ def api_recorrencia_criar():
         )
         # Salva o cartao no customer da loja -- assim, na proxima recorrencia
         # (ou assinatura) dessa mesma loja, o Brick ja mostra ele pronto pra
-        # escolher em vez do cliente ter que digitar tudo de novo.
-        if mp_customer_id:
+        # escolher em vez do cliente ter que digitar tudo de novo. O MP ja
+        # associa o cartao ao payer sozinho ao criar a preapproval com
+        # card_token_id (devolve card_id na resposta) -- NAO reusa o token
+        # pra um POST separado, porque token de cartao e de uso unico e a
+        # preapproval acima ja consumiu ele (reusar dava 400 no MP).
+        card_id = pre.get("card_id")
+        if mp_customer_id and card_id:
             try:
-                card_resp = _mp_request(
-                    loja_token, f"/v1/customers/{mp_customer_id}/cards", {"token": card_token}, method="POST",
-                )
-                if card_resp.get("id"):
-                    _registrar_cartao_de_pagamento(conn, {"card": card_resp}, consumidor_id, cnpjloja)
+                card_info = _mp_request(loja_token, f"/v1/customers/{mp_customer_id}/cards/{card_id}", method="GET")
+                if card_info.get("id"):
+                    _registrar_cartao_de_pagamento(
+                        conn,
+                        {"card": card_info, "payment_method_id": (card_info.get("payment_method") or {}).get("id")},
+                        consumidor_id, cnpjloja,
+                    )
             except Exception:
                 pass
     else:
