@@ -532,7 +532,7 @@ function fecharCscPop() {
   fetch('/api/recorrencia/mp-config?cnpjloja=' + encodeURIComponent(reccP.cnpjloja))
     .then(function(r){ return r.json(); })
     .then(function(cfg){
-      if (cfg.error) return;
+      if (cfg.error) { console.warn('popup de recorrencia pos-checkout: loja nao elegivel —', cfg.error); return; }
       var mp = new MercadoPago(cfg.mp_public_key, { locale: 'pt-BR' });
       var bricksBuilder = mp.bricks();
       bricksBuilder.create('cardPayment', 'reccheckout-card-brick', {
@@ -609,7 +609,7 @@ function fecharCscPop() {
         document.getElementById('reccheckout-overlay').classList.add('open');
       }, 1200);
     })
-    .catch(function(){});
+    .catch(function(e){ console.error('popup de recorrencia pos-checkout falhou ao montar:', e); });
 })();
 </script>
 {% endif %}
