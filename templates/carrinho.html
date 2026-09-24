@@ -293,6 +293,10 @@
 }
 .rec-freq-chip.active, .rec-freq-chip:hover { border-color:#6d28d9; color:#6d28d9; background:#faf7ff; }
 .rec-freq-hint { display:block; font-size:.68rem; color:var(--pq-muted); margin-top:5px; }
+.rec-modo-entrega { display:flex; align-items:flex-start; gap:9px; background:#faf7ff; border:1px solid #e9d8fd; border-radius:10px; padding:10px 12px; }
+.rec-modo-entrega i { color:#6d28d9; font-size:.95rem; margin-top:2px; }
+.rec-modo-entrega b { display:block; font-size:.82rem; font-weight:900; color:#4c1d95; }
+.rec-modo-entrega small { display:block; font-size:.7rem; color:var(--pq-muted); margin-top:2px; }
 .rec-itens-preview { background:#faf7ff; border:1px solid #e9d8fd; border-radius:10px; padding:10px 12px; font-size:.78rem; color:#4c1d95; max-height:110px; overflow-y:auto; }
 .rec-itens-preview div { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
 .rec-total-line { display:flex; justify-content:space-between; align-items:baseline; padding-top:8px; border-top:1px dashed #e9d8fd; font-weight:900; }
@@ -613,6 +617,7 @@
       <p>A gente cobra automático no cartão a cada tantos dias. Se o preço de algum item mudar, a cobrança para sozinha — sem susto.</p>
     </div>
     <div class="rec-modal-body">
+      <div class="rec-modo-entrega" id="rec-modo-entrega"></div>
       <div class="rec-itens-preview" id="rec-itens-preview"></div>
       <div class="rec-field">
         <label>A cada quantos dias?</label>
@@ -2525,6 +2530,9 @@ async function abrirRecorrencia(cnpj) {
 
   const tipoEntrega = document.querySelector(`input[name="delivery-${cnpj}"]:checked`)?.value || 'retirada';
   document.getElementById('rec-horario-wrap').style.display = tipoEntrega === 'entrega' ? 'block' : 'none';
+  document.getElementById('rec-modo-entrega').innerHTML = tipoEntrega === 'entrega'
+    ? '<i class="fa fa-truck"></i><span><b>Entrega no seu endereço</b><small>Frete normal cobrado em cada ciclo · pra mudar, feche o popup e ajuste no carrinho</small></span>'
+    : '<i class="fa fa-store"></i><span><b>Retirada na loja</b><small>Sem frete · pra mudar, feche o popup e ajuste no carrinho</small></span>';
   document.getElementById('rec-frequencia').value = 30;
   document.querySelectorAll('.rec-freq-chip').forEach(c => c.classList.toggle('active', c.dataset.dias === '30'));
 
