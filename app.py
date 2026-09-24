@@ -2622,6 +2622,61 @@ def _ensure_cartoes_schema():
         _mark_migration_done(key)
 
 
+def _ensure_recorrencias_schema():
+    """Compra recorrente de item(ns) -- diferente da assinatura do Clube
+    (que e receita da PLATAFORMA, cobrada na conta admin via
+    _criar_assinatura_recorrente_cartao_mp): aqui o dinheiro e venda de
+    produto de verdade e tem que cair na conta da propria LOJA (mesmo
+    mp_access_token de ecommerce_config_loja que qualquer checkout normal
+    ja usa), nao na conta admin. Preapproval do MP cobra valor FIXO por
+    ciclo (travado no momento que assina) -- se o preco do item mudar, a
+    cobranca nao se recalcula sozinha: o cron diario cancela e avisa,
+    exatamente o comportamento pedido ('se mudar de preco a cobranca se
+    encerra')."""
+    key = "recorrencias_v1"
+    if key in _schema_ready:
+        return
+    _load_db_migrations()
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_recorrencias (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                consumidor_id TEXT NOT NULL,
+                cnpjloja TEXT NOT NULL,
+                itens JSONB NOT NULL,
+                valor_total NUMERIC(10,2) NOT NULL,
+                frequencia_dias INTEGER NOT NULL,
+                forma_pagamento TEXT NOT NULL DEFAULT 'cartao',
+                mp_card_id TEXT,
+                mp_preapproval_id TEXT,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                tipo_entrega TEXT NOT NULL DEFAULT 'retirada',
+                horario_entrega_preferido TEXT,
+                endereco_entrega TEXT,
+                entrega_lat DOUBLE PRECISION,
+                entrega_lng DOUBLE PRECISION,
+                proxima_cobranca DATE,
+                ultimo_pedido_id UUID,
+                motivo_cancelamento TEXT,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em TIMESTAMPTZ DEFAULT NOW(),
+                cancelado_em TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_recorrencias_consumidor ON ecommerce_recorrencias(consumidor_id, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_recorrencias_cobranca ON ecommerce_recorrencias(status, proxima_cobranca)")
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
 def _ensure_banner_schema():
     if "banners" in _schema_ready:
         return
@@ -20998,6 +21053,192 @@ def _criar_assinatura_recorrente_cartao_mp(access_token, assinatura_id, plano, c
         return {"_erro": str(exc)}
 
 
+def _criar_recorrencia_cartao_mp(loja_access_token, recorrencia_id, valor, frequencia_dias, cliente, razao, card_token_id):
+    """Mesmo mecanismo de _criar_assinatura_recorrente_cartao_mp, mas: (1)
+    roda no token da LOJA (venda de produto de verdade, nao receita da
+    plataforma), (2) frequencia em dias (flexivel, nao so mensal), (3)
+    valor fica travado no que foi cobrado na hora que assinou -- o cron de
+    verificacao de preco (nao esse endpoint) e quem cancela se o preco do
+    item mudar depois."""
+    try:
+        email = (_payer_payload(cliente).get("email") or "").strip()
+        payload = {
+            "reason": f"Recorrência Poupaqui - {razao or 'Loja'}"[:255],
+            "external_reference": f"recorrencia:{recorrencia_id}",
+            "payer_email": email,
+            "card_token_id": card_token_id,
+            "status": "authorized",
+            "auto_recurring": {
+                "frequency": max(1, int(frequencia_dias or 7)),
+                "frequency_type": "days",
+                "transaction_amount": round(float(valor or 0), 2),
+                "currency_id": "BRL",
+            },
+        }
+        notification_url = _mp_notification_url()
+        if notification_url:
+            payload["notification_url"] = notification_url
+            payload["back_url"] = f"{_public_base_url()}/minhas-recorrencias"
+        return _mp_request(loja_access_token, "/preapproval", payload, idempotency_key=f"recorr-{recorrencia_id}-brick")
+    except Exception as exc:
+        return {"_erro": str(exc)}
+
+
+@app.post("/api/recorrencia/criar")
+def api_recorrencia_criar():
+    """Cria uma recorrencia de compra (cartao, ate o Pix Automatico ser
+    confirmado com o MP) em cima da CESTA MONTADA do cliente -- nao e por
+    item isolado, e o conjunto de itens de uma loja que ele mandou. Fluxo
+    da compra atual nao muda em nada: isso e so oferecido a parte (popup
+    no carrinho/checkout), nunca substitui o checkout normal."""
+    _ensure_recorrencias_schema()
+    _ensure_cartoes_schema()
+    consumidor_id = str(session.get("consumidor_id") or "")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login para criar a recorrência."}), 401
+    data = request.get_json(force=True) or {}
+    cnpjloja = (data.get("cnpjloja") or "").strip()
+    itens = [i for i in (data.get("itens") or []) if isinstance(i, dict) and i.get("ean")]
+    frequencia_dias = max(1, min(90, int(data.get("frequencia_dias") or 7)))
+    tipo_entrega = "entrega" if (data.get("tipo_entrega") or "retirada") == "entrega" else "retirada"
+    horario_pref = (data.get("horario_entrega_preferido") or "").strip()[:120] if tipo_entrega == "entrega" else None
+    endereco_entrega = (data.get("endereco_entrega") or "").strip() if tipo_entrega == "entrega" else None
+    entrega_lat = _to_float_or_none(data.get("entrega_lat")) if tipo_entrega == "entrega" else None
+    entrega_lng = _to_float_or_none(data.get("entrega_lng")) if tipo_entrega == "entrega" else None
+    card_token = (data.get("card_token") or "").strip()
+    payer = data.get("payer") or {}
+    identification = payer.get("identification") or {}
+    doc_number = _digits(identification.get("number"))
+    doc_type = (identification.get("type") or ("CNPJ" if len(doc_number) == 14 else "CPF")).upper()
+
+    if not cnpjloja or not itens:
+        return jsonify({"error": "Carrinho vazio."}), 400
+    if not card_token:
+        return jsonify({"error": "Token do cartão não recebido."}), 400
+    if doc_type not in {"CPF", "CNPJ"} or len(doc_number) not in {11, 14}:
+        return jsonify({"error": "Informe CPF ou CNPJ válido do pagador."}), 400
+    if tipo_entrega == "entrega" and not endereco_entrega:
+        return jsonify({"error": "Informe o endereço de entrega."}), 400
+
+    valor_total = 0.0
+    itens_limpos = []
+    for it in itens:
+        preco = _to_float_or_none(it.get("preco")) or 0.0
+        qty = max(1, int(it.get("qty") or 1))
+        if preco <= 0:
+            continue
+        valor_total += preco * qty
+        itens_limpos.append({
+            "ean": it.get("ean"), "nome": it.get("nome") or "", "qty": qty,
+            "preco": round(preco, 2), "imagem": it.get("imagem") or "",
+        })
+    if not itens_limpos or valor_total <= 0:
+        return jsonify({"error": "Nenhum item válido no carrinho."}), 400
+
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s", (cnpjloja,))
+    loja_row = cur.fetchone()
+    loja_token = (loja_row or {}).get("mp_access_token") or ""
+    if not loja_token:
+        cur.close()
+        return jsonify({"error": "Essa loja ainda não aceita pagamento recorrente."}), 400
+    cur.execute("SELECT razao FROM users WHERE cnpjloja=%s LIMIT 1", (cnpjloja,))
+    loja_info = cur.fetchone() or {}
+
+    cur.execute(
+        """INSERT INTO ecommerce_recorrencias
+           (consumidor_id, cnpjloja, itens, valor_total, frequencia_dias, forma_pagamento,
+            status, tipo_entrega, horario_entrega_preferido, endereco_entrega, entrega_lat, entrega_lng)
+           VALUES (%s,%s,%s,%s,%s,'cartao','pendente',%s,%s,%s,%s,%s) RETURNING id""",
+        (consumidor_id, cnpjloja, json.dumps(itens_limpos), round(valor_total, 2), frequencia_dias,
+         tipo_entrega, horario_pref, endereco_entrega, entrega_lat, entrega_lng),
+    )
+    recorrencia_id = str(cur.fetchone()["id"])
+    conn.commit()
+
+    cliente = _consumidor_from_session() or {}
+    cliente["documento"] = doc_number
+    _obter_ou_criar_mp_customer(loja_token, consumidor_id, cnpjloja, cliente)
+    pre = _criar_recorrencia_cartao_mp(
+        loja_token, recorrencia_id, valor_total, frequencia_dias, cliente,
+        _public_store_name(loja_info), card_token,
+    )
+    erro = pre.get("_erro") if isinstance(pre, dict) else "resposta inválida do Mercado Pago"
+    if erro:
+        cur.execute("UPDATE ecommerce_recorrencias SET status='erro', motivo_cancelamento=%s WHERE id=%s", (erro, recorrencia_id))
+        conn.commit(); cur.close()
+        return jsonify({"error": erro}), 400
+
+    pre_id = str(pre.get("id") or "")
+    status_mp = (pre.get("status") or "").lower()
+    if status_mp in {"authorized", "active"}:
+        cur.execute(
+            """UPDATE ecommerce_recorrencias
+               SET mp_preapproval_id=%s, status='ativo', proxima_cobranca=CURRENT_DATE + (%s || ' days')::interval, atualizado_em=NOW()
+               WHERE id=%s""",
+            (pre_id, frequencia_dias, recorrencia_id),
+        )
+    else:
+        cur.execute(
+            "UPDATE ecommerce_recorrencias SET mp_preapproval_id=%s, status='erro', motivo_cancelamento=%s WHERE id=%s",
+            (pre_id, f"Mercado Pago não autorizou: {status_mp or 'sem status'}", recorrencia_id),
+        )
+    conn.commit(); cur.close()
+    return jsonify({"ok": status_mp in {"authorized", "active"}, "id": recorrencia_id, "status": status_mp})
+
+
+@app.get("/minhas-recorrencias")
+def minhas_recorrencias():
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return redirect(url_for("consumidor_login", next="/minhas-recorrencias"))
+    _ensure_recorrencias_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """SELECT r.*, u.razao FROM ecommerce_recorrencias r
+           LEFT JOIN users u ON u.cnpjloja = r.cnpjloja
+           WHERE r.consumidor_id=%s ORDER BY r.criado_em DESC""",
+        (str(consumidor_id),),
+    )
+    recorrencias = [dict(r) for r in cur.fetchall()]
+    for r in recorrencias:
+        r["razao"] = _public_store_name(r)
+    cur.close()
+    return render_template("minhas_recorrencias.html", recorrencias=recorrencias)
+
+
+@app.post("/minhas-recorrencias/<recorrencia_id>/cancelar")
+def api_recorrencia_cancelar(recorrencia_id):
+    consumidor_id = session.get("consumidor_id")
+    if not consumidor_id:
+        return jsonify({"error": "Faça login."}), 401
+    _ensure_recorrencias_schema()
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM ecommerce_recorrencias WHERE id=%s AND consumidor_id=%s LIMIT 1",
+        (recorrencia_id, str(consumidor_id)),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        return jsonify({"error": "Recorrência não encontrada."}), 404
+    if row.get("mp_preapproval_id"):
+        cur.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s", (row["cnpjloja"],))
+        loja_row = cur.fetchone()
+        loja_token = (loja_row or {}).get("mp_access_token") or ""
+        if loja_token:
+            try:
+                _mp_request(loja_token, f"/preapproval/{row['mp_preapproval_id']}", {"status": "cancelled"}, method="PUT")
+            except Exception:
+                pass
+    cur.execute(
+        "UPDATE ecommerce_recorrencias SET status='cancelado', cancelado_em=NOW() WHERE id=%s",
+        (recorrencia_id,),
+    )
+    conn.commit(); cur.close()
+    return jsonify({"ok": True})
+
+
 def _ativar_assinatura_row(cur, assinatura_id, recorrente=False):
     if recorrente:
         cur.execute(
@@ -26885,6 +27126,116 @@ _CRON_SECRET = "poupaqui-alpha-cron-7x9k2m"
 def _cron_authorized():
     auth = request.headers.get("Authorization", "")
     return auth == f"Bearer {_CRON_SECRET}" or (request.args.get("secret") or "") == _CRON_SECRET
+
+
+@app.post("/api/cron/recorrencias-verificar")
+def api_cron_recorrencias_verificar():
+    """Roda 1x por dia (cron externo, mesmo padrao dos outros /api/cron/*).
+    Duas checagens separadas, prazos diferentes:
+
+    1) Pre-aviso de estoque (ate 3 dias antes da cobranca): se algum item
+       da recorrencia esta sem estoque suficiente, abre uma encomenda pra
+       loja repor ANTES do dia da cobranca -- evita cobrar e nao poder
+       entregar. So abre 1x por semana pro mesmo produto/loja (nao
+       reabre encomenda todo dia enquanto o estoque nao volta).
+
+    2) Verificacao de preco (no dia da cobranca): recalcula o preco atual
+       dos itens e compara com o valor travado na hora que a pessoa
+       assinou. Se mudou (ou o item nem esta mais disponivel), CANCELA o
+       preapproval no Mercado Pago antes dele cobrar -- 'se mudar de preco
+       a cobranca se encerra', do jeito que foi pedido. Se bateu certinho,
+       nao faz nada (o proprio Mercado Pago cobra sozinho nessa data, via
+       auto_recurring) -- so avanca a data da PROXIMA checagem pra nao
+       reprocessar o mesmo ciclo de novo amanha."""
+    if not _cron_authorized():
+        return jsonify({"ok": False}), 401
+    _ensure_recorrencias_schema()
+    conn = db(); cur = conn.cursor()
+    resultado = {"encomenda_criada": 0, "cancelado_preco": 0, "seguiu_ativo": 0}
+
+    cur.execute(
+        """SELECT * FROM ecommerce_recorrencias
+           WHERE status='ativo' AND proxima_cobranca IS NOT NULL
+             AND proxima_cobranca BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days'"""
+    )
+    for r in [dict(x) for x in cur.fetchall()]:
+        itens = r.get("itens") or []
+        if isinstance(itens, str):
+            itens = json.loads(itens)
+        for it in itens:
+            cur.execute(
+                """SELECT COALESCE(estoque,0) AS estoque FROM ecommerce_alpha_produtos
+                   WHERE cnpjloja=%s AND LTRIM(COALESCE(ean,''),'0')=LTRIM(%s,'0')
+                     AND COALESCE(inativo,false)=false LIMIT 1""",
+                (r["cnpjloja"], it.get("ean") or ""),
+            )
+            est_row = cur.fetchone()
+            estoque = float((est_row or {}).get("estoque") or 0)
+            if estoque >= float(it.get("qty") or 1):
+                continue
+            cur.execute(
+                """SELECT id FROM ecommerce_encomendas
+                   WHERE cnpjloja=%s AND produto_nome=%s AND status='aberta' AND criado_em > NOW() - INTERVAL '7 days'
+                   LIMIT 1""",
+                (r["cnpjloja"], it.get("nome") or ""),
+            )
+            if cur.fetchone():
+                continue
+            cur.execute(
+                "INSERT INTO ecommerce_encomendas (cnpjloja, consumidor_id, produto_nome) VALUES (%s,%s,%s) RETURNING id",
+                (r["cnpjloja"], r["consumidor_id"], it.get("nome") or ""),
+            )
+            enc_id = cur.fetchone()["id"]
+            cur.execute(
+                "INSERT INTO ecommerce_encomenda_msgs (encomenda_id, autor, mensagem) VALUES (%s,'sistema',%s)",
+                (enc_id, f"Item de uma compra recorrente ativa, cobrança agendada pra "
+                 f"{r['proxima_cobranca'].strftime('%d/%m/%Y')}. Estoque insuficiente no momento -- "
+                 f"por favor repor antes da data da cobrança."),
+            )
+            resultado["encomenda_criada"] += 1
+    conn.commit()
+
+    cur.execute("SELECT * FROM ecommerce_recorrencias WHERE status='ativo' AND proxima_cobranca <= CURRENT_DATE")
+    for r in [dict(x) for x in cur.fetchall()]:
+        itens = r.get("itens") or []
+        if isinstance(itens, str):
+            itens = json.loads(itens)
+        valor_atual = 0.0
+        indisponivel = False
+        for it in itens:
+            preco_atual = _preco_catalogo_atual(r["cnpjloja"], it.get("ean") or "", 0)
+            if preco_atual <= 0:
+                indisponivel = True
+                break
+            valor_atual += preco_atual * float(it.get("qty") or 1)
+        valor_travado = float(r.get("valor_total") or 0)
+        mudou = indisponivel or round(valor_atual, 2) != round(valor_travado, 2)
+        if mudou:
+            cur.execute("SELECT mp_access_token FROM ecommerce_config_loja WHERE cnpjloja=%s", (r["cnpjloja"],))
+            loja_row = cur.fetchone()
+            loja_token = (loja_row or {}).get("mp_access_token") or ""
+            if loja_token and r.get("mp_preapproval_id"):
+                try:
+                    _mp_request(loja_token, f"/preapproval/{r['mp_preapproval_id']}", {"status": "cancelled"}, method="PUT")
+                except Exception:
+                    pass
+            motivo = ("Item indisponível no momento da cobrança" if indisponivel
+                      else f"Preço mudou (era R$ {valor_travado:.2f}, agora R$ {valor_atual:.2f})")
+            cur.execute(
+                "UPDATE ecommerce_recorrencias SET status='preco_mudou', motivo_cancelamento=%s, cancelado_em=NOW() WHERE id=%s",
+                (motivo, r["id"]),
+            )
+            resultado["cancelado_preco"] += 1
+        else:
+            cur.execute(
+                """UPDATE ecommerce_recorrencias
+                   SET proxima_cobranca = proxima_cobranca + (frequencia_dias || ' days')::interval, atualizado_em=NOW()
+                   WHERE id=%s""",
+                (r["id"],),
+            )
+            resultado["seguiu_ativo"] += 1
+    conn.commit(); cur.close()
+    return jsonify({"ok": True, **resultado})
 
 
 def _processar_crm_automacoes(limite=100):
