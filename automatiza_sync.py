@@ -657,17 +657,32 @@ def sync_notas_fiscais():
     return {"ok": True, "total": encontrados}
 
 
-def sync_all():
-    produtos = sync_products()
+def sync_pedidos():
+    """So a parte leve (pedido + nota fiscal) -- pra rodar mais frequente
+    (ex: 5 em 5 min) sem precisar puxar o catalogo inteiro toda vez."""
     pedidos = export_pending_orders()
     notas = sync_notas_fiscais()
-    return {"produtos": produtos, "pedidos": pedidos, "notas": notas}
+    return {"pedidos": pedidos, "notas": notas}
+
+
+def sync_all():
+    produtos = sync_products()
+    resto = sync_pedidos()
+    return {"produtos": produtos, **resto}
 
 
 if __name__ == "__main__":
+    import sys
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
         pass
-    print(json.dumps(sync_all(), indent=2, ensure_ascii=False, default=str))
+    modo = sys.argv[1] if len(sys.argv) > 1 else "tudo"
+    if modo == "pedidos":
+        resultado = sync_pedidos()
+    elif modo == "produtos":
+        resultado = {"produtos": sync_products()}
+    else:
+        resultado = sync_all()
+    print(json.dumps(resultado, indent=2, ensure_ascii=False, default=str))
