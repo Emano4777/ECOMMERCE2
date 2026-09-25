@@ -61,7 +61,10 @@ def _automatiza_connect(timeout=20):
     conn = pymysql.connect(
         host=os.getenv("AUTOMATIZA_DB_HOST", "localhost"),
         port=int(os.getenv("AUTOMATIZA_DB_PORT", "3306")),
-        user=os.getenv("AUTOMATIZA_DB_USER", "Delivery"),
+        # Confirmado em campo: usuario e minusculo ("delivery"), mesmo o
+        # nome tendo sido passado com D maiusculo originalmente -- MySQL
+        # diferencia maiuscula/minuscula em nome de usuario.
+        user=os.getenv("AUTOMATIZA_DB_USER", "delivery"),
         password=os.getenv("AUTOMATIZA_DB_PASSWORD", "Delivery"),
         database=os.getenv("AUTOMATIZA_DB_SCHEMA", "automatiza"),
         cursorclass=pymysql.cursors.DictCursor,
