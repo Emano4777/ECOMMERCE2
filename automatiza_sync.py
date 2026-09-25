@@ -109,13 +109,24 @@ def ensure_local_schema():
 
 # ── Produtos: Automatiza -> Supabase ────────────────────────────────────────
 
+# Mesmo problema do caso Tadalafila/VALEU7SET (ja corrigido pro Alpha):
+# "preco_venda" as vezes vem de uma tabela/preco de referencia desatualizado
+# no ERP de origem, nao do que a loja realmente cobrava antes -- um produto
+# de R$272 "virando" R$82 (69,5% off) nao e credivel pra maioria dos itens
+# de farmacia. Cap mais conservador que o global (0.70) porque essa fonte
+# especifica ja mostrou esse padrao logo no primeiro teste real.
+_DESCONTO_PLAUSIVEL_MAX = 0.60
+
+
 def _preco_calc(row):
     """Regra confirmada com a loja: preco_venda_delivery e o preco pra
     ecommerce (prioridade); quando nao tem, usa preco_venda_loja (que sem
     promocao fica igual a preco_venda). So considera "promocao" de verdade
-    se o valor calculado for MENOR que o preco_venda cheio -- evita marcar
-    preco_promocional igual ao preco normal (mesmo problema de "desconto
-    falso" que ja corrigimos pro Alpha)."""
+    se o valor calculado for MENOR que o preco_venda cheio E o desconto for
+    plausivel -- evita marcar preco_promocional igual ao preco normal, e
+    evita mostrar "de R$272 por R$82" quando o preco_venda em si parece
+    corrompido/desatualizado. O preco real cobrado (o mais baixo) e sempre
+    mantido -- so o "comparativo de promocao" falso e que some."""
     base = float(row.get("preco_venda") or 0)
     delivery = row.get("preco_venda_delivery")
     loja = row.get("preco_venda_loja")
@@ -123,7 +134,10 @@ def _preco_calc(row):
     if candidato is not None:
         candidato = float(candidato)
         if 0 < candidato < base:
-            return base, candidato, candidato
+            desconto = 1 - (candidato / base) if base > 0 else 0
+            if desconto <= _DESCONTO_PLAUSIVEL_MAX:
+                return base, candidato, candidato
+            return candidato, None, candidato
     return base, None, base
 
 
@@ -445,8 +459,8 @@ def export_paid_order(pedido_id):
                         _digits(pedido.get("cliente_telefone")),
                         pedido.get("cliente_email") or "",
                         doc,
-                        None,
-                        "1900-01-01" if retirada else "1900-01-01",
+                        "1900-01-01",  # peecData_Nascimento_Cliente: NOT NULL no Automatiza, nao coletamos no checkout
+                        "1900-01-01",  # peecData_Entrega: sem agendamento de entrega implementado ainda
                         "" if retirada else endereco["cep"],
                         "" if retirada else endereco["logradouro"],
                         "" if retirada else endereco["numero"],
