@@ -18776,6 +18776,96 @@ def _xml_text(root, path, ns):
     return (node.text or "").strip() if node is not None and node.text is not None else ""
 
 
+def _automatiza_nota_fiscal_pdf(pedido_id):
+    """PDF simples (recibo/cupom, nao DANFE) a partir da nota fiscal que o
+    automatiza_sync.py ja deixou cacheada em ecommerce_automatiza_notas_fiscais
+    -- diferente do Alpha, o Automatiza nao manda XML da NFe pra gente
+    remontar em DANFE, so os valores ja estruturados por item."""
+    conn = db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT * FROM ecommerce_automatiza_notas_fiscais WHERE pedido_id=%s LIMIT 1",
+            (pedido_id,),
+        )
+    except Exception:
+        cur.close()
+        return None
+    nota = cur.fetchone()
+    cur.close()
+    if not nota:
+        return None
+
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.pdfgen import canvas
+
+    itens = nota.get("itens") or []
+    if isinstance(itens, str):
+        itens = json.loads(itens)
+
+    buf = BytesIO()
+    pdf = canvas.Canvas(buf, pagesize=A4)
+    largura, altura = A4
+    y = altura - 2 * cm
+
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawString(2 * cm, y, "Nota Fiscal / Cupom Fiscal")
+    y -= 0.9 * cm
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(2 * cm, y, f"Número: {nota.get('numero_nota') or '-'}")
+    y -= 0.5 * cm
+    pdf.drawString(2 * cm, y, f"Chave de acesso: {nota.get('chave_acesso') or '-'}")
+    y -= 0.5 * cm
+    emissao = nota.get("data_lancamento")
+    pdf.drawString(2 * cm, y, f"Emissão: {emissao.strftime('%d/%m/%Y %H:%M') if emissao else '-'}")
+    y -= 0.9 * cm
+
+    pdf.setFont("Helvetica-Bold", 8)
+    cols = {"desc": 2 * cm, "qtd": 12.5 * cm, "unit": 14.7 * cm, "total": 17.5 * cm}
+    pdf.drawString(cols["desc"], y, "Produto")
+    pdf.drawRightString(cols["qtd"], y, "Qtd")
+    pdf.drawRightString(cols["unit"], y, "Unit.")
+    pdf.drawRightString(cols["total"], y, "Líquido")
+    y -= 0.35 * cm
+    pdf.line(2 * cm, y, largura - 2 * cm, y)
+    y -= 0.4 * cm
+
+    pdf.setFont("Helvetica", 8)
+    for item in itens:
+        if y < 3 * cm:
+            pdf.showPage()
+            y = altura - 2 * cm
+            pdf.setFont("Helvetica", 8)
+        desc = str(item.get("descricao") or "")[:60]
+        pdf.drawString(cols["desc"], y, desc)
+        pdf.drawRightString(cols["qtd"], y, str(item.get("quantidade") or ""))
+        pdf.drawRightString(cols["unit"], y, f"{float(item.get('valor_bruto_unitario') or 0):.2f}")
+        pdf.drawRightString(cols["total"], y, f"{float(item.get('valor_liquido') or 0):.2f}")
+        y -= 0.38 * cm
+
+    y -= 0.5 * cm
+    pdf.line(2 * cm, y, largura - 2 * cm, y)
+    y -= 0.6 * cm
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawRightString(largura - 2 * cm, y, f"Bruto: R$ {float(nota.get('valor_bruto') or 0):.2f}")
+    y -= 0.5 * cm
+    pdf.drawRightString(largura - 2 * cm, y, f"Desconto: R$ {float(nota.get('valor_desconto') or 0):.2f}")
+    y -= 0.5 * cm
+    pdf.drawRightString(largura - 2 * cm, y, f"Líquido: R$ {float(nota.get('valor_liquido') or 0):.2f}")
+
+    pdf.showPage()
+    pdf.save()
+    buf.seek(0)
+    filename = f"nota_{nota.get('chave_acesso') or nota.get('numero_nota') or pedido_id}.pdf"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @app.get("/meus-pedidos/<pedido_id>/nota-fiscal.pdf")
 @_consumer_required
 def meu_pedido_nota_fiscal_pdf(pedido_id):
@@ -18792,6 +18882,13 @@ def meu_pedido_nota_fiscal_pdf(pedido_id):
 
     xml_text, chave_db, numero_db = _alpha_nota_xml_por_pedido(pedido_id)
     if not xml_text:
+        # Loja integrada com Automatiza (SJRP) nao manda XML -- o proprio
+        # agente local ja deixou a nota estruturada em cache no Supabase
+        # (sync_notas_fiscais em automatiza_sync.py), entao monta um PDF
+        # simples a partir dela em vez do DANFE completo do Alpha.
+        automatiza_pdf = _automatiza_nota_fiscal_pdf(pedido_id)
+        if automatiza_pdf:
+            return automatiza_pdf
         return jsonify({"ok": False, "erro": "nota_nao_disponivel"}), 404
 
     from io import BytesIO
@@ -29573,6 +29670,46 @@ _ALPHA_CLASSIFICACAO_CATEGORIA = {
 }
 
 
+# Mesma ideia de _ALPHA_CLASSIFICACAO_CATEGORIA, mas pro vocabulario do
+# Automatiza (loja de Sao Jose do Rio Preto) -- grupo_principal da
+# view_ecommerce_delivery_produtos, gravado como 1o segmento de
+# "classificacao" pelo automatiza_sync.py (ex: "PERFUMARIA > ..."). Cobertura
+# parcial de proposito: grupo nao mapeado cai no fallback por nome
+# (_classificar_produto), sem quebrar nada -- so precisa ampliar aqui
+# conforme mais grupos forem aparecendo na distribuicao real de produtos.
+_AUTOMATIZA_GRUPO_CATEGORIA = {
+    "PERFUMARIA":      "perfumaria",
+    "DERMOCOSMETICO":  "dermocosmetico",
+    "SIMILARES":       "similar",
+    "GENERICO":        "generico",
+    "GENERICOS":       "generico",
+    "ETICO":           "referencia",
+    "ETICOS":          "referencia",
+    "REFERENCIA":      "referencia",
+    "NUTRACEUTICO":    "suplemento",
+    "NUTRACEUTICOS":   "suplemento",
+    "SUPLEMENTO":      "suplemento",
+    "SUPLEMENTOS":     "suplemento",
+    "INFANTIL":        "infantil",
+    "ALMOXARIFADO":    "varejo",
+    "BAZAR":           "varejo",
+}
+
+
+def _categoria_from_automatiza_classificacao(classificacao):
+    """Traduz o grupo_principal do Automatiza (1o segmento de
+    'classificacao') pro conjunto de categorias do ecommerce. Retorna None
+    quando nao reconhece -- quem chamou cai no fallback por nome."""
+    if not classificacao:
+        return None
+    partes = [p.strip().upper() for p in str(classificacao).split(">") if p.strip()]
+    if not partes:
+        return None
+    if len(partes) >= 3 and partes[2] == "INFANTIL":
+        return "infantil"
+    return _AUTOMATIZA_GRUPO_CATEGORIA.get(partes[0])
+
+
 def _categoria_from_alpha_classificacao(classificacao):
     """Traduz a classificacao do Alpha pro conjunto de categorias do ecommerce.
     Retorna None quando nao ha classificacao ou o ramo raiz nao e reconhecido —
@@ -29603,7 +29740,11 @@ def _categoria_produto(p):
     VAREJO dependendo do lote. Pra esse caso especifico o nome (com a
     exclusao de fralda geriatrica/adulto) e mais confiavel que o ramo do
     Alpha, entao e checado antes."""
-    categoria_alpha = _categoria_from_alpha_classificacao(p.get("classificacao"))
+    classificacao = p.get("classificacao")
+    categoria_alpha = (
+        _categoria_from_alpha_classificacao(classificacao)
+        or _categoria_from_automatiza_classificacao(classificacao)
+    )
     # Categorias inequívocas do fornecedor não podem ser sobrescritas por uma
     # classificação genérica/antiga. Isso preserva a gondola infantil, os tipos
     # regulatórios de medicamento e o ramo específico de nutracêuticos.
