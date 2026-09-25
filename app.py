@@ -12882,6 +12882,7 @@ def api_home_stories():
             WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
               AND primeiro_visto_em IS NOT NULL AND primeiro_visto_em >= NOW() - INTERVAL '3 days'
               AND ean IS NOT NULL AND ean <> ''
+              AND imagem_url IS NOT NULL AND imagem_url <> ''
             ORDER BY primeiro_visto_em DESC LIMIT 10
             """,
             (cnpjloja,),
