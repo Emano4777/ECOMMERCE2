@@ -262,7 +262,7 @@ def sync_products():
                 synced_at=NOW()
             """,
             values,
-            template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+            template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
         )
         lconn.commit()
         lcur.close()
