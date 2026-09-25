@@ -1,7 +1,7 @@
 # Registra DUAS tarefas agendadas na maquina da loja de Sao Jose do Rio
 # Preto (onde o MySQL do Automatiza roda): uma leve (pedidos+nota fiscal,
 # 5 em 5 min, pra farmacia ver o pedido rapido) e uma pesada (catalogo
-# completo, 30 em 30 min, nao precisa ser mais rapido que isso). Mesmo
+# completo, 1 em 1 hora, nao precisa ser mais rapido que isso). Mesmo
 # padrao ja usado pro PoupaquiTesteDiario (CRIAR_TAREFA.ps1), so que
 # recorrente em vez de 1x por dia e dividido em 2 tarefas.
 #
@@ -70,7 +70,7 @@ function Registrar-Tarefa($nome, $arg, $minutos, $logfile) {
 }
 
 Registrar-Tarefa "PoupaquiAutomatizaPedidosSJRP"  "pedidos"  5  (Join-Path $logdir "sync_pedidos.log")
-Registrar-Tarefa "PoupaquiAutomatizaProdutosSJRP" "produtos" 30 (Join-Path $logdir "sync_produtos.log")
+Registrar-Tarefa "PoupaquiAutomatizaProdutosSJRP" "produtos" 60 (Join-Path $logdir "sync_produtos.log")
 
 Write-Host ""
 Write-Host "Logs em: $logdir"
