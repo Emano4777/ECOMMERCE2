@@ -26940,6 +26940,26 @@ def crm_whatsapp_sair_envio(envio_id):
     return "Você não receberá mais promoções pelo WhatsApp." if alterado else "Este link não é válido.", 200 if alterado else 404
 
 
+PODEIR_WEBHOOK_URL = os.getenv("PODEIR_WEBHOOK_URL", "https://podeir.vercel.app/api/webhook/wasender")
+
+
+def _repassar_webhook_podeir(payload, assinatura):
+    """O WA Sender aceita um webhook por numero: repassa as mensagens recebidas ao Pode Ir
+    (check-in do modo encontro, mesmo segredo). O Pode Ir ignora quem nao tem encontro ativo.
+    Falha aqui nunca afeta a loja."""
+    if not PODEIR_WEBHOOK_URL:
+        return
+    msgs = (payload.get("data") or {}).get("messages") or {}
+    if any((m.get("key") or {}).get("fromMe") for m in (msgs if isinstance(msgs, list) else [msgs]) if isinstance(m, dict)):
+        return
+    try:
+        import requests as _rq
+        _rq.post(PODEIR_WEBHOOK_URL, data=request.get_data(), timeout=(2, 3),
+                 headers={"Content-Type": "application/json", "X-Webhook-Signature": assinatura})
+    except Exception as exc:
+        app.logger.warning("repasse webhook Pode Ir falhou: %s", exc)
+
+
 @app.post("/api/webhooks/wasender")
 def crm_wasender_webhook():
     esperado = os.getenv("WASENDER_WEBHOOK_SECRET") or _CRON_SECRET
@@ -26948,6 +26968,7 @@ def crm_wasender_webhook():
         return jsonify({"ok": False}), 401
     payload = request.get_json(silent=True) or {}
     if payload.get("event") in {"messages.received", "message.received"}:
+        _repassar_webhook_podeir(payload, str(recebido))
         data = payload.get("data") or {}; mensagem = data.get("messageBody") or data.get("text") or ""
         key = data.get("key") or {}; numero = re.sub(r"\D", "", key.get("remoteJid") or data.get("from") or "")
         if _sem_acento(str(mensagem)).strip().lower() in {"parar", "sair", "stop", "cancelar"} and numero:
