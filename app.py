@@ -1863,6 +1863,7 @@ def _ensure_lancamento_rio_preto_schema():
 
 
 def _ensure_aviso_loja_regiao_schema():
+    _load_db_migrations()
     key = "aviso_loja_regiao_v1"
     if key in _schema_ready:
         return
@@ -2167,6 +2168,7 @@ def _ensure_consumidor_auth_columns():
 
 
 def _ensure_horario_schema():
+    _load_db_migrations()
     if "horario" not in _schema_ready:
         with _schema_lock:
             if "horario" not in _schema_ready:
@@ -2678,6 +2680,7 @@ def _ensure_recorrencias_schema():
 
 
 def _ensure_banner_schema():
+    _load_db_migrations()
     if "banners" in _schema_ready:
         return
     with _schema_lock:
@@ -2708,6 +2711,7 @@ def _ensure_banner_schema():
 
 
 def _ensure_popup_schema():
+    _load_db_migrations()
     key = "popups_loja_v1"
     if key in _schema_ready:
         return
@@ -2750,6 +2754,7 @@ def _ensure_stories_schema():
       automaticos (chegou_agora / produto_dia / avaliacao) e o EAN fixado
       manualmente pra "produto do dia" (se a loja nao fixar nenhum, o
       backend escolhe sozinho o de maior desconto ativo)."""
+    _load_db_migrations()
     key = "stories_v2"
     if key in _schema_ready:
         return
@@ -2792,6 +2797,60 @@ def _ensure_stories_schema():
                 atualizado_em TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        conn.commit()
+        cur.close()
+        _schema_ready.add(key)
+        _mark_migration_done(key)
+
+
+def _ensure_stories_social_schema():
+    """Curtidas e comentários de qualquer story (chegou_agora, produto_dia,
+    avaliacao, dica_saude). 'story_ref' identifica QUAL post está sendo
+    curtido/comentado, e o que entra nesse campo muda por tipo:
+    - chegou_agora / produto_dia / avaliacao: recalculados a cada consulta,
+      sem id proprio -- usa a data de hoje (YYYY-MM-DD), curtir/comentar
+      "o card de hoje" desse tipo, igual um post do dia.
+    - dica_saude: linha real e persistente em ecommerce_stories -- usa o
+      proprio id (pode ficar no ar vários dias, nao pode resetar por data).
+    Comentário nasce com aprovado=FALSE (moderação da loja antes de virar
+    público -- conteúdo fica ao lado de medicamento, não pode publicar sem
+    revisão) e só o próprio autor vê o que escreveu enquanto pendente."""
+    _load_db_migrations()
+    key = "stories_social_v2"
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        conn = db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_story_curtidas (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                cnpjloja TEXT NOT NULL,
+                tipo TEXT NOT NULL,
+                story_ref TEXT NOT NULL,
+                consumidor_id UUID NOT NULL,
+                criado_em TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(cnpjloja, tipo, story_ref, consumidor_id)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_story_curtidas_lookup ON ecommerce_story_curtidas(cnpjloja, tipo, story_ref)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ecommerce_story_comentarios (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                cnpjloja TEXT NOT NULL,
+                tipo TEXT NOT NULL,
+                story_ref TEXT NOT NULL,
+                consumidor_id UUID NOT NULL,
+                consumidor_nome TEXT NOT NULL,
+                texto TEXT NOT NULL,
+                aprovado BOOLEAN NOT NULL DEFAULT FALSE,
+                criado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_story_comentarios_lookup ON ecommerce_story_comentarios(cnpjloja, tipo, story_ref, aprovado)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_story_comentarios_pendentes ON ecommerce_story_comentarios(cnpjloja, criado_em) WHERE aprovado=FALSE")
         conn.commit()
         cur.close()
         _schema_ready.add(key)
@@ -2879,6 +2938,7 @@ def _home_api_cache_set(key: tuple, data, ttl_seconds: int = 180):
         _home_api_cache[key] = {"ts": now, "data": data}
 
 def _ensure_promo_schema():
+    _load_db_migrations()
     if "promocoes" in _schema_ready:
         return
     with _schema_lock:
@@ -2915,6 +2975,7 @@ def _ensure_assinatura_schema():
 
 
 def _ensure_assinatura_schema_impl():
+    _load_db_migrations()
     with _schema_lock:
         if "assinaturas" in _schema_ready:
             return
@@ -3022,6 +3083,7 @@ def _ensure_config_admin_schema():
     """Config global do admin — usada para cobrar TODAS as assinaturas de TODAS
     as lojas na mesma conta Mercado Pago (dinheiro de assinatura nao vai mais
     pra conta MP de cada loja individual)."""
+    _load_db_migrations()
     if "config_admin" in _schema_ready:
         return
     with _schema_lock:
@@ -9525,8 +9587,46 @@ def painel_stories():
             (cnpjloja, ean_fixado),
         )
         produto_dia = cur.fetchone()
+    _ensure_stories_social_schema()
+    cur.execute(
+        "SELECT id, tipo, consumidor_nome, texto, criado_em FROM ecommerce_story_comentarios "
+        "WHERE cnpjloja=%s AND aprovado=FALSE ORDER BY criado_em ASC LIMIT 100",
+        (cnpjloja,),
+    )
+    comentarios_pendentes = cur.fetchall()
     cur.close()
-    return render_template("painel_stories.html", stories=stories, config=config, produto_dia=produto_dia, now=datetime.now(timezone.utc))
+    return render_template("painel_stories.html", stories=stories, config=config, produto_dia=produto_dia,
+                            comentarios_pendentes=comentarios_pendentes, now=datetime.now(timezone.utc))
+
+
+@app.post("/painel/stories/comentarios/<comentario_id>/aprovar")
+@painel_required
+def painel_stories_comentario_aprovar(comentario_id):
+    cnpjloja = session["cnpjloja"]
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "UPDATE ecommerce_story_comentarios SET aprovado=TRUE WHERE id=%s AND cnpjloja=%s",
+        (comentario_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    flash("Comentário aprovado.", "success")
+    return redirect(url_for("painel_stories"))
+
+
+@app.post("/painel/stories/comentarios/<comentario_id>/rejeitar")
+@painel_required
+def painel_stories_comentario_rejeitar(comentario_id):
+    cnpjloja = session["cnpjloja"]
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM ecommerce_story_comentarios WHERE id=%s AND cnpjloja=%s",
+        (comentario_id, cnpjloja),
+    )
+    conn.commit()
+    cur.close()
+    flash("Comentário rejeitado.", "success")
+    return redirect(url_for("painel_stories"))
 
 
 def _invalidar_cache_home_stories(cnpjloja):
@@ -10265,6 +10365,7 @@ def _ik_update_metadata(file_id, cidade, endereco, telefone, whatsapp):
 
 
 def _ensure_avaliacoes_schema():
+    _load_db_migrations()
     key = "avaliacoes_loja"
     if key in _schema_ready:
         return
@@ -12997,9 +13098,150 @@ def api_home_stories():
         })
 
     cur.close()
-    payload = {"stories": stories, "razao": _public_store_name(loja) or ""}
+    payload = {"stories": stories, "razao": _public_store_name(loja) or "", "cnpjloja": cnpjloja}
     _home_api_cache_set(cache_key, payload, ttl_seconds=300)
     return jsonify(payload)
+
+
+def _story_tipo_valido(tipo):
+    return tipo in ("chegou_agora", "produto_dia", "avaliacao", "dica_saude")
+
+
+def _story_ref(tipo, story_id):
+    """Identifica QUAL post está sendo curtido/comentado -- ver docstring de
+    _ensure_stories_social_schema(). None = story_id obrigatório e não veio."""
+    if tipo == "dica_saude":
+        sid = (story_id or "").strip()
+        return sid or None
+    return _data_hoje_br().isoformat()
+
+
+@app.get("/api/stories/interacoes")
+def api_stories_interacoes():
+    """Curtidas + comentários desse post (ver _story_ref). Comentário
+    reprovado/pendente só aparece pro proprio autor."""
+    _ensure_stories_social_schema()
+    cnpjloja = (request.args.get("cnpjloja") or "").strip()
+    tipo = (request.args.get("tipo") or "").strip()
+    story_ref = _story_ref(tipo, request.args.get("story_id"))
+    if not cnpjloja or not _story_tipo_valido(tipo) or not story_ref:
+        return jsonify({"ok": False, "erro": "Parâmetros inválidos."}), 400
+    consumidor_id = session.get("consumidor_id")
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) AS total FROM ecommerce_story_curtidas WHERE cnpjloja=%s AND tipo=%s AND story_ref=%s",
+        (cnpjloja, tipo, story_ref),
+    )
+    total_curtidas = (cur.fetchone() or {}).get("total", 0) or 0
+    curtido_por_mim = False
+    if consumidor_id:
+        cur.execute(
+            "SELECT 1 FROM ecommerce_story_curtidas WHERE cnpjloja=%s AND tipo=%s AND story_ref=%s AND consumidor_id=%s",
+            (cnpjloja, tipo, story_ref, consumidor_id),
+        )
+        curtido_por_mim = cur.fetchone() is not None
+    cur.execute(
+        """
+        SELECT id, consumidor_id, consumidor_nome, texto, aprovado, criado_em
+        FROM ecommerce_story_comentarios
+        WHERE cnpjloja=%s AND tipo=%s AND story_ref=%s
+          AND (aprovado=TRUE OR consumidor_id=%s)
+        ORDER BY criado_em ASC LIMIT 200
+        """,
+        (cnpjloja, tipo, story_ref, consumidor_id or "00000000-0000-0000-0000-000000000000"),
+    )
+    comentarios = [
+        {
+            "id": str(c["id"]),
+            "nome": (c["consumidor_nome"] or "Cliente").strip().split(" ")[0],
+            "texto": c["texto"],
+            "meu": consumidor_id is not None and str(c["consumidor_id"]) == str(consumidor_id),
+            "pendente": not c["aprovado"],
+        }
+        for c in cur.fetchall()
+    ]
+    cur.close()
+    return jsonify({
+        "ok": True, "total_curtidas": total_curtidas,
+        "curtido_por_mim": curtido_por_mim, "logado": bool(consumidor_id),
+        "comentarios": comentarios,
+    })
+
+
+@app.post("/api/stories/curtir")
+@_consumer_required
+def api_stories_curtir():
+    _ensure_stories_social_schema()
+    data = request.get_json(silent=True) or {}
+    cnpjloja = (data.get("cnpjloja") or "").strip()
+    tipo = (data.get("tipo") or "").strip()
+    story_ref = _story_ref(tipo, data.get("story_id"))
+    if not cnpjloja or not _story_tipo_valido(tipo) or not story_ref:
+        return jsonify({"ok": False, "erro": "Parâmetros inválidos."}), 400
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id FROM ecommerce_story_curtidas WHERE cnpjloja=%s AND tipo=%s AND story_ref=%s AND consumidor_id=%s",
+        (cnpjloja, tipo, story_ref, consumidor_id),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.execute("DELETE FROM ecommerce_story_curtidas WHERE id=%s", (row["id"],))
+        curtido = False
+    else:
+        cur.execute(
+            "INSERT INTO ecommerce_story_curtidas (cnpjloja, tipo, story_ref, consumidor_id) VALUES (%s,%s,%s,%s)",
+            (cnpjloja, tipo, story_ref, consumidor_id),
+        )
+        curtido = True
+    conn.commit()
+    cur.execute(
+        "SELECT COUNT(*) AS total FROM ecommerce_story_curtidas WHERE cnpjloja=%s AND tipo=%s AND story_ref=%s",
+        (cnpjloja, tipo, story_ref),
+    )
+    total = (cur.fetchone() or {}).get("total", 0) or 0
+    cur.close()
+    return jsonify({"ok": True, "curtido": curtido, "total": total})
+
+
+@app.post("/api/stories/comentar")
+@_consumer_required
+@_rate_limited_api(max_calls=5, window_secs=60)
+def api_stories_comentar():
+    _ensure_stories_social_schema()
+    data = request.get_json(silent=True) or {}
+    cnpjloja = (data.get("cnpjloja") or "").strip()
+    tipo = (data.get("tipo") or "").strip()
+    texto = (data.get("texto") or "").strip()
+    story_ref = _story_ref(tipo, data.get("story_id"))
+    if not cnpjloja or not _story_tipo_valido(tipo) or not story_ref:
+        return jsonify({"ok": False, "erro": "Parâmetros inválidos."}), 400
+    if len(texto) < 2 or len(texto) > 500:
+        return jsonify({"ok": False, "erro": "Comentário precisa ter entre 2 e 500 caracteres."}), 400
+    consumidor_id = session["consumidor_id"]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT nome FROM ecommerce_consumidores WHERE id=%s", (consumidor_id,))
+    consumidor = cur.fetchone()
+    nome = (consumidor or {}).get("nome") or "Cliente Poupaqui"
+    cur.execute(
+        """
+        INSERT INTO ecommerce_story_comentarios
+          (cnpjloja, tipo, story_ref, consumidor_id, consumidor_nome, texto, aprovado)
+        VALUES (%s,%s,%s,%s,%s,%s,FALSE)
+        RETURNING id
+        """,
+        (cnpjloja, tipo, story_ref, consumidor_id, nome, texto),
+    )
+    novo_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.close()
+    return jsonify({
+        "ok": True,
+        "comentario": {"id": str(novo_id), "nome": nome.strip().split(" ")[0], "texto": texto, "meu": True, "pendente": True},
+    })
 
 
 @app.get("/api/home/insights")
@@ -23557,6 +23799,7 @@ _SUPORTE_SISTEMA_PROMPT = (
 
 
 def _ensure_suporte_schema():
+    _load_db_migrations()
     if "suporte_v2" in _schema_ready:
         return
     with _schema_lock:
@@ -31234,6 +31477,7 @@ def admin_anvisa_corrigir(cache_id):
 # ─── PRODUTO CANON ────────────────────────────────────────────────────────────
 
 def _ensure_produto_canon_schema():
+    _load_db_migrations()
     key = "produto_canon"
     if key in _schema_ready:
         return
@@ -31337,6 +31581,7 @@ def admin_produto_canon_editar():
 # ─── CUPONS ───────────────────────────────────────────────────────────────────
 
 def _ensure_cupons_schema():
+    _load_db_migrations()
     if "cupons" in _schema_ready:
         return
     with _schema_lock:
@@ -34951,6 +35196,7 @@ def _ensure_exclusao_conta_schema():
     # dados pessoais e feita manualmente pelo admin (fica registro fiscal
     # dos pedidos por obrigacao legal, nao e apagado); aqui so registra o
     # pedido e da o prazo.
+    _load_db_migrations()
     key = "exclusao_conta_v1"
     if key in _schema_ready:
         return

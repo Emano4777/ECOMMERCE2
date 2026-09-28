@@ -58,6 +58,31 @@
   {% endfor %}
 {% endwith %}
 
+{% if comentarios_pendentes %}
+<div class="stc-auto-card" style="border-color:var(--pk-yellow)">
+  <div class="stc-auto-head">
+    <div class="stc-auto-title"><i class="fa fa-comment-dots" style="color:var(--pk-yellow)"></i>Comentários aguardando aprovação ({{ comentarios_pendentes|length }})</div>
+  </div>
+  <div class="stc-auto-desc" style="margin-bottom:12px">Comentário só aparece pros outros clientes depois de aprovado aqui.</div>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    {% for c in comentarios_pendentes %}
+    <div style="background:#101418;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+      <div style="font-size:.78rem;color:var(--pk-muted)"><strong style="color:var(--pk-txt)">{{ c.consumidor_nome }}</strong> · {{ c.tipo }} · {{ c.criado_em.strftime('%d/%m %H:%M') }}</div>
+      <div style="font-size:.85rem;color:var(--pk-txt)">{{ c.texto }}</div>
+      <div class="stc-actions" style="margin-top:2px">
+        <form method="post" action="{{ url_for('painel_stories_comentario_aprovar', comentario_id=c.id) }}" style="flex:1">
+          <button type="submit" class="stc-btn" style="width:100%;border-color:#22c55e;color:#22c55e"><i class="fa fa-check me-1"></i>Aprovar</button>
+        </form>
+        <form method="post" action="{{ url_for('painel_stories_comentario_rejeitar', comentario_id=c.id) }}" style="flex:1" onsubmit="return confirm('Rejeitar e apagar esse comentário?')">
+          <button type="submit" class="stc-btn danger" style="width:100%"><i class="fa fa-xmark me-1"></i>Rejeitar</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Tipos automáticos -->
 <form method="post" action="{{ url_for('painel_stories_config') }}">
   <div class="stc-auto-card">
