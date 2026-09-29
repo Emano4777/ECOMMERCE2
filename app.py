@@ -22009,7 +22009,9 @@ def _mp_estornar_pagamento(pedido_id, cnpjloja):
         (pedido_id, cnpjloja),
     )
     row = cur.fetchone()
-    if not row or not row.get("mp_payment_id") or not row.get("mp_access_token"):
+    _mp_token_split = _mp_marketplace_get_access_token(cnpjloja) if row else None
+    _mp_token_estorno = _mp_token_split or (row.get("mp_access_token") if row else None)
+    if not row or not row.get("mp_payment_id") or not _mp_token_estorno:
         cur.close()
         return False, "Pedido sem pagamento Mercado Pago identificado ou loja sem token configurado."
     if row.get("pagamento_status") == "refunded":
@@ -22018,7 +22020,7 @@ def _mp_estornar_pagamento(pedido_id, cnpjloja):
 
     try:
         resp = _mp_request(
-            row["mp_access_token"],
+            _mp_token_estorno,
             f"/v1/payments/{row['mp_payment_id']}/refunds",
             {},
             method="POST",
@@ -22037,7 +22039,7 @@ def _mp_estornar_pagamento(pedido_id, cnpjloja):
     conn.commit()
     cur.close()
     try:
-        _sincronizar_pagamento_mp_para_pedido(pedido_id, row["mp_access_token"], row["mp_payment_id"])
+        _sincronizar_pagamento_mp_para_pedido(pedido_id, _mp_token_estorno, row["mp_payment_id"])
     except Exception:
         pass
     return True, {"refund_id": refund_id, "valor": valor}
