@@ -22708,7 +22708,13 @@ def painel_pedido_detalhe(pedido_id):
         itens=itens,
         receita_urls=receita_urls,
         ml_shipping=ml_shipping_info,
-        alpha_enabled=_alpha_enabled(),
+        # _alpha_enabled() so checa se a integracao Alpha esta configurada no
+        # ambiente (hoje suporta 1 unica loja via ALPHA_DEFAULT_CNPJLOJA) --
+        # sem comparar com a loja do PEDIDO, o botao "Reenviar para Alpha"
+        # aparecia em qualquer loja (ex: SJRP, que usa Automatiza), sempre
+        # falhando com erro de FK do banco do Alpha (achado testando pedido
+        # real da loja de SJRP).
+        alpha_enabled=(_alpha_enabled() and cnpjloja == alpha_sync._alpha_store_cnpj()),
         pendencia=dict(pendencia) if pendencia else None,
         motivos_pendencia=_MOTIVOS_PENDENCIA,
     )
