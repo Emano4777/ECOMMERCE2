@@ -146,7 +146,7 @@ MP_MKT_SECRET        = os.getenv("MP_MARKETPLACE_CLIENT_SECRET", "")
 MP_MKT_REDIRECT      = os.getenv("MP_MARKETPLACE_REDIRECT_URI", "https://www.drogariaspoupaqui.com.br/mp/callback")
 MP_MKT_AUTH_URL      = "https://auth.mercadopago.com/authorization"
 MP_MKT_TOKEN_URL     = "https://api.mercadopago.com/oauth/token"
-MP_MKT_FEE_PCT       = float(os.getenv("MP_MARKETPLACE_FEE_PCT", "2.0"))
+MP_MKT_FEE_PCT       = float(os.getenv("MP_MARKETPLACE_FEE_PCT", "5.0"))
 
 # ─── GOOGLE OAUTH (CONSUMIDOR) ───────────────────────────────────────────────
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
