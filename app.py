@@ -12978,7 +12978,7 @@ def api_home_stories():
     if cfg.get("chegou_agora_ativo", True):
         cur.execute(
             """
-            SELECT ean, nome, imagem_url, preco_venda
+            SELECT ean, nome, imagem_url, preco_venda, classificacao
             FROM ecommerce_alpha_produtos
             WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
               AND primeiro_visto_em IS NOT NULL AND primeiro_visto_em >= NOW() - INTERVAL '3 days'
@@ -12988,14 +12988,21 @@ def api_home_stories():
             """,
             (cnpjloja,),
         )
-        novos = cur.fetchall()
+        novos = [dict(r) for r in cur.fetchall()]
+        for p in novos:
+            p["imagem"] = p.get("imagem_url") or ""
         if novos:
+            # Mesma regra de tarja preta/vermelha usada no catalogo/cards
+            # (_marcar_tarja_batch ja troca p["imagem"] pelo placeholder
+            # generico quando aplicavel) -- sem isso, o story mostrava a
+            # foto real de medicamento tarjado, ignorando essa regra.
+            _marcar_tarja_batch(novos, cur.connection)
             stories.append({
                 "id": "chegou_agora", "tipo": "chegou_agora",
-                "titulo": "Chegou agora", "imagem": novos[0].get("imagem_url") or "",
+                "titulo": "Chegou agora", "imagem": novos[0].get("imagem") or "",
                 "cor": _STORY_TIPO_COR["chegou_agora"],
                 "produtos": [
-                    {"ean": p["ean"], "nome": p["nome"], "imagem": p.get("imagem_url") or "",
+                    {"ean": p["ean"], "nome": p["nome"], "imagem": p.get("imagem") or "",
                      "preco": float(p.get("preco_venda") or 0), "url": _prod_url(p["ean"], p["nome"])}
                     for p in novos
                 ],
@@ -13008,7 +13015,7 @@ def api_home_stories():
         ean_fixo = (cfg.get("produto_dia_ean") or "").strip()
         if ean_fixo:
             cur.execute(
-                """SELECT ean, nome, imagem_url, preco_venda, preco_promocional FROM ecommerce_alpha_produtos
+                """SELECT ean, nome, imagem_url, preco_venda, preco_promocional, classificacao FROM ecommerce_alpha_produtos
                    WHERE cnpjloja=%s AND ean=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0 LIMIT 1""",
                 (cnpjloja, ean_fixo),
             )
@@ -13017,7 +13024,7 @@ def api_home_stories():
         if not pd:
             cur.execute(
                 """
-                SELECT ean, nome, imagem_url, preco_venda, preco_promocional
+                SELECT ean, nome, imagem_url, preco_venda, preco_promocional, classificacao
                 FROM ecommerce_alpha_produtos
                 WHERE cnpjloja=%s AND COALESCE(inativo,false)=false AND COALESCE(estoque,0)>0
                   AND preco_promocional IS NOT NULL AND preco_promocional > 0
@@ -13039,6 +13046,11 @@ def api_home_stories():
         # produto sem preco_promocional ativo era ignorado silenciosamente
         # e a home continuava mostrando o pick automatico antigo.
         if pd and (pd_manual or pd.get("preco_promocional")):
+            pd = dict(pd)
+            pd["imagem"] = pd.get("imagem_url") or ""
+            # Mesma regra de tarja preta/vermelha usada no catalogo/cards --
+            # troca a foto real pelo placeholder generico quando aplicavel.
+            _marcar_tarja_batch([pd], cur.connection)
             preco = float(pd["preco_venda"] or 0)
             promo_raw = pd.get("preco_promocional")
             tem_promo = bool(promo_raw) and float(promo_raw) > 0 and preco > 0 and float(promo_raw) < preco
@@ -13046,10 +13058,10 @@ def api_home_stories():
             pct = round((1 - promo / preco) * 100) if tem_promo else 0
             stories.append({
                 "id": "produto_dia", "tipo": "produto_dia",
-                "titulo": "Produto do dia", "imagem": pd.get("imagem_url") or "",
+                "titulo": "Produto do dia", "imagem": pd.get("imagem") or "",
                 "cor": _STORY_TIPO_COR["produto_dia"],
                 "produto": {
-                    "ean": pd["ean"], "nome": pd["nome"], "imagem": pd.get("imagem_url") or "",
+                    "ean": pd["ean"], "nome": pd["nome"], "imagem": pd.get("imagem") or "",
                     "preco": preco, "preco_promo": promo, "desconto_pct": pct,
                     "url": _prod_url(pd["ean"], pd["nome"]),
                 },
