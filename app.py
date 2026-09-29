@@ -20494,6 +20494,13 @@ def api_checkout():
             or (gateway_pagamento == "asaas" and bool(loja.get("asaas_api_key")))
             or (gateway_pagamento == "pagbank" and bool(loja.get("pagbank_token")) and bool(loja.get("pagbank_public_key")))
         )
+        # Loja pode ter token manual colado (modelo antigo) OU ter conectado
+        # via OAuth marketplace (modelo novo, com split) sem nunca colar
+        # token nenhum -- as duas contam como "MP configurado" pro checkout.
+        _mp_token_oauth_checkout = (
+            _mp_marketplace_get_access_token(cnpjloja) if gateway_pagamento == "mercadopago" else None
+        )
+        _mp_configurado = bool(loja.get("mp_access_token")) or bool(_mp_token_oauth_checkout)
         # So o pedido que sera cobrado de fato por gateway automatico (Mercado
         # Pago/Asaas/PagBank) pode contar com a confirmacao automatica de
         # pagamento chegando em minutos -- nesses casos o aviso "Pedido pago"
@@ -20503,7 +20510,7 @@ def api_checkout():
         # (loja teria que conferir PIX manual na chave dela) continua avisando
         # na hora, senao a loja nunca fica sabendo do pedido.
         _gateway_automatico_ok = (
-            (gateway_pagamento == "mercadopago" and bool(loja.get("mp_access_token")))
+            (gateway_pagamento == "mercadopago" and _mp_configurado)
             or (gateway_pagamento == "asaas" and bool(loja.get("asaas_api_key")))
             or (gateway_pagamento == "pagbank" and bool(loja.get("pagbank_token")) and bool(loja.get("pagbank_public_key")))
         )
@@ -20581,12 +20588,12 @@ def api_checkout():
             mp_erro = f"Gateway {gateway_pagamento} configurado, mas o checkout transparente deste gateway ainda não está ativo."
         elif pagamento == "pix" and gateway_pagamento != "mercadopago":
             pix_erro = f"Gateway {gateway_pagamento} configurado, mas o PIX automático deste gateway ainda não está ativo."
-        elif pagamento == "mercadopago" and loja.get("mp_access_token"):
+        elif pagamento == "mercadopago" and _mp_configurado:
             # Loja conectada no modelo marketplace (OAuth com split): usa o
             # token renovavel do fluxo OAuth em vez do token colado manual, e
             # calcula a fatia automatica pro admin (application_fee/marketplace_fee).
             # Loja no modelo antigo (so token colado) continua sem fee nenhum.
-            _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
+            _mp_token_split = _mp_token_oauth_checkout
             _mp_token_pagto = _mp_token_split or loja["mp_access_token"]
             _mp_fee = round(float(total) * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
             if loja.get("mp_public_key"):
@@ -20595,7 +20602,7 @@ def api_checkout():
                 # cartoes salvos do cliente pra ele nao precisar redigitar
                 # toda vez.
                 mp_customer_id_checkout = _obter_ou_criar_mp_customer(
-                    loja["mp_access_token"], session.get("consumidor_id"), cnpjloja, cliente
+                    _mp_token_pagto, session.get("consumidor_id"), cnpjloja, cliente
                 )
             mp_pref = _criar_preferencia_mp(
                 _mp_token_pagto, pedido_id, itens, total, cliente, application_fee=_mp_fee
@@ -20622,8 +20629,8 @@ def api_checkout():
                     (payment_status, pedido_id),
                 )
                 conn.commit()
-        elif pagamento == "pix" and loja.get("mp_access_token"):
-            _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
+        elif pagamento == "pix" and _mp_configurado:
+            _mp_token_split = _mp_token_oauth_checkout
             _mp_token_pagto = _mp_token_split or loja["mp_access_token"]
             _mp_fee = round(float(total) * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
             mp_payment = _criar_pagamento_pix_mp(
@@ -20736,7 +20743,8 @@ def api_pedido_cartao_transparente(pedido_id):
     if str(row.get("consumidor_id")) != str(session.get("consumidor_id")):
         cur.close()
         return jsonify({"error": "Pedido não pertence ao usuário logado."}), 403
-    if not row.get("mp_access_token"):
+    _mp_token_split = _mp_marketplace_get_access_token(str(row.get("cnpjloja") or ""))
+    if not row.get("mp_access_token") and not _mp_token_split:
         cur.close()
         return jsonify({"error": "Loja sem Mercado Pago configurado."}), 400
     if (row.get("gateway_alternativo") or "mercadopago") != "mercadopago":
@@ -20764,9 +20772,8 @@ def api_pedido_cartao_transparente(pedido_id):
     }
     consumidor_id = str(row.get("consumidor_id") or "")
     cnpjloja = str(row.get("cnpjloja") or "")
-    mp_customer_id = _obter_ou_criar_mp_customer(row["mp_access_token"], consumidor_id, cnpjloja, cliente)
-    _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
     _mp_token_pagto = _mp_token_split or row["mp_access_token"]
+    mp_customer_id = _obter_ou_criar_mp_customer(_mp_token_pagto, consumidor_id, cnpjloja, cliente)
     _mp_fee = round(float(row["total"]) * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
     pay = _criar_pagamento_cartao_mp(_mp_token_pagto, pedido_id, row["total"], cliente, data, mp_customer_id, application_fee=_mp_fee)
     erro = pay.get("_erro") if isinstance(pay, dict) else None
@@ -23042,7 +23049,8 @@ def painel_avaliar_receita(pedido_id):
             (pedido_id,),
         )
         ped = cur.fetchone()
-        if ped and ped.get("mp_access_token"):
+        _mp_token_split = _mp_marketplace_get_access_token(cnpjloja) if ped else None
+        if ped and (ped.get("mp_access_token") or _mp_token_split):
             cur.execute(
                 "SELECT ean, nome, qty, preco_unitario AS preco, imagem FROM ecommerce_pedido_itens WHERE pedido_id=%s ORDER BY id",
                 (pedido_id,),
@@ -23055,7 +23063,6 @@ def painel_avaliar_receita(pedido_id):
             }
             total_ped = float(ped.get("total") or 0)
             pagamento_ped = ped.get("forma_pagamento") or ""
-            _mp_token_split = _mp_marketplace_get_access_token(cnpjloja)
             _mp_token_pagto = _mp_token_split or ped["mp_access_token"]
             _mp_fee = round(total_ped * MP_MKT_FEE_PCT / 100, 2) if _mp_token_split else None
             if pagamento_ped == "mercadopago":
