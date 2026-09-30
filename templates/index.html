@@ -1287,20 +1287,28 @@ function cornerBadgeHtml(p, qty) {
   const promo = p.promo || null;
   const precoAtual = parseFloat(p.preco) || 0;
   const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual) || precoAtual;
-  if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
+  const promoAplicada = !!(promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal);
+  const pq = p.promo_qtd;
+  const pqAtingiu = !!(pq && qty >= pq.qtd_minima);
+  // Quantidade minima atingida com preco melhor (ou igual) que a promo
+  // normal vence -- senao a promo normal (que nao depende de quantidade)
+  // sempre ganhava e o selo de quantidade nunca aparecia como "ativo".
+  if (pqAtingiu && (!promoAplicada || pq.preco_unit_promo <= promo.preco_promo)) {
+    return `<div class="prod-corner-badge" style="background:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
+      <i class="fa fa-circle-check"></i>Oferta ativa
+    </div>`;
+  }
+  if (promoAplicada) {
     const pct = precoOriginal > 0 ? Math.round((1 - promo.preco_promo / precoOriginal) * 100) : 0;
     return `<div class="prod-corner-badge" style="background:var(--pq-red)"><i class="fa fa-bolt"></i>${pct > 0 ? '-' + pct + '%' : 'PROMO'}</div>`;
   }
   if (promo && promo.so_assinantes) {
     return `<div class="prod-corner-badge" style="background:#b45309"><i class="fa fa-star"></i>Assinante</div>`;
   }
-  const pq = p.promo_qtd;
   if (pq) {
-    const atingiu = qty >= pq.qtd_minima;
     const pqPct = precoAtual > 0 ? Math.round((1 - pq.preco_unit_promo / precoAtual) * 100) : 0;
-    const texto = atingiu ? 'Oferta ativa' : `Leve ${pq.qtd_minima}+ ${pqPct > 0 ? '· -' + pqPct + '%' : ''}`;
     return `<div class="prod-corner-badge" style="background:#6d28d9;animation:pq-qtd-pulse 2.2s ease-in-out infinite">
-      <i class="fa fa-${atingiu ? 'circle-check' : 'layer-group'}"></i>${texto}
+      <i class="fa fa-layer-group"></i>Leve ${pq.qtd_minima}+ ${pqPct > 0 ? '· -' + pqPct + '%' : ''}
     </div>`;
   }
   return '';
@@ -1336,10 +1344,22 @@ function priceBlockHtml(p, qty) {
   const promo = p.promo || null;
   const precoAtual = parseFloat(p.preco)||0;
   const precoOriginal = parseFloat(p.preco_original || promo?.preco_original || precoAtual)||precoAtual;
+  const promoAplicada = !!(promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal);
+  const pq = p.promo_qtd;
+  const pqAtingiu = !!(pq && qty >= pq.qtd_minima);
   // Selo de promocao (normal ou por quantidade) mudou pro canto da imagem
   // -- ver cornerBadgeHtml() -- entao aqui embaixo do preco so sobra o
   // valor riscado/atual, sem repetir selo nenhum (menos poluido).
-  if (promo && promo.aplicada && promo.preco_promo && promo.preco_promo < precoOriginal) {
+  // Mesma prioridade do corner badge: quantidade atingida com preco melhor
+  // (ou igual) que a promo normal vence -- senao a promo normal sempre
+  // ganhava e subir a quantidade no card nunca baixava o preco mostrado.
+  if (pqAtingiu && (!promoAplicada || pq.preco_unit_promo <= promo.preco_promo)) {
+    return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
+      <span class="prod-preco">${brl(pq.preco_unit_promo)}</span>
+      <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoAtual)}</span>
+    </div>`;
+  }
+  if (promoAplicada) {
     return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
       <span class="prod-preco">${brl(promo.preco_promo)}</span>
       <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoOriginal)}</span>
@@ -1347,13 +1367,6 @@ function priceBlockHtml(p, qty) {
   }
   if (promo && promo.so_assinantes && promo.preco_promo && promo.preco_promo < precoAtual) {
     return `<div class="prod-preco">${brl(precoAtual)}</div>`;
-  }
-  const pq = p.promo_qtd;
-  if (pq && qty >= pq.qtd_minima) {
-    return `<div style="display:flex;align-items:baseline;gap:5px;flex-wrap:wrap">
-      <span class="prod-preco">${brl(pq.preco_unit_promo)}</span>
-      <span style="font-size:.72rem;text-decoration:line-through;color:var(--pq-muted);white-space:nowrap">${brl(precoAtual)}</span>
-    </div>`;
   }
   if (pq) {
     return `<div class="prod-preco">${brl(precoAtual)}</div>`;

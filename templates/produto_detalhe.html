@@ -622,6 +622,7 @@
       {% if produto and produto.preco %}
       <div class="pd-price-box">
         <div class="pd-price-block">
+          <div id="pd-price-qtd-wrap">
           {% if produto.promo and produto.promo.aplicada and produto.preco_original and produto.preco_original|float > produto.preco|float %}
           <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
             <span style="font-size:1.05rem;color:var(--pq-muted);font-weight:700;text-decoration:line-through">R$ {{ "%.2f"|format(produto.preco_original|float) | replace(".", ",") }}</span>
@@ -635,11 +636,12 @@
           <div style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;background:#fff5f6;color:var(--pq-red);border:1px solid #ffd0d8;border-radius:8px;padding:5px 10px;font-size:.78rem;font-weight:900">
             <i class="fa fa-star"></i>Assine e pague R$ {{ "%.2f"|format(produto.promo.preco_promo|float) | replace(".", ",") }}
           </div>
-          {% elif promo_qtd %}
-          <div id="pd-price-qtd-wrap">
-            <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
-            <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+          {% else %}
+          <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
+          <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
+          {% endif %}
           </div>
+          {% if promo_qtd %}
           <div class="pd-qtd-compare">
             <div class="pd-qtd-compare-label"><i class="fa fa-layer-group"></i>Oferta por quantidade — toque pra escolher</div>
             <div class="pd-qtd-tiles">
@@ -654,9 +656,6 @@
               </button>
             </div>
           </div>
-          {% else %}
-          <div id="pd-preco-original" class="pd-price">R$ {{ "%.2f"|format(produto.preco|float) | replace(".", ",") }}</div>
-          <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>
           {% endif %}
           <div id="pd-cupom-block" style="display:none;margin-top:8px">
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
@@ -1074,6 +1073,11 @@ function pdBrl(v) {
 function renderPdQtyBar(qty) {
   const wrap = document.getElementById('pd-price-qtd-wrap');
   if (!wrap || !_pdPromoQtd) return;
+  // Guarda o HTML original (economize/assinante) na 1a chamada, pra
+  // restaurar exatamente ele quando a quantidade volta a ficar abaixo do
+  // minimo -- antes isso trocava por um bloco generico e perdia a
+  // mensagem de promocao normal que ja estava valendo pro produto.
+  if (wrap.dataset.original === undefined) wrap.dataset.original = wrap.innerHTML;
   const pq = _pdPromoQtd;
   const atingiu = qty >= pq.qtd_minima;
   if (atingiu) {
@@ -1084,8 +1088,7 @@ function renderPdQtyBar(qty) {
     <div id="pd-preco-original" class="pd-price">${pdBrl(pq.preco_unit_promo)}</div>
     <div class="pd-price-label" style="color:#6d28d9;font-weight:800"><i class="fa fa-circle-check me-1"></i>Você está economizando ${pdBrl(economia)}</div>`;
   } else {
-    wrap.innerHTML = `<div id="pd-preco-original" class="pd-price">${pdBrl(_pdPreco)}</div>
-    <div class="pd-price-label" id="pd-price-label">preço na farmácia</div>`;
+    wrap.innerHTML = wrap.dataset.original;
   }
   // Comparador "1 unidade x N+" (pd-qtd-compare) e estatico -- so alterna
   // qual dos dois tiles fica destacado, conforme a quantidade escolhida
