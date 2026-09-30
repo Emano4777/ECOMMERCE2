@@ -7590,6 +7590,11 @@ def get_dns_products(
     cur.close()
     if schedule_fill:
         _schedule_fill_images(combined, cnpjloja=cnpjloja)
+    # Chamada de loja unica -- o SELECT nao precisa selecionar cnpjloja (o
+    # caller ja sabe), mas quem consome o retorno (ex: _attach_quantidade_promos)
+    # depende desse campo estar presente em cada produto.
+    for _p in combined:
+        _p.setdefault("cnpjloja", cnpjloja)
     return sorted(combined, key=lambda x: (x.get("nome") or "").lower())
 
 
@@ -27195,6 +27200,7 @@ def catalogo_loja(cnpjloja):
         produtos, _bloqueados_sem_imagem = _split_catalog_image_status(produtos)
 
     _attach_product_promos(produtos)
+    _attach_quantidade_promos(produtos)
 
     # Plano de assinatura da loja (se ativo)
     plano_assinatura = None

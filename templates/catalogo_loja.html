@@ -358,6 +358,11 @@
           {% else %}
             {{ money(p.preco) }}
           {% endif %}
+          {% if p.promo_qtd %}
+          <div class="prod-promo-tag prod-promo-tag--offer" style="background:#f3e8ff;color:#6d28d9;border-color:#d8b4fe">
+            <i class="fa fa-layer-group"></i>Leve {{ p.promo_qtd.qtd_minima }}+ por {{ money(p.promo_qtd.preco_unit_promo) }} cada
+          </div>
+          {% endif %}
         {% else %}
           <span style="font-size:.85rem;color:var(--pq-muted)">Consultar</span>
         {% endif %}
@@ -380,7 +385,7 @@
           <button type="button" onclick="changeCatalogQty('{{ loop.index }}', 1)">+</button>
         </div>
         <button class="btn-add-cart"
-                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},preco_original:{{ (p.preco_original|float) if p.preco_original else (p.preco|float) }},promo:{% if promo %}{so_assinantes:{{ 'true' if promo.so_assinantes else 'false' }},preco_promo:{{ promo.preco_promo|float }},aplicada:{{ 'true' if promo.aplicada else 'false' }},preco_original:{{ promo.preco_original|float }}}{% else %}null{% endif %},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }},receita_retida:{{ 'true' if p.receita_retida else 'false' }},tarja:'{{ p.tarja or '' }}'})">
+                onclick="addCatalogToCart('{{ loop.index }}',{ean:'{{ p.ean|e }}',nome:'{{ p.nome|replace("'", "\\'")|e }}',preco:{{ p.preco|float }},preco_original:{{ (p.preco_original|float) if p.preco_original else (p.preco|float) }},promo:{% if promo %}{so_assinantes:{{ 'true' if promo.so_assinantes else 'false' }},preco_promo:{{ promo.preco_promo|float }},aplicada:{{ 'true' if promo.aplicada else 'false' }},preco_original:{{ promo.preco_original|float }}}{% else %}null{% endif %},promo_qtd:{% if p.promo_qtd %}{qtd_minima:{{ p.promo_qtd.qtd_minima }},preco_unit_promo:{{ p.promo_qtd.preco_unit_promo }},so_assinantes:{{ 'true' if p.promo_qtd.so_assinantes else 'false' }}}{% else %}null{% endif %},imagem:'{{ (p.imagem or '')|e }}',cnpjloja:'{{ loja.cnpjloja|e }}',razao:'{{ loja.razao|replace("'", "\\'")|e }}',requer_receita:{{ 'true' if p.requer_receita else 'false' }},receita_retida:{{ 'true' if p.receita_retida else 'false' }},tarja:'{{ p.tarja or '' }}'})">
           <i class="fa fa-cart-plus me-1"></i>{% if p.requer_receita %}Reservar{% else %}Adicionar{% endif %}
         </button>
       </div>
