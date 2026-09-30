@@ -25953,7 +25953,7 @@ def mp_callback():
     session.pop("mp_oauth_state", None)
     session.pop("mp_oauth_cnpjloja", None)
 
-    flash("Conta Mercado Pago conectada com sucesso! Uma parte de cada venda paga pelo site já passa a ir automaticamente pro repasse combinado.", "success")
+    flash("Conta Mercado Pago conectada com sucesso!", "success")
     return redirect(url_for("painel_config"))
 
 
