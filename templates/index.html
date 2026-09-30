@@ -1252,20 +1252,7 @@ function cardHtml(p, idx) {
           </button>
         </div>
       </div>
-      ${(() => {
-        const slot = "min-height:28px;box-sizing:border-box;padding:5px 12px";
-        if (!p.promo) return `<div aria-hidden="true" style="${slot};font-size:.68rem;visibility:hidden">-</div>`;
-        if (p.promo.so_assinantes && !p.promo.preco_promo) {
-          return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;gap:5px;flex-wrap:wrap"><i class="fa fa-star" style="font-size:.58rem"></i>Preço especial para assinantes</div>`;
-        }
-        const precoDe = parseFloat(p.preco)||0;
-        const precoBaseDe = parseFloat(p.preco_original || p.promo.preco_original || precoDe)||precoDe;
-        const precoPor = p.promo.preco_promo;
-        if (precoPor < precoBaseDe) {
-          return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fca5a5;background:#fff1f2;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap"><span style="font-size:.66rem;color:var(--pq-red);font-weight:900;display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.55rem"></i>PROMO${p.promo.so_assinantes?' · Assinante':''}</span><span style="font-size:.72rem;font-weight:900;color:var(--pq-red);white-space:nowrap"><s style="opacity:.5;font-size:.62rem;font-weight:400">${brl(precoBaseDe)}</s> ${brl(precoPor)}</span></div>`;
-        }
-        return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${p.promo.so_assinantes?'Assinante':'Promo'}</span><span style="white-space:nowrap">${brl(precoPor)}</span></div>`;
-      })()}
+      <div id="promostrip-${idx}">${promoStripHtml(p, 1)}</div>
       ${(() => {
         const plano = _planosIndex[p.cnpjloja];
         const slot = "min-height:38px;box-sizing:border-box;padding:6px 12px";
@@ -1377,13 +1364,48 @@ function priceBlockHtml(p, qty) {
   </div>`;
 }
 
+// Faixa fina embaixo do card (preco riscado + atual). Mesma prioridade do
+// preco/selo principal (ver priceBlockHtml/cornerBadgeHtml): oferta por
+// quantidade atingida e igual ou melhor que a promo normal vence -- essa
+// faixa nunca soube de promo_qtd antes e ficava presa no preco normal
+// mesmo com a quantidade minima atingida.
+function promoStripHtml(p, qty) {
+  const slot = "min-height:28px;box-sizing:border-box;padding:5px 12px";
+  const promo = p.promo || null;
+  const pq = p.promo_qtd;
+  const precoDe = parseFloat(p.preco)||0;
+  const precoBaseDe = parseFloat(p.preco_original || promo?.preco_original || precoDe)||precoDe;
+  const promoPreco = promo ? promo.preco_promo : null;
+  const promoMelhor = !!(promo && promoPreco && promoPreco < precoBaseDe);
+  const pqAtingiu = !!(pq && qty >= pq.qtd_minima);
+  if (pqAtingiu && (!promoMelhor || pq.preco_unit_promo <= promoPreco)) {
+    return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #d8b4fe;background:#f3e8ff;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap"><span style="font-size:.66rem;color:#6d28d9;font-weight:900;display:flex;align-items:center;gap:3px"><i class="fa fa-layer-group" style="font-size:.55rem"></i>OFERTA POR QUANTIDADE</span><span style="font-size:.72rem;font-weight:900;color:#6d28d9;white-space:nowrap"><s style="opacity:.5;font-size:.62rem;font-weight:400">${brl(precoDe)}</s> ${brl(pq.preco_unit_promo)}</span></div>`;
+  }
+  if (!promo) {
+    if (pq) {
+      return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #d8b4fe;background:#f3e8ff;font-size:.68rem;color:#6d28d9;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-layer-group" style="font-size:.58rem"></i>Leve ${pq.qtd_minima}+</span><span style="white-space:nowrap">${brl(pq.preco_unit_promo)} cada</span></div>`;
+    }
+    return `<div aria-hidden="true" style="${slot};font-size:.68rem;visibility:hidden">-</div>`;
+  }
+  if (promo.so_assinantes && !promo.preco_promo) {
+    return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;gap:5px;flex-wrap:wrap"><i class="fa fa-star" style="font-size:.58rem"></i>Preço especial para assinantes</div>`;
+  }
+  if (promoMelhor) {
+    return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fca5a5;background:#fff1f2;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap"><span style="font-size:.66rem;color:var(--pq-red);font-weight:900;display:flex;align-items:center;gap:3px"><i class="fa fa-bolt" style="font-size:.55rem"></i>PROMO${promo.so_assinantes?' · Assinante':''}</span><span style="font-size:.72rem;font-weight:900;color:var(--pq-red);white-space:nowrap"><s style="opacity:.5;font-size:.62rem;font-weight:400">${brl(precoBaseDe)}</s> ${brl(promoPreco)}</span></div>`;
+  }
+  return `<div onclick="event.stopPropagation()" style="${slot};border-top:1px solid #fde68a;background:#fffbeb;font-size:.68rem;color:#92400e;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:4px"><i class="fa fa-star" style="font-size:.58rem"></i>${promo.so_assinantes?'Assinante':'Promo'}</span><span style="white-space:nowrap">${brl(promoPreco)}</span></div>`;
+}
+
 function renderCardQtyBar(idx, qtyRaw) {
   const p = _cards[idx];
   const wrap = document.getElementById('priceblock-' + idx);
-  if (!p || !wrap || !p.promo_qtd) return;
+  if (!p || !wrap) return;
   const inp = document.getElementById('qty-' + idx);
   const max = parseInt(inp?.max) || 99;
   const qty = Math.max(1, Math.min(max, parseInt(qtyRaw) || 1));
+  const stripWrap = document.getElementById('promostrip-' + idx);
+  if (stripWrap) stripWrap.innerHTML = promoStripHtml(p, qty);
+  if (!p.promo_qtd) return;
   wrap.innerHTML = priceBlockHtml(p, qty);
   const badgeWrap = document.getElementById('cornerbadge-' + idx);
   if (badgeWrap) badgeWrap.innerHTML = cornerBadgeHtml(p, qty);
