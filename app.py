@@ -30285,6 +30285,11 @@ _MARCA_TO_INN = {
     # mesma chave). Achado revisando o EAN 7896094925144 (AD-TIL, tarja
     # vermelha confirmada).
     "AD":           "RETINOL COLECALCIFEROL",
+    # Mesmo caso do "AD" acima -- "ESC" (de "ESC ODT", generico abreviado de
+    # Escitalopram vendido por algumas distribuidoras/ERPs) sozinho tem
+    # menos de 4 letras e nunca gerava chave (EAN 7891317011468/011444,
+    # tarja vermelha confirmada por bula, lista C1).
+    "ESC":          "ESCITALOPRAM",
     # Analgésicos / AINEs
     "ALIVIUM":      "IBUPROFENO",
     "BUPROVIL":     "IBUPROFENO",
