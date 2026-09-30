@@ -8454,12 +8454,14 @@ def get_alpha_products_direct_by_query(cnpjs, query, limit=120):
     # devolvendo "nenhum produto encontrado" mesmo com o produto em estoque.
     # A precisao real fica por conta do filtro required_terms mais abaixo.
     for term in _search_terms_for_query(query)[:3]:
-        if len(term) < 4 and not term.isdigit():
+        # Minimo 3 letras (nao 4) -- marca real de 3 letras (ex: "ZAZ") virava
+        # busca vazia sem nem tentar, ja que nenhum termo passava do filtro.
+        if len(term) < 3 and not term.isdigit():
             continue
         if term and f"%{term}%" not in patterns:
             patterns.append(f"%{term}%")
     q_raw = (query or "").strip().lower()
-    if q_raw and len(_norm_text(q_raw)) >= 4 and f"%{q_raw}%" not in patterns:
+    if q_raw and len(_norm_text(q_raw)) >= 3 and f"%{q_raw}%" not in patterns:
         patterns.append(f"%{q_raw}%")
     ean_q = _digits(query)
     if not patterns and not ean_q:
