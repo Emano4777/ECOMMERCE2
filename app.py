@@ -16129,51 +16129,37 @@ def _merchant_product_description(nome, tipo_produto):
     )[:1000]
 
 
-@app.get("/produto/<ean>")
-def produto_detalhe(ean):
-    cnpjloja  = (request.args.get("cnpj")  or "").strip()
-    nome_hint = (request.args.get("nome") or "").strip()
-    conn = db()
-    cur  = conn.cursor()
+# Cache do bloco "pesado" (dados puros de catálogo: produto/estoque/imagem/anvisa) da
+# página de detalhe de produto -- mesmo padrão de _batch_cache/_home_api_cache
+# (dict + lock + TTL). So cacheia dados NAO personalizados (sem preco de promocao
+# de assinante nem status de assinatura, que continuam calculados a cada request
+# logo depois, ja que dependem de session.get("consumidor_id")).
+_produto_dados_cache: dict = {}
+_produto_dados_cache_lock = threading.Lock()
+_PRODUTO_DADOS_CACHE_TTL = 300  # 5 minutos
 
-    if not cnpjloja:
-        # Sem ?cnpj= na URL (ex.: link de feed do Google Shopping, link de
-        # produto de influencer, link compartilhado sem loja definida, robo
-        # de busca sem localizacao), o preco/disponibilidade nunca era
-        # buscado -- a pagina ficava sem preco nenhum pra quem chegasse
-        # assim. Cai numa loja que realmente tem o produto em estoque, em
-        # vez de ficar em branco.
-        #
-        # Se o visitante estiver logado e ja tiver endereco salvo, a sessao
-        # ja carrega lat/lng do perfil (setados no login/cadastro) -- usa
-        # direto pra escolher a loja MAIS PERTO entre as que tem estoque,
-        # sem chamar geocoding de novo. Isso deixa isso pronto pra quando
-        # tiver mais de uma loja (ex.: SJRP): hoje com 1 loja so nao muda
-        # o resultado, mas evita mostrar a loja errada mais pra frente.
-        try:
-            cur.execute(
-                """SELECT ap.cnpjloja, g.lat, g.lng
-                   FROM ecommerce_alpha_produtos ap
-                   LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = ap.cnpjloja
-                   WHERE LTRIM(COALESCE(ap.ean,''),'0')=LTRIM(%s,'0')
-                     AND COALESCE(ap.inativo,false)=false AND COALESCE(ap.estoque,0)>0
-                   ORDER BY ap.estoque DESC""",
-                (ean,),
-            )
-            candidatos = cur.fetchall()
-            if candidatos:
-                lat_sessao = session.get("consumidor_lat")
-                lng_sessao = session.get("consumidor_lng")
-                if lat_sessao is not None and lng_sessao is not None:
-                    def _dist_candidato(c):
-                        if c["lat"] is None or c["lng"] is None:
-                            return float("inf")
-                        return haversine(float(lat_sessao), float(lng_sessao), float(c["lat"]), float(c["lng"]))
-                    candidatos = sorted(candidatos, key=_dist_candidato)
-                cnpjloja = candidatos[0]["cnpjloja"]
-        except Exception as exc:
-            app.logger.warning("produto_detalhe: fallback de loja sem cnpj falhou: %s", exc)
 
+def _produto_dados_cache_get(key: tuple):
+    with _produto_dados_cache_lock:
+        e = _produto_dados_cache.get(key)
+        if e and time.time() - e["ts"] < _PRODUTO_DADOS_CACHE_TTL:
+            return e["data"]
+        return None
+
+
+def _produto_dados_cache_set(key: tuple, data: dict):
+    with _produto_dados_cache_lock:
+        if len(_produto_dados_cache) >= 500:
+            oldest = min(_produto_dados_cache, key=lambda k: _produto_dados_cache[k]["ts"])
+            del _produto_dados_cache[oldest]
+        _produto_dados_cache[key] = {"data": data, "ts": time.time()}
+
+
+def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
+    """Busca bruta de produto/estoque/imagem/anvisa pro detalhe de produto --
+    extraido de produto_detalhe pra poder ser cacheado (19 consultas sequenciais
+    antes disso; nenhuma depende de sessao/usuario, so de ean+cnpjloja+nome_hint)."""
+    cur = conn.cursor()
     cur.execute(
         """
         SELECT m.descricao, m.marca, m.laboratorio, m.classe,
@@ -16545,6 +16531,84 @@ def produto_detalhe(ean):
                         anvisa["exibir_imagem_publica"] = True
         except Exception as _e:
             app.logger.warning(f"enriquecer_descricao_ia: {_e}")
+
+    return {
+        "med": med,
+        "_descricao_canon": _descricao_canon,
+        "nome_busca": nome_busca,
+        "vitnatu": vitnatu,
+        "loja": loja,
+        "imagem_custom": imagem_custom,
+        "produto": produto,
+        "produto_merchant_oos": produto_merchant_oos,
+        "anvisa": anvisa,
+        "_chave_anvisa": _chave_anvisa,
+    }
+
+
+@app.get("/produto/<ean>")
+def produto_detalhe(ean):
+    cnpjloja  = (request.args.get("cnpj")  or "").strip()
+    nome_hint = (request.args.get("nome") or "").strip()
+    conn = db()
+    cur  = conn.cursor()
+
+    if not cnpjloja:
+        # Sem ?cnpj= na URL (ex.: link de feed do Google Shopping, link de
+        # produto de influencer, link compartilhado sem loja definida, robo
+        # de busca sem localizacao), o preco/disponibilidade nunca era
+        # buscado -- a pagina ficava sem preco nenhum pra quem chegasse
+        # assim. Cai numa loja que realmente tem o produto em estoque, em
+        # vez de ficar em branco.
+        #
+        # Se o visitante estiver logado e ja tiver endereco salvo, a sessao
+        # ja carrega lat/lng do perfil (setados no login/cadastro) -- usa
+        # direto pra escolher a loja MAIS PERTO entre as que tem estoque,
+        # sem chamar geocoding de novo. Isso deixa isso pronto pra quando
+        # tiver mais de uma loja (ex.: SJRP): hoje com 1 loja so nao muda
+        # o resultado, mas evita mostrar a loja errada mais pra frente.
+        try:
+            cur.execute(
+                """SELECT ap.cnpjloja, g.lat, g.lng
+                   FROM ecommerce_alpha_produtos ap
+                   LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = ap.cnpjloja
+                   WHERE LTRIM(COALESCE(ap.ean,''),'0')=LTRIM(%s,'0')
+                     AND COALESCE(ap.inativo,false)=false AND COALESCE(ap.estoque,0)>0
+                   ORDER BY ap.estoque DESC""",
+                (ean,),
+            )
+            candidatos = cur.fetchall()
+            if candidatos:
+                lat_sessao = session.get("consumidor_lat")
+                lng_sessao = session.get("consumidor_lng")
+                if lat_sessao is not None and lng_sessao is not None:
+                    def _dist_candidato(c):
+                        if c["lat"] is None or c["lng"] is None:
+                            return float("inf")
+                        return haversine(float(lat_sessao), float(lng_sessao), float(c["lat"]), float(c["lng"]))
+                    candidatos = sorted(candidatos, key=_dist_candidato)
+                cnpjloja = candidatos[0]["cnpjloja"]
+        except Exception as exc:
+            app.logger.warning("produto_detalhe: fallback de loja sem cnpj falhou: %s", exc)
+
+    cur.close()
+
+    _produto_cache_key = (ean, cnpjloja, nome_hint)
+    _dados = _produto_dados_cache_get(_produto_cache_key)
+    if _dados is None:
+        _dados = _produto_dados_pesados(conn, ean, cnpjloja, nome_hint)
+        _produto_dados_cache_set(_produto_cache_key, _dados)
+
+    med = _dados["med"]
+    _descricao_canon = _dados["_descricao_canon"]
+    nome_busca = _dados["nome_busca"]
+    vitnatu = _dados["vitnatu"]
+    loja = _dados["loja"]
+    imagem_custom = _dados["imagem_custom"]
+    produto = _dados["produto"]
+    produto_merchant_oos = _dados["produto_merchant_oos"]
+    anvisa = dict(_dados["anvisa"]) if _dados["anvisa"] else {}
+    _chave_anvisa = _dados["_chave_anvisa"]
 
     if not produto and not med and not nome_hint:
         flash("Produto não encontrado.", "error")
@@ -30717,6 +30781,21 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             pass
     nomes = [p.get("nome") or "" for p in produtos]
 
+    # Excecoes confirmadas manualmente (override_manual=TRUE): produto cuja
+    # categoria de origem (Alpha/Automatiza) diz "vitamina"/"suplemento" etc,
+    # mas que e tarja de verdade por bula (ex: Nervamin/tiamina 300mg, vendido
+    # como "SIMILARES > VITAMINA" mas com retencao de receita confirmada).
+    # Sem isso, o skip por categoria abaixo nunca deixava esses produtos
+    # chegarem a consultar o anvisa_cache, mesmo ja confirmado.
+    _chaves_override_manual: set[str] = set()
+    try:
+        _cur_ov = conn.cursor()
+        _cur_ov.execute("SELECT chave FROM anvisa_cache WHERE override_manual = TRUE")
+        _chaves_override_manual = {r["chave"] for r in _cur_ov.fetchall()}
+        _cur_ov.close()
+    except Exception:
+        pass
+
     chaves_map: dict[str, list[int]] = {}
     for i, produto in enumerate(produtos):
         # Categoria confiavel (Alpha/classificacao_ean) tem prioridade sobre
@@ -30725,11 +30804,16 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
         # e sao tratados como medicamento por padrao, arriscando contaminacao
         # cruzada na familia da chave (ex: "GELEIA REAL" vs "GELEIA CAPILAR").
         # Se ja sabemos que a categoria e suplemento/perfumaria/etc., nem
-        # precisa computar chave nem consultar anvisa_cache.
+        # precisa computar chave nem consultar anvisa_cache -- a menos que
+        # essa chave especifica ja tenha sido confirmada manualmente.
         _categoria_conhecida = (produto.get("categoria") or "").strip().lower()
-        if _categoria_conhecida and _categoria_conhecida in _TIPOS_NAO_MEDICAMENTO:
-            continue
         ch = _anvisa_chave(nomes[i])
+        if (
+            _categoria_conhecida
+            and _categoria_conhecida in _TIPOS_NAO_MEDICAMENTO
+            and ch not in _chaves_override_manual
+        ):
+            continue
         if ch == "VITAMINA" and _vitamina_d_dose_alta(nomes[i]):
             # "VITAMINA" sozinha e isenta por padrao (maioria dos produtos com
             # essa chave e vitamina comum OTC) -- mas vitamina D em dose alta
@@ -30777,7 +30861,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             else:
                 _tipo = _classificar_produto(produtos[idx].get("nome") or "")
                 _is_med = _tipo not in _TIPOS_NAO_MEDICAMENTO
-            if not _is_med:
+            if not _is_med and row.get("chave") not in _chaves_override_manual:
                 return
             produtos[idx]["anvisa_cache_encontrado"] = True
             tarja = _detectar_tarja(dict(row))
