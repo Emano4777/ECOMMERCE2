@@ -1,0 +1,19 @@
+name: Deploy HostGator
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH (chave restrita, só roda deploy.sh no servidor)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTGATOR_HOST }}
+          username: root
+          key: ${{ secrets.HOSTGATOR_SSH_KEY }}
+          script: echo deploy
+          script_stop: true
