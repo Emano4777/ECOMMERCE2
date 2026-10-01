@@ -22653,7 +22653,13 @@ def api_painel_novos_alertas():
 def painel_pedidos():
     _ensure_payment_schema()
     _ensure_receita_schema()
-    _ml_flush_queue()
+    # _ml_flush_queue() rodava aqui sincrono a cada GET -- processa ate 20
+    # pedidos ML pendentes, cada um podendo chamar a API do ML (timeout 15s
+    # por chamada) e abrir/commitar varias conexoes. Isso podia deixar a
+    # pagina de pedidos lenta (ou arriscar timeout do Gunicorn) so por causa
+    # de pedidos ML atrasados. O webhook /ml/webhook ja processa a maioria
+    # na hora; a fila agora e esvaziada por cron (/api/cron/ml-flush-queue),
+    # igual o padrao ja usado pro export do Alpha.
     cnpjloja = session.get("cnpjloja")
     sf = (request.args.get("status") or "").strip()
     sf_receita = request.args.get("receita_pendente") == "1"
@@ -28411,6 +28417,20 @@ def api_cron_wa_diagnostico():
         return jsonify({"ok": False, "erro": str(exc)})
 
 
+@app.post("/api/cron/ml-flush-queue")
+def api_cron_ml_flush_queue():
+    """Endpoint chamado pelo cron do HostGator pra esvaziar a fila de pedidos
+    ML pendentes -- antes isso rodava sincrono a cada GET em /painel/pedidos,
+    o que podia deixar a pagina lenta (ate 20 pedidos, cada um podendo chamar
+    a API do ML). O webhook /ml/webhook ja processa a maioria na hora; isso
+    aqui e so a rede de seguranca, igual o /api/cron/alpha-export."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    _ml_flush_queue()
+    return jsonify({"ok": True})
+
+
 @app.post("/api/cron/alpha-export")
 def api_cron_alpha_export():
     """Endpoint chamado pelo cron do Hostgator a cada minuto. Exporta 1 pedido por chamada."""
@@ -33623,6 +33643,7 @@ def _ml_flush_queue():
         )
         pendentes = cur.fetchall()
         cur.close()
+        conn.commit()
     except Exception:
         return
 
