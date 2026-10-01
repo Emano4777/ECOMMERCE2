@@ -5375,6 +5375,7 @@ def _promo_quantidade_info(ean, cnpjloja, preco_atual):
         )
         rows = cur.fetchall()
         cur.close()
+        conn.commit()
         ean_d = _digits(ean)
         melhor = None
         for r in rows:
@@ -5430,6 +5431,7 @@ def _attach_quantidade_promos(produtos):
         )
         regras = [dict(r) for r in cur.fetchall()]
         cur.close()
+        conn.commit()
         if not regras:
             return
         por_loja = {}
