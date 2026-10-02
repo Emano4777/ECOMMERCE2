@@ -57,55 +57,48 @@ def ensure_columns(conn):
 
 # ── BUSCA DE PRODUTOS ────────────────────────────────────────────────────────
 
+def reuse_saved(conn):
+    # Reaproveita somente classificacoes completas; nao inventa campos ausentes.
+    with conn.cursor() as cur:
+        cur.execute("""WITH saved AS (
+          SELECT DISTINCT ON (ean) * FROM (
+            SELECT ltrim(coalesce(nullif(barra_norm,''),barra),'0') ean,
+              tipo_ia tipo, principio_ativo_ia pa, classe_terapeutica_ia ct, confianca_ia conf, 0 priority
+            FROM medicamentos WHERE tipo_ia IS NOT NULL
+            UNION ALL SELECT ean,tipo,principio_ativo,classe_terapeutica,confianca,1
+            FROM ecommerce_classificacao_ean
+          ) x WHERE tipo IS NOT NULL AND
+            (tipo NOT IN ('generico','similar','referencia') OR (nullif(pa,'') IS NOT NULL AND nullif(ct,'') IS NOT NULL))
+          ORDER BY ean,priority
+        ) UPDATE medicamentos m SET tipo_ia=s.tipo, principio_ativo_ia=s.pa,
+          classe_terapeutica_ia=s.ct, confianca_ia=s.conf
+          FROM saved s WHERE ltrim(coalesce(nullif(m.barra_norm,''),m.barra),'0')=s.ean
+          AND m.tipo_ia IS NULL""")
+        count=cur.rowcount
+    conn.commit()
+    print(f'Reaproveitados sem IA: {count} registros')
+
+
 def fetch_products(conn, force=False, limit=None, ean_filter=None, only_estoque=False):
-    # A maioria dos EANs realmente em estoque no catalogo Alpha (ecommerce_alpha_produtos)
-    # so bate via `barra` -- `barra_norm` esta NULL pra eles (import mais
-    # antigo/outra fonte). Usar COALESCE(barra_norm, barra) em tudo aqui
-    # (filtro, EXISTS e UPDATE) pra nao deixar de fora justamente os produtos
-    # que a busca do site precisa. Aliasa pra "barra_norm" no SELECT so pra
-    # nao precisar mexer no resto do script (classify_batch/save_classifications
-    # ja esperam esse nome de campo).
-    conditions = [
-        "COALESCE(barra_norm, barra) IS NOT NULL",
-        "COALESCE(barra_norm, barra) != ''",
-    ]
-    if not force and ean_filter is None:
-        conditions.append("tipo_ia IS NULL")
+    ean="ltrim(coalesce(nullif(m.barra_norm,''),m.barra),'0')"
+    conditions=[f"{ean} ~ '^[0-9]{{8,14}}$'"]
+    params=[]
+    if not force:
+        conditions.append("m.tipo_ia IS NULL")
+        conditions.append(f"NOT EXISTS (SELECT 1 FROM medicamentos done WHERE ltrim(coalesce(nullif(done.barra_norm,''),done.barra),'0')={ean} AND done.tipo_ia IS NOT NULL)")
     if ean_filter:
-        safe = ean_filter.lstrip("0")
-        conditions.append(f"COALESCE(barra_norm, barra) = '{safe}'")
+        conditions.append(f"{ean}=%s"); params.append(ean_filter.lstrip('0'))
     if only_estoque:
-        # So os EANs que a busca do site realmente pode encontrar em estoque
-        # agora (ecommerce_alpha_produtos, qualquer loja) -- e um recorte bem
-        # menor que o catalogo inteiro (~2 mil vs ~34 mil linhas sem
-        # classificacao) e e o que importa pro fallback de generico/equivalente
-        # em _buscar_alternativa_medicamento_sem_estoque (app.py) parar de
-        # precisar cair na IA ao vivo pra cada busca sem match exato.
-        conditions.append("""
-            EXISTS (
-                SELECT 1 FROM ecommerce_alpha_produtos ap
-                WHERE COALESCE(ap.inativo, false) = false
-                  AND COALESCE(ap.estoque, 0) > 0
-                  AND LTRIM(COALESCE(ap.ean, ''), '0') = LTRIM(COALESCE(medicamentos.barra_norm, medicamentos.barra, ''), '0')
-            )
-        """)
-
-    where = " AND ".join(conditions)
-    limit_clause = f"LIMIT {limit}" if limit else ""
-
-    sql = f"""
-        SELECT id, COALESCE(barra_norm, barra) AS barra_norm, descricao, classe, laboratorio, marca
-        FROM medicamentos
-        WHERE {where}
-        ORDER BY id
-        {limit_clause}
-    """
+        conditions.append(f"EXISTS (SELECT 1 FROM ecommerce_alpha_produtos ap WHERE NOT coalesce(ap.inativo,false) AND ap.estoque>0 AND ltrim(ap.ean,'0')={ean})")
+    sql=f"SELECT DISTINCT ON ({ean}) m.id,{ean} AS barra_norm,m.descricao,m.classe,m.laboratorio,m.marca FROM medicamentos m WHERE {' AND '.join(conditions)} ORDER BY {ean},m.id"
+    if limit is not None:
+        sql+=' LIMIT %s'; params.append(limit)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(sql)
-        return cur.fetchall()
+        cur.execute(sql,params)
+        rows=cur.fetchall()
+    conn.commit()
+    return rows
 
-
-# ── SALVAR ───────────────────────────────────────────────────────────────────
 
 TIPOS_VALIDOS = {
     "generico", "similar", "referencia",
@@ -118,7 +111,7 @@ UPDATE medicamentos SET
     principio_ativo_ia    = %s,
     classe_terapeutica_ia = %s,
     confianca_ia          = %s
-WHERE COALESCE(barra_norm, barra) = %s
+WHERE ltrim(coalesce(nullif(barra_norm,''),barra),'0') = %s
 """
 
 
@@ -127,7 +120,7 @@ def save_classifications(conn, results):
     for r in results:
         tipo = (r.get("tipo") or "varejo").lower().strip()
         if tipo not in TIPOS_VALIDOS:
-            tipo = "varejo"
+            continue
         rows.append((
             tipo,
             r.get("principio_ativo"),
@@ -272,7 +265,16 @@ def classify_batch(client, batch):
     classified = json.loads(raw)
 
     bn_to_info = {str(p["barra_norm"]): p for p in batch}
+    if not isinstance(classified,list):
+        raise ValueError('Resposta deve ser uma lista')
+    seen=set()
     for r in classified:
+        ean=str(r.get('barra_norm',''))
+        if ean not in bn_to_info or ean in seen or r.get('tipo') not in TIPOS_VALIDOS:
+            raise ValueError('EAN ou tipo invalido na resposta')
+        if r.get('confianca') not in ('alta','media','baixa'):
+            raise ValueError('Confianca invalida')
+        seen.add(ean)
         orig = bn_to_info.get(str(r.get("barra_norm", "")), {})
         r["_nome"] = orig.get("descricao") or ""
 
@@ -339,6 +341,11 @@ def main():
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     conn   = psycopg2.connect(DATABASE_URL)
 
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(hashtext('classificar-medicamentos'))")
+        if not cur.fetchone()[0]:
+            print("Classificador ja em execucao"); conn.close(); return
+    conn.commit()
     ensure_columns(conn)
 
     if args.stats:
@@ -346,10 +353,12 @@ def main():
         conn.close()
         return
 
+    if not args.force and not args.dry_run:
+        reuse_saved(conn)
     print("Buscando medicamentos...")
     products = fetch_products(
         conn,
-        force=args.force or bool(args.ean),
+        force=args.force,
         limit=args.limit,
         ean_filter=args.ean,
         only_estoque=args.only_estoque,
@@ -385,6 +394,10 @@ def main():
                 results = classify_batch(client, batch)
                 break
             except Exception as exc:
+                if getattr(exc,"status_code",None) in (400,401,402,403):
+                    print("Provedor indisponivel; encerrando sem repetir os demais lotes.")
+                    conn.close()
+                    return
                 wait = attempt * 5
                 print(f"  ⚠  Tentativa {attempt} falhou: {exc}")
                 if attempt < 3:

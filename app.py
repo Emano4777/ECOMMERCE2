@@ -8814,7 +8814,7 @@ def _buscar_alternativa_medicamento_sem_estoque(cnpjs, query, busca_inicio):
         cur.execute(
             """
             SELECT COALESCE(barra_norm, regexp_replace(barra, '\\D', '', 'g')) AS ean,
-                   principio_ativo_ia, tipo_ia, classe_anvisa, descricao,
+                   principio_ativo_ia, classe_terapeutica_ia, tipo_ia, classe_anvisa, descricao,
                    similarity(LOWER(COALESCE(descricao, '')), %s) AS sim
             FROM medicamentos
             WHERE similarity(LOWER(COALESCE(descricao, '')), %s) > 0.25

@@ -86,3 +86,9 @@ O lock PostgreSQL impede execucoes concorrentes; cada produto tem transacao prop
 Falha de download CMED aborta sem usar arquivo antigo como se fosse atualizado.
 
 Fonte CMED: https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos
+
+
+### Fallback e retomada
+O cron usa `tavily-serper`: Tavily permanece limitado a 1.000 creditos mensais, depois tenta as chaves Serper existentes. Sem saldo, cada chave espera 24h para uma nova verificacao; HTTP 429 espera 1h e erros transitorios 15 minutos. O estado persistente `search_backoff.json` guarda apenas hashes das chaves. O teto Tavily reabre no proximo mes UTC. Sem provedores, as consultas online param; CMED continua.
+
+O classificador `scripts/classificar_medicamentos.py --only-estoque` reaproveita classificacoes completas salvas, deduplica EANs e processa somente pendencias da base medicamentos presentes no estoque integrado (Alpha e Automatiza). `--ean` respeita o cache; somente `--force` refaz a IA. Bloqueio no banco impede execucoes simultaneas. Produtos sem registro em medicamentos nao entram neste classificador.

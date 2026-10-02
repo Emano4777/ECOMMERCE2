@@ -23,6 +23,7 @@ import openpyxl
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 from dotenv import dotenv_values
+import search_backoff
 
 CMED_PAGE = 'https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos'
 OWNER = 'ecommerce_ean_oficial_v1'
@@ -235,6 +236,19 @@ def anthropic_search(product,cfg):
     return rank_sources(urls,product)
 
 def web_search(product,cfg):
+    if cfg.get('TARJA_SEARCH_PROVIDER')!='tavily-serper':
+        return _web_search_provider(product,cfg)
+    if search_backoff.ready(cfg,'tavily'):
+        try:
+            result=_web_search_provider(product,{**cfg,'TARJA_SEARCH_PROVIDER':'tavily'})
+            search_backoff.record(cfg,'tavily')
+            return result
+        except Exception as exc:
+            # A cota Tavily do usuario nunca e aumentada pela troca de provedor.
+            search_backoff.record(cfg,'tavily',exc,monthly=isinstance(exc,SearchBudgetExhausted))
+    return _web_search_provider(product,{**cfg,'TARJA_SEARCH_PROVIDER':'serper'})
+
+def _web_search_provider(product,cfg):
     provider=cfg.get('TARJA_SEARCH_PROVIDER','auto')
     if provider=='auto':
         provider='tavily' if cfg.get('TAVILY_API_KEY') else 'brave' if cfg.get('BRAVE_SEARCH_API_KEY') else 'serper'
@@ -263,17 +277,20 @@ def web_search(product,cfg):
                 if primary_url(url) and url not in found: found.append(url)
         return rank_sources(found,product)
     keys=list(dict.fromkeys(k.strip() for k in ((cfg.get('SERPER_API_KEYS') or '')+','+(cfg.get('SERPER_API_KEY') or '')).split(',') if k.strip()))
-    if not keys: raise RuntimeError('Provedor de busca sem chave configurada')
+    if not keys: raise SearchBudgetExhausted('Nenhuma chave Serper configurada')
     results=[]
     for query in queries:
         data=None
         for key in keys:
+            identity=search_backoff.key_id(key)
+            if not search_backoff.ready(cfg,identity): continue
             try:
                 data=api_json('https://google.serper.dev/search',{'q':query,'gl':'br','hl':'pt-br','num':8},{'X-API-KEY':key})
+                search_backoff.record(cfg,identity)
                 break
-            except HTTPError as exc:
-                if exc.code not in (400,401,403,429): raise
-        if data is None: raise RuntimeError('Chaves Serper indisponiveis; selecione outro provedor')
+            except Exception as exc:
+                search_backoff.record(cfg,identity,exc)
+        if data is None: raise SearchBudgetExhausted('Buscas suspensas; aguardando cota ou recuperacao dos provedores')
         if 'organic' not in data: raise RuntimeError('Busca sem resposta valida')
         for r in data['organic']:
             url=r.get('link','')
@@ -436,7 +453,7 @@ def main():
     ap.add_argument('--state-dir',type=Path,required=True)
     ap.add_argument('--online-limit',type=int,default=20)
     ap.add_argument('--online-daily-limit',type=int,default=20,help='Teto persistente de produtos pesquisados por dia UTC')
-    ap.add_argument('--search-provider',choices=['auto','tavily','brave','serper','anthropic'],default='auto')
+    ap.add_argument('--search-provider',choices=['auto','tavily','tavily-serper','brave','serper','anthropic'],default='auto')
     ap.add_argument('--apply',action='store_true')
     args=ap.parse_args()
     if (args.cnpj and not re.fullmatch(r'\d{14}',args.cnpj)) or not 0<=args.online_limit<=200 or not 0<=args.online_daily_limit<=1000: ap.error('CNPJ ou limite invalido')
@@ -496,7 +513,7 @@ def main():
                     history[p['ean']]={'attempted':time.time(),'identity_sha':identity_sha,'decision':decision,'reason':reason,'sources':evidence}
                     json_save(history_path,history)
                 except SearchBudgetExhausted:
-                    search_exhausted=True; reason='limite_gratuito_mensal_atingido'
+                    search_exhausted=True; reason='buscas_suspensas_aguardando_cota'
                 except Exception as exc:
                     reason='erro_online_'+type(exc).__name__; online_errors+=1
                     # Sem checkpoint de sucesso em falhas: tenta novamente na proxima rodada.
