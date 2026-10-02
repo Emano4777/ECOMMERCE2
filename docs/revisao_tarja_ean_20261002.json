@@ -588,6 +588,19 @@
       "tarja_anterior": "vermelha"
     },
     {
+      "ean": "7891058002916",
+      "nome_catalogo": "DORFLEX C/ 10 CP UN",
+      "nome_anvisa": "DORFLEX 300 mg + 35 mg + 50 mg — blíster 10 comprimidos",
+      "laboratorio": "OPELLA",
+      "principio_ativo": "dipirona monoidratada; citrato de orfenadrina; cafeína",
+      "registro": "186200008",
+      "tarja": "sem_tarja",
+      "receita_retida": false,
+      "fonte_url": "https://www.dorflex.com.br/dam/jcr:2bef930c-3ee0-4876-9a42-ac3a13c71699/bula_comprimidos-1.pdf",
+      "fonte": "Bula oficial do fabricante, aprovada Anvisa 2025-01-16 / blíster de 10",
+      "tarja_anterior": "vermelha"
+    },
+    {
       "ean": "7891058002961",
       "nome_catalogo": "CETOPROFENO 150MG C/ 10 CP (MED)",
       "nome_anvisa": "CETOPROFENO — 150 MG COM LIB PROL CT BL AL PLAS TRANS X 10",
@@ -11856,6 +11869,19 @@
       "receita_retida": null,
       "fonte_url": "https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos/arquivos/lista_pmc_20260923_222937320.xlsx/@@download/file",
       "fonte": "CMED 2026-09-23 / EAN exato",
+      "tarja_anterior": "vermelha"
+    },
+    {
+      "ean": "7896523201573",
+      "nome_catalogo": "CETOCONAZOL 20MG/G CREM BG 30",
+      "nome_anvisa": "CETOCONAZOL CIMED 20 mg/g — creme bisnaga 30 g",
+      "laboratorio": "CIMED",
+      "principio_ativo": "cetoconazol",
+      "registro": null,
+      "tarja": "sem_tarja",
+      "receita_retida": false,
+      "fonte_url": "https://cimedremedios.com.br/remedio/cetoconazol-4/",
+      "fonte": "Fabricante / apresentação 20 mg/g creme 30 g / Isento de Prescrição",
       "tarja_anterior": "vermelha"
     },
     {
