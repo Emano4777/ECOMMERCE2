@@ -383,6 +383,24 @@ def validate_online(product, documents, out):
         if not lab_tokens or not any(w in text for w in lab_tokens): return None,'fabricante_nao_confirmado'
     return dict(tarja=t,nome_anvisa=out.get('produto') or product['nomes'][0],laboratorio=out.get('laboratorio') or product.get('fabricante',''),principio_ativo=out.get('principio_ativo',''),metodo='fabricante_online',fonte_url=d['url'],source_sha256=d['sha256']),None
 
+def verified_cache(row):
+    """Somente evidencia por EAN; palpite antigo de IA nao encerra a fila."""
+    if not row:
+        return False
+    tarja=row.get('tarja_ia') or row.get('tarja')
+    return (tarja in ('vermelha','preta','sem_tarja')
+            and row.get('tarja') in (None, '', tarja)
+            and bool(row.get('override_manual'))
+            and bool(row.get('fonte_classificacao_url'))
+            and bool(row.get('apresentacao_verificada')))
+
+
+def saved_online_decision(old):
+    # Chamado somente depois de conferir a identidade do produto.
+    decision=old.get('decision')
+    return decision if isinstance(decision,dict) and decision.get('tarja') in ('vermelha','preta','sem_tarja') else None
+
+
 def persist(conn, product, decision, before, run_id, source):
     t=decision['tarja']; key='EAN:'+product['ean']
     # Revisoes humanas existentes nunca sao revertidas automaticamente.
@@ -501,12 +519,19 @@ def main():
             p['ean']=ean_key(p['ean'])
             if not p['ean']: results.append(dict(status='ean_invalido',produto=p)); continue
             before=cache.get('EAN:'+p['ean'])
+            if verified_cache(before):
+                results.append(dict(ean=p['ean'],nomes=p['nomes'],lojas=p['lojas'],sistemas=p['sistemas'],
+                                    status='verificado_reaproveitado',motivo=None,decisao=None,fontes=[]))
+                continue
             p['cmed_tarjas_explicitas']=sorted({r['tarja'] for r in index.get(p['ean'],[]) if r['tarja']})
             decision,reason=decide_cmed(p,index.get(p['ean'],[]))
             old=history.get(p['ean'],{})
             identity_sha=hashlib.sha256(json.dumps([sorted(p['nomes']),p['fabricante'],p['cmed_tarjas_explicitas']],ensure_ascii=False).encode()).hexdigest()
             if old.get('identity_sha')!=identity_sha: old={}
             evidence=[]
+            if decision is None and saved_online_decision(old):
+                decision=saved_online_decision(old); reason=None
+                evidence=old.get('sources',[])
             if decision is None and not search_exhausted and online_errors<3 and online_count<args.online_limit and budget['attempted']<args.online_daily_limit and time.time()-old.get('attempted',0)>86400*7:
                 online_count+=1
                 budget['attempted']+=1
@@ -520,8 +545,6 @@ def main():
                 except Exception as exc:
                     reason='erro_online_'+type(exc).__name__; online_errors+=1
                     # Sem checkpoint de sucesso em falhas: tenta novamente na proxima rodada.
-            if decision is None and old.get('decision') and time.time()-old['attempted']<86400*7:
-                decision=old['decision']; reason=None
             status='nao_confirmado'
             if decision:
                 status='simulacao'

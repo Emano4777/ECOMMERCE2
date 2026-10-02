@@ -94,3 +94,5 @@ O cron usa `tavily-serper`: Tavily permanece limitado a 1.000 creditos mensais, 
 O classificador `scripts/classificar_medicamentos.py --only-estoque` reaproveita classificacoes completas salvas, deduplica EANs e processa somente pendencias da base medicamentos presentes no estoque integrado (Alpha e Automatiza). `--ean` respeita o cache; somente `--force` refaz a IA. Bloqueio no banco impede execucoes simultaneas. Produtos sem registro em medicamentos nao entram neste classificador.
 
 Dependencia adicional do classificador farmaceutico: `pip install -r requirements-classificacao.txt`. Cron diario na HostGator: 04:43 (relogio do servidor), ate 500 EANs novos por rodada, com trava para evitar sobreposicao. Log: `/root/scripts/dns_ecommerce_web/classificacao_state/cron.log`.
+
+Classificacoes verificadas por EAN no anvisa_cache (tarja valida, revisao, fonte e apresentacao) encerram a fila e nao expiram. Decisoes online positivas no historico tambem nao expiram enquanto a identidade confere. Apenas consultas inconclusivas mantem intervalo de 7 dias; falhas de provedor seguem o circuito de pausa. Palpites antigos sem evidencia nao contam como verificacao.
