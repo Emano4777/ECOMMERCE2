@@ -286,9 +286,12 @@ def _web_search_provider(product,cfg):
             if not search_backoff.ready(cfg,identity): continue
             try:
                 data=api_json('https://google.serper.dev/search',{'q':query,'gl':'br','hl':'pt-br','num':8},{'X-API-KEY':key})
+                if not isinstance(data,dict) or not isinstance(data.get('organic'),list):
+                    raise RuntimeError('Resposta Serper invalida')
                 search_backoff.record(cfg,identity)
                 break
             except Exception as exc:
+                data=None
                 search_backoff.record(cfg,identity,exc)
         if data is None: raise SearchBudgetExhausted('Buscas suspensas; aguardando cota ou recuperacao dos provedores')
         if 'organic' not in data: raise RuntimeError('Busca sem resposta valida')
