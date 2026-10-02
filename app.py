@@ -16,6 +16,7 @@ import random
 import secrets
 import hashlib
 import threading
+import pickle
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -16136,25 +16137,62 @@ def _merchant_product_description(nome, tipo_produto):
 # (dict + lock + TTL). So cacheia dados NAO personalizados (sem preco de promocao
 # de assinante nem status de assinatura, que continuam calculados a cada request
 # logo depois, ja que dependem de session.get("consumidor_id")).
-_produto_dados_cache: dict = {}
-_produto_dados_cache_lock = threading.Lock()
+# Cache compartilhado entre os workers do Gunicorn (cada worker e um processo
+# separado -- um dict em memoria local, como era antes, fica fragmentado em 3
+# caches independentes; com milhares de produtos distintos por dia isso
+# derrubava muito a taxa de acerto). memcached ja vem instalado no servidor
+# (so nao era usado), roda so em 127.0.0.1, sem exposicao externa.
+_memcache_instance = None
+_memcache_lock = threading.Lock()
+
+
+def _memcache_client():
+    global _memcache_instance
+    if _memcache_instance is not None:
+        return _memcache_instance
+    with _memcache_lock:
+        if _memcache_instance is None:
+            try:
+                from pymemcache.client.base import Client as _MemcacheClient
+                _memcache_instance = _MemcacheClient(
+                    ("127.0.0.1", 11211), connect_timeout=1, timeout=1, no_delay=True
+                )
+            except Exception:
+                _memcache_instance = False
+    return _memcache_instance or None
+
+
+def _memcache_key(prefix: str, key) -> str:
+    raw = f"{prefix}:{key}"
+    # memcached rejeita chave > 250 bytes ou com espaco/controle -- usa hash
+    # quando o valor bruto (ex: nome_hint longo) nao cabe ou tem caractere ruim.
+    if len(raw) > 200 or any(c.isspace() for c in raw):
+        return f"{prefix}:{hashlib.sha1(raw.encode('utf-8', 'ignore')).hexdigest()}"
+    return raw
+
+
 _PRODUTO_DADOS_CACHE_TTL = 300  # 5 minutos
 
 
 def _produto_dados_cache_get(key: tuple):
-    with _produto_dados_cache_lock:
-        e = _produto_dados_cache.get(key)
-        if e and time.time() - e["ts"] < _PRODUTO_DADOS_CACHE_TTL:
-            return e["data"]
+    mc = _memcache_client()
+    if mc is None:
+        return None
+    try:
+        raw = mc.get(_memcache_key("produto", key))
+        return pickle.loads(raw) if raw is not None else None
+    except Exception:
         return None
 
 
 def _produto_dados_cache_set(key: tuple, data: dict):
-    with _produto_dados_cache_lock:
-        if len(_produto_dados_cache) >= 500:
-            oldest = min(_produto_dados_cache, key=lambda k: _produto_dados_cache[k]["ts"])
-            del _produto_dados_cache[oldest]
-        _produto_dados_cache[key] = {"data": data, "ts": time.time()}
+    mc = _memcache_client()
+    if mc is None:
+        return
+    try:
+        mc.set(_memcache_key("produto", key), pickle.dumps(data), expire=_PRODUTO_DADOS_CACHE_TTL)
+    except Exception:
+        pass
 
 
 def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
