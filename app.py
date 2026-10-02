@@ -13651,9 +13651,10 @@ def api_produto(ean):
                     (chave_anv,),
                 )
                 anvisa_img = dict(cur.fetchone() or {})
+                anvisa_img = _anvisa_cache_ean(cur, ean_clean) or anvisa_img
                 tarja_img = _detectar_tarja(anvisa_img)
                 _tipo_busca = _classificar_produto(nome_busca)
-                _is_med_busca = _tipo_busca not in _TIPOS_NAO_MEDICAMENTO
+                _is_med_busca = _tipo_busca not in _TIPOS_NAO_MEDICAMENTO or bool(anvisa_img.get("override_manual"))
                 if tarja_img in ("preta", "vermelha") and _is_med_busca:
                     result["imagem_med"] = _placeholder_for_tarja(tarja_img) or result.get("imagem_med")
                 result["tarja"] = tarja_img
@@ -15690,11 +15691,15 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
     cur = conn.cursor()
     cur.execute(
         "SELECT para_que_serve_ia, como_tomar_ia, ia_descricao_gerado_em, "
-        "tarja_ia, exibir_imagem_publica "
+        "tarja_ia, exibir_imagem_publica, override_manual "
         "FROM anvisa_cache WHERE chave=%s",
         (chave_anvisa,),
     )
     row = cur.fetchone()
+
+    if row and row.get("override_manual"):
+        cur.close()
+        return dict(row)
 
     _serve_ia        = row["para_que_serve_ia"]     if row else None
     _usar_ia         = row["como_tomar_ia"]         if row else None
@@ -16502,7 +16507,8 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
         or nome_hint
         or ""
     )
-    _chave_anvisa = _anvisa_chave(_nome_para_anvisa) if _nome_para_anvisa else ""
+    _anvisa_ean = _anvisa_cache_ean(cur, ean)
+    _chave_anvisa = _anvisa_ean.get("chave") or (_anvisa_chave(_nome_para_anvisa) if _nome_para_anvisa else "")
     if _chave_anvisa and _chave_anvisa not in _CHAVES_OTC_ISENTO:
         try:
             _anvisa_schema()   # ensure table exists (idempotent, own connection)
@@ -16571,7 +16577,7 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
 
     # Enriquece descrição com IA para qualquer produto com chave conhecida
     # (funciona mesmo para OTC/suplementos sem entrada ANVISA)
-    if _chave_anvisa:
+    if _chave_anvisa and not anvisa.get("override_manual"):
         try:
             _api_key = _anthropic_api_key()
             if _api_key:
@@ -16709,7 +16715,7 @@ def produto_detalhe(ean):
     tipo_produto = (
         _categoria_from_alpha_classificacao(produto.get("classificacao")) if produto else None
     ) or _classificar_produto(nome)
-    _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO
+    _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO or bool(anvisa.get("override_manual") and _detectar_tarja(anvisa))
     produto_info_ia = {}
     tarja = _detectar_tarja(anvisa) if _is_med else None
     placeholder_generico = None
@@ -16755,7 +16761,7 @@ def produto_detalhe(ean):
         # so porque outra apresentacao da mesma marca e tarjada.
         _classificacao = (produto.get("classificacao") if produto else "") or ""
         _eh_mip = "MIP" in _classificacao.upper()
-        if _eh_mip and not _exige_receita_digital_entrega(anvisa, nome):
+        if _eh_mip and not anvisa.get("override_manual") and not _exige_receita_digital_entrega(anvisa, nome):
             _bloquear_img = _nao_exibir
         if not _bloquear_img and imagem and _looks_like_other_pharmacy_brand(imagem):
             _bloquear_img = True
@@ -17834,6 +17840,7 @@ def api_carrinho_get():
                 (chave,),
             )
             anvisa = dict(cur.fetchone() or {})
+            anvisa = _anvisa_cache_ean(cur, r["ean"]) or anvisa
             tarja = _detectar_tarja(anvisa)
         requer_receita = bool(r["requer_receita"])
         if tarja is not None or anvisa:
@@ -17842,7 +17849,7 @@ def api_carrinho_get():
             "ean": r["ean"], "cnpjloja": r["cnpjloja"], "nome": nome,
             "preco": preco_item, "preco_original": preco_base_atual,
             "promo": promo_item, "qty": r["qty"] or 1,
-            "imagem": r["imagem"] or "", "razao": r["razao"] or "",
+            "imagem": (_placeholder_for_tarja(tarja) if tarja in ("preta", "vermelha") else r["imagem"]) or "", "razao": r["razao"] or "",
             "tarja": tarja, "requer_receita": requer_receita,
             "receita_retida": requer_receita,
         })
@@ -30814,6 +30821,26 @@ _NOME_RECEITA_RETIDA_RE = re.compile(
 )
 
 
+def _anvisa_chave_ean(ean):
+    """Chave da apresentação exata; zeros de preenchimento não mudam o EAN."""
+    value = str(ean or "").strip()
+    if not re.fullmatch(r"[0-9]{8,14}", value):
+        return ""
+    return "EAN:" + value.lstrip("0") if value.strip("0") else ""
+
+
+def _anvisa_cache_ean(cur, ean):
+    chave = _anvisa_chave_ean(ean)
+    if not chave:
+        return {}
+    cur.execute(
+        "SELECT * FROM anvisa_cache WHERE chave=%s AND override_manual=TRUE "
+        "AND (encontrado=TRUE OR tarja_ia IS NOT NULL) LIMIT 1",
+        (chave,),
+    )
+    return dict(cur.fetchone() or {})
+
+
 def _detectar_tarja(anvisa: dict) -> str | None:
     """Retorna a tarja do produto. tarja_ia (validação IA) prevalece sobre dado bruto do ANVISA."""
     if not anvisa:
@@ -30893,7 +30920,10 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
         # precisa computar chave nem consultar anvisa_cache -- a menos que
         # essa chave especifica ja tenha sido confirmada manualmente.
         _categoria_conhecida = (produto.get("categoria") or "").strip().lower()
-        ch = _anvisa_chave(nomes[i])
+        # Registro oficial por EAN prevalece sobre categoria comercial e
+        # chave genérica: dose, associação e via não se propagam à família.
+        chave_ean = _anvisa_chave_ean(produto.get("ean") or produto.get("barra"))
+        ch = chave_ean if chave_ean in _chaves_override_manual else _anvisa_chave(nomes[i])
         if (
             _categoria_conhecida
             and _categoria_conhecida in _TIPOS_NAO_MEDICAMENTO
@@ -30972,7 +31002,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             # deveria ficar bloqueado so porque outra apresentacao da mesma
             # marca e tarjada.
             _classificacao = (produtos[idx].get("classificacao") or "").upper()
-            if "MIP" in _classificacao and not produtos[idx]["receita_retida"]:
+            if "MIP" in _classificacao and not row.get("override_manual") and not produtos[idx]["receita_retida"]:
                 _bloquear = _nao_exibir
             # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
             _imagem_atual = (produtos[idx].get("imagem") or "").strip()
@@ -31008,7 +31038,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
         # busca generica "PROPRANOLOL" retornou exibir=True enquanto todo
         # fabricante especifico cadastrado — Ayerst, Cimed, Sigma... — e
         # tarja vermelha confirmada).
-        first_words = sorted({ch.split(" ", 1)[0] for ch in chaves_map if ch})
+        first_words = sorted({ch.split(" ", 1)[0] for ch in chaves_map if ch and not ch.startswith("EAN:")})
         candidatos_by_word: dict[str, list] = {}
         if first_words:
             try:

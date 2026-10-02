@@ -141,7 +141,7 @@ def main():
     chaves = _load_chaves(args.chaves_file)
     conn = db()
     cur = conn.cursor()
-    where = ["encontrado=TRUE"]
+    where = ["encontrado=TRUE", "COALESCE(override_manual,FALSE)=FALSE"]
     params = []
     if chaves:
         where.append("chave = ANY(%s)")
@@ -189,7 +189,7 @@ def main():
         for chave, changed in mudancas:
             sets = ", ".join([f"{key}=%s" for key in changed])
             values = list(changed.values()) + [chave]
-            cur.execute(f"UPDATE anvisa_cache SET {sets}, criado_em=NOW() WHERE chave=%s", values)
+            cur.execute(f"UPDATE anvisa_cache SET {sets}, criado_em=NOW() WHERE chave=%s AND COALESCE(override_manual,FALSE)=FALSE", values)
         conn.commit()
     else:
         conn.rollback()
