@@ -69,4 +69,34 @@ class SafetyTests(unittest.TestCase):
         self.assertIsNone(m.ean_key('00000000'))
         self.assertIsNone(m.ean_key('123'))
 
+    def test_prescription_alone_does_not_prove_red(self):
+        d,o=self.online()
+        self.assertIsNone(m.validate_online({**self.p,'cmed_tarjas_explicitas':[]},[d],o)[0])
+
+    def test_explicit_otc_can_restore_image_classification(self):
+        d,o=self.online('MEDICAMENTO ISENTO DE PRESCRICAO','sem_tarja')
+        p={**self.p,'cmed_tarjas_explicitas':['sem_tarja']}
+        self.assertEqual(m.validate_online(p,[d],o)[0]['tarja'],'sem_tarja')
+
+    def test_source_cannot_override_conflicting_cmed(self):
+        d,o=self.online('MEDICAMENTO ISENTO DE PRESCRICAO','sem_tarja')
+        self.assertIsNone(m.validate_online(self.p,[d],o)[0])
+
+    def test_tavily_stops_at_1000_even_with_bonus_or_paid_limit(self):
+        usage={'account':{'plan_usage':1000,'plan_limit':1500},'key':{'usage':1000,'limit':None}}
+        with self.assertRaises(m.SearchBudgetExhausted): m.tavily_allowance(usage,0)
+
+    def test_tavily_timeout_reservations_also_count(self):
+        usage={'account':{'plan_usage':10,'plan_limit':1500},'key':{'usage':10,'limit':None}}
+        with self.assertRaises(m.SearchBudgetExhausted): m.tavily_allowance(usage,1000)
+
+    def test_tavily_last_credit_and_provider_limit(self):
+        usage={'account':{'plan_usage':999,'plan_limit':1500},'key':{'usage':20,'limit':None}}
+        self.assertEqual(m.tavily_allowance(usage,15),1)
+        usage['key']['limit']=20
+        with self.assertRaises(m.SearchBudgetExhausted): m.tavily_allowance(usage,15)
+
+    def test_unknown_usage_blocks_paid_search(self):
+        with self.assertRaises(RuntimeError): m.tavily_allowance({},0)
+
 if __name__=='__main__': unittest.main()

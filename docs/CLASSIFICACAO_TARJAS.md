@@ -11,7 +11,8 @@ O cache por EAN ja e consumido pelo catalogo, pagina do produto, API e carrinho.
   `automatiza_sync.py`. Inclui as lojas integradas antes da abertura publica.
 - Inclui estoque legado e `automatiza_estoque` para lojas publicas sem catalogo
   integrado. Nao mistura estoque antigo quando a loja ja migrou para a integracao.
-- Seleciona ativos com estoque, exclui itens ocultos e deduplica por EAN entre lojas.
+- Seleciona ativos com estoque e deduplica por EAN entre lojas. Assim como a vitrine,
+  ocultacoes legadas nao se aplicam ao catalogo integrado; no estoque legado sao respeitadas.
 - `--cnpj` e opcional: por padrao processa todas as lojas elegiveis. Novas lojas
   integradas entram sem editar o cron. Nao acessa o MySQL local da loja.
 
@@ -23,9 +24,11 @@ O cache por EAN ja e consumido pelo catalogo, pagina do produto, API e carrinho.
    automaticamente quando todas as linhas oficiais daquele EAN possuem a mesma
    tarja explicita. `- (*)` e ausencia de resultado nao significam isencao.
 3. Os casos restantes entram em lotes de pesquisa online (20 por execucao).
-   Busca com Serper, com alternativa via busca web Anthropic. Baixa apenas fontes
+   Prioriza EANs ainda nao pesquisados e possiveis medicamentos sem revisao previa.
+   Suporta Tavily, Brave, Serper e busca web Anthropic. Baixa apenas fontes
    primarias de dominios permitidos, inclusive PDFs, e arquiva o documento original.
-4. O modelo extrai identidade, apresentacao e trechos literais. O codigo verifica
+4. O modelo identifica os blocos numerados de identidade/apresentacao e dizeres
+   legais. Os trechos sao obtidos diretamente do documento, nao redigidos pela IA. O codigo verifica
    se as citacoes existem no documento, se a classificacao e explicita e se ha
    correspondencia de EAN ou de nome/numeros da apresentacao e fabricante.
    Receita sem cor explicita nao prova tarja vermelha sem corroboracao CMED;
@@ -42,10 +45,23 @@ A rotina trata tarja/imagem; nao reclassifica regras de retencao ou venda online
 ## Operacao
 
 Dependencias: requirements.txt e `pypdf==6.19.0` (requirements-tarjas.txt).
-Variaveis: DATABASE_URL, SERPER_API_KEY/SERPER_API_KEYS e ANTHROPIC_API_KEY.
+Variaveis: DATABASE_URL, ANTHROPIC_API_KEY e a chave do provedor escolhido:
+TAVILY_API_KEY, BRAVE_SEARCH_API_KEY ou SERPER_API_KEY/SERPER_API_KEYS.
+`--search-provider auto` prioriza Tavily, Brave e Serper, nessa ordem, conforme as
+chaves existentes. Anthropic web search exige `--search-provider anthropic`;
+nao existe troca silenciosa para busca paga com tokens adicionais.
 Modelo opcional: TARJA_AUDIT_MODEL; padrao claude-haiku-4-5-20251001.
 Pesquisa/modelo consomem os creditos das contas configuradas. Cada produto faz no
 maximo duas pesquisas e uma extracao; erros interrompem o lote apos tres falhas.
+`--online-daily-limit 20` limita a 20 produtos por dia UTC, inclusive tentativas
+com falha e simulacoes. O contador persiste entre reinicios. CMED nao usa creditos.
+Na instalacao atual, o cron fixa `--search-provider tavily`. Ha teto adicional
+rigido de 1.000 creditos Tavily por mes UTC, mesmo se a conta tiver bonus ou plano
+maior. Antes de CADA consulta basic (1 credito), verifica GET /usage e reserva o
+credito em `tavily_credits.json`. Timeouts nao devolvem reserva. Consumo desconhecido
+bloqueia a busca. Ao esgotar, continua CMED e retoma busca no mes seguinte.
+Nao utiliza extract/crawl/research da Tavily nem fallback pago. A leitura de sites
+e PDFs e direta. O custo da extracao por Anthropic continua usando o saldo de IA.
 
 ```
 python scripts/classificar_tarjas_ecommerce.py --env .env --state-dir /caminho/privado --online-limit 0
