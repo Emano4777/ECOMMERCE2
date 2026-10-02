@@ -459,6 +459,32 @@ def reset_db_conn():
     _thread_local.conn = None
 
 
+@app.teardown_request
+def _fechar_transacao_pendente(exc=None):
+    # Rede de seguranca: a conexao de db() e persistente por worker (nao fecha
+    # entre requests, de proposito -- ver comentario em db()). Se QUALQUER rota
+    # esquecer de dar commit() depois de uma leitura/escrita, a transacao fica
+    # aberta pra sempre e pode travar outras conexoes que precisem do mesmo
+    # lock (ja aconteceu de verdade, ver memoria da migracao HostGator).
+    # Auditoria achou 170+ funcoes nesse padrao -- em vez de corrigir uma por
+    # uma, garante aqui que toda conexao volta pro estado limpo no fim de
+    # CADA request, não importa o que a rota esqueceu de fazer.
+    conn = getattr(_thread_local, "conn", None)
+    if conn is None or conn.closed:
+        return
+    try:
+        if exc is not None:
+            conn.rollback()
+        elif conn.status != psycopg2.extensions.STATUS_READY:
+            conn.commit()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _thread_local.conn = None
+
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def _alpha_enabled():
