@@ -28441,6 +28441,7 @@ def api_cron_produto_descricao_ia():
             WITH catalogo AS (
                 SELECT DISTINCT ON (LTRIM(COALESCE(ap.ean, ''), '0'))
                     LTRIM(COALESCE(ap.ean, ''), '0') AS ean,
+                    ap.nome AS nome_alpha,
                     COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome) AS nome,
                     COALESCE(m.marca, '') AS marca,
                     COALESCE(elab.laboratorio, pc.laboratorio, m.laboratorio, ap.fabricante, '') AS laboratorio,
@@ -28482,13 +28483,27 @@ def api_cron_produto_descricao_ia():
     falhas = []
     for row in pendentes:
         ean_row = row.get("ean") or ""
-        nome_row = row.get("nome") or ""
-        tipo_row = (
+        tipo_row_base = (
             _TIPO_ALIAS.get((row.get("categoria") or "").lower(), (row.get("categoria") or "").lower())
             or _categoria_from_alpha_classificacao(row.get("classificacao"))
+            or _classificar_produto(row.get("nome_alpha") or row.get("nome") or "")
+            or "produto"
+        )
+        nome_alpha_row = _limpar_nome_catalogo(row.get("nome_alpha"))
+        nome_catalogo_row = _limpar_nome_catalogo(row.get("nome"))
+        nome_row = (
+            (nome_alpha_row or nome_catalogo_row)
+            if tipo_row_base in _TIPOS_NAO_MEDICAMENTO
+            else (nome_catalogo_row or nome_alpha_row)
+        ) or ""
+        tipo_row = (
+            tipo_row_base
             or _classificar_produto(nome_row)
             or "produto"
         )
+        if not nome_row:
+            falhas.append({"ean": ean_row, "nome": ""})
+            continue
         info = _produto_descricao_ia(
             ean_row,
             nome_row,
