@@ -15825,6 +15825,23 @@ def _enriquecer_descricao_ia(chave_anvisa: str, nome: str, principio_ativo: str,
 _PRODUTO_DESCRICAO_IA_SCHEMA_READY = False
 
 
+def _nome_catalogo_invalido(valor) -> bool:
+    texto = re.sub(r"\s+", " ", str(valor or "")).strip()
+    if not texto:
+        return True
+    norm = _norm_text(texto)
+    return (
+        norm in {"sem descr", "sem descricao", "sem descric", "produto", "null", "none"}
+        or re.fullmatch(r"\d{8,14}", texto) is not None
+        or re.fullmatch(r"produto [a-z]+ \d{8,14}", norm) is not None
+    )
+
+
+def _limpar_nome_catalogo(valor):
+    texto = re.sub(r"\s+", " ", str(valor or "")).strip()
+    return None if _nome_catalogo_invalido(texto) else texto
+
+
 def _ensure_produto_descricao_ia_schema():
     global _PRODUTO_DESCRICAO_IA_SCHEMA_READY
     if _PRODUTO_DESCRICAO_IA_SCHEMA_READY:
@@ -15933,6 +15950,13 @@ def _produto_descricao_ia(
                 "alertas": "Suspenda o uso em caso de irritacao e evite aplicar sobre pele lesionada.",
                 "fonte": source,
             }
+        if re.search(r"\b(repelente|repelentes|insetos|mosquito|mosquitos|pernilongo|pernilongos)\b", n):
+            return {
+                "serve_para": f"{nome_base} e um repelente de uso corporal indicado para ajudar a afastar mosquitos e outros insetos durante atividades do dia a dia.",
+                "como_usar": "Aplique nas areas expostas conforme as instrucoes do rotulo, evitando olhos, mucosas, feridas e excesso de produto.",
+                "alertas": "Em criancas, siga a idade indicada na embalagem e aplique com supervisao de um adulto.",
+                "fonte": source,
+            }
         if re.search(r"\b(termometro|medidor|glicose|tira reagente|inalador|nebulizador|aparelho de pressao|pressao digital)\b", n):
             return {
                 "serve_para": f"{nome_base} e um produto de apoio para monitoramento, diagnostico domiciliar ou cuidado respiratorio, conforme sua funcao.",
@@ -15993,7 +16017,7 @@ def _produto_descricao_ia(
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT serve_para, como_usar, alertas, fonte, gerado_em
+            SELECT nome_norm, nome, serve_para, como_usar, alertas, fonte, gerado_em
             FROM ecommerce_produto_descricao_ia
             WHERE ean=%s
             LIMIT 1
@@ -16002,8 +16026,19 @@ def _produto_descricao_ia(
         )
         row = cur.fetchone()
         row_fonte = (row.get("fonte") if row else "") or ""
+        cache_nome_norm = (row.get("nome_norm") if row else "") or ""
+        nome_norm_atual = _norm_text(nome)
+        cache_nome_obsoleto = (
+            bool(row)
+            and bool(nome_norm_atual)
+            and (
+                _nome_catalogo_invalido(cache_nome_norm)
+                or _nome_catalogo_invalido(row.get("nome"))
+            )
+            and not _nome_catalogo_invalido(nome)
+        )
         cache_aceitavel = row_fonte not in ("rules", "rules_v2", "rules_v3")
-        if row and not bypass_cache and cache_aceitavel and (row.get("serve_para") or row.get("como_usar")):
+        if row and not bypass_cache and cache_aceitavel and not cache_nome_obsoleto and (row.get("serve_para") or row.get("como_usar")):
             gerado = row.get("gerado_em")
             if gerado and gerado.tzinfo is None:
                 gerado = gerado.replace(tzinfo=timezone.utc)
@@ -16271,7 +16306,7 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
             (ean,),
         )
         _row_canon = cur.fetchone()
-        _descricao_canon = _row_canon["descricao_canon"] if _row_canon else None
+        _descricao_canon = _limpar_nome_catalogo(_row_canon["descricao_canon"] if _row_canon else None)
 
     nome_busca = nome_hint or (med["descricao"] if med else _descricao_canon or "")
 
@@ -16293,7 +16328,7 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
                 (ean,),
             )
             _row_canon2 = cur.fetchone()
-            _nome_melhor = _row_canon2["descricao_canon"] if _row_canon2 else None
+            _nome_melhor = _limpar_nome_catalogo(_row_canon2["descricao_canon"] if _row_canon2 else None)
         if not _nome_melhor:
             cur.execute(
                 "SELECT nome FROM ecommerce_alpha_produtos "
@@ -16359,7 +16394,8 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
                 _ensure_alpha_schema()
                 cur.execute(
                     """
-                    SELECT ap.ean, COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome) AS nome,
+                    SELECT ap.ean, ap.nome AS nome_alpha,
+                           COALESCE(m.descricao, (CASE WHEN pc.descricao_canon ~ '^[0-9]+$' THEN NULL ELSE NULLIF(pc.descricao_canon, 'SEM DESCR') END), ap.nome) AS nome,
                            CAST(ap.estoque AS INTEGER) AS qty,
                            ap.preco_venda AS preco,
                            ap.fabricante,
@@ -16707,14 +16743,22 @@ def produto_detalhe(ean):
     imagem = imagem_custom or _prod_img or _med_img or None
     if not imagem and cnpjloja:
         imagem = _fill_one_catalog_image(cnpjloja, ean, nome_busca)
-    nome   = (med["descricao"] if med else None) or _descricao_canon or (produto["nome"] if produto else None) or nome_hint or "Produto"
+    nome_alpha = _limpar_nome_catalogo(produto.get("nome_alpha") if produto else None)
+    nome_produto = _limpar_nome_catalogo(produto.get("nome") if produto else None)
+    nome_med = _limpar_nome_catalogo(med.get("descricao") if med else None)
+    nome_canon = _limpar_nome_catalogo(_descricao_canon)
+    nome_hint_limpo = _limpar_nome_catalogo(nome_hint)
     # Categoria confiavel do Alpha tem prioridade sobre o regex por nome
     # (mesmo raciocinio do _marcar_tarja_batch): nomes sem indicio de dosagem
     # (ex: "Geleia Real Liofilizada") caem no regex como nao reconhecido e
     # arriscam ser tratados como medicamento por padrao.
     tipo_produto = (
         _categoria_from_alpha_classificacao(produto.get("classificacao")) if produto else None
-    ) or _classificar_produto(nome)
+    ) or _classificar_produto(nome_alpha or nome_produto or nome_med or nome_canon or nome_hint_limpo or "")
+    if tipo_produto in _TIPOS_NAO_MEDICAMENTO:
+        nome = nome_alpha or nome_produto or nome_canon or nome_med or nome_hint_limpo or "Produto"
+    else:
+        nome = nome_med or nome_canon or nome_produto or nome_alpha or nome_hint_limpo or "Produto"
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO or bool(anvisa.get("override_manual") and _detectar_tarja(anvisa))
     produto_info_ia = {}
     tarja = _detectar_tarja(anvisa) if _is_med else None
@@ -16740,7 +16784,7 @@ def produto_detalhe(ean):
             (med.get("marca") if med else "") or "",
             (med.get("laboratorio") if med else "") or "",
             allow_generate=True,
-            allow_fallback=False,
+            allow_fallback=True,
         )
     elif not (anvisa.get("serve_para") or anvisa.get("para_que_serve_ia")):
         produto_info_ia = _produto_descricao_ia(
