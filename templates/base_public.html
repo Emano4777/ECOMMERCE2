@@ -3227,13 +3227,16 @@ if ('serviceWorker' in navigator) {
   function estaInstalado() {
     return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   }
+  function veioDoAppAndroid() {
+    return /^android-app:\/\//i.test(document.referrer || '');
+  }
   function esconderConvites() {
     document.querySelectorAll('.js-baixar-app-link').forEach(el => { el.style.display = 'none'; });
     document.body.classList.add('pq-app-ja-instalado');
   }
   let jaSabeQueTemApp = false;
   try {
-    if (estaInstalado()) {
+    if (estaInstalado() || veioDoAppAndroid()) {
       localStorage.setItem('pq_app_instalado', '1');
       jaSabeQueTemApp = true;
     } else {

@@ -16718,6 +16718,16 @@ def produto_detalhe(ean):
     _is_med = tipo_produto not in _TIPOS_NAO_MEDICAMENTO or bool(anvisa.get("override_manual") and _detectar_tarja(anvisa))
     produto_info_ia = {}
     tarja = _detectar_tarja(anvisa) if _is_med else None
+    if (
+        _is_med
+        and not anvisa.get("override_manual")
+        and not _exige_receita_digital_entrega(anvisa, nome)
+        and _alpha_classificacao_mip_otc(produto)
+    ):
+        tarja = None
+        anvisa["tarja"] = None
+        anvisa["tarja_ia"] = "sem_tarja"
+        anvisa["receita_retida"] = False
     placeholder_generico = None
     if not _is_med:
         # Produto claramente não-medicamento: limpar dados farmacêuticos que poderiam vir
@@ -30577,7 +30587,7 @@ _CHAVES_OTC_ISENTO = frozenset({
     "ACIDO ASCORBICO", "ACIDO FOLICO", "VITAMINA", "VITAM",
     # OTC puros que o CMED/anvisa_sync às vezes tarjam incorretamente
     "PARACETAMOL", "DIPIRONA", "IBUPROFENO", "ACIDO ACETILSALICILICO",
-    "PANCREATINA", "DIMENTICONE", "SIMETICONA",
+    "PANCREATINA", "DIMENTICONE", "SIMETICONA", "EPOCLER",
     # Fitoterápicos sem prescrição
     "VALERIANA", "PASSIFLORA", "PANAX",
     # Chaves genéricas demais
@@ -30858,6 +30868,11 @@ def _detectar_tarja(anvisa: dict) -> str | None:
     return None
 
 
+def _alpha_classificacao_mip_otc(produto: dict | None) -> bool:
+    txt = ((produto or {}).get("classificacao") or "").upper()
+    return "MIP" in txt or "OTC" in txt
+
+
 def _requer_receita(anvisa: dict) -> bool:
     return _exige_receita_digital_entrega(anvisa)
 
@@ -30988,6 +31003,12 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             produtos[idx]["exibir_imagem_publica"] = row.get("exibir_imagem_publica")
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
+            _alpha_mip_otc = _alpha_classificacao_mip_otc(produtos[idx])
+            if _alpha_mip_otc and not row.get("override_manual") and not produtos[idx]["receita_retida"]:
+                tarja = None
+                produtos[idx]["tarja"] = None
+                produtos[idx]["receita_retida"] = False
+                produtos[idx]["requer_receita"] = False
             # Tarja preta/vermelha confirmada bloqueia sempre — "exibir_imagem_publica=True"
             # nunca sobrepoe tarja conhecida (buscas genericas na ANVISA por vezes retornam
             # exibir=True pra um registro diferente do produto real, o que liberava foto de
@@ -31001,8 +31022,7 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             # principio ativo, nao a apresentacao exata). Um SKU MIPs nunca
             # deveria ficar bloqueado so porque outra apresentacao da mesma
             # marca e tarjada.
-            _classificacao = (produtos[idx].get("classificacao") or "").upper()
-            if "MIP" in _classificacao and not row.get("override_manual") and not produtos[idx]["receita_retida"]:
+            if _alpha_mip_otc and not row.get("override_manual") and not produtos[idx]["receita_retida"]:
                 _bloquear = _nao_exibir
             # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
             _imagem_atual = (produtos[idx].get("imagem") or "").strip()

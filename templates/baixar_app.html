@@ -427,7 +427,7 @@ function bappTrocar(sistema) {
   if (/iphone|ipad|ipod/i.test(ua)) bappTrocar('iphone');
 })();
 (function () {
-  const instalado = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const instalado = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true || /^android-app:\/\//i.test(document.referrer || '');
   let jaTem = instalado;
   try {
     if (instalado) localStorage.setItem('pq_app_instalado', '1');
