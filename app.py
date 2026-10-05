@@ -293,7 +293,15 @@ def _enviar_email_verificacao(user_id: str, email: str) -> bool:
     return _send_email(email, "✉️ Confirme seu e-mail — Poupaqui", _email_html_wrapper("Confirme seu e-mail", corpo))
 
 
-def _notificar_admin_novo_consumidor(nome, email, telefone):
+def _cidade_uf_aviso_cadastro(endereco):
+    sem_cep = re.sub(r",?\s*\d{5}-?\d{3}\b", "", endereco or "").strip(" ,-")
+    match = re.search(r"(?:^|,)\s*([^,]+?)\s*[-/]\s*([A-Za-z]{2})$", sem_cep)
+    if not match:
+        return "Não informada"
+    return f"{match.group(1).strip()} - {match.group(2).upper()}"
+
+
+def _notificar_admin_novo_consumidor(nome, email, telefone, endereco=None):
     """Avisa o admin por e-mail sempre que uma conta de consumidor final e criada
     — unico jeito hoje de saber que alguem de fora (nao o proprio admin testando)
     comecou a usar o site, ja que o carrinho em si e so localStorage (nao da pra
@@ -306,7 +314,8 @@ def _notificar_admin_novo_consumidor(nome, email, telefone):
             f"<div class='info-box'>"
             f"<strong>Nome:</strong> {html.escape(nome or '—')}<br>"
             f"<strong>E-mail:</strong> {html.escape(email or '—')}<br>"
-            f"<strong>WhatsApp:</strong> {html.escape(telefone or '—')}"
+            f"<strong>WhatsApp:</strong> {html.escape(telefone or '—')}<br>"
+            f"<strong>Cidade:</strong> {html.escape(_cidade_uf_aviso_cadastro(endereco))}"
             f"</div>"
         )
         _send_email(
@@ -18264,7 +18273,7 @@ def consumidor_criar_conta_post():
         session.pop("google_signup", None)
     else:
         _enviar_email_verificacao(str(user["id"]), user["email"])
-    _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"])
+    _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"], user.get("endereco"))
     _enfileirar_aviso_loja_regiao(str(user["id"]), user["nome"], user.get("endereco_lat"), user.get("endereco_lng"))
 
     # Programa de indicacao: se essa pessoa chegou via link de um amigo
