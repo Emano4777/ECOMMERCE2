@@ -164,13 +164,15 @@ _MARCA_TO_INN = {
     "LORATADIN":    "LORATADINA",              # loratadina (variação de grafia no estoque)
     # Antiemético / cinetose
     "DRAMIN":       "DIMENIDRINATO",           # dimenidrinato (J&J/Bayer) — tarja vermelha
-    # Antineoplásico (tamoxifeno)
-    "TAMISA":       "TAMOXIFENO",              # citrato de tamoxifeno (EMS) — tarja vermelha, retenção
     # Antidiabético (gliptina)
     "NESINA":       "ALOGLIPTINA",             # alogliptina 25mg (Takeda) — tarja vermelha
     # Anticoncepcionais orais
     "NEOVLAR":      "NORGESTREL",              # norgestrel + etinilestradiol (Bayer) — tarja vermelha
     "FOLDAN":       "NORGESTREL",              # norgestrel + etinilestradiol (EMS) — tarja vermelha
+    # TAMISA = gestodeno + etinilestradiol (EMS) — NAO e tamoxifeno (mapeamento
+    # antigo estava errado, confundia com o antineoplasico e fazia os dois
+    # dividirem a mesma chave no anvisa_cache sem nenhuma relacao real).
+    "TAMISA":       "GESTODENO ETINILESTRADIOL",  # tarja vermelha
     # Antipsicótico
     "NEOZINE":      "LEVOMEPROMAZINA",         # levomepromazina (Sanofi) — tarja preta
     # Estrogênio TRH
@@ -613,17 +615,33 @@ def _aplicar_restricoes_imagem(chaves=None, page_size=200):
     chaves = sorted({c for c in (chaves or []) if c})
     if chaves:
         cur.execute("""
-            SELECT chave, tarja, exibir_imagem_publica
+            SELECT chave, tarja, tarja_ia, exibir_imagem_publica
             FROM anvisa_cache
-            WHERE encontrado=TRUE AND tarja IN ('preta','vermelha') AND chave = ANY(%s)
+            WHERE encontrado=TRUE AND chave = ANY(%s)
         """, (chaves,))
     else:
         cur.execute("""
-            SELECT chave, tarja, exibir_imagem_publica
+            SELECT chave, tarja, tarja_ia, exibir_imagem_publica
             FROM anvisa_cache
-            WHERE encontrado=TRUE AND tarja IN ('preta','vermelha')
+            WHERE encontrado=TRUE
         """)
-    restricoes = {r["chave"]: dict(r) for r in cur.fetchall()}
+    # tarja_ia (validacao por IA) prevalece sobre o dado bruto raspado da bula
+    # -- mesma prioridade de _detectar_tarja em app.py. Sem isso, qualquer
+    # chave cujo tarja bruto esteja errado (ex: "VITAMINA" raspou bula de
+    # VITAMINA D3 generica como vermelha, corrigida depois por tarja_ia=
+    # 'sem_tarja') segue aplicando o placeholder de medicamento controlado
+    # em produto OTC de verdade, em todas as lojas que vendem aquele chave.
+    restricoes = {}
+    for r in cur.fetchall():
+        tarja_ia = (r.get("tarja_ia") or "").strip().lower()
+        if tarja_ia == "sem_tarja":
+            continue
+        efetiva = tarja_ia if tarja_ia in ("preta", "vermelha") else (r.get("tarja") or "").strip().lower()
+        if efetiva not in ("preta", "vermelha"):
+            continue
+        row = dict(r)
+        row["tarja"] = efetiva
+        restricoes[r["chave"]] = row
     if not restricoes:
         cur.close()
         return 0

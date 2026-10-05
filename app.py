@@ -30619,13 +30619,16 @@ _MARCA_TO_INN = {
     "LORATADIN":    "LORATADINA",
     # Antiemético / cinetose
     "DRAMIN":       "DIMENIDRINATO",
-    # Antineoplásico
-    "TAMISA":       "TAMOXIFENO",
     # Antidiabético (gliptina)
     "NESINA":       "ALOGLIPTINA",
     # Anticoncepcionais
     "NEOVLAR":      "NORGESTREL",
     "FOLDAN":       "NORGESTREL",
+    # TAMISA = gestodeno + etinilestradiol (EMS) -- NAO confundir com
+    # tamoxifeno (citrato de tamoxifeno, antineoplasico); mapeamento antigo
+    # estava errado e fazia os dois produtos dividirem a mesma chave no
+    # anvisa_cache, mesmo sendo farmacos sem nenhuma relacao entre si.
+    "TAMISA":       "GESTODENO ETINILESTRADIOL",
     # Antipsicótico
     "NEOZINE":      "LEVOMEPROMAZINA",
     # Estrogênio TRH
