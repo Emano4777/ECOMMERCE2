@@ -11,6 +11,8 @@ Por padrao usa regras locais, sem custo. Com --anthropic, enriquece em lote
 usando ANTHROPIC_API_KEY do .env.
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import argparse
 import html
 import json
@@ -264,7 +266,7 @@ def anthropic_batch(products):
         }],
     }
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",

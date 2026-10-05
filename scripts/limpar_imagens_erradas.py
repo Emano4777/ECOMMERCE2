@@ -31,6 +31,8 @@ Uso (raiz do projeto):
   python scripts/limpar_imagens_erradas.py --limit N     # processa N EANs
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import os
 import re
 import sys
@@ -57,7 +59,7 @@ COSMOS_TOKEN  = os.getenv("COSMOS_TOKEN", "").strip()
 SERPER_KEY    = os.getenv("SERPER_API_KEY", "").strip()
 MODEL         = "claude-haiku-4-5-20251001"
 
-_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, base_url=_anthropic_budget_endpoint(base=True), max_retries=0)
 
 
 def _env_tokens(*names: str) -> list[str]:

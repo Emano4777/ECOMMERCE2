@@ -3,6 +3,8 @@
 Sem --apply, nao altera o banco. Busca online e opcional e limitada por lote.
 Ausencia de evidencias NAO equivale a sem tarja. Nunca classifica por familia.
 """
+
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
@@ -218,7 +220,7 @@ def rank_sources(urls, product=None):
 
 def anthropic_search(product,cfg):
     if not cfg.get('ANTHROPIC_API_KEY'): raise RuntimeError('Busca online indisponivel')
-    data=api_json('https://api.anthropic.com/v1/messages',dict(
+    data=api_json(_anthropic_budget_endpoint(),dict(
         model=cfg.get('TARJA_AUDIT_MODEL','claude-haiku-4-5-20251001'),max_tokens=800,
         tools=[{'type':'web_search_20250305','name':'web_search','max_uses':2,'allowed_domains':sorted(PRIMARY)}],
         messages=[{'role':'user','content':'Pesquise agora, obrigatoriamente usando web_search, a pagina oficial ou bula do fabricante desta apresentacao. Primeiro EAN, depois nome e apresentacao. Nao classifique. Produto: '+json.dumps(product,ensure_ascii=False)}]),
@@ -331,7 +333,7 @@ def online_decision(product, cfg, state):
         'ou suplemento alimentar/cosmetico explicitamente identificado. Uma receita retida nao prova tarja preta. '
         'Se houver duvida, tarja=desconhecida. classificacao_bloco e o indice base zero do bloco com os dizeres legais EXPLICITOS de prescricao/isencao, do MESMO documento. '
         'Se documentos se contradizem, conflito=true. documento e indice base zero. Nunca invente EAN nem interprete numero de registro como EAN.')
-    response=api_json('https://api.anthropic.com/v1/messages',dict(model=cfg.get('TARJA_AUDIT_MODEL','claude-haiku-4-5-20251001'),max_tokens=2200,temperature=0,system=system,
+    response=api_json(_anthropic_budget_endpoint(),dict(model=cfg.get('TARJA_AUDIT_MODEL','claude-haiku-4-5-20251001'),max_tokens=2200,temperature=0,system=system,
         messages=[{'role':'user','content':json.dumps(dict(produto=product,documentos=[{'id':di,'url':d['url'],'blocos':[{'id':bi,'texto':b} for bi,b in enumerate(d['blocos'])]} for di,d in enumerate(documents)]),ensure_ascii=False)}],
         tools=[{'name':'classificacao','description':'Extracao documental verificavel','input_schema':schema}],tool_choice={'type':'tool','name':'classificacao','disable_parallel_tool_use':True}),
         {'x-api-key':cfg['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'})

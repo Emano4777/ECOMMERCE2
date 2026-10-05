@@ -1,3 +1,5 @@
+
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
 import argparse
 import json
 import os
@@ -40,7 +42,7 @@ def _claude_boundary(row):
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=body,
         headers={
             "content-type": "application/json",

@@ -18,6 +18,8 @@ Uso (rodar da raiz do projeto):
   python scripts/corrigir_laboratorios.py --stats
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import os
 import json
 import time
@@ -336,7 +338,7 @@ def main():
     parser.add_argument("--stats",      action="store_true")
     args = parser.parse_args()
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, base_url=_anthropic_budget_endpoint(base=True), max_retries=0)
     conn   = psycopg2.connect(DATABASE_URL)
 
     ensure_schema(conn)

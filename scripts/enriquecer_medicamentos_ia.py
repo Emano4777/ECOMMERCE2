@@ -21,6 +21,8 @@ Uso:
     py scripts/enriquecer_medicamentos_ia.py --apply --force    # reprocessa já enriquecidos
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import argparse
 import csv
 import json
@@ -218,7 +220,7 @@ def _post_claude(system_prompt, user_content, api_key, max_tokens=700):
         "messages": [{"role": "user", "content": user_content}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=body,
         headers={
             "content-type": "application/json",

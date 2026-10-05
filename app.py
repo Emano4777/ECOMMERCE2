@@ -7,6 +7,8 @@ Dois perfis:
   • Consumidor final  — catálogo aberto sem login  /  /loja/<cnpj>
   • Painel da loja    — gestão de preços com login  /painel/...
 """
+
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
 import os
 import sys
 import math
@@ -5953,7 +5955,7 @@ def _claude_busca_interpret(query):
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
@@ -6023,7 +6025,7 @@ def _claude_busca_alternativa_generico(query, principio_ativo_ref=None):
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
@@ -6402,7 +6404,7 @@ def _image_verificada_por_visao(image_url, nome):
         ]}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
@@ -12293,7 +12295,7 @@ def _cross_sell_ia(consumidor_id, historico_nomes, conn, api_key, cnpjs_proximos
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=body,
         headers={"content-type": "application/json",
                  "x-api-key": api_key,
@@ -12425,7 +12427,7 @@ def _banner_semana_ia(consumidor_id, nome, historico_nomes, conn, api_key):
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=body,
         headers={"content-type": "application/json",
                  "x-api-key": api_key,
@@ -15064,7 +15066,7 @@ def _claude_haiku(prompt: str, max_tokens: int = 300, timeout: int = 5) -> str |
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
@@ -17018,7 +17020,7 @@ def _claude_vision_receita_once(image_b64: str, media_type: str = "image/jpeg"):
         ]}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
@@ -17152,7 +17154,7 @@ def _claude_vision_caixa(image_b64: str, media_type: str = "image/jpeg"):
         ]}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         method="POST",
@@ -24317,7 +24319,7 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
             "tools": _SUPORTE_TOOLS,
         }).encode("utf-8")
         req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages",
+            _anthropic_budget_endpoint(),
             data=payload,
             headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
             method="POST",

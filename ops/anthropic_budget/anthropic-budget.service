@@ -1,0 +1,17 @@
+[Unit]
+Description=Shared Anthropic budget gateway
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/root/scripts/dns_ecommerce_web/venv/bin/python3.11 /root/scripts/anthropic_budget/anthropic_budget_proxy.py --db /root/scripts/anthropic_budget/usage.sqlite3 --config /root/scripts/anthropic_budget/config.json
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/root/scripts/anthropic_budget
+
+[Install]
+WantedBy=multi-user.target

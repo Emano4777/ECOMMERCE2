@@ -19,6 +19,8 @@ Uso:
   python scripts/classificar_produtos.py --ean 7891234  # classifica EAN específico
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import os
 import sys
 import json
@@ -391,7 +393,7 @@ def main():
                         help="Inclui catálogo legado (estoque/automatiza/omie); por padrão só produtos do Alpha (catálogo público)")
     args = parser.parse_args()
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, base_url=_anthropic_budget_endpoint(base=True), max_retries=0)
     conn   = psycopg2.connect(DATABASE_URL)
 
     ensure_schema(conn)

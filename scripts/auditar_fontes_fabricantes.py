@@ -12,6 +12,8 @@ Exemplos:
   python scripts/auditar_fontes_fabricantes.py --cidade "Sao Pedro" --apply
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import argparse
 import base64
 import json
@@ -591,7 +593,7 @@ Responda SOMENTE JSON:
         "messages": [{"role": "user", "content": prompt}],
     }
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=json.dumps(body).encode("utf-8"),
         headers={
             "content-type": "application/json",
@@ -666,7 +668,7 @@ def inspect_official_image(image_url, domains):
         }],
     }
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=json.dumps(body).encode("utf-8"),
         headers={
             "content-type": "application/json",
@@ -721,7 +723,7 @@ Responda SOMENTE JSON:
         "messages": [{"role": "user", "content": prompt}],
     }
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=json.dumps(body).encode("utf-8"),
         headers={
             "content-type": "application/json",

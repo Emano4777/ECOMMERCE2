@@ -20,6 +20,8 @@ Uso:
   python scripts/classificar_medicamentos.py --only-estoque # so EANs com estoque>0 em alguma loja Alpha (prioriza o catalogo que a busca realmente usa)
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import os
 import sys
 import json
@@ -338,7 +340,7 @@ def main():
                          help="So classifica EANs com estoque>0 em alguma loja Alpha agora (recorte menor e mais util pro fallback de busca)")
     args = parser.parse_args()
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, base_url=_anthropic_budget_endpoint(base=True), max_retries=0)
     conn   = psycopg2.connect(DATABASE_URL)
 
     with conn.cursor() as cur:

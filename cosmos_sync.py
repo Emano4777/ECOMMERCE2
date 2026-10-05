@@ -14,6 +14,8 @@ Variáveis de ambiente necessárias:
     COSMOS_TOKEN       — token Bluesoft Cosmos (grátis em cosmos.bluesoft.com.br)
     ANTHROPIC_API_KEY  — chave Claude API (para fase IA)
 """
+
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
 import sys
 import os
 import re
@@ -231,7 +233,7 @@ def _normalizar_ia(lote: list) -> dict:
         return {}
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+        client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, base_url=_anthropic_budget_endpoint(base=True), max_retries=0)
 
         nomes = "\n".join(f"{i+1}. {desc}" for i, (_, desc) in enumerate(lote))
 

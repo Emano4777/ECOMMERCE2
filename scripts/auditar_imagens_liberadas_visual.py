@@ -20,6 +20,8 @@ Uso:
 
 Nao apaga nem sobrescreve nada que ja estava mais restritivo.
 """
+
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
 import os
 import re
 import json
@@ -139,7 +141,7 @@ def claude_vision_check(image_url, nome, timeout=25):
         ]}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        _anthropic_budget_endpoint(),
         data=payload,
         headers={"Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01"},
         method="POST",

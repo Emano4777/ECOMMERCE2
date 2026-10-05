@@ -12,6 +12,8 @@ Uso:
   python scripts/corrigir_labs_distribuidor.py --dry-run
 """
 
+from anthropic_endpoint import endpoint as _anthropic_budget_endpoint
+
 import os
 import json
 import time
@@ -164,7 +166,7 @@ def main():
                         help="Confiança mínima para salvar (alta=só certeza, media=aceita inferência provável)")
     args = parser.parse_args()
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, base_url=_anthropic_budget_endpoint(base=True), max_retries=0)
     conn   = psycopg2.connect(DATABASE_URL)
 
     print(f"Buscando produtos com marca = distribuidor sem laboratorio...")
