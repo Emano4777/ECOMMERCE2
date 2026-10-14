@@ -4862,7 +4862,7 @@ def get_or_geocode(cnpjloja, endereco, uf):
 
 # ─── SUPABASE STORAGE ────────────────────────────────────────────────────────
 
-def upload_to_supabase_storage(file_bytes, path, content_type, bucket="produto-imagens"):
+def upload_to_supabase_storage(file_bytes, path, content_type, bucket="produto-imagens", debug=None):
     """Upload bytes to Supabase Storage. Returns public URL or None."""
     auth_key = SUPABASE_SERVICE_KEY or SUPABASE_ANON
     upload_url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{path}"
@@ -4882,9 +4882,13 @@ def upload_to_supabase_storage(file_bytes, path, content_type, bucket="produto-i
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         app.logger.error("Supabase Storage upload error %s — %s — path=%s", e.code, body, path)
+        if debug is not None:
+            debug["detail"] = f"HTTP {e.code}: {body}"[:300]
         return None
     except Exception as e:
         app.logger.error("Supabase Storage upload exception: %s — path=%s", e, path)
+        if debug is not None:
+            debug["detail"] = f"{type(e).__name__}: {e}"[:300]
         return None
 
 
@@ -9303,8 +9307,18 @@ def painel_banners_upload():
               "webp": "image/webp", "gif": "image/gif"}
     content_type = ct_map.get(ext, "image/jpeg")
 
-    path = f"banners/{cnpjloja}/{secrets.token_hex(8)}.{ext}"
-    url  = upload_to_supabase_storage(raw, path, content_type)
+    url = None
+    if _CLOUDINARY_OK:
+        try:
+            result = cloudinary.uploader.upload(
+                raw,
+                folder=f"banners/{cnpjloja}",
+                resource_type="image",
+            )
+            url = result.get("secure_url")
+        except Exception as e:
+            app.logger.error("Cloudinary banner upload error: %s — cnpjloja=%s", e, cnpjloja)
+
     if not url:
         flash("Erro ao enviar imagem. Tente novamente.", "danger")
         return redirect(url_for("painel_banners"))
