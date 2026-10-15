@@ -127,6 +127,10 @@
         Seu pedido foi registrado com sucesso. Siga as instruções abaixo para finalizar o pagamento.
       {% endif %}
     </p>
+    <p style="margin-top:16px">Após a confirmação do pagamento, você pode acompanhar o andamento do seu pedido na tela “Acompanhar pedidos”.</p>
+    <a href="{{ url_for('meus_pedidos') }}" style="display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;padding:12px 20px;border-radius:10px;background:var(--pq-red);color:#fff;font-weight:800;text-decoration:none">
+      <i class="fa fa-box" aria-hidden="true"></i>Acompanhar pedidos
+    </a>
   </div>
 
   {% for entry in pedidos %}
