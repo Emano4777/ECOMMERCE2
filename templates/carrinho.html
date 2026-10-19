@@ -2302,6 +2302,12 @@ async function finalizarPedido() {
       itens: g.itens.map(i => ({ean:i.ean, nome:i.nome, preco:i.preco||0, qty:i.qty||1, imagem:i.imagem||'', requer_receita:!!i.requer_receita, receita_retida:!!(i.receita_retida || i.requer_receita), tarja:i.tarja||null})),
     };
   });
+  if (farmaciasPedidos.some(fp => fp.tipo_entrega === 'entrega' && !/\b\d{5}-?\d{3}\b/.test(fp.endereco_entrega || ''))) {
+    alert('Complete o endereço com CEP, número e bairro em Sua localização antes de finalizar.');
+    btn.disabled = false; btn.textContent = 'Finalizar pedido';
+    abrirModalLoc();
+    return;
+  }
   // Valida receita para entrega apenas quando há retenção/controle.
   for (const fp of farmaciasPedidos) {
     const temRetencao = fp.itens.some(i => i.requer_receita);
@@ -2387,7 +2393,7 @@ async function finalizarPedido() {
     });
     const data = await readJsonResponse(r);
     if (data.login_required) { window.location.href = '/entrar?next=/carrinho'; return; }
-    if (!r.ok || data.error) { alert(data.error || 'Não foi possível finalizar agora.'); btn.disabled=false; btn.textContent='Finalizar pedido'; return; }
+    if (!r.ok || data.error) { alert(data.error || 'Não foi possível finalizar agora.'); btn.disabled=false; btn.textContent='Finalizar pedido'; if (data.address_required) abrirModalLoc(); return; }
 
     // Verificar se algum pedido é MP com init_point
     const cardError = (data.pedidos||[]).find(p => p.pagamento === 'mercadopago' && !p.mp_init_point && !p.mp_public_key);

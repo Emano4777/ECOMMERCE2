@@ -300,30 +300,43 @@ def _extrair_cidade_uf(main):
 
 
 def _split_address(raw):
-    raw = (raw or "").strip()
-    cep = _digits(raw)[-8:] if len(_digits(raw)) >= 8 else ""
-    main = re.sub(r",?\s*\d{5}-?\d{3}.*$", "", raw).strip(" ,-")
-    cidade, uf = _extrair_cidade_uf(main)
-    parts = [p.strip() for p in re.split(r"\s+-\s+", main) if p.strip()]
-    rua_num = parts[0] if parts else main
-    bairro = parts[1] if len(parts) > 1 else ""
-    numero = "SN"
-    logradouro = rua_num
-    m_num = re.match(r"(.+?),\s*([^,\s]+)(?:\s+(.*))?$", rua_num)
-    complemento = ""
-    if m_num:
-        logradouro = m_num.group(1).strip()
-        numero = (m_num.group(2) or "SN")[:6]
-        complemento = (m_num.group(3) or "")[:30]
-    return {
-        "logradouro": logradouro[:70],
-        "numero": (numero[:6] or "SN"),
-        "complemento": complemento[:30],
-        "bairro": bairro[:70],
-        "cidade": cidade[:70],
-        "uf": uf[:2],
-        "cep": cep[:10],
-    }
+    """Read site addresses from the right; never infer ZIP from house numbers."""
+    text = re.sub(r'\s*\(Horário preferido:.*$', '', (raw or '').strip())
+    result = dict(logradouro='', numero='', complemento='', bairro='', cidade='', uf='', cep='')
+    cep = re.search(r'\b(?:CEP\s*:?\s*)?(\d{5})-?(\d{3})\b', text, re.I)
+    if cep:
+        result['cep'] = cep[1] + cep[2]
+        text = (text[:cep.start()] + text[cep.end():]).strip(' ,-–—')
+    parts = [p.strip() for p in re.split(r'\s+[–—-]\s+', text) if p.strip()]
+    if not parts:
+        return result
+    tail = parts[-1]
+    uf = re.search(r'(?:/|,\s*|\s+)([A-Za-z]{2})$', tail)
+    if re.fullmatch(r'[A-Za-z]{2}', tail):
+        result['uf'] = parts.pop().upper()
+        tail = parts[-1] if parts else ''
+    elif uf:
+        result['uf'] = uf[1].upper()
+        parts[-1] = tail[:uf.start()].strip(' ,')
+        tail = parts[-1]
+    if result['uf'] and len(parts) > 1:
+        tail_parts = [x.strip() for x in parts.pop().split(',') if x.strip()]
+        result['cidade'] = tail_parts.pop() if tail_parts else ''
+        if tail_parts:
+            result['bairro'] = tail_parts.pop()
+    if len(parts) > 1 and not result['bairro']:
+        result['bairro'] = parts.pop()
+    street = parts[0] if parts else ''
+    m = re.match(r'^(.*?),\s*(\d+[A-Za-z0-9/-]*|S/?N)(?:\s+(.*))?$', street, re.I)
+    if m:
+        result['logradouro'], result['numero'] = m[1].strip(), m[2]
+        result['complemento'] = m[3] or ''
+    else:
+        result['logradouro'] = street
+    if len(parts) > 1:
+        result['complemento'] = ' - '.join(filter(None, [result['complemento'], *parts[1:]]))
+    return result
+
 
 
 # ── Pedido: Supabase -> Automatiza ──────────────────────────────────────────
@@ -331,7 +344,8 @@ def _split_address(raw):
 def _pedido_payload(local_cur, pedido_id, cnpjloja):
     local_cur.execute(
         """
-        SELECT p.*, COALESCE(p.cliente_documento, c.documento) AS consumidor_documento
+        SELECT p.*, COALESCE(p.cliente_documento, c.documento) AS consumidor_documento,
+               c.endereco AS consumidor_endereco
         FROM ecommerce_pedidos p
         LEFT JOIN ecommerce_consumidores c ON c.id = p.consumidor_id
         WHERE p.id=%s AND p.cnpjloja=%s
@@ -371,6 +385,16 @@ _PAGO_STATUSES = {
 }
 
 
+def _endereco_para_exportacao(pedido, cnpjloja):
+    retirada = (pedido.get("tipo_entrega") or "retirada") != "entrega"
+    if retirada:
+        # Galeazzi exige o endereço cadastral mesmo em pedidos de retirada.
+        raw = pedido.get("consumidor_endereco") if _digits(cnpjloja) == "64369730000147" else ""
+    else:
+        raw = pedido.get("endereco_entrega")
+    return _split_address(raw)
+
+
 def export_paid_order(pedido_id):
     """Chamado pelo webhook/cron do app.py (mesmo padrao do
     _alpha_export_paid_order_safe), UMA vez por pedido pago. Idempotente
@@ -394,7 +418,7 @@ def export_paid_order(pedido_id):
         if not pago:
             return {"ok": False, "erro": "pedido_nao_pago"}
 
-        endereco = _split_address(pedido.get("endereco_entrega"))
+        endereco = _endereco_para_exportacao(pedido, cnpjloja)
         retirada = (pedido.get("tipo_entrega") or "retirada") != "entrega"
         total_bruto_itens = sum(float(i["preco_unitario"]) * int(i["qty"]) for i in itens) or 0.0
         desconto_total = float(pedido.get("desconto_cupom") or 0)
@@ -461,13 +485,13 @@ def export_paid_order(pedido_id):
                         doc,
                         "1900-01-01",  # peecData_Nascimento_Cliente: NOT NULL no Automatiza, nao coletamos no checkout
                         "1900-01-01",  # peecData_Entrega: sem agendamento de entrega implementado ainda
-                        "" if retirada else endereco["cep"],
-                        "" if retirada else endereco["logradouro"],
-                        "" if retirada else endereco["numero"],
-                        "" if retirada else endereco["bairro"],
-                        "" if retirada else endereco["cidade"],
-                        "" if retirada else endereco["uf"],
-                        "" if retirada else endereco["complemento"],
+                        endereco["cep"],
+                        endereco["logradouro"],
+                        endereco["numero"],
+                        endereco["bairro"],
+                        endereco["cidade"],
+                        endereco["uf"],
+                        endereco["complemento"],
                     ),
                 )
                 acur.execute("SELECT LAST_INSERT_ID() AS id")

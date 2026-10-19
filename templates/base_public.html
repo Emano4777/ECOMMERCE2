@@ -1552,6 +1552,11 @@
       <button type="button" onclick="voltarBuscaEndereco()" style="border:0;background:none;padding:0 0 12px;color:#475569;font:700 .8rem inherit;cursor:pointer"><i class="fa fa-arrow-left me-1"></i>Voltar</button>
       <h5 style="margin-bottom:6px">Confirme seu endereço</h5>
       <div id="loc-confirm-base" style="font-size:.8rem;color:#64748b;line-height:1.4;margin-bottom:16px"></div>
+<label style="display:block;font-size:.8rem;margin-bottom:8px">CEP <input id="loc-cep" type="text" oninput="for (const k of ['rua','bairro','cidade','uf']) document.getElementById('loc-'+k).value=''" required inputmode="numeric" maxlength="9" onblur="buscarCepConfirmacao()" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
+<label style="display:block;font-size:.8rem;margin-bottom:8px">Rua <input id="loc-rua" type="text" required maxlength="100" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
+<label style="display:block;font-size:.8rem;margin-bottom:8px">Bairro <input id="loc-bairro" type="text" required maxlength="70" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
+<label style="display:block;font-size:.8rem;margin-bottom:8px">Cidade <input id="loc-cidade" type="text" required maxlength="70" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
+<label style="display:block;font-size:.8rem;margin-bottom:8px">UF <input id="loc-uf" type="text" required maxlength="2" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
       <div style="background:#f7f3f2;border-radius:14px;padding:14px;display:grid;grid-template-columns:minmax(0,1fr) 82px;gap:10px">
         <label style="font-size:.65rem;font-weight:900;color:#786966;text-transform:uppercase">Complemento
           <input id="loc-complemento" type="text" maxlength="160" placeholder="Apto, bloco, referência" style="display:block;width:100%;margin-top:5px;height:38px;border:1px solid #ddd4d1;border-radius:8px;padding:0 10px;font:inherit;box-sizing:border-box">
@@ -1575,36 +1580,6 @@
       <h5>Endereço salvo!</h5>
       <p style="font-size:.8rem;color:#64748b;margin:0 0 18px">Agora vamos mostrar os produtos disponíveis para entrega no seu endereço.</p>
       <button type="button" onclick="concluirEnderecoSalvo()" style="border:0;border-radius:10px;background:#181313;color:#fff;padding:10px 22px;font:800 .82rem inherit;cursor:pointer">Ver produtos</button>
-    </div>
-  </div>
-</div>
-
-<!-- AVISO DE LANÇAMENTO: exibido somente no raio de São José do Rio Preto -->
-<div class="pq-rp-overlay" id="pq-rp-overlay" role="dialog" aria-modal="true" aria-labelledby="pq-rp-title">
-  <div class="pq-rp-card">
-    <button class="pq-rp-close" type="button" onclick="pqRpFechar()" aria-label="Fechar aviso"><i class="fa fa-xmark"></i></button>
-    <div class="pq-rp-copy">
-      <span class="pq-rp-badge"><i class="fa fa-location-dot"></i> Novidade na sua região</span>
-      <h2 id="pq-rp-title">A Poupaqui está chegando a Rio Preto!</h2>
-      <p>Em breve, você poderá comprar pelo nosso e-commerce e receber em toda São José do Rio Preto e região próxima.</p>
-      <div class="pq-rp-perks">
-        <span class="pq-rp-perk"><i class="fa fa-bolt"></i> Entrega no mesmo dia</span>
-        <span class="pq-rp-perk"><i class="fa fa-clock"></i> Normalmente em até 1 hora*</span>
-        <span class="pq-rp-perk"><i class="fa fa-map-location-dot"></i> Cobertura em toda a cidade</span>
-      </div>
-    </div>
-    <div class="pq-rp-formbox" id="pq-rp-formbox">
-      <h3>Seja um dos primeiros</h3>
-      <p>Cadastre-se gratuitamente e avisaremos quando as entregas começarem na sua região.</p>
-      <div class="pq-rp-promo"><i class="fa fa-gift"></i><span>Quem se cadastrar agora ganha <strong>10% de desconto na primeira compra</strong> quando o site for lançado em São José do Rio Preto. <strong>Oferta por tempo limitado</strong>, só pros primeiros cadastros.</span></div>
-      <form id="pq-rp-form" onsubmit="pqRpCadastrar(event)">
-        <label class="pq-rp-field">Seu nome<input id="pq-rp-nome" maxlength="120" autocomplete="name" required></label>
-        <label class="pq-rp-field">WhatsApp com DDD<input id="pq-rp-fone" maxlength="18" inputmode="tel" autocomplete="tel" placeholder="(17) 99999-9999" required></label>
-        <label class="pq-rp-field">E-mail <span style="font-weight:600;text-transform:none">(opcional)</span><input id="pq-rp-email" maxlength="180" type="email" autocomplete="email"></label>
-        <button class="pq-rp-submit" id="pq-rp-submit" type="submit"><i class="fa fa-bell me-1"></i> Quero ser avisado no lançamento</button>
-        <div class="pq-rp-status" id="pq-rp-status" aria-live="polite"></div>
-      </form>
-      <p class="pq-rp-small">*Prazo e taxa de entrega variam conforme endereço, disponibilidade e eventuais imprevistos. Ao enviar, você concorda com nossa <a href="{{ url_for('politica_privacidade') }}">Política de Privacidade</a>.</p>
     </div>
   </div>
 </div>
@@ -1810,35 +1785,8 @@ function aplicarLocalizacao(lat, lng) {
   localStorage.setItem(LOC_KEY_TS, Date.now());
   reverseGeocode(lat, lng);
   fecharModalLoc();
-  pqRpVerificar(lat, lng);
-  if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
-}
 
-const PQ_RP_LAT = -20.8113, PQ_RP_LNG = -49.3758, PQ_RP_RAIO_KM = 30;
-let _pqRpCoords = null;
-function pqRpDistancia(lat1,lng1,lat2,lng2){
-  const r=6371, rad=n=>n*Math.PI/180, dLat=rad(lat2-lat1), dLng=rad(lng2-lng1);
-  const a=Math.sin(dLat/2)**2+Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLng/2)**2;
-  return r*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-function pqRpVerificar(lat,lng){
-  return; // Poupaqui ja chegou em Rio Preto -- aviso de lancamento desativado
-}
-function pqRpFechar(){
-  document.getElementById('pq-rp-overlay')?.classList.remove('show');
-  localStorage.setItem('pq_rp_dispensado',Date.now());
-}
-async function pqRpCadastrar(ev){
-  ev.preventDefault();
-  const btn=document.getElementById('pq-rp-submit'),status=document.getElementById('pq-rp-status');
-  btn.disabled=true;status.textContent='Salvando seu cadastro…';
-  const payload={nome:document.getElementById('pq-rp-nome').value,telefone:document.getElementById('pq-rp-fone').value,email:document.getElementById('pq-rp-email').value,lat:_pqRpCoords?.lat,lng:_pqRpCoords?.lng,distancia_km:_pqRpCoords?.distancia,localizacao_label:localStorage.getItem(LOC_KEY_NOME)||''};
-  try{
-    const r=await fetch('/api/lancamento-rio-preto/interesse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),d=await r.json();
-    if(!r.ok||!d.ok)throw new Error(d.erro||'Não foi possível concluir o cadastro.');
-    localStorage.setItem('pq_rp_cadastrado','1');
-    document.getElementById('pq-rp-formbox').innerHTML='<div class="pq-rp-success"><i class="fa fa-circle-check"></i><h3>Cadastro realizado!</h3><p>Pronto! Vamos avisar você assim que a Poupaqui chegar à sua região.</p><div class="pq-rp-promo" style="margin:0 0 16px"><i class="fa fa-gift"></i><span>Seu <strong>10% de desconto na primeira compra</strong> está garantido pro lançamento em São José do Rio Preto.</span></div><button class="pq-rp-submit" type="button" onclick="pqRpFechar()">Continuar navegando</button></div>';
-  }catch(e){status.textContent=e.message;btn.disabled=false}
+  if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
 }
 
 let _gpsLat = null, _gpsLng = null, _gpsNome = null;
@@ -2079,13 +2027,18 @@ function abrirConfirmacaoEndereco(d, formatted) {
     uf: (a.state_code || '').replace('BR-',''), cep: a.postcode || '',
     baseLabel: formatted.label || d.display_name || ''
   };
+  document.getElementById('loc-cep').value = _pendingAddress.cep;
+  document.getElementById('loc-rua').value = _pendingAddress.road;
+  document.getElementById('loc-bairro').value = _pendingAddress.bairro;
+  document.getElementById('loc-cidade').value = _pendingAddress.cidade;
+  document.getElementById('loc-uf').value = _pendingAddress.uf;
   const numero = a.house_number || _numeroDigitado();
   document.getElementById('loc-numero').value = numero;
   document.getElementById('loc-complemento').value = '';
   document.getElementById('loc-confirm-base').textContent = formatted.label || d.display_name || '';
   document.getElementById('loc-save-status').textContent = '';
   const numeroOpcional = document.getElementById('loc-numero-opcional');
-  if (numeroOpcional) numeroOpcional.style.display = LOC_USER_LOGGED ? 'none' : 'inline';
+  if (numeroOpcional) numeroOpcional.style.display = 'none';
   document.getElementById('loc-search-step').style.display = 'none';
   document.getElementById('loc-confirm-step').style.display = '';
   document.querySelectorAll('[data-address-type]').forEach(b => b.classList.toggle('active', b.dataset.addressType === 'casa'));
@@ -2103,27 +2056,53 @@ function selecionarTipoEndereco(btn) {
   document.querySelectorAll('[data-address-type]').forEach(b => b.classList.toggle('active', b === btn));
 }
 
+async function buscarCepConfirmacao() {
+  const cep = document.getElementById('loc-cep').value.replace(/\D/g,'');
+  const status = document.getElementById('loc-save-status');
+  if (cep.length !== 8) { status.textContent = 'Informe um CEP com 8 dígitos.'; return; }
+  status.textContent = 'Buscando endereço pelo CEP...';
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    if (document.getElementById('loc-cep').value.replace(/\D/g,'') !== cep) return;
+    if (d.erro) { status.textContent = 'CEP não encontrado. Confira o número informado.'; return; }
+    for (const [key,value] of Object.entries({rua:d.logradouro, bairro:d.bairro, cidade:d.localidade, uf:d.uf})) {
+      document.getElementById('loc-'+key).value = value || '';
+    }
+    status.textContent = 'Confira o endereço e complete os campos que faltarem.';
+  } catch (_) { status.textContent = 'Não foi possível consultar o CEP. Preencha os campos manualmente.'; }
+}
+
 async function salvarEnderecoConfirmado() {
   if (!_pendingAddress) return;
   const numero = document.getElementById('loc-numero').value.trim();
   const complemento = document.getElementById('loc-complemento').value.trim();
   const status = document.getElementById('loc-save-status');
-  // Numero so e obrigatorio quando isso vai virar endereco salvo na conta
-  // (LOC_USER_LOGGED) — pra so navegar/ver produtos por proximidade, cidade
-  // e bairro ja bastam. Numero exato so importa de verdade na hora de
-  // calcular frete/checkout, onde ja existe validacao propria e completa.
-  if (LOC_USER_LOGGED && !numero) { status.textContent = 'Informe o número do endereço.'; document.getElementById('loc-numero').focus(); return; }
+  if (!numero) { status.textContent = 'Informe o número (ou SN para sem número).'; return; }
   const p = _pendingAddress;
-  const rua = p.road || p.baseLabel.split(' - ')[0].replace(/,\s*\d+.*$/, '');
-  const endereco = [rua && (numero ? `${rua}, ${numero}` : rua), complemento, p.bairro, [p.cidade,p.uf].filter(Boolean).join('/'), p.cep && `CEP ${p.cep}`].filter(Boolean).join(' - ');
+  p.cep = document.getElementById('loc-cep').value.replace(/\D/g,'');
+  p.road = document.getElementById('loc-rua').value.trim();
+  p.bairro = document.getElementById('loc-bairro').value.trim();
+  p.cidade = document.getElementById('loc-cidade').value.trim();
+  p.uf = document.getElementById('loc-uf').value.trim().toUpperCase();
+  if (p.cep.length !== 8 || !p.road || !p.bairro || !p.cidade || !/^[A-Z]{2}$/.test(p.uf)) {
+    status.textContent = 'Preencha CEP, rua, bairro, cidade e UF antes de continuar.'; return;
+  }
+  const endereco = [`${p.road}, ${numero}${complemento ? ' '+complemento : ''}`, `${p.bairro}, ${p.cidade}`, `${p.uf}, ${p.cep}`].join(' - ');
   const btn = document.getElementById('loc-save-btn');
   btn.disabled = true; btn.textContent = 'Salvando...'; status.textContent = '';
   let lat = p.lat, lng = p.lng;
   try {
     const precise = await fetchLocalizacao(endereco, parseCidadeUf(endereco));
     const best = (precise || []).find(x => x.address && (x.address.house_number || x.address.road)) || (precise || [])[0];
-    if (best) { lat = parseFloat(best.lat); lng = parseFloat(best.lon); }
-  } catch (_) {}
+    if (!best) throw new Error('address-not-found');
+    lat = parseFloat(best.lat); lng = parseFloat(best.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('coordinates');
+  } catch (_) {
+    status.textContent = 'Não foi possível localizar esse endereço. Confira os campos e tente novamente.';
+    btn.disabled = false; btn.textContent = 'Salvar e continuar'; return;
+  }
   if (LOC_USER_LOGGED) {
     try {
       const r = await fetch('/api/consumidor/enderecos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tipo:_selectedAddressType,endereco,numero,complemento,lat,lng})});
@@ -2164,6 +2143,10 @@ function renderRecentLocs() {
 }
 
 function selecionarLocalizacao(lat, lon, label) {
+  if (!/\b\d{5}-?\d{3}\b/.test(label || '')) {
+    abrirConfirmacaoEndereco({lat:String(lat),lon:String(lon),address:{},display_name:label || ''}, {label:label || ''});
+    return;
+  }
   localStorage.setItem(LOC_KEY_LAT, lat);
   localStorage.setItem(LOC_KEY_LNG, lon);
   saveRecentLoc(lat, lon, label || localStorage.getItem(LOC_KEY_NOME) || 'Localização selecionada');
@@ -2320,7 +2303,7 @@ function buscarCidadeDebounced() {
   if (savedLat && savedLng) {
     if (!localStorage.getItem(LOC_KEY_LAT)) localStorage.setItem(LOC_KEY_LAT, savedLat);
     if (!localStorage.getItem(LOC_KEY_LNG)) localStorage.setItem(LOC_KEY_LNG, savedLng);
-    pqRpVerificar(savedLat, savedLng);
+
     if (typeof onLocationReady === 'function') onLocationReady(parseFloat(savedLat), parseFloat(savedLng));
     // Cache expirado (>24h): atualiza em background. Antes so salvava a
     // coordenada nova no localStorage sem re-renderizar nada — a home ja
