@@ -1525,8 +1525,7 @@
       <div style="font-size:.74rem;color:#555;margin-bottom:4px;">📍 Localização detectada — <span style="color:#888">edite se necessário:</span></div>
       <input class="gps-preview-nome" type="text"
              placeholder="Ex: Av. Adolfo Lutz, 627 - São José do Rio Preto, SP"
-             style="width:100%;padding:6px 8px;border:1px solid #c8e6c9;border-radius:6px;font-size:.87rem;font-weight:600;color:#1a1a1a;margin-bottom:4px;box-sizing:border-box;"
-             oninput="_gpsNome=this.value" />
+             style="width:100%;padding:6px 8px;border:1px solid #c8e6c9;border-radius:6px;font-size:.87rem;font-weight:600;color:#1a1a1a;margin-bottom:4px;box-sizing:border-box;" />
       <div style="font-size:.72rem;color:#888;margin-bottom:8px;">Ex: Av. Adolfo Lutz, 627 - São José do Rio Preto, SP</div>
       <button onclick="confirmarGPS()" style="width:100%;padding:8px;background:#28a745;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:.86rem;">
         ✓ Confirmar esta localização
@@ -1823,12 +1822,7 @@ function pqRpDistancia(lat1,lng1,lat2,lng2){
   return r*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 function pqRpVerificar(lat,lng){
-  lat=parseFloat(lat);lng=parseFloat(lng);if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
-  const distancia=pqRpDistancia(lat,lng,PQ_RP_LAT,PQ_RP_LNG);_pqRpCoords={lat,lng,distancia};
-  const dispensado=parseInt(localStorage.getItem('pq_rp_dispensado')||'0');
-  if(distancia<=PQ_RP_RAIO_KM&&!localStorage.getItem('pq_rp_cadastrado')&&Date.now()-dispensado>7*86400000){
-    setTimeout(()=>document.getElementById('pq-rp-overlay')?.classList.add('show'),900);
-  }
+  return; // Poupaqui ja chegou em Rio Preto -- aviso de lancamento desativado
 }
 function pqRpFechar(){
   document.getElementById('pq-rp-overlay')?.classList.remove('show');
