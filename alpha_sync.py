@@ -407,30 +407,43 @@ def _extrair_cidade_uf(main):
 
 
 def _split_address(raw):
-    raw = (raw or "").strip()
-    cep = _digits(raw)[-8:] if len(_digits(raw)) >= 8 else ""
-    main = re.sub(r",?\s*\d{5}-?\d{3}.*$", "", raw).strip(" ,-")
-    cidade, uf = _extrair_cidade_uf(main)
-    parts = [p.strip() for p in re.split(r"\s+-\s+", main) if p.strip()]
-    rua_num = parts[0] if parts else main
-    bairro = parts[1] if len(parts) > 1 else ""
-    numero = "SN"
-    logradouro = rua_num
-    m_num = re.match(r"(.+?),\s*([^,\s]+)(?:\s+(.*))?$", rua_num)
-    complemento = ""
-    if m_num:
-        logradouro = m_num.group(1).strip()
-        numero = (m_num.group(2) or "SN")[:6]
-        complemento = (m_num.group(3) or "")[:30]
-    return {
-        "logradouro": logradouro[:70],
-        "numero": numero[:6] or "SN",
-        "complemento": complemento[:30],
-        "bairro": bairro[:70],
-        "cidade": cidade[:70],
-        "uf": uf[:2],
-        "cep": cep[:10],
-    }
+    """Read site addresses from the right; never infer ZIP from house numbers."""
+    text = re.sub(r'\s*\(Horário preferido:.*$', '', (raw or '').strip())
+    result = dict(logradouro='', numero='', complemento='', bairro='', cidade='', uf='', cep='')
+    cep = re.search(r'\b(?:CEP\s*:?\s*)?(\d{5})-?(\d{3})\b', text, re.I)
+    if cep:
+        result['cep'] = cep[1] + cep[2]
+        text = (text[:cep.start()] + text[cep.end():]).strip(' ,-–—')
+    parts = [p.strip() for p in re.split(r'\s+[–—-]\s+', text) if p.strip()]
+    if not parts:
+        return result
+    tail = parts[-1]
+    uf = re.search(r'(?:/|,\s*|\s+)([A-Za-z]{2})$', tail)
+    if re.fullmatch(r'[A-Za-z]{2}', tail):
+        result['uf'] = parts.pop().upper()
+        tail = parts[-1] if parts else ''
+    elif uf:
+        result['uf'] = uf[1].upper()
+        parts[-1] = tail[:uf.start()].strip(' ,')
+        tail = parts[-1]
+    if result['uf'] and len(parts) > 1:
+        tail_parts = [x.strip() for x in parts.pop().split(',') if x.strip()]
+        result['cidade'] = tail_parts.pop() if tail_parts else ''
+        if tail_parts:
+            result['bairro'] = tail_parts.pop()
+    if len(parts) > 1 and not result['bairro']:
+        result['bairro'] = parts.pop()
+    street = parts[0] if parts else ''
+    m = re.match(r'^(.*?),\s*(\d+[A-Za-z0-9/-]*|S/?N)(?:\s+(.*))?$', street, re.I)
+    if m:
+        result['logradouro'], result['numero'] = m[1].strip(), m[2]
+        result['complemento'] = m[3] or ''
+    else:
+        result['logradouro'] = street
+    if len(parts) > 1:
+        result['complemento'] = ' - '.join(filter(None, [result['complemento'], *parts[1:]]))
+    return result
+
 
 
 def _pedido_payload(local_cur, pedido_id):

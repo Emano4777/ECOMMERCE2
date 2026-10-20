@@ -109,6 +109,7 @@
           {% if p.cliente_telefone %}
           <div style="font-size:.76rem;color:var(--pk-muted)">{{ p.cliente_telefone }}</div>
           {% endif %}
+          {% if p.cliente_email %}<div style="font-size:.76rem;color:var(--pk-muted)">{{ p.cliente_email }}</div>{% endif %}
         </td>
         <td>
           {% if p.origem == 'mercado_livre' %}

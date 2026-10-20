@@ -1664,6 +1664,22 @@ def _crm_plano_loja(cnpjloja):
     return plano
 
 
+
+def _crm_contatos_para_loja(cnpjloja, dados):
+    """Remove telefones da resposta para lojas sem acesso ao CRM completo."""
+    from crm_contact_visibility import filter_customer_contacts
+    try:
+        permitido = bool(_crm_plano_loja(cnpjloja).get("crm_completo"))
+    except Exception:
+        permitido = False
+    return filter_customer_contacts(dados, permitido)
+
+
+def _render_painel_contatos(template_name, **context):
+    context = _crm_contatos_para_loja(session.get("cnpjloja"), context)
+    return render_template(template_name, **context)
+
+
 def _crm_pode_enviar(cnpjloja, canal):
     plano = _crm_plano_loja(cnpjloja)
     if canal not in plano["canais"]:
@@ -4175,16 +4191,53 @@ def _google_get_json(url, token):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _split_address(raw):
+    """Read site addresses from the right; never infer ZIP from house numbers."""
+    text = re.sub(r'\s*\(Horário preferido:.*$', '', (raw or '').strip())
+    result = dict(logradouro='', numero='', complemento='', bairro='', cidade='', uf='', cep='')
+    cep = re.search(r'\b(?:CEP\s*:?\s*)?(\d{5})-?(\d{3})\b', text, re.I)
+    if cep:
+        result['cep'] = cep[1] + cep[2]
+        text = (text[:cep.start()] + text[cep.end():]).strip(' ,-–—')
+    parts = [p.strip() for p in re.split(r'\s+[–—-]\s+', text) if p.strip()]
+    if not parts:
+        return result
+    tail = parts[-1]
+    uf = re.search(r'(?:/|,\s*|\s+)([A-Za-z]{2})$', tail)
+    if re.fullmatch(r'[A-Za-z]{2}', tail):
+        result['uf'] = parts.pop().upper()
+        tail = parts[-1] if parts else ''
+    elif uf:
+        result['uf'] = uf[1].upper()
+        parts[-1] = tail[:uf.start()].strip(' ,')
+        tail = parts[-1]
+    if result['uf'] and len(parts) > 1:
+        tail_parts = [x.strip() for x in parts.pop().split(',') if x.strip()]
+        result['cidade'] = tail_parts.pop() if tail_parts else ''
+        if tail_parts:
+            result['bairro'] = tail_parts.pop()
+    if len(parts) > 1 and not result['bairro']:
+        result['bairro'] = parts.pop()
+    street = parts[0] if parts else ''
+    m = re.match(r'^(.*?),\s*(\d+[A-Za-z0-9/-]*|S/?N)(?:\s+(.*))?$', street, re.I)
+    if m:
+        result['logradouro'], result['numero'] = m[1].strip(), m[2]
+        result['complemento'] = m[3] or ''
+    else:
+        result['logradouro'] = street
+    if len(parts) > 1:
+        result['complemento'] = ' - '.join(filter(None, [result['complemento'], *parts[1:]]))
+    return result
+
+def _address_complete(raw):
+    addr = _split_address(raw)
+    ufs = 'AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO'.split()
+    return all(addr[k] for k in ('logradouro', 'numero', 'bairro', 'cidade', 'cep')) and addr['uf'] in ufs
+
+
 def _valid_endereco_completo(endereco, lat=None, lng=None):
-    text = (endereco or "").strip()
-    norm = text.lower()
-    cep_ok = bool(re.search(r"\b\d{5}-?\d{3}\b", text))
-    uf_ok = bool(re.search(r"(?:^|[\s,\-\/])([A-Za-z]{2})(?:$|[\s,\-\/])", text))
-    numero_ok = bool(re.search(r"(?:^|[\s,])(?:n[ºo.]?\s*)?\d+[A-Za-z]?(?:$|[\s,\-])", text))
-    rua_ok = bool(re.search(r"\b(rua|r\.|avenida|av\.|alameda|travessa|estrada|rodovia|praça|praca)\b", norm))
-    partes = [p.strip() for p in re.split(r"[,;-]", text) if p.strip()]
-    coord_ok = lat is not None and lng is not None
-    return len(text) >= 18 and cep_ok and uf_ok and numero_ok and rua_ok and len(partes) >= 3 and coord_ok
+    return _address_complete(endereco) and lat is not None and lng is not None
+
 
 
 def _to_float_or_none(value):
@@ -4635,6 +4688,9 @@ def api_consumidor_endereco_salvar():
     lng = _to_float_or_none(data.get("lng"))
     if tipo not in {"casa", "trabalho", "outro"} or not endereco or lat is None or lng is None:
         return jsonify({"ok": False, "erro": "Endereço inválido."}), 400
+
+    if not _valid_endereco_completo(endereco, lat, lng):
+        return jsonify({"ok": False, "erro": "Informe CEP, rua, número, bairro, cidade e UF completos."}), 400
 
     _ensure_consumidor_enderecos_schema()
     conn = db()
@@ -20182,6 +20238,14 @@ def api_checkout():
             "error": "Informe CPF ou CNPJ no perfil para finalizar o pedido.",
             "profile_required": True,
         }), 400
+    for fp_endereco in fp_list:
+        if fp_endereco.get("tipo_entrega") == "entrega":
+            endereco_check = fp_endereco.get("endereco_entrega") or cliente.get("endereco") or ""
+            lat_check = _to_float_or_none(fp_endereco.get("entrega_lat"))
+            lng_check = _to_float_or_none(fp_endereco.get("entrega_lng"))
+            if not _valid_endereco_completo(endereco_check, lat_check, lng_check):
+                cur.close()
+                return jsonify({"error": "Complete o endereço de entrega: CEP, rua, número, bairro, cidade e UF. Abra Sua localização para corrigir.", "address_required": True}), 400
     pedidos_result = []
     _itens_por_loja: dict = {}
 
@@ -20291,7 +20355,7 @@ def api_checkout():
                 entrega_ok = True  # segue como pedido de entrega, só que agendado
 
         if tipo_entrega == "entrega" and not entrega_ok:
-            tipo_entrega = "retirada"
+            return jsonify({"error": "Entrega indisponível para este endereço ou horário. Revise a localização, agende a entrega ou escolha retirada."}), 400
         # Validate minimum order for delivery
         if tipo_entrega == "entrega":
             pedido_minimo = float(loja.get("pedido_minimo_entrega") or 0)
@@ -21959,8 +22023,8 @@ def api_recorrencia_criar():
         return jsonify({"error": "Token do cartão não recebido."}), 400
     if doc_type not in {"CPF", "CNPJ"} or len(doc_number) not in {11, 14}:
         return jsonify({"error": "Informe CPF ou CNPJ válido do pagador."}), 400
-    if tipo_entrega == "entrega" and not endereco_entrega:
-        return jsonify({"error": "Informe o endereço de entrega."}), 400
+    if tipo_entrega == "entrega" and not _valid_endereco_completo(endereco_entrega, entrega_lat, entrega_lng):
+        return jsonify({"error": "Complete o endereço de entrega com CEP, rua, número, bairro, cidade e UF."}), 400
 
     valor_total = 0.0
     itens_limpos = []
@@ -22816,7 +22880,7 @@ def painel_pedidos():
     conn = db()
     cur  = conn.cursor()
     sql  = """
-        SELECT id, cliente_nome, cliente_telefone, forma_pagamento,
+        SELECT id, cliente_nome, cliente_telefone, cliente_email, forma_pagamento,
                status, total, criado_em, pagamento_status, pagamento_status_detail,
                receita_status, tipo_entrega,
                COALESCE(origem, 'ecommerce') AS origem, ml_order_id
@@ -22842,7 +22906,7 @@ def painel_pedidos():
     if _motoboy_logged():
         receitas_pendentes = 0
     cur.close()
-    return render_template("painel_pedidos.html", pedidos=pedidos, sf=sf,
+    return _render_painel_contatos("painel_pedidos.html", pedidos=pedidos, sf=sf,
                            sf_receita=sf_receita, receitas_pendentes=receitas_pendentes)
 
 
@@ -22943,7 +23007,7 @@ def painel_pedido_detalhe(pedido_id):
         _dia_ag = (_data_ag.weekday() + 1) % 7
         _nome_dia_ag = next((n for d, n in _DIAS_SEMANA if d == _dia_ag), "")
         pedido_dict["data_entrega_agendada_label"] = f"{_nome_dia_ag}, {_data_ag.strftime('%d/%m/%Y')}"
-    return render_template(
+    return _render_painel_contatos(
         "painel_pedido_detalhe.html",
         pedido=pedido_dict,
         itens=itens,
@@ -25344,7 +25408,7 @@ def painel_encomendas():
         )
     encomendas = [dict(r) for r in cur.fetchall()]
     cur.close()
-    return render_template(
+    return _render_painel_contatos(
         "painel_encomendas.html",
         encomendas=encomendas,
         status_label=_STATUS_ENCOMENDA_LABEL,
@@ -25380,7 +25444,7 @@ def painel_encomenda_detalhe(encomenda_id):
     )
     msgs = [dict(m) for m in cur.fetchall()]
     cur.close()
-    return render_template(
+    return _render_painel_contatos(
         "painel_encomenda_detalhe.html",
         enc=dict(enc),
         msgs=msgs,
@@ -25876,7 +25940,7 @@ def painel_relatorios():
     except Exception:
         relatorio["csat"] = {"total_avaliados": 0, "nota_media": None, "insatisfeitos": 0, "total_resolvidos": 0}
 
-    return render_template("painel_relatorios.html", relatorio=relatorio, filtros=filtros,
+    return _render_painel_contatos("painel_relatorios.html", relatorio=relatorio, filtros=filtros,
                            vitrine_stats=vitrine_stats,
                            avaliacoes=avaliacoes_rows,
                            reputacao=reputacao_rel)
@@ -26819,7 +26883,7 @@ def painel_notificacoes():
     }
     campanhas, automacoes, consumo, clientes, kpis, aniversariantes, templates, cupons = _crm_dados(cnpjloja)
     agendadas = [c for c in campanhas if c["status"] == "agendado"]
-    return render_template("painel_notificacoes.html", publico_counts=publico_counts,
+    return _render_painel_contatos("painel_notificacoes.html", publico_counts=publico_counts,
                            historico=campanhas, automacoes=automacoes, consumo=consumo,
                            clientes=clientes, crm_plano=crm_plano, kpis=kpis, agendadas=agendadas,
                            aniversariantes=aniversariantes, templates=templates, cupons=cupons,
@@ -35221,11 +35285,14 @@ def _disparar_emails_novos_pedidos(pedidos_result: list, itens_por_loja: dict, c
                 loja_email = ""
 
             if loja_email and "@" in loja_email:
+                cliente_loja = _crm_contatos_para_loja(cnpjloja, cliente)
                 corpo_loja = (
                     f"<p>Um novo pedido foi recebido!</p>"
                     f"<div class='info-box'>"
                     f"<b>Pedido:</b> #{pedido_id[:8].upper()}<br>"
-                    f"<b>Cliente:</b> {html.escape(cliente.get('nome',''))} · {html.escape(cliente.get('telefone',''))}<br>"
+                    f"<b>Cliente:</b> {html.escape(cliente_loja.get('nome',''))}<br>"
+                    f"<b>E-mail:</b> {html.escape(cliente_loja.get('email','') or '')}<br>"
+                    + (f"<b>WhatsApp:</b> {html.escape(cliente_loja.get('telefone',''))}<br>" if cliente_loja.get('telefone') else "") +
                     f"<b>Total:</b> {total_fmt}<br>"
                     f"<b>Modalidade:</b> {html.escape(tipo)}<br>"
                     f"<b>Pagamento:</b> {html.escape(pagamento)}"
