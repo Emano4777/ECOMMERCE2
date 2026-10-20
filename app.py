@@ -9623,8 +9623,17 @@ def painel_popups_salvar():
             cur.close()
             flash("A imagem deve ter no máximo 4 MB.", "danger")
             return redirect(url_for("painel_popups"))
-        storage_path = f"popups/{cnpjloja}/{int(time.time())}-{secrets.token_hex(6)}.{ext}"
-        imagem_url = upload_to_supabase_storage(raw, storage_path, content_type)
+        imagem_url = None
+        if _CLOUDINARY_OK:
+            try:
+                result = cloudinary.uploader.upload(
+                    raw,
+                    folder=f"popups/{cnpjloja}",
+                    resource_type="image",
+                )
+                imagem_url = result.get("secure_url")
+            except Exception as e:
+                app.logger.error("Cloudinary popup upload error: %s — cnpjloja=%s", e, cnpjloja)
         if not imagem_url:
             cur.close()
             flash("Não foi possível enviar a imagem. Tente novamente.", "danger")
