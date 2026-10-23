@@ -16652,7 +16652,7 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
             # continua vindo do match exato quando existir.
             _first_word = _chave_anvisa.split(" ", 1)[0]
             cur.execute(
-                "SELECT chave, nome_anvisa, tarja, tarja_ia, receita_retida, exibir_imagem_publica "
+                "SELECT chave, nome_anvisa, tarja, tarja_ia, receita_retida, exibir_imagem_publica, principio_ativo "
                 "FROM anvisa_cache WHERE SPLIT_PART(chave, ' ', 1) = %s AND (encontrado = TRUE OR tarja_ia IS NOT NULL)",
                 (_first_word,),
             )
@@ -16672,6 +16672,13 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
             _alvo_solido = _forma_solida_oral(nome_busca or "")
             if _alvo_solido is True:
                 _candidatos = [c for c in _candidatos if _forma_solida_oral(f"{c.get('nome_anvisa') or ''} {c.get('chave') or ''}") is not False]
+            # Associacao medicamentosa (ex: "PARACETAMOL CODEINA"/"TRAMADOL",
+            # opioides tarja preta) nao deveria contaminar um principio ativo
+            # puro so por compartilhar a 1a palavra da chave (ver docstring
+            # de _candidato_familia_combinacao_estranha).
+            _alvo_pa = (_row_anv or {}).get("principio_ativo")
+            if _alvo_pa:
+                _candidatos = [c for c in _candidatos if not _candidato_familia_combinacao_estranha(_alvo_pa, c.get("principio_ativo"))]
 
             def _restritividade(row):
                 # tarja_ia (validada pela IA) tem prioridade sobre a bruta --
@@ -30841,6 +30848,31 @@ def _forma_solida_oral(texto):
     return None
 
 
+def _principio_ativo_set(principio_ativo):
+    """Separa 'PARACETAMOL, FOSFATO DE CODEINA' / 'X;Y' / 'X+Y' em um
+    frozenset de ingredientes normalizados. None quando nao ha dado."""
+    if not principio_ativo:
+        return None
+    partes = re.split(r"[;,+]", principio_ativo)
+    s = frozenset(p.strip().upper() for p in partes if p.strip())
+    return s or None
+
+
+def _candidato_familia_combinacao_estranha(alvo_principio_ativo, candidato_principio_ativo):
+    """True quando o candidato da 'familia' (mesma 1a palavra da chave) e
+    uma associacao medicamentosa com principio(s) ativo(s) que o alvo nao
+    tem -- nao deveria contaminar o alvo so por compartilhar uma palavra da
+    chave (ex: 'PARACETAMOL + CODEINA'/'+ TRAMADOL', ambos opioides tarja
+    preta, nao podem herdar tarja preta pra um 'PARACETAMOL' puro, que e
+    isento). Sem dado de principio_ativo de algum dos dois lados, mantem o
+    comportamento conservador anterior (False = nao filtra)."""
+    alvo = _principio_ativo_set(alvo_principio_ativo)
+    candidato = _principio_ativo_set(candidato_principio_ativo)
+    if not alvo or not candidato:
+        return False
+    return bool(candidato - alvo)
+
+
 _VITAMINA_D_DOSE_ALTA_RE = re.compile(
     r"vitamina\s*d3?\b.{0,20}?\b(?:[4-9]|[1-9]\d)\s*[.,]?\s*000\s*u\.?i\.?"
     r"|\b(?:[4-9]|[1-9]\d)\s*[.,]?\s*000\s*u\.?i\.?.{0,20}?\bvitamina\s*d3?\b",
@@ -31285,6 +31317,17 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                     candidatos_validos = [
                         c for c in candidatos_validos
                         if _forma_solida_oral(f"{c.get('nome_anvisa') or ''} {c.get('chave') or ''}") is not False
+                    ]
+                # Associacao medicamentosa (ex: "PARACETAMOL CODEINA"/
+                # "TRAMADOL", opioides tarja preta) nao deveria contaminar
+                # um principio ativo puro so por compartilhar a 1a palavra
+                # da chave (ver docstring de
+                # _candidato_familia_combinacao_estranha).
+                alvo_pa = (exato or {}).get("principio_ativo")
+                if alvo_pa and candidatos_validos:
+                    candidatos_validos = [
+                        c for c in candidatos_validos
+                        if not _candidato_familia_combinacao_estranha(alvo_pa, c.get("principio_ativo"))
                     ]
                 familia = max(candidatos_validos, key=_restritividade) if candidatos_validos else None
                 if exato is not None and familia is not None:
