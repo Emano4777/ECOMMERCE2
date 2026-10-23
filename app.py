@@ -16862,6 +16862,12 @@ def produto_detalhe(ean):
         anvisa["tarja"] = None
         anvisa["tarja_ia"] = "sem_tarja"
         anvisa["receita_retida"] = False
+        # MIP/OTC confirmado pelo Alpha por EAN especifico tambem invalida o
+        # bloqueio de imagem herdado do fallback conservador por familia
+        # (anvisa_cache so conhece o principio ativo, nao essa apresentacao
+        # exata) -- senao a tarja ficava corrigida mas a imagem continuava
+        # escondida por causa de outro fabricante/forma do mesmo principio.
+        anvisa["exibir_imagem_publica"] = True
     placeholder_generico = None
     if not _is_med:
         # Produto claramente não-medicamento: limpar dados farmacêuticos que poderiam vir
@@ -31164,26 +31170,30 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
             produtos[idx]["dizeres_receita"] = row.get("dizeres_receita")
             produtos[idx]["dizeres_imagem"] = row.get("dizeres_imagem")
             _alpha_mip_otc = _alpha_classificacao_mip_otc(produtos[idx])
-            if _alpha_mip_otc and not row.get("override_manual") and not produtos[idx]["receita_retida"]:
+            _mip_override = (
+                _alpha_mip_otc
+                and not row.get("override_manual")
+                and not produtos[idx]["receita_retida"]
+            )
+            if _mip_override:
                 tarja = None
                 produtos[idx]["tarja"] = None
                 produtos[idx]["receita_retida"] = False
                 produtos[idx]["requer_receita"] = False
+                # MIP/OTC confirmado pelo Alpha por EAN especifico tambem
+                # invalida o bloqueio de imagem herdado do fallback conservador
+                # por familia (que so conhece o principio ativo, nao essa
+                # apresentacao exata) -- senao a tarja ficava corrigida mas a
+                # imagem continuava escondida por causa de outro fabricante/
+                # forma do mesmo principio ativo.
+                produtos[idx]["exibir_imagem_publica"] = True
             # Tarja preta/vermelha confirmada bloqueia sempre — "exibir_imagem_publica=True"
             # nunca sobrepoe tarja conhecida (buscas genericas na ANVISA por vezes retornam
             # exibir=True pra um registro diferente do produto real, o que liberava foto de
             # medicamento tarjado). exibir=True so importa quando a tarja e desconhecida.
-            _exibir = row.get("exibir_imagem_publica")
+            _exibir = produtos[idx]["exibir_imagem_publica"] if _mip_override else row.get("exibir_imagem_publica")
             _nao_exibir = _exibir is False
             _bloquear = _nao_exibir or tarja in ("preta", "vermelha")
-            # Classificacao MIPs (Medicamento Isento de Prescricao) vem direto
-            # do fornecedor Alpha por EAN especifico — sinal mais confiavel
-            # que o fallback por familia da ANVISA (que so conhece o
-            # principio ativo, nao a apresentacao exata). Um SKU MIPs nunca
-            # deveria ficar bloqueado so porque outra apresentacao da mesma
-            # marca e tarjada.
-            if _alpha_mip_otc and not row.get("override_manual") and not produtos[idx]["receita_retida"]:
-                _bloquear = _nao_exibir
             # Tambem bloqueia se a imagem atual e de uma farmacia concorrente
             _imagem_atual = (produtos[idx].get("imagem") or "").strip()
             if not _bloquear and _imagem_atual and _looks_like_other_pharmacy_brand(_imagem_atual):
