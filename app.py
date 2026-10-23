@@ -16675,10 +16675,13 @@ def _produto_dados_pesados(conn, ean, cnpjloja, nome_hint):
             # Associacao medicamentosa (ex: "PARACETAMOL CODEINA"/"TRAMADOL",
             # opioides tarja preta) nao deveria contaminar um principio ativo
             # puro so por compartilhar a 1a palavra da chave (ver docstring
-            # de _candidato_familia_combinacao_estranha).
-            _alvo_pa = (_row_anv or {}).get("principio_ativo")
-            if _alvo_pa:
-                _candidatos = [c for c in _candidatos if not _candidato_familia_combinacao_estranha(_alvo_pa, c.get("principio_ativo"))]
+            # de _candidato_familia_combinacao_estranha). Sem match exato,
+            # usa a propria 1a palavra da chave como aproximacao do principio
+            # ativo alvo -- se o nome do produto mencionasse outro ingrediente
+            # reconhecido, ele já teria virado a 2a palavra da chave (e
+            # encontrado match exato igual aos das combinacoes cadastradas).
+            _alvo_pa = (_row_anv or {}).get("principio_ativo") or _first_word
+            _candidatos = [c for c in _candidatos if not _candidato_familia_combinacao_estranha(_alvo_pa, c.get("principio_ativo"))]
 
             def _restritividade(row):
                 # tarja_ia (validada pela IA) tem prioridade sobre a bruta --
@@ -31322,9 +31325,11 @@ def _marcar_tarja_batch(produtos: list, conn, ensure_schema=True) -> list:
                 # "TRAMADOL", opioides tarja preta) nao deveria contaminar
                 # um principio ativo puro so por compartilhar a 1a palavra
                 # da chave (ver docstring de
-                # _candidato_familia_combinacao_estranha).
-                alvo_pa = (exato or {}).get("principio_ativo")
-                if alvo_pa and candidatos_validos:
+                # _candidato_familia_combinacao_estranha). Sem match exato,
+                # usa a propria 1a palavra da chave como aproximacao (ver
+                # mesmo raciocinio no produto_detalhe).
+                alvo_pa = (exato or {}).get("principio_ativo") or ch.split(" ", 1)[0]
+                if candidatos_validos:
                     candidatos_validos = [
                         c for c in candidatos_validos
                         if not _candidato_familia_combinacao_estranha(alvo_pa, c.get("principio_ativo"))
