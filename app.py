@@ -9966,6 +9966,53 @@ def index():
     return render_template("home.html")
 
 
+@app.get("/api/ads-elegivel")
+@_rate_limited_api(max_calls=40, window_secs=60)
+def api_ads_elegivel():
+    """Anuncios (AdSense) so devem aparecer pra quem acessa de fora do raio
+    de entrega de TODAS as lojas cadastradas -- onde o site ja tem como
+    vender de verdade, nao faz sentido (nem e desejado) disputar espaco de
+    tela com oferta de produto real."""
+    try:
+        lat_usr = float(request.args.get("lat", 0))
+        lng_usr = float(request.args.get("lng", 0))
+    except (ValueError, TypeError):
+        lat_usr, lng_usr = 0.0, 0.0
+    if not lat_usr and not lng_usr:
+        # Sem localizacao conhecida: lado conservador, sem anuncio.
+        return jsonify({"elegivel": False})
+
+    cache_key = ("ads_elegivel_v1", round(lat_usr, 2), round(lng_usr, 2))
+    cached = _home_api_cache_get(cache_key, 3600)
+    if cached is not None:
+        return jsonify(cached)
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT g.lat, g.lng, COALESCE(c.raio_entrega_km, 0) AS raio
+        FROM ecommerce_lojas_geo g
+        JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
+        JOIN users u ON u.cnpjloja = g.cnpjloja
+        WHERE g.lat IS NOT NULL AND g.lng IS NOT NULL
+          AND COALESCE(c.aceita_entrega, FALSE) = TRUE
+          AND u.is_admin = FALSE
+        """
+    )
+    lojas = cur.fetchall()
+    cur.close()
+
+    coberto = any(
+        float(l["raio"] or 0) > 0
+        and haversine(lat_usr, lng_usr, float(l["lat"]), float(l["lng"])) <= float(l["raio"])
+        for l in lojas
+    )
+    resultado = {"elegivel": not coberto}
+    _home_api_cache_set(cache_key, resultado, 3600)
+    return jsonify(resultado)
+
+
 @app.get("/catalogo")
 def catalogo_publico():
     conn = db()
@@ -37599,6 +37646,15 @@ def robots_txt():
         "User-agent: *\nAllow: /\n"
         "Disallow: /admin/\nDisallow: /painel/\nDisallow: /api/\n"
         f"Sitemap: {base_url}/sitemap.xml\n",
+        content_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600, s-maxage=21600"},
+    )
+
+
+@app.get("/ads.txt")
+def ads_txt():
+    return Response(
+        "google.com, pub-7995010197286628, DIRECT, f08c47fec0942fa0\n",
         content_type="text/plain; charset=utf-8",
         headers={"Cache-Control": "public, max-age=3600, s-maxage=21600"},
     )

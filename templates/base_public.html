@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="google-adsense-account" content="ca-pub-7995010197286628">
   <title>{% block title %}Poupaqui - Produtos{% endblock %}</title>
   {% block meta_description %}{% endblock %}
   <script type="application/ld+json">
@@ -3370,6 +3371,38 @@ function reenviarVerificacao(btn) {
   // (antes da localizacao resolver) a checagem sempre falharia por falta
   // de coordenada, mesmo pra quem esta perto de verdade.
   setTimeout(revelarPromoAssinatura, 1500);
+})();
+
+/* ── AdSense: so carrega o script/exibe anuncio pra quem acessa de fora
+   do raio de entrega de TODAS as lojas -- onde o site nao tem oferta real
+   pra vender, mostra anuncio; onde tem loja cobrindo a regiao, nao disputa
+   espaco de tela com produto de verdade. */
+(function () {
+  function carregarAdsSeElegivel() {
+    var lat = parseFloat(localStorage.getItem('pq_lat') || '0');
+    var lng = parseFloat(localStorage.getItem('pq_lng') || '0');
+    if (!lat && !lng) return;
+    fetch('/api/ads-elegivel?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.elegivel) return;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7995010197286628';
+        s.crossOrigin = 'anonymous';
+        document.head.appendChild(s);
+        s.onload = function () {
+          (window.adsbygoogle = window.adsbygoogle || []).push({
+            google_ad_client: "ca-pub-7995010197286628",
+            enable_page_level_ads: true
+          });
+        };
+      })
+      .catch(function () {});
+  }
+  // Mesmo atraso do bloco de promocao acima, pro pq_lat/pq_lng ja estar
+  // preenchido quando checar.
+  setTimeout(carregarAdsSeElegivel, 1500);
 })();
 </script>
 </body>
