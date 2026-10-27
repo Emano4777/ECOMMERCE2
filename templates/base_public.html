@@ -1713,7 +1713,10 @@ async function _geolocateGM() {
   return { lat: d.location.lat, lng: d.location.lng };
 }
 
-/* Converte coords em endereço via Google Maps */
+/* Converte coords em endereço via Google Maps -- retorna nome formatado
+   E os componentes estruturados (rua/bairro/cidade/uf/cep), pra tela de
+   confirmacao poder preencher os campos sozinha sem precisar buscar de
+   novo (ver uso em usarGPS/confirmarGPS). */
 async function _reverseGeocodeGM(lat, lng) {
   if (!_GM_KEY || !_GM_ENABLED || _gmQuotaHit) throw new Error('skip');
   const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${_GM_KEY}&language=pt-BR&result_type=street_address|sublocality|locality`);
@@ -1727,18 +1730,40 @@ async function _reverseGeocodeGM(lat, lng) {
   const bairro = get('sublocality_level_1') || get('sublocality');
   const cidade = get('administrative_area_level_2') || get('locality');
   const uf     = getS('administrative_area_level_1');
-  return [route && (route + (num ? ', ' + num : '')), bairro, cidade, uf].filter(Boolean).join(', ') || 'Localização detectada';
+  const cep    = get('postal_code');
+  const nome = [route && (route + (num ? ', ' + num : '')), bairro, cidade, uf].filter(Boolean).join(', ') || 'Localização detectada';
+  return {
+    nome,
+    address: {
+      road: route, house_number: num, suburb: bairro, city: cidade,
+      state_code: uf ? ('BR-' + uf) : '', postcode: cep,
+    },
+  };
 }
 
-/* Converte endereço/cidade em coords via Google Maps */
+/* Converte endereço/cidade em coords via Google Maps -- mesma ideia acima,
+   retorna tambem o endereco estruturado. */
 async function _geocodeGM(query) {
   if (!_GM_KEY || !_GM_ENABLED || _gmQuotaHit) throw new Error('skip');
   const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query + ', Brasil')}&key=${_GM_KEY}&language=pt-BR&region=br&components=country:BR`);
   const d = await r.json();
   if (d.status === 'OVER_QUERY_LIMIT' || d.status === 'REQUEST_DENIED') { _gmQuota(); throw new Error('quota'); }
   if (d.status !== 'OK' || !d.results.length) throw new Error('no_result');
-  const loc = d.results[0].geometry.location;
-  return { lat: loc.lat, lng: loc.lng, nome: d.results[0].formatted_address };
+  const res = d.results[0];
+  const loc = res.geometry.location;
+  const comps = res.address_components || [];
+  const get  = t => (comps.find(c => c.types.includes(t)) || {}).long_name  || '';
+  const getS = t => (comps.find(c => c.types.includes(t)) || {}).short_name || '';
+  const uf = getS('administrative_area_level_1');
+  return {
+    lat: loc.lat, lng: loc.lng, nome: res.formatted_address,
+    address: {
+      road: get('route'), house_number: get('street_number'),
+      suburb: get('sublocality_level_1') || get('sublocality'),
+      city: get('administrative_area_level_2') || get('locality'),
+      state_code: uf ? ('BR-' + uf) : '', postcode: get('postal_code'),
+    },
+  };
 }
 
 function abrirModalLoc()  {
@@ -1766,15 +1791,16 @@ function _reverseGeocodeNominatim(lat, lng) {
     const uf     = (a.state_code || a.ISO3166_2_lvl4 || '').replace('BR-','');
     const rua = a.road || '', numero = a.house_number || '', bairro = a.suburb || a.neighbourhood || '';
     const endereco = [rua && `${rua}${numero ? ', '+numero : ''}`, bairro, cidade].filter(Boolean).join(', ');
-    return endereco || (cidade ? `${cidade}${uf ? ', '+uf : ''}` : 'Localização detectada');
+    const nome = endereco || (cidade ? `${cidade}${uf ? ', '+uf : ''}` : 'Localização detectada');
+    return { nome, address: a };
   });
 }
 
 function reverseGeocode(lat, lng) {
   _reverseGeocodeGM(lat, lng)
-    .then(nome => setLocNome(nome))
+    .then(r => setLocNome(r.nome))
     .catch(() => _reverseGeocodeNominatim(lat, lng)
-      .then(nome => setLocNome(nome))
+      .then(r => setLocNome(r.nome))
       .catch(() => setLocNome('Localização detectada'))
     );
 }
@@ -1790,7 +1816,7 @@ function aplicarLocalizacao(lat, lng) {
   document.dispatchEvent(new CustomEvent('pq:location-changed', {detail: {lat: lat, lng: lng}}));
 }
 
-let _gpsLat = null, _gpsLng = null, _gpsNome = null;
+let _gpsLat = null, _gpsLng = null, _gpsNome = null, _gpsAddress = null;
 
 async function usarGPS() {
   document.getElementById('modal-status').textContent = 'Obtendo posição…';
@@ -1828,13 +1854,24 @@ async function usarGPS() {
   _gpsLat = lat; _gpsLng = lng;
   document.getElementById('modal-status').textContent = 'Localizando endereço…';
 
-  // Reverse geocode: Google Maps primeiro, Nominatim fallback
+  // Reverse geocode: Google Maps primeiro, Nominatim fallback -- guarda
+  // tambem o endereco estruturado (rua/bairro/cidade/uf/cep), pra tela de
+  // confirmacao (abrirConfirmacaoEndereco, em confirmarGPS) preencher os
+  // campos sozinha com o que ja foi encontrado aqui, sem precisar buscar
+  // de novo pelo CEP.
   let nome = 'Localização detectada';
-  try { nome = await _reverseGeocodeGM(lat, lng); }
-  catch(e) {
-    try { nome = await _reverseGeocodeNominatim(lat, lng); } catch(e2) {}
+  let endereco = {};
+  try {
+    const res = await _reverseGeocodeGM(lat, lng);
+    nome = res.nome; endereco = res.address;
+  } catch(e) {
+    try {
+      const res = await _reverseGeocodeNominatim(lat, lng);
+      nome = res.nome; endereco = res.address;
+    } catch(e2) {}
   }
   _gpsNome = nome;
+  _gpsAddress = endereco;
   document.getElementById('modal-status').textContent = '';
   const preview = document.getElementById('gps-preview');
   preview.querySelector('.gps-preview-nome').value = nome;
@@ -1846,22 +1883,26 @@ async function confirmarGPS() {
   const inp  = document.querySelector('.gps-preview-nome');
   const nome = (inp ? inp.value.trim() : '') || _gpsNome;
   let lat = _gpsLat, lng = _gpsLng;
+  // Reaproveita o endereco ja estruturado (rua/bairro/cidade/uf/cep) que o
+  // reverse geocode do usarGPS ja encontrou -- so busca de novo se o
+  // usuario editou o texto do nome (precisa re-geocodificar mesmo).
+  let endereco = _gpsAddress || {};
 
-  // Se o usuário editou o nome, re-geocodifica para obter coordenadas corretas
+  // Se o usuário editou o nome, re-geocodifica para obter coordenadas (e endereço estruturado) corretos
   if (nome !== _gpsNome && nome.length > 4) {
     try {
       const btn = document.querySelector('#gps-preview button');
       if (btn) { btn.disabled = true; btn.textContent = 'Localizando…'; }
       try {
         const gm = await _geocodeGM(nome);
-        lat = gm.lat; lng = gm.lng;
+        lat = gm.lat; lng = gm.lng; endereco = gm.address;
       } catch(e) {
         // Nominatim fallback
         const r = await fetch('/api/geo/nominatim-search?' + new URLSearchParams({
           q: nome + ', Brasil', limit: '1'
         }));
         const data = await r.json();
-        if (data && data[0]) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); }
+        if (data && data[0]) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); endereco = data[0].address || {}; }
       }
     } catch(e) {}
   }
@@ -1869,7 +1910,7 @@ async function confirmarGPS() {
   const searchInp = document.getElementById('modal-cidade-inp');
   if (searchInp) searchInp.value = nome;
   abrirConfirmacaoEndereco(
-    {lat:String(lat), lon:String(lng), display_name:nome, address:{}},
+    {lat:String(lat), lon:String(lng), display_name:nome, address: endereco || {}},
     {label:nome, title:nome, sub:''}
   );
   document.getElementById('gps-preview').style.display = 'none';
@@ -2335,7 +2376,7 @@ function buscarCidadeDebounced() {
           localStorage.setItem(LOC_KEY_LAT, pos.lat);
           localStorage.setItem(LOC_KEY_LNG, pos.lng);
           localStorage.setItem(LOC_KEY_TS, Date.now());
-          _reverseGeocodeGM(pos.lat, pos.lng).then(n => setLocNome(n)).catch(() => {});
+          _reverseGeocodeGM(pos.lat, pos.lng).then(r => setLocNome(r.nome)).catch(() => {});
           if (typeof onLocationReady === 'function') onLocationReady(pos.lat, pos.lng);
         })
         .catch(() => {
