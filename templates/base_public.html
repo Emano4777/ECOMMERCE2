@@ -1797,26 +1797,32 @@ async function usarGPS() {
   document.getElementById('gps-preview').style.display = 'none';
   let lat = null, lng = null;
 
-  // 1º: Google Geolocation API (sem popup de permissão)
-  try {
-    const gm = await _geolocateGM();
-    lat = gm.lat; lng = gm.lng;
-  } catch(e) {
-    // 2º: GPS do navegador (fallback)
-    if (!navigator.geolocation) {
-      document.getElementById('modal-status').textContent = 'GPS não disponível neste navegador.';
-      return;
-    }
+  // 1º: GPS real do navegador (preciso -- GPS/Wi-Fi/rede do proprio
+  // aparelho, erro tipicamente de metros). Pede permissao, mas precisao
+  // importa mais aqui que evitar o popup: a API do Google sem dados de
+  // Wi-Fi/torre (abaixo) so usa o IP pra estimar, que pode errar por
+  // varios km -- principalmente em rede movel -- e antes era tentada
+  // primeiro, deixando a via precisa quase sempre sem uso.
+  if (navigator.geolocation) {
     await new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
         pos => { lat = pos.coords.latitude; lng = pos.coords.longitude; resolve(); },
         err => reject(err),
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
-    }).catch(err => {
-      const msgs = {1:'Permissão negada.', 2:'Posição indisponível.', 3:'Tempo esgotado.'};
-      document.getElementById('modal-status').textContent = msgs[err.code] || 'Erro ao obter posição.';
-    });
+    }).catch(() => {});
+  }
+
+  // 2º: Google Geolocation API por IP (fallback -- sem GPS disponivel,
+  // permissao negada ou timeout). Menos preciso, mas melhor que nada.
+  if (lat === null) {
+    try {
+      const gm = await _geolocateGM();
+      lat = gm.lat; lng = gm.lng;
+    } catch (e) {
+      document.getElementById('modal-status').textContent = 'Não foi possível obter sua localização. Informe o endereço manualmente abaixo.';
+      return;
+    }
   }
   if (lat === null) return;
   _gpsLat = lat; _gpsLng = lng;
