@@ -696,6 +696,7 @@
     }
     .pq-loc-overlay.show { display: flex; }
     .pq-loc-modal {
+      position: relative;
       background: #fff;
       border-radius: 16px;
       padding: 24px;
@@ -706,6 +707,24 @@
       box-shadow: 0 20px 60px rgba(0,0,0,.2);
       animation: slideDown .2s ease;
     }
+    .pq-loc-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 30px;
+      height: 30px;
+      border: none;
+      background: #f1f1f1;
+      border-radius: 50%;
+      color: #555;
+      font-size: .9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+    }
+    .pq-loc-close:hover { background: #e4e4e4; }
     @media(max-width:500px) {
       .pq-loc-overlay { padding:12px; align-items:center; }
       .pq-loc-modal { padding:20px; max-height:calc(100vh - 24px); }
@@ -1512,8 +1531,9 @@
 </aside>
 
 <!-- MODAL LOCALIZAÇÃO -->
-<div class="pq-loc-overlay" id="loc-overlay" onclick="if(event.target===this)fecharModalLoc()">
+<div class="pq-loc-overlay" id="loc-overlay">
   <div class="pq-loc-modal">
+    <button type="button" class="pq-loc-close" onclick="fecharModalLoc()" aria-label="Fechar" title="Fechar"><i class="fa fa-xmark"></i></button>
     <div id="loc-search-step">
     <h5><i class="fa fa-location-dot me-2" style="color:var(--pq-red)"></i>Onde você está?</h5>
 
