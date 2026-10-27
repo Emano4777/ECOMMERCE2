@@ -1789,6 +1789,7 @@ function aplicarLocalizacao(lat, lng) {
   fecharModalLoc();
 
   if (typeof onLocationReady === 'function') onLocationReady(lat, lng);
+  document.dispatchEvent(new CustomEvent('pq:location-changed', {detail: {lat: lat, lng: lng}}));
 }
 
 let _gpsLat = null, _gpsLng = null, _gpsNome = null;
@@ -2122,6 +2123,7 @@ async function salvarEnderecoConfirmado() {
 function concluirEnderecoSalvo() {
   fecharModalLoc();
   if (_pendingAddress && typeof onLocationReady === 'function') onLocationReady(_pendingAddress.lat, _pendingAddress.lng);
+  if (_pendingAddress) document.dispatchEvent(new CustomEvent('pq:location-changed', {detail: {lat: _pendingAddress.lat, lng: _pendingAddress.lng}}));
 }
 
 function renderRecentLocs() {
@@ -2155,6 +2157,7 @@ function selecionarLocalizacao(lat, lon, label) {
   setLocNome(label || 'Localização selecionada');
   fecharModalLoc();
   if (typeof onLocationReady === 'function') onLocationReady(parseFloat(lat), parseFloat(lon));
+  document.dispatchEvent(new CustomEvent('pq:location-changed', {detail: {lat: parseFloat(lat), lng: parseFloat(lon)}}));
 }
 
 function renderLocResults(data) {
@@ -3376,30 +3379,60 @@ function reenviarVerificacao(btn) {
 /* ── AdSense: so carrega o script/exibe anuncio pra quem acessa de fora
    do raio de entrega de TODAS as lojas -- onde o site nao tem oferta real
    pra vender, mostra anuncio; onde tem loja cobrindo a regiao, nao disputa
-   espaco de tela com produto de verdade. */
+   espaco de tela com produto de verdade. Reage a troca de localizacao em
+   tempo real (evento pq:location-changed, disparado pelos mesmos pontos
+   que chamam onLocationReady) sem precisar recarregar a pagina -- como o
+   auto-ads do Google nao tem API oficial pra "desligar" depois de ativado,
+   o controle de exibir/esconder e feito via classe no <body> + CSS, nao
+   desfazendo a chamada ao Google (so escondendo visualmente o que ja foi
+   injetado, e nada mais e injetado enquanto a classe estiver ativa). */
 (function () {
-  function carregarAdsSeElegivel() {
-    var lat = parseFloat(localStorage.getItem('pq_lat') || '0');
-    var lng = parseFloat(localStorage.getItem('pq_lng') || '0');
+  var _adsCarregado = false;
+  var style = document.createElement('style');
+  style.textContent = 'body.pq-ads-off ins.adsbygoogle,' +
+    'body.pq-ads-off iframe[id^="aswift_"],' +
+    'body.pq-ads-off iframe[id^="google_ads_iframe"],' +
+    'body.pq-ads-off .google-auto-placed' +
+    '{display:none !important}';
+  document.head.appendChild(style);
+  document.body.classList.add('pq-ads-off');
+
+  function aplicarElegibilidade(elegivel) {
+    if (!elegivel) {
+      document.body.classList.add('pq-ads-off');
+      return;
+    }
+    document.body.classList.remove('pq-ads-off');
+    if (_adsCarregado) return;
+    _adsCarregado = true;
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7995010197286628';
+    s.crossOrigin = 'anonymous';
+    document.head.appendChild(s);
+    s.onload = function () {
+      (window.adsbygoogle = window.adsbygoogle || []).push({
+        google_ad_client: "ca-pub-7995010197286628",
+        enable_page_level_ads: true
+      });
+    };
+  }
+
+  function carregarAdsSeElegivel(latArg, lngArg) {
+    var lat = latArg != null ? latArg : parseFloat(localStorage.getItem('pq_lat') || '0');
+    var lng = lngArg != null ? lngArg : parseFloat(localStorage.getItem('pq_lng') || '0');
     if (!lat && !lng) return;
     fetch('/api/ads-elegivel?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) {
-        if (!d || !d.elegivel) return;
-        var s = document.createElement('script');
-        s.async = true;
-        s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7995010197286628';
-        s.crossOrigin = 'anonymous';
-        document.head.appendChild(s);
-        s.onload = function () {
-          (window.adsbygoogle = window.adsbygoogle || []).push({
-            google_ad_client: "ca-pub-7995010197286628",
-            enable_page_level_ads: true
-          });
-        };
-      })
+      .then(function (d) { aplicarElegibilidade(!!(d && d.elegivel)); })
       .catch(function () {});
   }
+
+  document.addEventListener('pq:location-changed', function (ev) {
+    var detail = ev.detail || {};
+    carregarAdsSeElegivel(parseFloat(detail.lat), parseFloat(detail.lng));
+  });
+
   // Mesmo atraso do bloco de promocao acima, pro pq_lat/pq_lng ja estar
   // preenchido quando checar.
   setTimeout(carregarAdsSeElegivel, 1500);
