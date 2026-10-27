@@ -418,6 +418,24 @@ $('#telefone').addEventListener('input', e => e.target.value = formatPhone(e.tar
 $('#documento').addEventListener('input', e => e.target.value = formatDoc(e.target.value));
 $('#f_cep').addEventListener('input', e => e.target.value = formatCEP(e.target.value));
 $('#f_cep').addEventListener('blur', buscarCEP);
+
+// Reaproveita o endereco que o visitante ja confirmou no seletor de
+// localizacao (header) antes de chegar no cadastro -- evita pedir o CEP
+// de novo pra buscar algo que ja foi encontrado ali.
+(function preencherEnderecoSalvo() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem('pq_addr_struct') || 'null');
+    if (!salvo || !salvo.cep) return;
+    if ($('#f_cep').value) return; // nao sobrescreve se ja tem algo digitado
+    $('#f_cep').value = formatCEP(salvo.cep);
+    if (salvo.rua) $('#f_rua').value = salvo.rua;
+    if (salvo.bairro) $('#f_bairro').value = salvo.bairro;
+    if (salvo.cidade) $('#f_cidade').value = salvo.cidade;
+    if (salvo.uf) $('#f_uf').value = salvo.uf;
+    if (salvo.numero) $('#f_numero').value = salvo.numero;
+    if (salvo.complemento) $('#f_complemento').value = salvo.complemento;
+  } catch (_) {}
+})();
 $('#btnContinuar').addEventListener('click', () => {
   if (validateStep1()) goStep(2);
 });

@@ -2171,6 +2171,16 @@ async function salvarEnderecoConfirmado() {
   }
   localStorage.setItem(LOC_KEY_LAT, lat); localStorage.setItem(LOC_KEY_LNG, lng); localStorage.setItem(LOC_KEY_TS, Date.now());
   saveRecentLoc(lat, lng, endereco); setLocNome(endereco);
+  // Guarda tambem o endereco JA ESTRUTURADO (nao so lat/lng/nome) -- quem
+  // ainda nao tem conta e for criar uma logo em seguida (tela de cadastro,
+  // passo 2) reaproveita isso pra preencher os campos sozinho, sem pedir
+  // o CEP de novo pra buscar o que ja foi confirmado aqui.
+  try {
+    localStorage.setItem('pq_addr_struct', JSON.stringify({
+      cep: p.cep, rua: p.road, bairro: p.bairro, cidade: p.cidade, uf: p.uf,
+      numero, complemento,
+    }));
+  } catch (_) {}
   _pendingAddress = {...p, lat, lng, endereco};
   document.getElementById('loc-confirm-step').style.display = 'none';
   document.getElementById('loc-success-step').style.display = '';
