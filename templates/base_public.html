@@ -1554,7 +1554,7 @@
       <button type="button" onclick="voltarBuscaEndereco()" style="border:0;background:none;padding:0 0 12px;color:#475569;font:700 .8rem inherit;cursor:pointer"><i class="fa fa-arrow-left me-1"></i>Voltar</button>
       <h5 style="margin-bottom:6px">Confirme seu endereço</h5>
       <div id="loc-confirm-base" style="font-size:.8rem;color:#64748b;line-height:1.4;margin-bottom:16px"></div>
-<label style="display:block;font-size:.8rem;margin-bottom:8px">CEP <input id="loc-cep" type="text" oninput="for (const k of ['rua','bairro','cidade','uf']) document.getElementById('loc-'+k).value=''" required inputmode="numeric" maxlength="9" onblur="buscarCepConfirmacao()" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
+<label style="display:block;font-size:.8rem;margin-bottom:8px">CEP <input id="loc-cep" type="text" oninput="onCepInput(this)" required inputmode="numeric" maxlength="9" onblur="buscarCepConfirmacao()" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
 <label style="display:block;font-size:.8rem;margin-bottom:8px">Rua <input id="loc-rua" type="text" required maxlength="100" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
 <label style="display:block;font-size:.8rem;margin-bottom:8px">Bairro <input id="loc-bairro" type="text" required maxlength="70" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
 <label style="display:block;font-size:.8rem;margin-bottom:8px">Cidade <input id="loc-cidade" type="text" required maxlength="70" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px"></label>
@@ -2055,6 +2055,18 @@ function voltarBuscaEndereco() {
 function selecionarTipoEndereco(btn) {
   _selectedAddressType = btn.dataset.addressType || 'outro';
   document.querySelectorAll('[data-address-type]').forEach(b => b.classList.toggle('active', b === btn));
+}
+
+function onCepInput(el) {
+  for (const k of ['rua','bairro','cidade','uf']) document.getElementById('loc-'+k).value = '';
+  const digitos = el.value.replace(/\D/g,'').slice(0, 8);
+  el.value = digitos.length > 5 ? digitos.slice(0,5) + '-' + digitos.slice(5) : digitos;
+  // Formata automaticamente (com ou sem traço digitado) e ja dispara a
+  // busca assim que completar os 8 digitos, sem esperar o campo perder o
+  // foco -- antes so buscava no blur, entao digitar os 8 digitos e seguir
+  // direto pro proximo campo (ou no celular, sem tocar fora) nunca
+  // preenchia rua/bairro/cidade/UF.
+  if (digitos.length === 8) buscarCepConfirmacao();
 }
 
 async function buscarCepConfirmacao() {
