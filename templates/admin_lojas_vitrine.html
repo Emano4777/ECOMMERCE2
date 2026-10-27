@@ -378,10 +378,8 @@ async function lvIniciarGeocodificacao() {
 
       var results = [];
       for (var t = 0; t < tentativas.length; t++) {
-        if (t > 0) await new Promise(function(r){ setTimeout(r, 1100); });
-        var url = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(tentativas[t]) +
-                  '&format=json&limit=1&countrycodes=br';
-        var res = await fetch(url, {headers: {'Accept-Language': 'pt-BR'}});
+        var url = '/api/geo/nominatim-search?q=' + encodeURIComponent(tentativas[t]) + '&limit=1';
+        var res = await fetch(url);
         results = await res.json();
         if (results && results.length) break;
       }

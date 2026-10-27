@@ -1758,9 +1758,7 @@ function setLocNome(nome) {
 }
 
 function _reverseGeocodeNominatim(lat, lng) {
-  return fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1`, {
-    headers: { 'Accept-Language': 'pt-BR', 'User-Agent': 'poupaqui/1.0' }
-  })
+  return fetch(`/api/geo/nominatim-reverse?lat=${lat}&lng=${lng}`)
   .then(r => r.json())
   .then(d => {
     const a = d.address || {};
@@ -1853,9 +1851,9 @@ async function confirmarGPS() {
         lat = gm.lat; lng = gm.lng;
       } catch(e) {
         // Nominatim fallback
-        const r = await fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
-          q: nome + ', Brasil', format: 'json', limit: '1', countrycodes: 'br'
-        }), { headers: { 'Accept-Language': 'pt-BR' } });
+        const r = await fetch('/api/geo/nominatim-search?' + new URLSearchParams({
+          q: nome + ', Brasil', limit: '1'
+        }));
         const data = await r.json();
         if (data && data[0]) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); }
       }
@@ -1875,9 +1873,9 @@ function buscarCidadeLegacy() {
   const cidade = document.getElementById('modal-cidade-inp').value.trim();
   if (!cidade) return;
   document.getElementById('modal-status').textContent = 'Buscando…';
-  fetch('https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
-    q: cidade + ', Brasil', format: 'json', limit: '1', countrycodes: 'br'
-  }), { headers: { 'Accept-Language': 'pt-BR' } })
+  fetch('/api/geo/nominatim-search?' + new URLSearchParams({
+    q: cidade + ', Brasil', limit: '1'
+  }))
   .then(r => r.json())
   .then(data => {
     if (!data.length) { document.getElementById('modal-status').textContent = 'Cidade não encontrada.'; return; }
@@ -2259,15 +2257,9 @@ async function fetchLocalizacao(termo, parsed) {
   const all = [];
   const seen = new Set();
   for (const paramsObj of queries) {
-    const params = new URLSearchParams({
-      ...paramsObj,
-      format: 'json',
-      limit: '8',
-      addressdetails: '1',
-      countrycodes: 'br'
-    });
+    const params = new URLSearchParams({ ...paramsObj, limit: '8' });
     try {
-      const res = await fetch('https://nominatim.openstreetmap.org/search?' + params, { headers: { 'Accept-Language': 'pt-BR' } });
+      const res = await fetch('/api/geo/nominatim-search?' + params);
       const data = await res.json();
       data.forEach(item => {
         const key = item.place_id || `${item.lat},${item.lon}`;

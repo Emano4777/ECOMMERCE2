@@ -4432,6 +4432,85 @@ def nominatim_geocode(endereco, uf):
     return None, None
 
 
+_NOMINATIM_PROXY_CACHE_TTL = 86400  # 24h -- endereco nao muda de coordenada
+
+
+def _nominatim_proxy_request(path, params):
+    """Encaminha pro Nominatim com o MESMO rate-limit global (_nom_lock, 1
+    req/s) e User-Agent identificado ja usados pelo geocoding server-side,
+    mais cache de 24h por (path, params). Existe pra tirar do navegador do
+    cliente as chamadas diretas a nominatim.openstreetmap.org que o front
+    fazia (busca de endereco e reverse geocode) -- a politica de uso deles
+    pede User-Agent identificado e trafego moderado, o que o browser nao
+    consegue cumprir (nem da pra setar User-Agent via fetch, o header e
+    bloqueado), e sem isso o site inteiro (todo cliente, todo request)
+    competia pelo mesmo limite anonimo deles -- um pico de trafego aqui
+    arrisca a IP da Hostgator ser limitada/bloqueada pro proprio geocoding
+    server-side tambem."""
+    global _nom_last
+    cache_key = ("nominatim_proxy_v1", path, tuple(sorted(params.items())))
+    cached = _home_api_cache_get(cache_key, _NOMINATIM_PROXY_CACHE_TTL)
+    if cached is not None:
+        return cached
+    url = f"https://nominatim.openstreetmap.org/{path}?" + urllib.parse.urlencode(params)
+    with _nom_lock:
+        wait = 1.1 - (time.time() - _nom_last)
+        if wait > 0:
+            time.sleep(wait)
+        _nom_last = time.time()
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "poupaqui-ecommerce/1.0 contato@poupaqui.com.br",
+                "Accept-Language": "pt-BR",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=6) as r:
+                data = json.loads(r.read())
+        except Exception as exc:
+            app.logger.warning("nominatim_proxy error path=%s params=%r: %s", path, params, exc)
+            data = [] if path == "search" else {}
+    _home_api_cache_set(cache_key, data, _NOMINATIM_PROXY_CACHE_TTL)
+    return data
+
+
+@app.get("/api/geo/nominatim-search")
+@_rate_limited_api(max_calls=40, window_secs=60)
+def api_nominatim_search():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify([])
+    try:
+        limit = max(1, min(int(request.args.get("limit", "1")), 10))
+    except (TypeError, ValueError):
+        limit = 1
+    params = {
+        "q": q, "format": "json", "limit": str(limit),
+        "countrycodes": "br", "addressdetails": "1",
+    }
+    return jsonify(_nominatim_proxy_request("search", params))
+
+
+@app.get("/api/geo/nominatim-reverse")
+@_rate_limited_api(max_calls=40, window_secs=60)
+def api_nominatim_reverse():
+    try:
+        lat = float(request.args.get("lat"))
+        lng = float(request.args.get("lng"))
+    except (TypeError, ValueError):
+        return jsonify({})
+    try:
+        zoom = max(1, min(int(request.args.get("zoom", "18")), 18))
+    except (TypeError, ValueError):
+        zoom = 18
+    params = {
+        "lat": str(lat), "lon": str(lng), "format": "json",
+        "zoom": str(zoom), "addressdetails": "1",
+    }
+    return jsonify(_nominatim_proxy_request("reverse", params))
+
+
 UF_NOMES = {
     "AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas", "BA": "Bahia",
     "CE": "Ceará", "DF": "Distrito Federal", "ES": "Espírito Santo", "GO": "Goiás",
