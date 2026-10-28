@@ -25,3 +25,7 @@ _tmp_*.py
 .vercel.dev.tmp
 .vercel*.tmp
 _ssh_run.py
+
+# worker local WA IA (Ollama)
+.wa_ia_worker_local.lock
+logs/

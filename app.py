@@ -27517,19 +27517,30 @@ def api_cron_wa_ia_atendimento():
 @app.route("/api/cron/wa-ia-modo", methods=["GET", "POST"])
 def api_cron_wa_ia_modo():
     """GET: status da fila/decisoes. POST {"modo": "off|shadow|test|live"}:
-    kill-switch. O teto POUPAQUI_WA_IA_MAX_MODE do ambiente sempre prevalece."""
+    kill-switch. O teto POUPAQUI_WA_IA_MAX_MODE do ambiente sempre prevalece.
+    POST {"motor": "servidor|local"}: quem atende a fila (cron daqui ou o
+    worker Ollama no PC) -- so um deles processa."""
     if not _cron_authorized():
         return jsonify({"ok": False, "erro": "unauthorized"}), 401
-    from poupaqui_wa_atendimento import set_db_mode, status_summary
+    from poupaqui_wa_atendimento import set_db_engine, set_db_mode, status_summary
     conn = _new_conn()
     try:
         if request.method == "POST":
-            modo = str((request.get_json(silent=True) or {}).get("modo") or "").strip().lower()
-            try:
-                set_db_mode(conn, modo)
-            except ValueError:
-                return jsonify({"ok": False, "erro": "modo_invalido"}), 400
-            app.logger.warning("wa_ia: modo alterado para %s", modo)
+            body = request.get_json(silent=True) or {}
+            if "motor" in body:
+                motor = str(body.get("motor") or "").strip().lower()
+                try:
+                    set_db_engine(conn, motor)
+                except ValueError:
+                    return jsonify({"ok": False, "erro": "motor_invalido"}), 400
+                app.logger.warning("wa_ia: motor alterado para %s", motor)
+            if "modo" in body or "motor" not in body:
+                modo = str(body.get("modo") or "").strip().lower()
+                try:
+                    set_db_mode(conn, modo)
+                except ValueError:
+                    return jsonify({"ok": False, "erro": "modo_invalido"}), 400
+                app.logger.warning("wa_ia: modo alterado para %s", modo)
         return jsonify({"ok": True, **status_summary(conn)})
     finally:
         conn.close()

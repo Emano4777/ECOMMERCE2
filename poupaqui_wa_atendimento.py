@@ -16,6 +16,17 @@ Modos (kill-switch): off < shadow < test < live.
 Modo efetivo = menor entre o valor no banco (ecommerce_wa_ia_config.modo,
 padrao 'off') e o teto do ambiente POUPAQUI_WA_IA_MAX_MODE (padrao 'test').
 Para desligar tudo: modo 'off' no banco OU POUPAQUI_WA_IA_MAX_MODE=off.
+
+Motor (ecommerce_wa_ia_config.motor, padrao 'servidor'): so o worker cujo
+engine bate com o motor do banco processa a fila -- uma unica via de envio,
+sem corrida entre o cron do servidor (Anthropic) e o worker local (Ollama,
+scripts/wa_ia_worker_local.py).
+
+Escalacao HUMAN: fica pendente em ecommerce_wa_ia_decisoes (resolvido_em NULL)
+e, se POUPAQUI_WA_IA_ALERTA_PHONES estiver configurado, a equipe recebe um
+alerta no WhatsApp (respeita o modo: nada em shadow; em test so pra allowlist).
+Com POUPAQUI_WA_IA_ACK_HUMANO=1 o contato recebe GENERIC_ACK_REPLY (texto fixo,
+nunca do modelo) -- unica resposta possivel pra contato nao verificado.
 """
 import json
 import os
@@ -26,10 +37,12 @@ from datetime import datetime, timezone
 import psycopg2.extensions
 
 from poupaqui_ai_policy import (
-    DEFAULT_MODEL, Decision, is_opt_out, preliminary_gate, validate_answer,
+    DEFAULT_MODEL, GENERIC_ACK_REPLY, Decision, is_opt_out, preliminary_gate, validate_answer,
 )
 
 MODES = ("off", "shadow", "test", "live")
+ENGINES = ("servidor", "local")
+HUMAN_LOCK_REASON = "conversa ja encaminhada a humano"
 DEFAULT_TEST_PHONES = "5517991436759"
 _AI_FAILURE_REASONS = ("AI ", "anthropic sdk", "model stop_reason", "invalid model", "invalid classification",
                        "invalid reply")
@@ -98,6 +111,8 @@ CREATE TABLE IF NOT EXISTS ecommerce_wa_ia_config (
     valor TEXT NOT NULL,
     atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS alerta_status TEXT;
+ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS alerta_em TIMESTAMPTZ;
 """
 
 
@@ -282,6 +297,34 @@ def test_phones():
     return {normalize_phone(p) for p in raw.split(",") if normalize_phone(p)}
 
 
+def alert_phones(mode):
+    """Destinos do alerta de escalacao. Em test so os que estao na allowlist."""
+    raw = os.getenv("POUPAQUI_WA_IA_ALERTA_PHONES") or ""
+    phones = {normalize_phone(p) for p in raw.split(",") if normalize_phone(p)}
+    if mode == "test":
+        return phones & test_phones()
+    return phones if mode == "live" else set()
+
+
+def get_db_engine(conn):
+    with _cur(conn) as cur:
+        cur.execute("SELECT valor FROM ecommerce_wa_ia_config WHERE chave = 'motor'")
+        row = cur.fetchone()
+    return row[0] if row and row[0] in ENGINES else "servidor"
+
+
+def set_db_engine(conn, engine):
+    if engine not in ENGINES:
+        raise ValueError("motor invalido")
+    ensure_schema(conn)
+    with _cur(conn) as cur:
+        cur.execute("""
+            INSERT INTO ecommerce_wa_ia_config (chave, valor) VALUES ('motor', %s)
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, atualizado_em = NOW()
+        """, (engine,))
+    conn.commit()
+
+
 # ─── Identidade e contexto verificado ──────────────────────────────────────
 
 def _split_phones(raw):
@@ -404,7 +447,7 @@ def _release(conn, ids, max_attempts):
     conn.commit()
 
 
-def process_contact(conn, phone, mode, classifier, sender, state, logger=None):
+def process_contact(conn, phone, mode, classifier, sender, state, logger=None, model_label=None):
     """Processa a sequencia pendente de um contato. Retorna dict de auditoria ou None."""
     max_attempts = 3
     with _cur(conn) as cur:
@@ -446,26 +489,38 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None):
             if decision is not None:
                 origem = "gate"
             elif _human_open(conn, phone, _cfg_int("POUPAQUI_WA_IA_HUMAN_LOCK_HORAS", 4)):
-                decision = Decision("HUMAN", "", "conversa ja encaminhada a humano")
+                decision = Decision("HUMAN", "", HUMAN_LOCK_REASON)
             else:
                 identity = identify_contact(conn, phone, (contato[1], contato[2]))
+                facts = verified_context(conn, identity)
                 payload = {
                     "identidade_verificada": identity if identity["verificada"] else None,
                     "identidade_nao_verificada": None if identity["verificada"] else {
                         "motivo": identity["metodo"],
                         "nome_exibido_no_whatsapp_nao_confiavel": push_name},
-                    "dados_verificados": verified_context(conn, identity),
-                    "historico_recente": _history(conn, phone, ids),
+                    "dados_verificados": facts,
+                    "historico_recente": _history(conn, phone, ids,
+                                                  _cfg_int("POUPAQUI_WA_IA_HISTORICO_MAX", 20)),
                     "mensagens_novas": [{"tipo": k, "texto": t} for k, t in zip(kinds, texts)],
                 }
-                model_name = os.getenv("POUPAQUI_AI_MODEL", DEFAULT_MODEL)
-                decision = validate_answer(classifier(payload), texts, identity["verificada"])
+                # fecha a transacao de leitura antes da IA: modelo local em CPU
+                # passa dos 20s de idle_in_transaction_session_timeout
+                conn.commit()
+                model_name = model_label or os.getenv("POUPAQUI_AI_MODEL", DEFAULT_MODEL)
+                decision = validate_answer(classifier(payload), texts, identity["verificada"], facts)
                 # falha tecnica (rede, credencial, resposta invalida) vai pra
                 # revisao humana mas nao trava a conversa como "em atendimento"
                 origem = "falha_ia" if decision.reason.startswith(_AI_FAILURE_REASONS) else "modelo"
 
+        # Texto a enviar: ANSWER validado, ou o aviso fixo de escalacao (opt-in).
+        reply = decision.reply if decision.decision == "ANSWER" else ""
+        if (decision.decision == "HUMAN" and decision.reason != HUMAN_LOCK_REASON
+                and os.getenv("POUPAQUI_WA_IA_ACK_HUMANO") == "1"
+                and not _ack_sent_recently(conn, phone, _cfg_int("POUPAQUI_WA_IA_ACK_HORAS", 12))):
+            reply = GENERIC_ACK_REPLY
+
         envio = "nao_enviar"
-        if decision.decision == "ANSWER":
+        if reply:
             if mode in ("off", "shadow"):
                 envio = "shadow"
             elif opt_out:
@@ -481,14 +536,22 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None):
             else:
                 envio = "enviando"
 
+        alertas = set()
+        if decision.decision == "HUMAN" and decision.reason != HUMAN_LOCK_REASON and not opt_out:
+            alertas = alert_phones(mode)
+            if alertas and _alert_sent_recently(conn, phone, _cfg_int("POUPAQUI_WA_IA_ALERTA_MIN", 60)):
+                alertas = set()
+        alerta_status = "enviando" if alertas else None
+
         with _cur(conn) as cur:
             cur.execute("""
                 INSERT INTO ecommerce_wa_ia_decisoes
-                    (telefone, message_ids, modo, decisao, resposta, motivo, origem, identidade, modelo, envio_status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-            """, (phone, [b[1] for b in batch], mode, decision.decision, decision.reply or None,
+                    (telefone, message_ids, modo, decisao, resposta, motivo, origem, identidade, modelo,
+                     envio_status, alerta_status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (phone, [b[1] for b in batch], mode, decision.decision, reply or None,
                   decision.reason, origem, json.dumps(identity, ensure_ascii=False, default=str),
-                  model_name, envio))
+                  model_name, envio, alerta_status))
             decisao_id = cur.fetchone()[0]
             cur.execute("""UPDATE ecommerce_wa_mensagens SET status = 'processado', decisao_id = %s,
                            processado_em = NOW() WHERE id = ANY(%s)""", (decisao_id, ids))
@@ -507,7 +570,7 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None):
         state["envios"] += 1
         status, detalhe, out_id = "falhou", "", None
         try:
-            resp = sender(phone, decision.reply)
+            resp = sender(phone, reply)
             if resp:
                 status = "enviado"
                 data = resp.get("data") if isinstance(resp, dict) else None
@@ -525,10 +588,69 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None):
                                    (message_id, telefone, direcao, tipo, corpo, status, decisao_id, processado_em)
                                VALUES (%s, %s, 'out_ia', 'text', %s, 'processado', %s, NOW())
                                ON CONFLICT (message_id) DO NOTHING""",
-                            (out_id or f"ia-{decisao_id}", phone, decision.reply, decisao_id))
+                            (out_id or f"ia-{decisao_id}", phone, reply, decisao_id))
         conn.commit()
         result["envio"] = status
+    if alertas:
+        if identity.get("metodo") is None:  # gate decidiu antes de identificar
+            try:
+                identity = identify_contact(conn, phone, (contato[1], contato[2]))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        result["alerta"] = _send_alert(conn, decisao_id, phone, alertas, sender, decision, origem,
+                                       identity, push_name, texts)
     return result
+
+
+def _ack_sent_recently(conn, phone, hours):
+    with _cur(conn) as cur:
+        cur.execute("""SELECT 1 FROM ecommerce_wa_ia_decisoes
+                       WHERE telefone = %s AND resposta = %s AND envio_status IN ('enviando', 'enviado')
+                         AND criado_em > NOW() - (%s || ' hours')::interval LIMIT 1""",
+                    (phone, GENERIC_ACK_REPLY, str(hours)))
+        return cur.fetchone() is not None
+
+
+def _alert_sent_recently(conn, phone, minutes):
+    with _cur(conn) as cur:
+        cur.execute("""SELECT 1 FROM ecommerce_wa_ia_decisoes
+                       WHERE telefone = %s AND alerta_status IN ('enviando', 'enviado')
+                         AND criado_em > NOW() - (%s || ' minutes')::interval LIMIT 1""",
+                    (phone, str(minutes)))
+        return cur.fetchone() is not None
+
+
+def alert_text(decisao_id, phone, decision, origem, identity, push_name, texts):
+    if identity.get("verificada"):
+        quem = f"{identity.get('tipo')}: {identity.get('nome') or identity.get('ref')}"
+    else:
+        quem = f"nao verificado (nome exibido: {push_name or '-'})"
+    ultima = " | ".join(t for t in texts if t)[-300:] or "(midia/sem texto)"
+    return (f"[PoupAqui IA] Atendimento humano necessario #{decisao_id}\n"
+            f"Contato: +{phone} ({quem})\n"
+            f"Motivo: {decision.reason[:120]} [{origem}]\n"
+            f"Mensagem: {ultima}")
+
+
+def _send_alert(conn, decisao_id, phone, destinos, sender, decision, origem, identity, push_name, texts):
+    """Alerta a equipe. Ja foi marcado 'enviando' junto com a decisao: nunca
+    e reenviado, mesmo se o processo cair aqui."""
+    texto = alert_text(decisao_id, phone, decision, origem, identity, push_name, texts)
+    ok = 0
+    for dest in sorted(destinos):
+        try:
+            if sender(dest, texto):
+                ok += 1
+        except Exception:
+            pass
+    status = "enviado" if ok == len(destinos) else ("parcial" if ok else "falhou")
+    with _cur(conn) as cur:
+        cur.execute("""UPDATE ecommerce_wa_ia_decisoes SET alerta_status = %s,
+                       alerta_em = CASE WHEN %s <> 'falhou' THEN NOW() END WHERE id = %s""",
+                    (status, status, decisao_id))
+    conn.commit()
+    return status
 
 
 def acquire_worker_lease(conn, ttl_minutes=5):
@@ -550,6 +672,16 @@ def acquire_worker_lease(conn, ttl_minutes=5):
     return token if ok else None
 
 
+def renew_worker_lease(conn, token):
+    """Estende o lease (worker local com IA em CPU pode passar do TTL)."""
+    with _cur(conn) as cur:
+        cur.execute("UPDATE ecommerce_wa_ia_config SET atualizado_em = NOW() WHERE chave = 'worker_lease' AND valor = %s",
+                    (token,))
+        ok = cur.rowcount == 1
+    conn.commit()
+    return ok
+
+
 def release_worker_lease(conn, token):
     with _cur(conn) as cur:
         cur.execute("UPDATE ecommerce_wa_ia_config SET valor = 'livre' WHERE chave = 'worker_lease' AND valor = %s",
@@ -557,11 +689,15 @@ def release_worker_lease(conn, token):
     conn.commit()
 
 
-def run_worker(conn, classifier, sender, logger=None, max_contacts=None):
+def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine="servidor", model_label=None):
     ensure_schema(conn)
     mode = effective_mode(get_db_mode(conn))
-    summary = {"modo": mode, "contatos": 0, "resultados": [], "erros": 0}
+    motor = get_db_engine(conn)
+    summary = {"modo": mode, "motor": motor, "contatos": 0, "resultados": [], "erros": 0}
     if mode == "off":
+        return summary
+    if engine != motor:
+        summary["ignorado"] = f"motor ativo e '{motor}', este worker e '{engine}'"
         return summary
     token = acquire_worker_lease(conn)
     if not token:
@@ -592,8 +728,12 @@ def run_worker(conn, classifier, sender, logger=None, max_contacts=None):
         conn.commit()
         state = {"envios": 0}
         for phone in phones:
+            # lease perdido (expirou e outro worker pegou): para sem processar mais
+            if not renew_worker_lease(conn, token):
+                summary["interrompido"] = "lease perdido"
+                break
             try:
-                res = process_contact(conn, phone, mode, classifier, sender, state, logger)
+                res = process_contact(conn, phone, mode, classifier, sender, state, logger, model_label)
             except Exception:
                 summary["erros"] += 1
                 continue
@@ -623,5 +763,33 @@ def status_summary(conn):
                        WHERE decisao = 'HUMAN' AND resolvido_em IS NULL""")
         humanos = cur.fetchone()[0]
     return {"modo_banco": db_mode, "teto_ambiente": env_mode_ceiling(),
-            "modo_efetivo": effective_mode(db_mode), "fila": fila,
+            "modo_efetivo": effective_mode(db_mode), "motor": get_db_engine(conn), "fila": fila,
             "decisoes_24h": dec, "humano_pendente": humanos}
+
+
+def pending_human(conn, limit=50):
+    """Fila de escalacoes abertas pra equipe (mais antigas primeiro)."""
+    ensure_schema(conn)
+    with _cur(conn) as cur:
+        cur.execute("""
+            SELECT d.id, d.telefone, d.criado_em, d.motivo, d.origem, d.alerta_status,
+                   (SELECT string_agg(m.corpo, ' | ' ORDER BY m.id) FROM ecommerce_wa_mensagens m
+                     WHERE m.message_id = ANY(d.message_ids)) AS texto
+            FROM ecommerce_wa_ia_decisoes d
+            WHERE d.decisao = 'HUMAN' AND d.resolvido_em IS NULL AND d.motivo <> %s
+            ORDER BY d.criado_em LIMIT %s""", (HUMAN_LOCK_REASON, limit))
+        rows = cur.fetchall()
+    conn.commit()
+    return [{"id": i, "telefone": t, "em": e.isoformat() if e else None, "motivo": m, "origem": o,
+             "alerta": a, "texto": (x or "")[:300]} for i, t, e, m, o, a, x in rows]
+
+
+def resolve_human(conn, phone):
+    """Encerra as escalacoes abertas de um contato (libera a trava humana)."""
+    with _cur(conn) as cur:
+        cur.execute("""UPDATE ecommerce_wa_ia_decisoes SET resolvido_em = NOW()
+                       WHERE telefone = %s AND decisao = 'HUMAN' AND resolvido_em IS NULL""",
+                    (normalize_phone(phone),))
+        n = cur.rowcount
+    conn.commit()
+    return n
