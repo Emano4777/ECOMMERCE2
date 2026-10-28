@@ -10045,13 +10045,18 @@ def index():
     return render_template("home.html")
 
 
+_RAIO_CATALOGO_KM = 30  # mesmo raio de "loja proxima"/catalogo usado no resto do site
+
+
 @app.get("/api/ads-elegivel")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_ads_elegivel():
     """Anuncios (AdSense) so devem aparecer pra quem acessa de fora do raio
-    de entrega de TODAS as lojas cadastradas -- onde o site ja tem como
-    vender de verdade, nao faz sentido (nem e desejado) disputar espaco de
-    tela com oferta de produto real."""
+    de CATALOGO (_RAIO_CATALOGO_KM, o mesmo usado pra decidir quais lojas
+    aparecem como "perto de voce") -- nao o raio de entrega, que e bem mais
+    curto e so importa no checkout. Onde o site ja mostra oferta de loja de
+    verdade no catalogo, nao faz sentido (nem e desejado) disputar espaco de
+    tela com anuncio."""
     try:
         lat_usr = float(request.args.get("lat", 0))
         lng_usr = float(request.args.get("lng", 0))
@@ -10061,7 +10066,7 @@ def api_ads_elegivel():
         # Sem localizacao conhecida: lado conservador, sem anuncio.
         return jsonify({"elegivel": False})
 
-    cache_key = ("ads_elegivel_v1", round(lat_usr, 2), round(lng_usr, 2))
+    cache_key = ("ads_elegivel_v2", round(lat_usr, 2), round(lng_usr, 2))
     cached = _home_api_cache_get(cache_key, 3600)
     if cached is not None:
         return jsonify(cached)
@@ -10070,12 +10075,12 @@ def api_ads_elegivel():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT g.lat, g.lng, COALESCE(c.raio_entrega_km, 0) AS raio
+        SELECT g.lat, g.lng
         FROM ecommerce_lojas_geo g
         JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
         JOIN users u ON u.cnpjloja = g.cnpjloja
         WHERE g.lat IS NOT NULL AND g.lng IS NOT NULL
-          AND COALESCE(c.aceita_entrega, FALSE) = TRUE
+          AND COALESCE(c.catalogo_publico, TRUE) = TRUE
           AND u.is_admin = FALSE
         """
     )
@@ -10083,8 +10088,7 @@ def api_ads_elegivel():
     cur.close()
 
     coberto = any(
-        float(l["raio"] or 0) > 0
-        and haversine(lat_usr, lng_usr, float(l["lat"]), float(l["lng"])) <= float(l["raio"])
+        haversine(lat_usr, lng_usr, float(l["lat"]), float(l["lng"])) <= _RAIO_CATALOGO_KM
         for l in lojas
     )
     resultado = {"elegivel": not coberto}
@@ -10167,7 +10171,7 @@ def api_vitnatu_produtos():
             # cadastrado (fallback abaixo) — com localizacao real informada e
             # nada perto, o certo e nao mostrar nenhum produto "perto de voce",
             # nao empurrar a loja mais proxima mesmo estando a centenas de km.
-            proximas = [l for l in dists if l["distancia_km"] <= 60]
+            proximas = [l for l in dists if l["distancia_km"] <= 30]
             loja_info = {l["cnpjloja"]: l for l in proximas}
 
     if not proximas and (sem_loc or not geo_encontrado):
@@ -11238,7 +11242,7 @@ def api_lojas_ativas():
         if lat != 0.0 or lng != 0.0:
             if r["lat"] and r["lng"]:
                 dist = round(haversine(lat, lng, float(r["lat"]), float(r["lng"])), 1)
-                if dist <= 60:
+                if dist <= 30:
                     tem_proxima = True
         lojas.append({
             "cnpjloja":    r["cnpjloja"],
@@ -12090,7 +12094,7 @@ def api_mais_comprados():
         """)
         rows_lojas = cur.fetchall()
         cnpjs = [r["cnpjloja"] for r in rows_lojas
-                 if haversine(lat_usr, lng_usr, float(r.get("lat") or 0), float(r.get("lng") or 0)) <= 60
+                 if haversine(lat_usr, lng_usr, float(r.get("lat") or 0), float(r.get("lng") or 0)) <= 30
                 ] if rows_lojas else []
     else:
         cur.execute("""
@@ -12690,7 +12694,7 @@ def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=Non
                     proximas = [r["cnpjloja"] for r in lojas_ativas
                                 if haversine(lat, lng,
                                              float(r["lat"] or 0),
-                                             float(r["lng"] or 0)) <= 60]
+                                             float(r["lng"] or 0)) <= 30]
                     cnpjs_proximos = proximas if proximas else todos_ativos
                 else:
                     cnpjs_proximos = todos_ativos
@@ -12924,7 +12928,7 @@ def _home_public_cnpjs(lat=0.0, lng=0.0):
         if not todos:
             return [], False
         if lat != 0.0 or lng != 0.0:
-            proximas = [r["cnpjloja"] for r in lojas_ativas if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 60]
+            proximas = [r["cnpjloja"] for r in lojas_ativas if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 30]
             if proximas:
                 cnpjs = proximas
             else:
@@ -13564,7 +13568,7 @@ def api_home_insights():
         if todos_ativos:
             if lat != 0.0 or lng != 0.0:
                 proximas = [r["cnpjloja"] for r in lojas_ativas
-                            if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 60]
+                            if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 30]
                 if proximas:
                     cnpjs_proximos = proximas
                 else:
@@ -13693,7 +13697,7 @@ def api_kit_produtos():
         if todos_ativos:
             if lat != 0.0 or lng != 0.0:
                 proximas = [r["cnpjloja"] for r in lojas_ativas
-                            if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 60]
+                            if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 30]
                 cnpjs_proximos = proximas if proximas else todos_ativos
             else:
                 cnpjs_proximos = todos_ativos
@@ -15683,7 +15687,7 @@ def api_home_economia_ia():
                   AND COALESCE(c.catalogo_publico, TRUE) = TRUE
                   AND (
                     6371 * acos(LEAST(1.0, cos(radians(%s))*cos(radians(g.lat::float))*cos(radians(g.lng::float)-radians(%s))+sin(radians(%s))*sin(radians(g.lat::float))))
-                  ) <= 60
+                  ) <= 30
                 LIMIT 20
                 """,
                 (lat, lng, lat),
@@ -17769,7 +17773,7 @@ def api_busca_sugestoes():
             )
             for _r in _cur.fetchall():
                 if lat_usr and lng_usr and _r["lat"] and _r["lng"]:
-                    if haversine(lat_usr, lng_usr, float(_r["lat"]), float(_r["lng"])) <= 60:
+                    if haversine(lat_usr, lng_usr, float(_r["lat"]), float(_r["lng"])) <= 30:
                         cnpjs.append(_r["cnpjloja"])
                 else:
                     # sem geo → inclui todas
@@ -18002,8 +18006,6 @@ def api_busca_foto():
         key=lambda x: x["distancia_km"],
     )
     proximas = [l for l in lojas_dist if l["distancia_km"] <= 30]
-    if not proximas:
-        proximas = [l for l in lojas_dist if l["distancia_km"] <= 60][:3]
     if not proximas:
         proximas = lojas_dist[:3]
 

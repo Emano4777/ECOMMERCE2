@@ -3426,7 +3426,7 @@ function reenviarVerificacao(btn) {
 }
 
 /* ── Promoção da assinatura: só mostra pra quem tem farmácia com clube
-   dentro de ~60km (mesmo raio de "loja próxima" já usado no resto do
+   dentro de ~30km (mesmo raio de "loja próxima" já usado no resto do
    site) -- sem isso o banner/selo aparecia pra visitante de qualquer
    região, mesmo sem nenhuma farmácia com clube perto dele. Elementos
    com a classe .pq-promo-regional começam escondidos no HTML e só são
@@ -3441,7 +3441,7 @@ function reenviarVerificacao(btn) {
       .then(function (d) {
         var lista = (d && d.planos) || (d && d.lojas) || (Array.isArray(d) ? d : []);
         var pertoOk = Array.isArray(lista) && lista.some(function (p) {
-          return typeof p.distancia_km === 'number' && p.distancia_km <= 60;
+          return typeof p.distancia_km === 'number' && p.distancia_km <= 30;
         });
         if (!pertoOk) return;
         document.querySelectorAll('.pq-promo-regional').forEach(function (el) {
