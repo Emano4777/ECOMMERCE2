@@ -1,52 +1,37 @@
-"""Scheduled classification of inbound WhatsApp messages.
+"""Aciona o worker do atendimento WhatsApp IA (rodar a cada minuto).
 
-Run every minute from a trusted worker. This stage intentionally does NOT send
-messages. Sending must be enabled only after contact verification and audit.
+O worker so envia mensagem se o modo efetivo permitir (off/shadow/test/live,
+ver poupaqui_wa_atendimento.py). Crontab sugerido no servidor:
+  * * * * * cd /root/scripts/dns_ecommerce_web/app && CRON_SECRET=... python3 scripts/cron_wa_ai_triagem.py >> /var/log/wa_ia.log 2>&1
 """
+import json
 import os
-import psycopg2
-from dotenv import load_dotenv
-from poupaqui_ai_policy import classify_with_anthropic
+import sys
+import urllib.request
 
-def run():
-    load_dotenv()
-    conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS ecommerce_wa_ai_triagem (
-                        message_id TEXT PRIMARY KEY,
-                        telefone TEXT NOT NULL,
-                        mensagem TEXT NOT NULL,
-                        decisao TEXT NOT NULL,
-                        resposta_sugerida TEXT,
-                        motivo TEXT,
-                        processado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                    )
-                """)
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT m.message_id, m.telefone, m.mensagem
-                FROM ecommerce_wa_respostas_teste m
-                LEFT JOIN ecommerce_wa_ai_triagem t ON t.message_id = m.message_id
-                WHERE t.message_id IS NULL
-                ORDER BY m.recebido_em ASC LIMIT 20
-            """)
-            items = cur.fetchall()
-        for message_id, phone, body in items:
-            result = classify_with_anthropic(body)
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO ecommerce_wa_ai_triagem
-                            (message_id, telefone, mensagem, decisao, resposta_sugerida, motivo)
-                        VALUES (%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (message_id) DO NOTHING
-                    """, (message_id, phone, body, result.decision, result.reply, result.reason))
-        print("Classified", len(items), "messages; outbound sending disabled")
-    finally:
-        conn.close()
+
+BASE_URL = os.getenv("ECOMMERCE_URL", "https://drogariaspoupaqui.com.br").rstrip("/")
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+
+
+def main():
+    if not CRON_SECRET:
+        raise SystemExit("CRON_SECRET não configurado")
+    req = urllib.request.Request(
+        f"{BASE_URL}/api/cron/wa-ia-atendimento",
+        data=b"{}",
+        headers={
+            "Authorization": f"Bearer {CRON_SECRET}",
+            "Content-Type": "application/json",
+            "User-Agent": "Poupaqui-WA-IA-Cron/1.0",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=110) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    print(json.dumps(data, ensure_ascii=False))
+    return 0 if data.get("ok") else 1
+
 
 if __name__ == "__main__":
-    run()
+    sys.exit(main())

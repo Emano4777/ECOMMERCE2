@@ -8,3 +8,4 @@ curl_cffi>=0.7.0
 reportlab==4.5.1
 pywebpush==2.4.0
 pymemcache>=4.0.0
+anthropic>=0.109.0
