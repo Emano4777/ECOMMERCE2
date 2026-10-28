@@ -27441,13 +27441,32 @@ def crm_wasender_webhook():
         return jsonify({"ok": False}), 401
     payload = request.get_json(silent=True) or {}
     if payload.get("event") in {"messages.received", "message.received"}:
-        _repassar_webhook_podeir(payload, str(recebido))
-        data = payload.get("data") or {}; mensagem = data.get("messageBody") or data.get("text") or ""
-        key = data.get("key") or {}; numero = re.sub(r"\D", "", key.get("remoteJid") or data.get("from") or "")
-        if _sem_acento(str(mensagem)).strip().lower() in {"parar", "sair", "stop", "cancelar"} and numero:
-            cur=db().cursor(); cur.execute("""UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE
-                WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(%s,11)""", (numero,)); db().commit(); cur.close()
-        return jsonify({"ok": True})
+        # Dedicated test receiver: no Pode Ir forwarding, no automated replies.
+        from wasender_inbound_test import record_test_replies
+        try:
+            stored = record_test_replies(payload, db, app.logger)
+        except Exception:
+            return jsonify({"ok": False, "error": "storage_failed"}), 503
+        # Keep existing marketing opt-out behavior, now reading data.messages correctly.
+        data = payload.get("data") or {}
+        msgs = data.get("messages") or []
+        if isinstance(msgs, dict):
+            msgs = [msgs]
+        for msg in msgs if isinstance(msgs, list) else []:
+            if not isinstance(msg, dict):
+                continue
+            key = msg.get("key") or {}
+            if key.get("fromMe") is not False:
+                continue
+            body = msg.get("messageBody") or (msg.get("message") or {}).get("conversation") or ""
+            numero = re.sub(r"\D", "", str(key.get("cleanedSenderPn") or key.get("senderPn") or key.get("remoteJid") or "").split("@")[0])
+            if _sem_acento(str(body)).strip().lower() in {"parar", "sair", "stop", "cancelar"} and numero:
+                cur = db().cursor()
+                cur.execute("""UPDATE ecommerce_consumidores SET aceita_whatsapp_marketing=FALSE
+                    WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(%s,11)""", (numero,))
+                db().commit()
+                cur.close()
+        return jsonify({"ok": True, "test_messages_stored": stored})
     if payload.get("event") not in {"messages.update", "message-receipt.update"}:
         return jsonify({"ok": True})
     data = payload.get("data") or {}; update = data.get("update") or {}
