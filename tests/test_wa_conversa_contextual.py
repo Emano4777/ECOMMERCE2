@@ -79,11 +79,23 @@ class ConversaContextualTests(unittest.TestCase):
                     worker.make_sender()('5517988881111', 'teste')
                 network.assert_not_called()
 
+    def test_sender_libera_todos_so_com_autorizacao_explicita(self):
+        from tests.test_wa_ollama import _load_script
+        worker = _load_script('wa_ia_worker_local')
+        resposta = Mock()
+        resposta.__enter__ = lambda s: s
+        resposta.__exit__ = lambda *a: False
+        resposta.read.return_value = json.dumps({'success': True, 'data': {'msgId': 1}}).encode()
+        with patch.dict(os.environ, {'WASENDER_API_KEY': 'fake', 'POUPAQUI_WA_IA_LIVE_AUTORIZADO': '1'}):
+            with patch.object(worker.urllib.request, 'urlopen', return_value=resposta) as network:
+                worker.make_sender()('5517988881111', 'teste')
+                network.assert_called_once()
+
     def test_cli_nao_ativa_live(self):
         from tests.test_wa_ollama import _load_script
         worker = _load_script('wa_ia_worker_local')
         with patch.object(worker, 'load_env'), patch.object(worker, 'connect') as connect:
-            with self.assertRaisesRegex(SystemExit, 'live nao autorizado'):
+            with self.assertRaisesRegex(SystemExit, 'LIVE_AUTORIZADO'):
                 worker.main(['--modo', 'live', '--confirmo-live'])
             connect.assert_not_called()
 

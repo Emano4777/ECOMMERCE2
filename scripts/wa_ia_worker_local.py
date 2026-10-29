@@ -15,7 +15,9 @@ Uso (na raiz do repo):
   python scripts/wa_ia_worker_local.py --assumir 5517... --minutos 60   # assume por 60 min
   python scripts/wa_ia_worker_local.py --devolver 5517... # IA volta, so para mensagens novas
   python scripts/wa_ia_worker_local.py --motor local      # assume a fila (servidor para)
-  python scripts/wa_ia_worker_local.py --modo shadow      # off|shadow|test (live exige --confirmo-live)
+  python scripts/wa_ia_worker_local.py --modo shadow      # off|shadow|test|live (live exige --confirmo-live
+                                                          # e POUPAQUI_WA_IA_LIVE_AUTORIZADO=1)
+  python scripts/wa_ia_worker_local.py --modo off         # DESLIGA na hora (kill-switch)
   python scripts/wa_ia_worker_local.py --once             # uma passada
   python scripts/wa_ia_worker_local.py --loop 30          # passada a cada 30s (tarefa agendada)
   python scripts/wa_ia_worker_local.py --once --assistente  # dados reais + conversa geral via Ollama
@@ -43,6 +45,13 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 LOCK_PATH = os.path.join(ROOT, ".wa_ia_worker_local.lock")
 PILOT_PHONE = "5517991436759"
+
+
+def live_autorizado():
+    """Atendimento para TODOS os numeros (menos grupos/canais, que o webhook ja descarta) so com
+    POUPAQUI_WA_IA_LIVE_AUTORIZADO=1 na config do servidor E modo live no banco (--modo live --confirmo-live).
+    Sem a flag o worker continua preso ao numero de teste, mesmo com o banco em live."""
+    return os.getenv("POUPAQUI_WA_IA_LIVE_AUTORIZADO") == "1"
 
 
 def load_env():
@@ -118,7 +127,7 @@ def make_sender():
         phone = wa.normalize_phone(numero)
         if not phone:
             raise RuntimeError("numero invalido")
-        if phone != PILOT_PHONE or phone not in wa.test_phones():
+        if not live_autorizado() and (phone != PILOT_PHONE or phone not in wa.test_phones()):
             raise RuntimeError("destino fora da allowlist de teste")
         req = urllib.request.Request(
             "https://wasenderapi.com/api/send-message",
@@ -162,9 +171,10 @@ def single_instance():
 
 
 def run_once(stats=None, assistente=False):
-    # Piloto local autorizado: teto e destino restritos mesmo com env herdado live.
-    os.environ["POUPAQUI_WA_IA_MAX_MODE"] = wa.effective_mode(wa.env_mode_ceiling(), "test")
-    os.environ["POUPAQUI_WA_IA_TEST_PHONES"] = PILOT_PHONE
+    if not live_autorizado():
+        # piloto: teto e destino restritos mesmo com env herdado live
+        os.environ["POUPAQUI_WA_IA_MAX_MODE"] = wa.effective_mode(wa.env_mode_ceiling(), "test")
+        os.environ["POUPAQUI_WA_IA_TEST_PHONES"] = PILOT_PHONE
     if assistente:
         # Dados reais e suporte deterministico; conversa geral via Ollama local.
         # o alerta sai antes e a resposta so diz "ja passei" se ele foi entregue
@@ -223,8 +233,8 @@ def main(argv=None):
     ap.add_argument("--assistente", action="store_true",
                     help="com --once/--loop: usa o assistente com dados reais em vez do classificador Ollama")
     a = ap.parse_args(argv)
-    if a.modo == "live":
-        raise SystemExit("piloto local restrito a test; live nao autorizado")
+    if a.modo == "live" and not live_autorizado():
+        raise SystemExit("live exige POUPAQUI_WA_IA_LIVE_AUTORIZADO=1 na config do worker")
 
     def out(obj):
         print(json.dumps(obj, ensure_ascii=False, default=str), flush=True)
