@@ -238,7 +238,7 @@ def main(argv=None):
         if not lock:
             out({"ignorado": "outra instancia do worker local ja esta rodando"})
             return 0
-        interval = max(15, a.loop)
+        interval = max(5, a.loop)  # checagem vazia custa ~1 s de banco
         # systemctl stop/restart manda SIGTERM: vira SystemExit para os finally rodarem (o run_worker
         # libera o lease) e as mensagens em maos voltam para a fila na hora, nao em 10 min
         import signal
