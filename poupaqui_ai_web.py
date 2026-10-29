@@ -12,6 +12,8 @@ _PESSOAL_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b|\b\d{3}\.?\d{
 _NOTICIA_RE = re.compile(r"\b(ontem|hoje|agora|semana|ultim\w*|recente\w*|noticia\w*|jogo|placar|resultado|"
                          r"ganhou|perdeu|campeonato|rodada|eleic\w*|aconteceu|morreu|lancamento|lancou)\b")
 
+_RECENTE_RE = re.compile(r"\b(ontem|hoje|agora|essa semana|nesta semana|esta semana|ultimas noticias|noticias de hoje|acabou de|agorinha)\b")
+
 # pergunta de fato/atualidade (o modelo decide a consulta; isto so evita chamar a busca em papo de rotina)
 _PERGUNTA_RE = re.compile(r"\?|\b(quem|quando|qual|quais|quanto|quantos|quantas|onde|como (faz|faco|fazer|"
                           r"funciona|e)|o que (e|foi|aconteceu)|por que|porque|me (conta|fala|explica|ensina|passa)|"
@@ -38,18 +40,33 @@ def buscar(consulta, max_resultados=5, timeout=10):
     except ImportError:
         return []
     from poupaqui_ai_policy import normalize
-    noticia = bool(_NOTICIA_RE.search(normalize(consulta)))
-    out = []
+    n = normalize(consulta)
+    noticia = bool(_NOTICIA_RE.search(n))
+    # filtro de 1 semana so quando a pergunta pede algo RECENTE de forma explicita; "a ultima copa",
+    # "o ultimo jogo" querem a ocorrencia mais recente, que pode ser de meses atras
+    so_semana = bool(_RECENTE_RE.search(n))
+    out, vistos = [], set()
     for regiao in ("br-pt", "wt-wt"):
+        brutos = []
         try:
             with DDGS(timeout=timeout) as d:
-                # noticia: so da ultima semana (sem isso vinha jogo de meses atras como se fosse 'ontem')
-                brutos = (list(d.news(consulta, region=regiao, max_results=max_resultados, timelimit="w"))
-                          if noticia else []) or \
-                    list(d.text(consulta, region=regiao, max_results=max_resultados))
+                if noticia:   # noticia + busca comum juntas: o modelo escolhe pelas datas
+                    try:
+                        brutos += list(d.news(consulta, region=regiao, max_results=4,
+                                              timelimit="w" if so_semana else None))
+                    except Exception:
+                        pass
+                try:
+                    brutos += list(d.text(consulta, region=regiao, max_results=max_resultados))
+                except Exception:
+                    pass
         except Exception:
             brutos = []
         for b in brutos:
+            chave = normalize(str(b.get("title") or ""))[:60]
+            if chave in vistos:
+                continue
+            vistos.add(chave)
             trecho = re.sub(r"\s+", " ", str(b.get("body") or "")).strip()
             if not trecho:
                 continue
@@ -60,7 +77,7 @@ def buscar(consulta, max_resultados=5, timeout=10):
         if out:
             break
         time.sleep(0.3)
-    return out[:max_resultados]
+    return out[:max_resultados + 3]
 
 
 def _get_json(url, timeout=10):
