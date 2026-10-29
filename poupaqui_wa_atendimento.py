@@ -121,6 +121,8 @@ ALTER TABLE ecommerce_wa_mensagens ADD COLUMN IF NOT EXISTS origem_envio TEXT;
 ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS escalado BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS resumo JSONB;
 ALTER TABLE ecommerce_wa_mensagens ADD COLUMN IF NOT EXISTS midia JSONB;
+ALTER TABLE ecommerce_wa_contatos ADD COLUMN IF NOT EXISTS lid TEXT;
+CREATE INDEX IF NOT EXISTS ix_wa_contatos_lid ON ecommerce_wa_contatos (lid);
 CREATE TABLE IF NOT EXISTS ecommerce_wa_atendimento_humano (
     telefone TEXT PRIMARY KEY,
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
@@ -226,6 +228,12 @@ def _media_info(message):
     return None
 
 
+def _lid(valor):
+    """'123456@lid' -> '123456@lid'; qualquer outra coisa -> None."""
+    v = str(valor or "").strip()
+    return v if re.fullmatch(r"\d{5,25}@lid", v) else None
+
+
 def parse_inbound(payload):
     """Extrai mensagens privadas recebidas. Ignora fromMe, grupos, canais e status."""
     if not isinstance(payload, dict):
@@ -268,6 +276,7 @@ def parse_inbound(payload):
             "nome_whatsapp": str(msg.get("pushName") or "").strip()[:120] or None,
             "wa_timestamp": wa_ts,
             "midia": _media_info(message),
+            "lid": _lid(key.get("senderLid") or jid),
         })
     return out
 
@@ -282,12 +291,13 @@ def store_inbound(payload, conn):
     with _cur(conn) as cur:
         for it in items:
             cur.execute("""
-                INSERT INTO ecommerce_wa_contatos (telefone, nome_whatsapp, ultima_msg_em)
-                VALUES (%s, %s, NOW())
+                INSERT INTO ecommerce_wa_contatos (telefone, nome_whatsapp, ultima_msg_em, lid)
+                VALUES (%s, %s, NOW(), %s)
                 ON CONFLICT (telefone) DO UPDATE SET
                     nome_whatsapp = COALESCE(EXCLUDED.nome_whatsapp, ecommerce_wa_contatos.nome_whatsapp),
+                    lid = COALESCE(EXCLUDED.lid, ecommerce_wa_contatos.lid),
                     ultima_msg_em = NOW(), atualizado_em = NOW()
-            """, (it["telefone"], it["nome_whatsapp"]))
+            """, (it["telefone"], it["nome_whatsapp"], it.get("lid")))
             cur.execute("""
                 INSERT INTO ecommerce_wa_mensagens
                     (message_id, telefone, direcao, tipo, corpo, nome_whatsapp, wa_timestamp, midia)
@@ -385,16 +395,33 @@ def parse_outbound(payload):
         numerico = bool(re.fullmatch(r"\+?\d{10,15}", jid))
         dest = (key.get("cleanedRecipientPn") or key.get("recipientPn") or key.get("remoteJidAlt")
                 or (jid if jid.endswith("@s.whatsapp.net") or numerico else ""))
-        phone = normalize_phone(dest)
+        phone = normalize_phone(dest) if not str(dest).endswith("@lid") else ""
+        lid = None if phone else _lid(dest or jid)
         mid = str(key.get("id") or msg.get("id") or "").strip()
-        if not phone or not mid:
+        if not (phone or lid) or not mid:
             continue
         message = msg.get("message") or {}
         kind = _message_kind(message)
         if kind == "ignore":
             continue
-        out.append({"message_id": mid[:200], "telefone": phone, "tipo": kind,
+        out.append({"message_id": mid[:200], "telefone": phone, "lid": lid, "tipo": kind,
                     "corpo": _message_text(msg, message)})
+    return out
+
+
+def estrutura_fromme(payload):
+    """Diagnostico SEM dados pessoais das mensagens enviadas (fromMe) que nao viraram registro:
+    so nomes de campos e o tipo de endereco. Ajuda a descobrir o formato real da WA Sender."""
+    data = (payload or {}).get("data") or {}
+    msgs = [data] if isinstance(data.get("key"), dict) else (data.get("messages") or data.get("message") or [])
+    msgs = [msgs] if isinstance(msgs, dict) else (msgs if isinstance(msgs, list) else [])
+    out = []
+    for m in msgs:
+        key = (m or {}).get("key") or {} if isinstance(m, dict) else {}
+        if key.get("fromMe") is True:
+            jid = str(key.get("remoteJid") or "")
+            out.append({"key": sorted(key), "jid": jid.split("@")[-1] if "@" in jid else ("digitos" if jid else ""),
+                        "msg": sorted(k for k in m if k != "key")})
     return out
 
 
@@ -492,6 +519,13 @@ def store_outbound(payload, conn):
     with _cur(conn) as cur:
         for it in items:
             phone = it["telefone"]
+            if not phone:
+                cur.execute("SELECT telefone FROM ecommerce_wa_contatos WHERE lid = %s LIMIT 2", (it["lid"],))
+                achados = cur.fetchall()
+                if len(achados) != 1:
+                    cont["sem_telefone"] = cont.get("sem_telefone", 0) + 1
+                    continue
+                phone = achados[0][0]
             _lock_contact(cur, phone)
             cur.execute("SELECT 1 FROM ecommerce_wa_mensagens WHERE message_id = %s", (it["message_id"],))
             if cur.fetchone():
@@ -1117,6 +1151,20 @@ def mascarar(texto):
     return out
 
 
+def _relato_curto(falas, limite=400):
+    """Falas anteriores legiveis no alerta: imagem vira so "o que mostra"; cada fala ate 160
+    caracteres; se passar do limite, descarta as mais antigas inteiras (nunca corta no meio)."""
+    itens = []
+    for t in falas:
+        t = _norm_text(t)
+        if t.startswith("[Imagem enviada pelo contato]"):
+            t = "[imagem] " + t.split(" Texto na imagem:")[0].replace("[Imagem enviada pelo contato]", "").strip()
+        itens.append(t if len(t) <= 160 else t[:157].rstrip() + "...")
+    while len(" | ".join(itens)) > limite and len(itens) > 1:
+        itens.pop(0)
+    return " | ".join(itens)[:limite]
+
+
 def alert_text(decisao_id, phone, decision, origem, identity, push_name, texts, resumo=None):
     """Resumo tecnico objetivo: relato exato, identidade verificada, sintomas,
     checagens feitas. So o que foi observado -- nunca causa presumida."""
@@ -1126,14 +1174,15 @@ def alert_text(decisao_id, phone, decision, origem, identity, push_name, texts, 
             quem += f" / CNPJ {identity['ref']}"
     else:
         quem = f"nao verificado (nome exibido: {push_name or '-'})"
-    ultima = mascarar(" | ".join(t for t in texts if t))[-500:] or "(midia/sem texto)"
+    ultima = mascarar(" | ".join(_norm_text(t) for t in texts if t))
+    ultima = (ultima if len(ultima) <= 500 else ultima[:497].rstrip() + "...") or "(midia/sem texto)"
     linhas = [f"[PoupAqui IA] Atendimento humano necessario #{decisao_id}",
               f"Contato: +{phone} ({quem})"]
     resumo = resumo or {}
     if resumo.get("assunto"):
         linhas.append(f"Assunto: {resumo['assunto']}")
     if resumo.get("relato_anterior"):
-        linhas.append("Relato anterior: " + mascarar(" | ".join(resumo["relato_anterior"]))[-400:])
+        linhas.append("Relato anterior: " + mascarar(_relato_curto(resumo["relato_anterior"])))
     linhas.append(f"Relato: {ultima}")
     if resumo.get("sintomas"):
         linhas.append("Sintomas: " + "; ".join(mascarar(s) for s in resumo["sintomas"])[:400])

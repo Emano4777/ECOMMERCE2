@@ -27448,8 +27448,11 @@ def crm_wasender_webhook():
         # Cada armazenador confirma sua transacao: em lote misto pode haver
         # commit parcial. Retornar 503 permite retry, deduplicado por message_id.
         try:
-            from poupaqui_wa_atendimento import store_outbound
-            store_outbound(payload, db())
+            from poupaqui_wa_atendimento import estrutura_fromme, store_outbound
+            cont_saida = store_outbound(payload, db())
+            # mensagem enviada que nao virou registro: loga so a ESTRUTURA (nomes de campos), sem dados
+            if not any(cont_saida.get(k) for k in ("ia", "sistema", "manual")) and estrutura_fromme(payload):
+                app.logger.warning("wasender_fromme_ignorada=%s cont=%s", estrutura_fromme(payload)[:3], cont_saida)
         except Exception:
             app.logger.exception("wasender webhook: falha gravando mensagem enviada")
             try:
