@@ -1048,12 +1048,16 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
             txt = para_whatsapp(llm(textos, historico) or "")
         except Exception:
             pass
+    # "Boa tarde!" no inicio sem a pessoa ter cumprimentado: tira o cumprimento e aproveita o resto
+    # (antes a resposta inteira era barrada como "saudacao inventada")
+    txt = _sem_cumprimento_indevido(txt, textos)
     # Uma revisao limitada usa motivo concreto; nunca tenta aproveitar raciocinio
     # truncado, timeout ou resposta vazia. Texto revisado passa pelas mesmas regras.
     initial_problem = problema_conversa(txt, textos, historico)
     if txt and initial_problem and hasattr(llm, 'revisar') and time.monotonic() - started < 15:
         try:
-            txt = para_whatsapp(llm.revisar(textos, historico, initial_problem) or '')
+            txt = _sem_cumprimento_indevido(para_whatsapp(llm.revisar(textos, historico, initial_problem) or ''),
+                                            textos)
         except Exception:
             txt = ''
     # Fluencia nao basta: o modelo pequeno pode trocar sono por saudacao/menu.
@@ -1093,6 +1097,13 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
             txt = "Ainda não consegui essa. Me conta com outras palavras o que você quer saber?"
     return Resposta("ANSWER", txt, "conversa: " + (rejeicao or "resposta rejeitada por regra de seguranca"), False,
                     "smalltalk" if casual else "geral")
+
+
+def _sem_cumprimento_indevido(txt, textos):
+    if not txt or _SAUDACAO_RE.search(normalize(" ".join(str(t) for t in textos))):
+        return txt
+    resto = re.sub(r"^\s*(oi+|ola|olá)?[,!]?\s*(bom dia|boa tarde|boa noite)[,!.]*\s*", "", txt, flags=re.I)
+    return (resto[:1].upper() + resto[1:]) if resto and resto != txt else txt
 
 
 def para_whatsapp(txt):
@@ -1299,8 +1310,8 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                         for i in range(1, 8))
             + f"; faltam {_dias_ate_fim_do_mes(agora)} dia(s) para o fim do mês (último dia: "
             f"{_ultimo_dia_do_mes(agora):%d/%m}). "
-            f"Agora é hora de \"{periodo}\": se for cumprimentar, use esse cumprimento, mesmo que a pessoa tenha "
-            "usado outro. Numa saudação simples, cumprimente de volta e pergunte como pode ajudar.")]
+            "Só cumprimente se a pessoa cumprimentou nesta mensagem; nesse caso use "
+            f"\"{periodo}\" (é o horário certo agora), cumprimente de volta e pergunte como pode ajudar.")]
         if correcao:
             extra.append('A tentativa anterior foi rejeitada por: ' + correcao +
                          '. Escreva uma nova resposta simples que evite esse problema; '
@@ -1381,12 +1392,25 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             except Exception:
                 decisao = {}
             tipo = str(decisao.get("tipo") or "web")
-            if re.search(r"\b(chov\w*|chuva|clima|temperatura|previsao do tempo|frio|calor|tempo (amanha|hoje))\b",
-                         current_norm) and decisao.get("cidade"):
-                tipo = "clima"
+            cidade = str(decisao.get("cidade") or "").strip()
+            # o modelo devolve "nao especificada"/"nenhuma" quando nao ha cidade: isso nao e cidade
+            if re.search(r"\b(nao|sem|nenhum\w*|desconhecid\w*|especificad\w*|informad\w*|vazio|n/?a)\b",
+                         normalize(cidade)) or len(cidade) < 3:
+                cidade = ""
+            clima_re = r"\b(chov\w*|chuva|clima|temperatura|previsao do tempo|frio|calor|tempo (amanha|hoje))\b"
+            ultima_fala = next((h["content"] for h in history if h["role"] == "user"), "")   # history: mais recente 1o
+            if re.search(clima_re, current_norm) or (cidade and re.search(clima_re, normalize(ultima_fala))):
+                tipo = "clima"   # inclusive a continuacao "e em sao paulo?" depois de uma pergunta de clima
+            consulta_dec = normalize(str(decisao.get("consulta") or ""))
+            if consulta_dec and any(p in consulta_dec for p in ("quem ocupa um cargo", "evento recente",
+                                                                "o ultimo/a ultima", "preco de mercado")):
+                decisao["consulta"] = " ".join(falas)[:150]   # o modelo copiou o exemplo da instrucao
+            decisao["cidade"] = cidade
             if decisao.get("buscar") or tipo in ("clima", "cotacao"):
                 if tipo == "clima" and decisao.get("cidade"):
-                    web = WEB.clima(decisao["cidade"])
+                    web = WEB.clima(decisao["cidade"]) or (
+                        f"Previsão do tempo: não encontrei a cidade \"{decisao['cidade']}\". Diga isso e peça o nome "
+                        "da cidade de outro jeito, sem inventar previsão.")
                 elif tipo == "clima":
                     web = ("Previsão do tempo: a pessoa não disse a cidade. Pergunte de qual cidade ela quer "
                            "saber, sem inventar previsão.")
