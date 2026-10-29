@@ -1150,14 +1150,25 @@ GERAL_EXEMPLOS = [
 ]
 
 
+def _ultimo_dia_do_mes(d):
+    from calendar import monthrange
+    return d.replace(day=monthrange(d.year, d.month)[1])
+
+
+def _dias_ate_fim_do_mes(d):
+    return (_ultimo_dia_do_mes(d).date() - d.date()).days
+
+
 # quanto o modelo fica carregado sem uso: carregar de novo custa ~5-10 s na 1a resposta
 KEEP_ALIVE = os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m"
 
 DECIDE_BUSCA_PROMPT = (
-    "Decida se a ÚLTIMA fala precisa de busca na internet para ser respondida bem: fato atual, notícia, "
-    "resultado de jogo, clima, cotação, dado específico que você pode não saber com certeza. Conversa, "
-    "opinião, desabafo, cumprimento, piada ou pergunta sobre você NÃO precisa. Data, hora, dia da semana e conta "
-    "com datas (\"falta quanto pra sexta?\") também NÃO: você já sabe a data de hoje. Assuntos da empresa (pedidos, "
+    "Decida se a ÚLTIMA fala precisa de busca na internet. Regra: só busque o que você NÃO tem como saber sozinho, "
+    "porque muda com o tempo ou é muito específico: notícia, resultado ou próximo jogo, clima, cotação, evento "
+    "recente, quem ocupa um cargo hoje, horário/endereço de um lugar, lançamento, preço de mercado. Tudo que você "
+    "já sabe NÃO busca: conhecimento geral (capitais, história, definições, ciência), receitas, explicações e "
+    "passo a passo, contas, conversa, opinião, desabafo, cumprimento, piada, pergunta sobre você, e data/hora/dia "
+    "da semana/conta com datas (\"falta quanto pra sexta?\"; você recebe a data de hoje). Assuntos da empresa (pedidos, "
     "estoque, preços, sistemas da PoupAqui) NÃO são buscados. Previsão do tempo/chuva/temperatura = tipo "
     '"clima" (informe a cidade citada na conversa, ou vazio se nenhuma); dólar/euro/bitcoin = tipo "cotacao"; '
     'o resto = tipo "web". Responda só JSON: {"buscar": true ou false, "tipo": "web" ou "clima" ou "cotacao", '
@@ -1177,7 +1188,12 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
         messages = [{"role": "system", "content": GERAL_PROMPT + (
             f"\nAgora são {agora:%H:%M} de {dias[agora.weekday()]}, {agora:%d/%m/%Y} (horário de Brasília); use "
-            "isso para responder hora, data e dia da semana."
+            "isso para responder hora, data e dia da semana. Calendário já calculado (não refaça a conta): "
+            + "; ".join(f"{['amanhã', 'depois de amanhã'][i - 1] if i <= 2 else f'daqui a {i} dias'} = "
+                        f"{dias[(agora + timedelta(days=i)).weekday()]} {(agora + timedelta(days=i)):%d/%m}"
+                        for i in range(1, 8))
+            + f"; faltam {_dias_ate_fim_do_mes(agora)} dia(s) para o fim do mês (último dia: "
+            f"{_ultimo_dia_do_mes(agora):%d/%m})."
             "\nVocê é a assistente virtual (IA) da Drogarias PoupAqui no WhatsApp; atende as lojas da rede. "
             f"Agora é hora de \"{periodo}\": se for cumprimentar, use esse cumprimento, mesmo que a pessoa tenha "
             "usado outro. Numa saudação simples, cumprimente de volta e pergunte como pode ajudar.")}]
