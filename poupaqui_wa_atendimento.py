@@ -212,6 +212,7 @@ def _message_text(msg, message):
 
 _MIDIA_CAMPOS = ("url", "mimetype", "mediaKey", "fileSha256", "fileLength", "fileName", "directPath", "seconds")
 MIDIA_IMAGEM_TIPOS = ("image/jpeg", "image/png", "image/webp")
+MIDIA_VIDEO_TIPOS = ("video/mp4", "video/3gpp", "video/quicktime", "video/webm")
 MIDIA_AUDIO_TIPOS = ("audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav", "audio/x-wav", "audio/webm")
 
 
@@ -220,7 +221,7 @@ def _media_info(message):
     WhatsApp vem criptografado; sem guardar isso na chegada nao da para ler depois)."""
     message = message if isinstance(message, dict) else {}
     for campo, tipos in (("imageMessage", MIDIA_IMAGEM_TIPOS), ("documentMessage", MIDIA_IMAGEM_TIPOS),
-                         ("audioMessage", MIDIA_AUDIO_TIPOS)):
+                         ("audioMessage", MIDIA_AUDIO_TIPOS), ("videoMessage", MIDIA_VIDEO_TIPOS)):
         m = message.get(campo)
         if isinstance(m, dict) and str(m.get("mimetype") or "").split(";")[0].strip() in tipos \
                 and m.get("url") and m.get("mediaKey"):
@@ -797,9 +798,25 @@ def _release(conn, ids, max_attempts):
     conn.commit()
 
 
+AUDIO_SEM_FALA = "[Áudio sem fala reconhecível]"
+
+
 def texto_da_midia(lido, legenda=""):
     """Texto que substitui a midia no fluxo: audio vira a propria fala transcrita; imagem vira o
     que o modelo de visao viu, marcado como imagem."""
+    if lido.get("video"):
+        partes = ["[Vídeo enviado pelo contato]"]
+        if legenda:
+            partes.append(f"Legenda: {legenda}.")
+        if lido.get("resumo"):
+            partes.append(f"O que aparece: {str(lido['resumo']).strip()}")
+        if lido.get("fala"):
+            partes.append(f"Fala no vídeo: {str(lido['fala']).strip()}")
+        if lido.get("texto"):
+            partes.append(f"Texto na tela: {str(lido['texto']).strip()}")
+        return " ".join(partes)[:1500]
+    if lido.get("audio") and lido.get("sem_fala"):
+        return AUDIO_SEM_FALA
     if lido.get("audio"):
         corte = " (áudio longo: só o começo foi transcrito)" if lido.get("cortado") else ""
         return f"[Áudio transcrito{corte}] {str(lido.get('texto') or '').strip()}"[:1500]
@@ -817,20 +834,28 @@ def _ler_midias(conn, batch, texts, kinds, leitor):
     """Le cada imagem do lote. A chave de criptografia (midia) e apagada depois, lida ou nao."""
     for i, b in enumerate(batch):
         midia = b[6]
-        if kinds[i] not in ("image", "document", "audio") or not midia:
+        if kinds[i] not in ("image", "document", "audio", "video") or not midia:
             continue
         try:
             lido = leitor(b[1], midia if isinstance(midia, dict) else json.loads(midia))
-        except Exception:
+        except Exception as exc:  # registra so o tipo do erro (sem conteudo) para diagnostico
+            import sys
+            print(f"leitor_midia falhou ({kinds[i]}): {type(exc).__name__}", file=sys.stderr, flush=True)
             lido = None
         with _cur(conn) as cur:
-            if lido and (lido.get("texto") or lido.get("resumo")):
+            if lido and (lido.get("texto") or lido.get("resumo") or lido.get("fala") or lido.get("sem_fala")):
                 texts[i], kinds[i] = texto_da_midia(lido, b[3]), "text"
                 cur.execute("UPDATE ecommerce_wa_mensagens SET corpo = %s, midia = NULL WHERE id = %s",
                             (texts[i], b[0]))
             else:
                 cur.execute("UPDATE ecommerce_wa_mensagens SET midia = NULL WHERE id = %s", (b[0],))
         conn.commit()
+    # midia que nao deu para ler, junto com mensagens entendidas: responde o resto em vez de cair
+    # inteiro no "nao consigo abrir"
+    if any(k == "text" and t and t != AUDIO_SEM_FALA for k, t in zip(kinds, texts)):
+        for i, k in enumerate(kinds):
+            if k in ("image", "document", "audio", "video"):
+                kinds[i], texts[i] = "text", ""
 
 
 def process_contact(conn, phone, mode, classifier, sender, state, logger=None, model_label=None, assistente=None,
@@ -863,6 +888,7 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
     if not batch:
         return None
     ids = [b[0] for b in batch]
+    EM_CURSO["ids"] = list(ids)
     primeira_em = min(b[5] for b in batch)
     status_msgs = "processado"
     try:
@@ -1215,6 +1241,25 @@ def _send_alert(conn, decisao_id, phone, destinos, sender, decision, origem, ide
     return status
 
 
+# o que o worker tem nas maos agora: num desligamento (systemctl restart) as mensagens voltam para a
+# fila na hora, em vez de ficarem 'processando' ate 10 min e o contato sem resposta
+EM_CURSO = {"ids": []}
+
+
+def devolver_em_curso(conn):
+    """Mensagens reservadas por este processo voltam a 'pendente' (desligamento no meio da resposta)."""
+    ids, EM_CURSO["ids"] = EM_CURSO["ids"], []
+    if not ids:
+        return 0
+    with _cur(conn) as cur:
+        cur.execute("""UPDATE ecommerce_wa_mensagens SET status = 'pendente', reservado_em = NULL,
+                       tentativas = GREATEST(tentativas - 1, 0) WHERE id = ANY(%s) AND status = 'processando'""",
+                    (ids,))
+        n = cur.rowcount
+    conn.commit()
+    return n
+
+
 def acquire_worker_lease(conn, ttl_minutes=5):
     """Lock de execucao por lease em tabela. Advisory lock de sessao nao serve:
     o DATABASE_URL passa pelo pooler do Supabase em modo transacao, entao o
@@ -1305,8 +1350,10 @@ def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine=
                 res = process_contact(conn, phone, mode, classifier, sender, state, logger, model_label,
                                       assistente, leitor_midia)
             except Exception:
+                EM_CURSO["ids"] = []   # erro normal: o proprio fluxo ja tratou as mensagens
                 summary["erros"] += 1
                 continue
+            EM_CURSO["ids"] = []       # concluido; num desligamento (SystemExit) a lista fica para devolver
             if res:
                 summary["contatos"] += 1
                 summary["resultados"].append(res)
