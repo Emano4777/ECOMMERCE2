@@ -1156,7 +1156,8 @@ KEEP_ALIVE = os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m"
 DECIDE_BUSCA_PROMPT = (
     "Decida se a ÚLTIMA fala precisa de busca na internet para ser respondida bem: fato atual, notícia, "
     "resultado de jogo, clima, cotação, dado específico que você pode não saber com certeza. Conversa, "
-    "opinião, desabafo, cumprimento, piada ou pergunta sobre você NÃO precisa. Assuntos da empresa (pedidos, "
+    "opinião, desabafo, cumprimento, piada ou pergunta sobre você NÃO precisa. Data, hora, dia da semana e conta "
+    "com datas (\"falta quanto pra sexta?\") também NÃO: você já sabe a data de hoje. Assuntos da empresa (pedidos, "
     "estoque, preços, sistemas da PoupAqui) NÃO são buscados. Previsão do tempo/chuva/temperatura = tipo "
     '"clima" (informe a cidade citada na conversa, ou vazio se nenhuma); dólar/euro/bitcoin = tipo "cotacao"; '
     'o resto = tipo "web". Responda só JSON: {"buscar": true ou false, "tipo": "web" ou "clima" ou "cotacao", '
