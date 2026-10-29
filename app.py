@@ -27440,16 +27440,40 @@ def crm_wasender_webhook():
     if not esperado or not secrets.compare_digest(str(recebido or ""), str(esperado)):
         return jsonify({"ok": False}), 401
     payload = request.get_json(silent=True) or {}
-    if payload.get("event") in {"messages.received", "message.received"}:
+    if payload.get("event") in {"messages.upsert", "message.sent", "messages.received", "message.received"}:
+        # Atendimento IA: mensagem que SAIU do numero (fromMe) digitada pelo
+        # operador silencia a IA naquele contato. Os parsers separam fromMe.
+        # Cada armazenador confirma sua transacao: em lote misto pode haver
+        # commit parcial. Retornar 503 permite retry, deduplicado por message_id.
+        try:
+            from poupaqui_wa_atendimento import store_outbound
+            store_outbound(payload, db())
+        except Exception:
+            app.logger.exception("wasender webhook: falha gravando mensagem enviada")
+            try:
+                db().rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": "storage_failed"}), 503
+    if payload.get("event") in {"messages.upsert", "messages.received", "message.received"}:
         # Dedicated test receiver: no Pode Ir forwarding, no automated replies.
         from wasender_inbound_test import record_test_replies
+        from poupaqui_wa_atendimento import store_inbound
         try:
             stored = record_test_replies(payload, db, app.logger)
+            # Historico de todas as conversas privadas pro atendimento IA. So
+            # grava -- quem decide/responde e o cron /api/cron/wa-ia-atendimento.
+            historico = store_inbound(payload, db())
         except Exception:
+            app.logger.exception("wasender webhook: falha gravando mensagem recebida")
+            try:
+                db().rollback()
+            except Exception:
+                pass
             return jsonify({"ok": False, "error": "storage_failed"}), 503
         # Keep existing marketing opt-out behavior, now reading data.messages correctly.
         data = payload.get("data") or {}
-        msgs = data.get("messages") or []
+        msgs = data.get("messages") or data.get("message") or []
         if isinstance(msgs, dict):
             msgs = [msgs]
         for msg in msgs if isinstance(msgs, list) else []:
@@ -27466,7 +27490,7 @@ def crm_wasender_webhook():
                     WHERE RIGHT(regexp_replace(telefone,'\\D','','g'),11)=RIGHT(%s,11)""", (numero,))
                 db().commit()
                 cur.close()
-        return jsonify({"ok": True, "test_messages_stored": stored})
+        return jsonify({"ok": True, "test_messages_stored": stored, "messages_stored": historico})
     if payload.get("event") not in {"messages.update", "message-receipt.update"}:
         return jsonify({"ok": True})
     data = payload.get("data") or {}; update = data.get("update") or {}
@@ -27482,6 +27506,59 @@ def crm_wasender_webhook():
             WHERE external_id=%s""", (status_wa,status_wa,external_id))
         db().commit(); cur.close()
     return jsonify({"ok": True})
+
+
+@app.post("/api/cron/wa-ia-atendimento")
+def api_cron_wa_ia_atendimento():
+    """Worker do atendimento IA (cron a cada minuto). Modo/kill-switch e
+    limites ficam em poupaqui_wa_atendimento -- com modo 'off' nao faz nada."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    from poupaqui_wa_atendimento import run_worker
+    from poupaqui_ai_policy import classify_with_anthropic
+    conn = _new_conn(statement_timeout_ms=30000)
+    try:
+        res = run_worker(
+            conn,
+            classifier=lambda payload: classify_with_anthropic(payload, _anthropic_api_key()),
+            sender=lambda numero, texto: _wa_send(numero, texto, retornar_dados=True),
+            logger=app.logger,
+        )
+    finally:
+        conn.close()
+    return jsonify({"ok": True, **res})
+
+
+@app.route("/api/cron/wa-ia-modo", methods=["GET", "POST"])
+def api_cron_wa_ia_modo():
+    """GET: status da fila/decisoes. POST {"modo": "off|shadow|test|live"}:
+    kill-switch. O teto POUPAQUI_WA_IA_MAX_MODE do ambiente sempre prevalece.
+    POST {"motor": "servidor|local"}: quem atende a fila (cron daqui ou o
+    worker Ollama no PC) -- so um deles processa."""
+    if not _cron_authorized():
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    from poupaqui_wa_atendimento import set_db_engine, set_db_mode, status_summary
+    conn = _new_conn()
+    try:
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            if "motor" in body:
+                motor = str(body.get("motor") or "").strip().lower()
+                try:
+                    set_db_engine(conn, motor)
+                except ValueError:
+                    return jsonify({"ok": False, "erro": "motor_invalido"}), 400
+                app.logger.warning("wa_ia: motor alterado para %s", motor)
+            if "modo" in body or "motor" not in body:
+                modo = str(body.get("modo") or "").strip().lower()
+                try:
+                    set_db_mode(conn, modo)
+                except ValueError:
+                    return jsonify({"ok": False, "erro": "modo_invalido"}), 400
+                app.logger.warning("wa_ia: modo alterado para %s", modo)
+        return jsonify({"ok": True, **status_summary(conn)})
+    finally:
+        conn.close()
 
 
 # ─── WHATSAPP OFICIAL (META CLOUD API) ───────────────────────────────────────
