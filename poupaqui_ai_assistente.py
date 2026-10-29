@@ -1130,7 +1130,8 @@ def problema_formato_conversa(r):
     en, pt = sum(w in _EN_WORDS for w in words), sum(w in _PT_WORDS for w in words)
     if en >= 3 or en > pt or pt == 0:
         return "nao parece portugues"
-    if not re.search(r"[.!?)*:]\s*$", r) and "\n" not in r:
+    # aspas no fim e normal (cantada, citacao, titulo de musica): '... "Voce nao e Wi-Fi..."'
+    if not re.search(r"""[.!?)*:"'”»]\s*$""", r) and "\n" not in r:
         return "frase incompleta"
     if len(r) > 1200:
         return "longa demais"
@@ -1237,7 +1238,11 @@ Leia o diálogo em ordem e responda à ÚLTIMA fala. Use as anteriores para ente
 Se o assunto mudou, acompanhe o novo assunto. Não invente o que a pessoa disse ou sentiu.
 Não transforme todo comentário em pergunta: pode só reagir, reconhecer uma conquista ou acolher um desabafo.
 Exemplos de sentido (não copie as frases): bolo que virou tijolo = deu errado, não elogio;
-perder nos pênaltis = frustração; passar numa prova = conquista; "e vc?" = pergunta sobre você.
+perder nos pênaltis = frustração; passar numa prova = conquista; "e vc?" = pergunta sobre você;
+"fala, mestre!", "e aí, chefe", "salve, meu consagrado" = cumprimento informal (o resto é apelido de brincadeira,
+não pessoa nem assunto): cumprimente no mesmo tom.
+Pedido de sugestão (música, cantada, receita, ideia, nome): dê logo 2 ou 3 opções concretas; não pergunte antes
+se a pessoa quer, nem fique só perguntando preferências.
 Ironia: elogio exagerado sobre algo ruim ("chegou rapidinho, só demorou 3 dias", "amei esperar 1 hora") é
 reclamação: reconheça o incômodo com leveza, nunca responda "que bom". Elogio sem contradição é elogio: agradeça.
 Você é uma IA, sem corpo ou vida pessoal. Se perguntarem de você, responda honestamente sem discurso formal:
@@ -1374,7 +1379,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                 and (WEB.parece_pergunta_de_fato(current_norm, " ".join(falas))
                      # resposta a uma pergunta do assistente num assunto de fato ("qual cidade?" -> "rio preto"):
                      # a decisao ve o contexto; sem isso o modelo inventava a previsao
-                     or (bool(history) and history[0]["role"] == "assistant" and history[0]["content"].rstrip().endswith("?")
+                     # (o modelo nem sempre usa "?": "preciso saber de qual cidade voce esta falando.")
+                     or (bool(history) and history[0]["role"] == "assistant"
+                         and ("?" in history[0]["content"] or re.search(
+                             r"\b(qual|quais|de qual|preciso saber|me (diga|diz|fala|conta|passa))\b",
+                             normalize(history[0]["content"])))
                          and any(h["role"] == "user" and WEB.parece_pergunta_de_fato(normalize(h["content"]), h["content"])
                                  for h in history[1:3])))
                 # pergunta para a IA ("qual o seu nome?", "vc acha...?") nao precisa de busca: a decisao custava
