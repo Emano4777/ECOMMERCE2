@@ -16,7 +16,7 @@ Type=simple
 WorkingDirectory=/opt/wa-ia/app
 EnvironmentFile=/opt/wa-ia/worker.env
 Environment=PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1 HF_HUB_DISABLE_SYMLINKS_WARNING=1
-ExecStart=/opt/wa-ia/venv/bin/python scripts/wa_ia_worker_local.py --loop 30 --assistente
+ExecStart=/opt/wa-ia/venv/bin/python scripts/wa_ia_worker_local.py --loop 15 --assistente
 Restart=always
 RestartSec=15
 Nice=10

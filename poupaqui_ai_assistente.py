@@ -1149,6 +1149,9 @@ GERAL_EXEMPLOS = [
 ]
 
 
+# quanto o modelo fica carregado sem uso: carregar de novo custa ~5-10 s na 1a resposta
+KEEP_ALIVE = os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m"
+
 DECIDE_BUSCA_PROMPT = (
     "Decida se a ÚLTIMA fala precisa de busca na internet para ser respondida bem: fato atual, notícia, "
     "resultado de jogo, clima, cotação, dado específico que você pode não saber com certeza. Conversa, "
@@ -1211,7 +1214,7 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             options["num_thread"] = int(os.environ["POUPAQUI_OLLAMA_NUM_THREAD"])
 
         def chamar(msgs, opts, fmt=None, limite=timeout):
-            body = {"model": model, "stream": False, "think": False, "keep_alive": "10m", "options": opts,
+            body = {"model": model, "stream": False, "think": False, "keep_alive": KEEP_ALIVE, "options": opts,
                     "messages": msgs}
             if fmt:
                 body["format"] = fmt
@@ -1390,7 +1393,7 @@ def leitor_midia_ollama(base_url=None, model=None, timeout=60, baixar=None, voca
         options = {"num_ctx": 2048, "num_predict": 500 if audio else 300, "temperature": 0 if audio else 0.1}
         if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
             options["num_thread"] = int(os.environ["POUPAQUI_OLLAMA_NUM_THREAD"])
-        body = {"model": model, "stream": False, "think": False, "keep_alive": "10m",
+        body = {"model": model, "stream": False, "think": False, "keep_alive": KEEP_ALIVE,
                 "messages": [{"role": "user", "content": prompt, "images": [base64.b64encode(dados).decode()]}],
                 "options": options}
         if not audio:
