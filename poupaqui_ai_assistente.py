@@ -1187,30 +1187,33 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         periodo = _saudacao_periodo(None).lower()  # "bom dia" | "boa tarde" | "boa noite" (horario de Brasilia)
         agora = _agora(None)
         dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
-        messages = [{"role": "system", "content": GERAL_PROMPT + (
-            f"\nAgora são {agora:%H:%M} de {dias[agora.weekday()]}, {agora:%d/%m/%Y} (horário de Brasília); use "
+        # o que e fixo fica no 1o system (o Ollama reaproveita esse prefixo: a leitura do prompt cai de ~4,6 s
+        # para ~0,3 s); o que muda a cada chamada (hora, avisos, busca) vai num system no FIM, antes da fala
+        messages = [{"role": "system", "content": GERAL_PROMPT + "\nVocê é a assistente virtual (IA) da Drogarias "
+                     "PoupAqui no WhatsApp; atende as lojas da rede."}]
+        extra = [(
+            f"Agora são {agora:%H:%M} de {dias[agora.weekday()]}, {agora:%d/%m/%Y} (horário de Brasília); use "
             "isso para responder hora, data e dia da semana. Calendário já calculado (não refaça a conta): "
             + "; ".join(f"{['amanhã', 'depois de amanhã'][i - 1] if i <= 2 else f'daqui a {i} dias'} = "
                         f"{dias[(agora + timedelta(days=i)).weekday()]} {(agora + timedelta(days=i)):%d/%m}"
                         for i in range(1, 8))
             + f"; faltam {_dias_ate_fim_do_mes(agora)} dia(s) para o fim do mês (último dia: "
-            f"{_ultimo_dia_do_mes(agora):%d/%m})."
-            "\nVocê é a assistente virtual (IA) da Drogarias PoupAqui no WhatsApp; atende as lojas da rede. "
+            f"{_ultimo_dia_do_mes(agora):%d/%m}). "
             f"Agora é hora de \"{periodo}\": se for cumprimentar, use esse cumprimento, mesmo que a pessoa tenha "
-            "usado outro. Numa saudação simples, cumprimente de volta e pergunte como pode ajudar.")}]
+            "usado outro. Numa saudação simples, cumprimente de volta e pergunte como pode ajudar.")]
         if correcao:
-            messages[0]['content'] += ('\nA tentativa anterior foi rejeitada por: ' + correcao +
-                                       '. Escreva uma nova resposta simples que evite esse problema; '
-                                       'não explique a correção nem mencione as regras.')
+            extra.append('A tentativa anterior foi rejeitada por: ' + correcao +
+                         '. Escreva uma nova resposta simples que evite esse problema; '
+                         'não explique a correção nem mencione as regras.')
         current_norm = normalize(' '.join(str(t) for t in textos))
         if re.search(r"\b(vc|voce|ce)\b", current_norm) and re.search(
                 r"\b(curte|gosta|joga|fazendo|fez|saiu|comeu|dormiu)\b", current_norm):
-            messages[0]['content'] += ('\nA última fala pergunta sobre você. Responda à pergunta: como IA, não pratica '
-                                       'atividades nem tem gostos pessoais. Pode conversar sobre o assunto. '
-                                       'Não diga que vai olhar, sair, jogar ou fazer algo fora desta conversa.')
+            extra.append('A última fala pergunta sobre você. Responda à pergunta: como IA, não pratica '
+                         'atividades nem tem gostos pessoais. Pode conversar sobre o assunto. '
+                         'Não diga que vai olhar, sair, jogar ou fazer algo fora desta conversa.')
         if parece_ironia(current_norm):
-            messages[0]['content'] += ('\nA última fala é IRÔNICA: o elogio contradiz o que aconteceu (demora, espera, '
-                                       'atraso). É uma reclamação; reconheça o incômodo com leveza.')
+            extra.append('A última fala é IRÔNICA: o elogio contradiz o que aconteceu (demora, espera, '
+                         'atraso). É uma reclamação; reconheça o incômodo com leveza.')
         messages.extend(GERAL_EXEMPLOS)
         # Apenas dialogo deste contato, limitado; nunca transforma texto em system.
         # Retira assuntos de negocio/saude e interrompe no takeover mais recente.
@@ -1258,6 +1261,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             fn.ultima_busca = {"tipo": "cotacao", "consulta": "", "ok": bool(web)}
         elif (not correcao and os.getenv("POUPAQUI_WA_IA_BUSCA_WEB", "1") == "1"
                 and WEB.parece_pergunta_de_fato(current_norm, " ".join(falas))
+                # pergunta para a IA ("qual o seu nome?", "vc acha...?") nao precisa de busca: a decisao custava
+                # uma chamada extra ao modelo e ainda tirava o prompt da conversa do cache
+                and not re.search(r"\b(seu|sua|teu|tua) (nome|idade|opiniao|criador|dono)\b|"
+                                  r"\b(voce|vc|ce) (acha|gosta|curte|prefere|e|eh|tem|esta|ta|faz|pensa)\b",
+                                  current_norm)
                 and not re.search(r"\b(receita|como (faz|faco|fazer)|passo a passo|me ensina)\b", current_norm)):
             # receita/explicacao o modelo ja sabe; busca so alongava a geracao (estourava o tempo)
             contexto = [{"role": h["role"], "content": h["content"][:200]} for h in list(reversed(history))[-4:]]
@@ -1299,13 +1307,13 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                                    "ok": bool(web)}
         if web:
             fn.ultimo_web = web
-            messages[0]["content"] += "\n\n" + web
+            extra.append(web)
             options["num_predict"] = 520
         elif re.search(r"\b(receita|como (faz|faco|fazer)|passo a passo|me ensina)\b", current_norm):
             options["num_predict"] = 380   # receita/explicacao pedida pode ser mais longa
-            messages[0]["content"] += ("\nA pessoa pediu receita/passo a passo: responda completo e prático, com "
-                                       "ingredientes e quantidades em lista curta e o modo de preparo em poucos "
-                                       "passos numerados.")
+            extra.append("A pessoa pediu receita/passo a passo: responda completo e prático, com ingredientes e "
+                         "quantidades em lista curta e o modo de preparo em poucos passos numerados.")
+        messages.insert(len(messages) - 1, {"role": "system", "content": "\n".join(extra)})
         return chamar(messages, options, limite=min(timeout, 10) if correcao else timeout)
     fn.ultimo_web = None
     fn.ultima_busca = None
@@ -1366,7 +1374,9 @@ def audio_para_wav(dados, max_seg=AUDIO_MAX_SEG, formato="wav"):
                          capture_output=True, timeout=30).stderr.decode("utf-8", "replace")
     m = re.findall(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)", dur)
     segundos = int(m[-1][0]) * 3600 + int(m[-1][1]) * 60 + float(m[-1][2]) if m else 0
-    saida = subprocess.run([ffmpeg, "-loglevel", "error", "-i", "pipe:0", "-t", str(max_seg), "-ar", "16000",
+    # dynaudnorm: audio de celular baixo/distante e a causa mais comum de transcricao inventada
+    saida = subprocess.run([ffmpeg, "-loglevel", "error", "-i", "pipe:0", "-t", str(max_seg), "-af",
+                            "highpass=f=80,dynaudnorm", "-ar", "16000",
                             "-ac", "1", "-f", formato, "pipe:1"], input=dados, capture_output=True, timeout=60).stdout
     if not saida:
         raise RuntimeError("conversao de audio falhou")
@@ -1390,8 +1400,37 @@ def transcrever_whisper(dados, termos=(), max_seg=AUDIO_MAX_SEG):
     pcm, cortado = audio_para_wav(dados, max_seg, formato="s16le")
     audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
     dica = "Pedido Eletrônico, relatórios, e-commerce" + "".join(f", {t}" for t in list(termos)[:15])
-    segs, _ = _WHISPER[nome].transcribe(audio, language="pt", beam_size=5, vad_filter=True, initial_prompt=dica)
-    return " ".join(s.text.strip() for s in segs).strip(), cortado
+    segs, _ = _WHISPER[nome].transcribe(audio, language="pt", beam_size=5, vad_filter=True, initial_prompt=dica,
+                                        condition_on_previous_text=False)
+    # audio curto/baixo faz o Whisper "alucinar" ("they think that", letras de outros alfabetos): descarta
+    # o trecho em que ele mesmo diz que provavelmente nao ha fala ou que tem baixa confianca
+    bons = [s.text.strip() for s in segs if s.no_speech_prob < 0.6 and s.avg_logprob > -1.0
+            and s.compression_ratio < 2.4]
+    texto = " ".join(bons).strip()
+    return ("" if transcricao_suspeita(texto, dica) else texto), cortado
+
+
+_PT_COMUNS = {"oi", "ola", "tudo", "bem", "bom", "boa", "dia", "tarde", "noite", "ta", "to", "eu", "voce", "vc",
+              "sim", "nao", "e", "o", "a", "de", "que", "pra", "para", "com", "meu", "minha", "isso", "aqui", "ai",
+              "mano", "cara", "obrigado", "valeu", "beleza", "pedido", "sistema", "loja", "como", "quando", "qual",
+              "esta", "estou", "tem", "vai", "foi", "sobre", "um", "uma", "no", "na", "do", "da", "mas", "ja"}
+
+
+def transcricao_suspeita(texto, dica=""):
+    """Transcricao que nao parece fala em portugues: outro alfabeto, ingles, ou eco da dica."""
+    t = (texto or "").strip()
+    if not t:
+        return False
+    letras = [c for c in t if c.isalpha()]
+    if letras and sum(1 for c in letras if "a" <= unicodedata.normalize("NFKD", c.lower())[0] <= "z") / len(letras) < 0.9:
+        return True
+    from poupaqui_ai_policy import _EN_WORDS
+    palavras = normalize(t).split()
+    en = sum(p in _EN_WORDS or p in {"they", "think", "that", "this", "what", "thank", "thanks"} for p in palavras)
+    pt = sum(p in _PT_COMUNS for p in palavras)
+    if en >= 2 and en >= pt:
+        return True
+    return bool(dica) and normalize(t) in normalize(dica)
 
 
 def leitor_midia_ollama(base_url=None, model=None, timeout=60, baixar=None, vocabulario=None):

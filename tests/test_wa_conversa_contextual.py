@@ -55,9 +55,9 @@ class ConversaContextualTests(unittest.TestCase):
             A.ollama_geral()(['adorei esperar 40 min na fila'], [])
         with patch('urllib.request.urlopen', fake), patch.dict(os.environ, {'POUPAQUI_OLLAMA_NUM_THREAD': ''}):
             A.ollama_geral()(['passei na prova!'], [])
-        self.assertIn('IRÔNICA', bodies[0]['messages'][0]['content'])
+        self.assertIn('IRÔNICA', bodies[0]['messages'][-2]['content'])
         self.assertEqual(bodies[0]['options']['num_thread'], 2)
-        self.assertNotIn('IRÔNICA', bodies[1]['messages'][0]['content'])
+        self.assertNotIn('IRÔNICA', bodies[1]['messages'][-2]['content'])
         self.assertNotIn('num_thread', bodies[1]['options'])
 
     def test_conversa_nao_libera_dados_nem_promessas(self):
@@ -174,7 +174,10 @@ class ConversaContextualTests(unittest.TestCase):
             A.ollama_geral()(['Sim e vc oq ta fazendo de bom?'], hist)
         body = json.loads(request.call_args.args[0].data)
         dialogue = body['messages'][1 + len(A.GERAL_EXEMPLOS):]
-        self.assertEqual([m['role'] for m in dialogue], ['user', 'assistant', 'user'])
+        # o que muda a cada chamada (hora, avisos) vem num system logo antes da ultima fala
+        self.assertEqual([m['role'] for m in dialogue], ['user', 'assistant', 'system', 'user'])
+        self.assertIn('Agora são', dialogue[2]['content'])
+        self.assertNotIn('Agora são', body['messages'][0]['content'])   # 1o system fixo: reaproveitado em cache
         self.assertEqual(dialogue[0]['content'], 'Mano to com sono')
         self.assertEqual(body['messages'][-1]['content'], 'Sim e vc oq ta fazendo de bom?')
         self.assertNotIn('5001', json.dumps(body))
@@ -281,6 +284,12 @@ class ConversaContextualTests(unittest.TestCase):
             self.assertFalse(A.tem_conteudo_alem_de_cortesia(A.normalize(t)), t)
         r = resp(["[Áudio transcrito] Olá, tudo bem? Tá frio hoje, né?"], llm=lambda textos, hist: "Tá frio mesmo, hein!")
         self.assertIn("frio", r.reply)
+
+    def test_transcricao_alucinada_vira_sem_fala(self):
+        for t in ("they think that", "PRINCIPO SIMILOS . CANnierорattendtwнинal.", "Pedido Eletrônico, relatórios"):
+            self.assertTrue(A.transcricao_suspeita(t, "Pedido Eletrônico, relatórios, e-commerce"), t)
+        for t in ("Oi, tudo bem? Tá frio hoje, né?", "o pedido da Germed não chegou", "Ok", "Bom dia, Miguel."):
+            self.assertFalse(A.transcricao_suspeita(t, "Pedido Eletrônico, relatórios, e-commerce"), t)
 
     def test_replica_de_identidade_nao_finge_humano(self):
         hist = [{'de': 'contato', 'texto': 'vc é gente ou robô?'},
