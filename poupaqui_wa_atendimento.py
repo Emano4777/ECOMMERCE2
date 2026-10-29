@@ -120,6 +120,7 @@ ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS alerta_em TIMESTAM
 ALTER TABLE ecommerce_wa_mensagens ADD COLUMN IF NOT EXISTS origem_envio TEXT;
 ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS escalado BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS resumo JSONB;
+ALTER TABLE ecommerce_wa_mensagens ADD COLUMN IF NOT EXISTS midia JSONB;
 CREATE TABLE IF NOT EXISTS ecommerce_wa_atendimento_humano (
     telefone TEXT PRIMARY KEY,
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
@@ -207,6 +208,24 @@ def _message_text(msg, message):
     return str(body).strip()[:4000]
 
 
+_MIDIA_CAMPOS = ("url", "mimetype", "mediaKey", "fileSha256", "fileLength", "fileName", "directPath", "seconds")
+MIDIA_IMAGEM_TIPOS = ("image/jpeg", "image/png", "image/webp")
+MIDIA_AUDIO_TIPOS = ("audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav", "audio/x-wav", "audio/webm")
+
+
+def _media_info(message):
+    """Metadados para baixar imagem/print ou audio pela decrypt-media da WA Sender (o arquivo do
+    WhatsApp vem criptografado; sem guardar isso na chegada nao da para ler depois)."""
+    message = message if isinstance(message, dict) else {}
+    for campo, tipos in (("imageMessage", MIDIA_IMAGEM_TIPOS), ("documentMessage", MIDIA_IMAGEM_TIPOS),
+                         ("audioMessage", MIDIA_AUDIO_TIPOS)):
+        m = message.get(campo)
+        if isinstance(m, dict) and str(m.get("mimetype") or "").split(";")[0].strip() in tipos \
+                and m.get("url") and m.get("mediaKey"):
+            return {"campo": campo, **{k: m[k] for k in _MIDIA_CAMPOS if m.get(k) is not None}}
+    return None
+
+
 def parse_inbound(payload):
     """Extrai mensagens privadas recebidas. Ignora fromMe, grupos, canais e status."""
     if not isinstance(payload, dict):
@@ -248,6 +267,7 @@ def parse_inbound(payload):
             "corpo": _message_text(msg, message),
             "nome_whatsapp": str(msg.get("pushName") or "").strip()[:120] or None,
             "wa_timestamp": wa_ts,
+            "midia": _media_info(message),
         })
     return out
 
@@ -270,12 +290,13 @@ def store_inbound(payload, conn):
             """, (it["telefone"], it["nome_whatsapp"]))
             cur.execute("""
                 INSERT INTO ecommerce_wa_mensagens
-                    (message_id, telefone, direcao, tipo, corpo, nome_whatsapp, wa_timestamp)
-                VALUES (%s, %s, 'in', %s, %s, %s, %s)
+                    (message_id, telefone, direcao, tipo, corpo, nome_whatsapp, wa_timestamp, midia)
+                VALUES (%s, %s, 'in', %s, %s, %s, %s, %s)
                 ON CONFLICT (message_id) DO NOTHING
                 RETURNING id
             """, (it["message_id"], it["telefone"], it["tipo"], it["corpo"],
-                  it["nome_whatsapp"], it["wa_timestamp"]))
+                  it["nome_whatsapp"], it["wa_timestamp"],
+                  json.dumps(it["midia"]) if it.get("midia") else None))
             if cur.fetchone():
                 novas += 1
     conn.commit()
@@ -341,7 +362,11 @@ def parse_outbound(payload):
     if not isinstance(payload, dict):
         return []
     data = payload.get("data") or {}
-    msgs = data.get("messages") or data.get("message") or []
+    if isinstance(data, dict) and isinstance(data.get("key"), dict):
+        # message.sent oficial: key direto em data e conteudo em data.message
+        msgs = [data]
+    else:
+        msgs = data.get("messages") or data.get("message") or []
     if isinstance(msgs, dict):
         msgs = [msgs]
     if not isinstance(msgs, list):
@@ -356,8 +381,10 @@ def parse_outbound(payload):
         jid = str(key.get("remoteJid") or "")
         if jid.endswith(_SKIP_JID_SUFFIXES) or jid.startswith("status@"):
             continue
+        # remoteJid so com digitos ("+5517...") tambem e contato privado
+        numerico = bool(re.fullmatch(r"\+?\d{10,15}", jid))
         dest = (key.get("cleanedRecipientPn") or key.get("recipientPn") or key.get("remoteJidAlt")
-                or (jid if jid.endswith("@s.whatsapp.net") else ""))
+                or (jid if jid.endswith("@s.whatsapp.net") or numerico else ""))
         phone = normalize_phone(dest)
         mid = str(key.get("id") or msg.get("id") or "").strip()
         if not phone or not mid:
@@ -736,10 +763,49 @@ def _release(conn, ids, max_attempts):
     conn.commit()
 
 
-def process_contact(conn, phone, mode, classifier, sender, state, logger=None, model_label=None, assistente=None):
+def texto_da_midia(lido, legenda=""):
+    """Texto que substitui a midia no fluxo: audio vira a propria fala transcrita; imagem vira o
+    que o modelo de visao viu, marcado como imagem."""
+    if lido.get("audio"):
+        corte = " (áudio longo: só o começo foi transcrito)" if lido.get("cortado") else ""
+        return f"[Áudio transcrito{corte}] {str(lido.get('texto') or '').strip()}"[:1500]
+    partes = ["[Imagem enviada pelo contato]"]
+    if legenda:
+        partes.append(f"Legenda: {legenda}.")
+    if lido.get("resumo"):
+        partes.append(f"O que mostra: {str(lido['resumo']).strip()}")
+    if lido.get("texto"):
+        partes.append(f"Texto na imagem: {str(lido['texto']).strip()}")
+    return " ".join(partes)[:1500]
+
+
+def _ler_midias(conn, batch, texts, kinds, leitor):
+    """Le cada imagem do lote. A chave de criptografia (midia) e apagada depois, lida ou nao."""
+    for i, b in enumerate(batch):
+        midia = b[6]
+        if kinds[i] not in ("image", "document", "audio") or not midia:
+            continue
+        try:
+            lido = leitor(b[1], midia if isinstance(midia, dict) else json.loads(midia))
+        except Exception:
+            lido = None
+        with _cur(conn) as cur:
+            if lido and (lido.get("texto") or lido.get("resumo")):
+                texts[i], kinds[i] = texto_da_midia(lido, b[3]), "text"
+                cur.execute("UPDATE ecommerce_wa_mensagens SET corpo = %s, midia = NULL WHERE id = %s",
+                            (texts[i], b[0]))
+            else:
+                cur.execute("UPDATE ecommerce_wa_mensagens SET midia = NULL WHERE id = %s", (b[0],))
+        conn.commit()
+
+
+def process_contact(conn, phone, mode, classifier, sender, state, logger=None, model_label=None, assistente=None,
+                    leitor_midia=None):
     """Processa a sequencia pendente de um contato. Retorna dict de auditoria ou None.
 
     assistente: callable(conn, textos, tipos, identidade, historico) -> Resposta
+    leitor_midia: callable(message_id, midia) -> {"texto", "resumo"} | None. Imagem lida vira
+    texto e segue o fluxo normal; sem leitor ou se falhar, continua como midia.
     (poupaqui_ai_assistente.assistente_worker). Quando presente substitui o
     classificador; a resposta vem com texto BASE e, se escalar, o worker:
       1. grava a decisao (resposta ainda nao liberada para envio);
@@ -756,7 +822,7 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
             WHERE id IN (SELECT id FROM ecommerce_wa_mensagens
                          WHERE telefone = %s AND direcao = 'in' AND status = 'pendente'
                          FOR UPDATE SKIP LOCKED)
-            RETURNING id, message_id, tipo, corpo, nome_whatsapp, recebido_em
+            RETURNING id, message_id, tipo, corpo, nome_whatsapp, recebido_em, midia
         """, (phone,))
         batch = sorted(cur.fetchall())
     conn.commit()
@@ -768,6 +834,8 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
     try:
         texts = [b[3] for b in batch]
         kinds = [b[2] for b in batch]
+        if leitor_midia is not None:
+            _ler_midias(conn, batch, texts, kinds, leitor_midia)
         push_name = next((b[4] for b in reversed(batch) if b[4]), None)
         with _cur(conn) as cur:
             cur.execute("""SELECT opt_out, vinculo_manual_tipo, vinculo_manual_ref
@@ -868,9 +936,15 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
                 envio = "bloqueado_fora_allowlist"
             elif state["envios"] >= _cfg_int("POUPAQUI_WA_IA_MAX_ENVIOS_RUN", 10):
                 envio = "bloqueado_limite_execucao"
-            elif _sends_since(conn, phone, "1 hour") >= _cfg_int("POUPAQUI_WA_IA_MAX_HORA", 3):
+            elif _sends_since(conn, phone, "1 hour") >= (
+                    _cfg_int("POUPAQUI_WA_IA_TEST_MAX_HORA", 30)
+                    if mode == "test" and phone in test_phones()
+                    else _cfg_int("POUPAQUI_WA_IA_MAX_HORA", 3)):
                 envio = "bloqueado_limite_hora"
-            elif _sends_since(conn, phone, "1 day") >= _cfg_int("POUPAQUI_WA_IA_MAX_DIA", 8):
+            elif _sends_since(conn, phone, "1 day") >= (
+                    _cfg_int("POUPAQUI_WA_IA_TEST_MAX_DIA", 100)
+                    if mode == "test" and phone in test_phones()
+                    else _cfg_int("POUPAQUI_WA_IA_MAX_DIA", 8)):
                 envio = "bloqueado_limite_dia"
             else:
                 envio = "enviando"
@@ -1129,7 +1203,7 @@ def release_worker_lease(conn, token):
 
 
 def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine="servidor", model_label=None,
-               assistente=None):
+               assistente=None, leitor_midia=None):
     ensure_schema(conn)
     mode = effective_mode(get_db_mode(conn))
     motor = get_db_engine(conn)
@@ -1147,6 +1221,11 @@ def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine=
         debounce = _cfg_int("POUPAQUI_WA_IA_DEBOUNCE_SEG", 40)
         max_age = _cfg_int("POUPAQUI_WA_IA_MAX_IDADE_MIN", 360)
         max_contacts = max_contacts or _cfg_int("POUPAQUI_WA_IA_MAX_CONTATOS_RUN", 8)
+        # em test so a allowlist entra no worker: contato real nao e consumido, expirado nem
+        # gera alerta (antes era processado e so bloqueado no envio)
+        escopo, escopo_args = "", ()
+        if mode == "test":
+            escopo, escopo_args = " AND telefone = ANY(%s)", (sorted(test_phones()),)
         with _cur(conn) as cur:
             # reservas presas (worker caiu no meio) voltam pra fila
             cur.execute("""UPDATE ecommerce_wa_mensagens
@@ -1156,14 +1235,15 @@ def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine=
             # nao responde conversa velha (ex.: acumulada enquanto estava 'off')
             cur.execute("""UPDATE ecommerce_wa_mensagens SET status = 'expirado', processado_em = NOW()
                            WHERE status = 'pendente' AND direcao = 'in'
-                             AND recebido_em < NOW() - (%s || ' minutes')::interval""", (str(max_age),))
+                             AND recebido_em < NOW() - (%s || ' minutes')::interval""" + escopo,
+                        (str(max_age),) + escopo_args)
             summary["expiradas"] = cur.rowcount
             # so pega contato cuja ultima mensagem tem >= debounce (sequencia terminou)
             cur.execute("""SELECT telefone FROM ecommerce_wa_mensagens
-                           WHERE status = 'pendente' AND direcao = 'in'
+                           WHERE status = 'pendente' AND direcao = 'in'""" + escopo + """
                            GROUP BY telefone
                            HAVING MAX(recebido_em) < NOW() - (%s || ' seconds')::interval
-                           ORDER BY MIN(recebido_em) LIMIT %s""", (str(debounce), max_contacts))
+                           ORDER BY MIN(recebido_em) LIMIT %s""", escopo_args + (str(debounce), max_contacts))
             phones = [r[0] for r in cur.fetchall()]
         conn.commit()
         state = {"envios": 0}
@@ -1174,7 +1254,7 @@ def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine=
                 break
             try:
                 res = process_contact(conn, phone, mode, classifier, sender, state, logger, model_label,
-                                      assistente)
+                                      assistente, leitor_midia)
             except Exception:
                 summary["erros"] += 1
                 continue
