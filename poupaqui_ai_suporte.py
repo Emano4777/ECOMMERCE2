@@ -190,7 +190,8 @@ class RepoSuporte(RepoLeitura):
 # ─── Intencao ──────────────────────────────────────────────────────────────
 
 _FALHA = (r"(sai\w* do ar|cai\w* do ar|nao (ta|esta|tao|estao) no ar|caiu|cai|caindo|fora do ar|fora|offline|parad\w*|instavel|travad\w*|travando|travou|trava|lent\w*|"
-          r"erro\w*|bug\w*|deu pau|nao (abre|abriu|carrega\w*|entra|entrou|funciona|funcionando|ta funcionando|"
+          r"erro\w*|bug\w*|deu pau|deu ruim|deu problema|com problema|zoad\w*|pifou|nao (abre|abriu|carrega\w*|"
+          r"entra|entrou|funciona|funcionando|ta funcionando|"
           r"esta funcionando|envia|enviou|consigo|consegui|vai|da|deixa)|tela branca|nao responde)")
 _SIS_PE = r"(pedido eletronico|pedidoeletronico|sistema de pedido\w*|sistema|plataforma|portal|site de pedido\w*)"
 _SIS_ECOM = r"(e ?commerce|loja virtual|loja online|drogariaspoupaqui|site da loja|site de vendas|aplicativo|app)"
@@ -203,8 +204,10 @@ _REL_FORA_RE = re.compile(rf"\b{_SIS_REL}\b.*\b(nao (abre|carrega|entra)|fora do
 _REL_DIV_RE = re.compile(
     rf"\b({_SIS_REL[1:-1]}|vendas?|faturamento da loja|numeros?|dados)\b.*\b(errad\w*|diverg\w*|nao bat\w*|nao ta batendo|"
     r"diferente\w*|incorret\w*|falt\w*|zerad\w*|estranh\w*|menor|maior|sumi\w*|desatualizad\w*|"
-    r"nao atualiz\w*|incomplet\w*|nao aparec\w*|nao (mostra|consta)\w*)\b"
-    r"|\b(errad\w*|diverg\w*|nao bat\w*|nao aparec\w*)\b.*\b" + _SIS_REL + r"\b")
+    r"nao atualiz\w*|incomplet\w*|nao aparec\w*|nao (mostra|consta)\w*|deu ruim|deu problema|com problema|bug\w*|"
+    r"zoad\w*)\b"
+    r"|\b(errad\w*|diverg\w*|nao bat\w*|nao aparec\w*|deu ruim|deu problema|problema|bug\w*|zoad\w*)\b.*\b"
+    + _SIS_REL + r"\b")
 _PROD_SUMIU_RE = re.compile(
     r"\b(nao (aparec\w*|mostr\w*|encontr\w*|ach\w*|sobe|subiu)|sumi\w*|desaparec\w*|some)\b")
 _ONDE_ECOM_RE = re.compile(rf"\b({_SIS_ECOM[1:-1]}|site|catalogo|online|internet|vitrine)\b")

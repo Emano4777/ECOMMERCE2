@@ -778,15 +778,17 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     if verificada and identidade.get("tipo") == "interno" and repo is not None and hasattr(repo, "lojas_cadastro"):
         import poupaqui_ai_suporte as S0
         sup0 = S0.detectar_suporte(norm)
-        precisa = intencao in ("pedido", "financeiro") or sup0 in ("relatorio", "ecommerce") or (
-            sup0 in ("pe_fora", "rel_fora", "ecom_fora", "acesso") and re.search(r"\bloja\w*\b", norm))
-        if precisa or re.search(r"\b(loja|lojas|filial|unidade)\s+(de|da|do)\b", norm):
-            try:
-                lojas = repo.lojas_cadastro()
-            except Exception:
-                lojas = []
+        precisa = intencao in ("pedido", "financeiro") or sup0 in ("relatorio", "ecommerce")
+        try:
+            lojas = repo.lojas_cadastro()
+        except Exception:
+            lojas = []
+        if lojas:
+            # loja citada na propria mensagem vale sempre ("deu ruim no relatorio de sao pedro"); do
+            # historico so quando o assunto e de dados de loja
             citadas = lojas_citadas(norm, lojas)
-            if not citadas:
+            sup_ant = S0.detectar_suporte(hist_norm) if hist_norm else None
+            if not citadas and (precisa or sup0 or sup_ant):
                 for h in reversed((historico or [])[-8:]):
                     if h.get("de") in ("operador", "sistema"):
                         break
@@ -810,6 +812,12 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                         intencao = anterior
                     else:
                         ctx["sup_herdado"] = S0.detectar_suporte(hist_norm)
+            elif (precisa or sup0 or sup_ant) and identidade.get("loja_padrao"):
+                # numero interno que tambem e telefone de uma loja: sem loja citada, vale a dele
+                padrao = identidade["loja_padrao"]
+                identidade = {"verificada": True, "metodo": "interno_loja_padrao", "tipo": "loja",
+                              "ref": padrao["ref"], "nome": padrao.get("nome"), "interno": True}
+                loja_ok = True
             elif precisa:
                 return fim(Resposta("ANSWER", prefixo + "De qual loja? Me diga a cidade ou o nome da loja que eu "
                                     "consulto os dados dela no sistema.", "interno: falta a loja", False, intencao))
@@ -886,6 +894,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             if (intencao == "geral" and (_CONTINUA_RE.search(norm) or slots or detalhe_numerico)) or (
                     intencao == "financeiro" and slots):  # "trava no pagamento, aparece recusado"
                 sup, texto_diag = sup_hist, f"{hist_norm} {norm}"
+    if sup in ("relatorio", "ecommerce") and verificada and identidade.get("tipo") == "interno":
+        # equipe interna sem loja definida: pergunta qual, em vez de pedir "o numero cadastrado da loja"
+        return fim(Resposta("ANSWER", prefixo + "De qual loja? Me diga a cidade ou o nome da loja que eu confiro "
+                            "os dados dela no sistema.", "interno: falta a loja", False, sup))
     if sup:
         try:
             r = S.responder_suporte(sup, texto_diag, ctx, repo, identidade, agora, sonda, hist_norm,

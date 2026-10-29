@@ -686,8 +686,15 @@ def identify_contact(conn, phone, manual=None):
     exibido no WhatsApp nunca entra aqui -- vai pro contexto como nao verificado."""
     if manual and manual[0]:
         tipo, ref = manual
-        return {"verificada": True, "metodo": "vinculo_manual", "tipo": tipo, "ref": ref,
-                "candidatos": [{"tipo": tipo, "ref": ref}]}
+        out = {"verificada": True, "metodo": "vinculo_manual", "tipo": tipo, "ref": ref,
+               "candidatos": [{"tipo": tipo, "ref": ref}]}
+        if tipo == "interno":
+            # equipe interna que tambem e o telefone de uma loja: essa loja vira o padrao quando a
+            # mensagem nao cita nenhuma (citando outra, vale a citada)
+            pelo_tel = identify_contact(conn, phone, None)
+            if pelo_tel.get("verificada") and pelo_tel.get("tipo") == "loja":
+                out["loja_padrao"] = {"ref": pelo_tel["ref"], "nome": pelo_tel.get("nome")}
+        return out
     key = phone_key(phone)
     cands = {}
     if key:
