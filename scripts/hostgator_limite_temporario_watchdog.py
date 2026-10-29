@@ -2,14 +2,14 @@
 argv: start <MemoryHigh> <MemoryMax> <minutos> | stop | status
 start: checa folga do host (MemAvailable >= 11 GiB, load1 <= 1.5), aplica limites --runtime e deixa
   um vigia em segundo plano (setsid) que, se MemAvailable < 4.5 GiB ou load1 > 6, descarrega os modelos
-  e reverte. Ao fim do prazo, ou com `stop`, sempre reverte para MemoryHigh=6G MemoryMax=7G.
+  e reverte. Ao fim do prazo, ou com `stop`, sempre reverte para MemoryHigh=7G MemoryMax=7680M (os persistidos).
 CPU (CPUQuota=250%, AllowedCPUs=1-3, CPUWeight=20) nao e alterada. Sem restart nem daemon-reload.
 """
 import json, os, subprocess as sp, sys, time, urllib.request
 UNIT = 'ollama-piloto.service'
 STOP = '/run/ollama-piloto-limite.stop'
 LOG = '/run/ollama-piloto-limite.log'
-BASE = ('6G', '7G')
+BASE = ('7G', '7680M')   # mesmos valores persistidos em system.control
 G = 1024 ** 3
 
 def avail():
