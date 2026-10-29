@@ -1174,8 +1174,9 @@ def problema_conversa(txt, textos, historico=None):
         return 'encaminhamento ou resposta comercial indevida'
     if _RECUSA_RE.search(n):
         return 'recusa de conversa cotidiana'
-    if n == _ultima_do_assistente(historico):
-        return 'resposta repetida'
+    ultima = _ultima_do_assistente(historico)
+    if n == ultima or (ultima and len(n) > 15 and __import__("difflib").SequenceMatcher(None, n, ultima).ratio() > 0.8):
+        return 'resposta repetida'   # quase copia da resposta anterior ("tudo bem por aqui, e com voce?" de novo)
     context = normalize(' '.join(str(t) for t in textos))
     if parece_ironia(context) and re.search(r"\b(que bom|que otimo|fico feliz|que legal|vale a pena)\b", n):
         return 'ironia lida como elogio: a pessoa esta reclamando'
@@ -1370,7 +1371,21 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         import poupaqui_ai_web as WEB
         web = fn.ultimo_web if correcao else None
         fn.ultimo_web = None
-        if (not correcao and os.getenv("POUPAQUI_WA_IA_BUSCA_WEB", "1") == "1"
+        clima_re = r"\b(chov\w*|chuva|clima|temperatura|previsao do tempo|frio|calor|tempo (amanha|hoje))\b"
+        ultima_fala = next((h["content"] for h in history if h["role"] == "user"), "")   # mais recente 1o
+        # "qual cidade?" -> "sao jose do rio preto": e a cidade; previsao direto, sem gastar a decisao
+        cidade_resposta = (not correcao and not web and re.search(clima_re, normalize(ultima_fala))
+                           and not re.search(clima_re, current_norm) and len(current_norm.split()) <= 5
+                           and not WEB.parece_pergunta_de_fato(current_norm, " ".join(falas)))
+        if cidade_resposta:
+            web = WEB.clima(" ".join(falas).strip(" ?!.")) or None
+            fn.ultima_busca = {"tipo": "clima", "consulta": " ".join(falas)[:60], "ok": bool(web)}
+        # pedido criativo (cantada, piada, musica, receita, ideia): o modelo ja sabe, decisao so atrasava
+        criativo = re.search(r"\b(cantada\w*|piada\w*|musica\w*|poema\w*|poesia|frase\w*|receita\w*|ideia\w*|"
+                             r"sugest\w*|dica\w*|historia\w*|apelido\w*|nome pra|nomes pra|trocadilho\w*)\b", current_norm)
+        if cidade_resposta or criativo:
+            pass
+        elif (not correcao and os.getenv("POUPAQUI_WA_IA_BUSCA_WEB", "1") == "1"
                 and re.search(r"\b(dolar|euro|bitcoin|cotacao|cambio)\b", current_norm)):
             # cotacao nao precisa de decisao do modelo (ele as vezes dizia "nao tenho acesso")
             web = WEB.cotacao()
