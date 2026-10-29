@@ -106,20 +106,50 @@ def clima(cidade):
     return "\n".join(linhas)
 
 
+def _reais(v):
+    return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+_COTACAO_CACHE = {"em": 0.0, "texto": None}
+
+
 def cotacao():
-    """Dolar, euro e bitcoin em reais (AwesomeAPI, sem chave) em texto para o prompt, ou None."""
+    """Dolar, euro e bitcoin em reais em texto para o prompt, ou None. AwesomeAPI primeiro; o IP
+    compartilhado da HostGator leva HTTP 429 la, entao cai para ExchangeRate-API (dolar/euro, referencia
+    do dia) + CoinGecko (bitcoin). Cache de 5 min para nao estourar limite de nenhuma."""
+    if _COTACAO_CACHE["texto"] and time.monotonic() - _COTACAO_CACHE["em"] < 300:
+        return _COTACAO_CACHE["texto"]
+    linhas = []
     try:
         c = _get_json("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL")
+        linhas = ["Cotações em reais (fonte: AwesomeAPI, consultada agora):"]
+        for k, nome in {"USDBRL": "Dólar comercial", "EURBRL": "Euro", "BTCBRL": "Bitcoin"}.items():
+            v = c.get(k)
+            if v:
+                linhas.append(f"{nome}: compra {_reais(v['bid'])} (variação no dia {v.get('pctChange')}%, "
+                              f"atualizado {str(v.get('create_date'))[:16]}).")
     except Exception:
-        return None
-    nomes = {"USDBRL": "Dólar comercial", "EURBRL": "Euro", "BTCBRL": "Bitcoin"}
-    linhas = ["Cotações em reais (fonte: AwesomeAPI, consultada agora):"]
-    for k, nome in nomes.items():
-        v = c.get(k)
-        if v:
-            linhas.append(f"{nome}: compra R$ {float(v['bid']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                          + f" (variação no dia {v.get('pctChange')}%, atualizado {str(v.get('create_date'))[:16]}).")
-    return "\n".join(linhas) if len(linhas) > 1 else None
+        linhas = []
+    if len(linhas) <= 1:
+        linhas = ["Cotações em reais (consultadas agora):"]
+        try:
+            fx = _get_json("https://open.er-api.com/v6/latest/USD")
+            brl, eur = fx["rates"]["BRL"], fx["rates"]["EUR"]
+            linhas.append(f"Dólar: {_reais(brl)} e Euro: {_reais(brl / eur)} (fonte: ExchangeRate-API, referência "
+                          f"do dia {str(fx.get('time_last_update_utc', ''))[5:16]}).")
+        except Exception:
+            pass
+        try:
+            b = _get_json("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=brl"
+                          "&include_24hr_change=true")["bitcoin"]
+            linhas.append(f"Bitcoin: {_reais(b['brl'])} (variação em 24 h {b.get('brl_24h_change', 0):.2f}%, "
+                          "fonte: CoinGecko).")
+        except Exception:
+            pass
+    texto = "\n".join(linhas) if len(linhas) > 1 else None
+    if texto:
+        _COTACAO_CACHE.update(em=time.monotonic(), texto=texto)
+    return texto
 
 
 def contexto_para_prompt(resultados, hoje):
