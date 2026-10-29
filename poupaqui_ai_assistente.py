@@ -261,7 +261,8 @@ _EMPRESA_RE = re.compile(r"\b(vaga\w*|emprego|curriculo|escritorio|funcionamento
 _RECUSA_RE = re.compile(r"\b(nao posso ajudar|nao consigo ajudar|nao posso responder|desculpe mas)\b")
 
 
-_DIA_RE = re.compile(r"\b(que dia e hoje|que horas sao|qual a data de hoje)\b")
+_DIA_RE = re.compile(r"\b(que dia (e|eh) hoje|hoje e que dia|que horas? (sao|e|eh)( agora)?|que horas? tem ai|"
+                     r"sabe que horas|qual a data( de hoje)?|que data (e|eh) hoje|dia de hoje)\b")
 _NUMERO_RE = re.compile(r"\bpedido\s*(?:n[ou]?\.?|numero|#)?\s*(\d{3,12})\b")
 _FOLLOWUP_RE = re.compile(r"^(e|e o|e a|e do|e da|e os|e as|e no|e na|e pra|e para|e quanto)\b")
 
@@ -1171,7 +1172,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         if not is_loopback_url(base_url):
             return None
         periodo = _saudacao_periodo(None).lower()  # "bom dia" | "boa tarde" | "boa noite" (horario de Brasilia)
+        agora = _agora(None)
+        dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
         messages = [{"role": "system", "content": GERAL_PROMPT + (
+            f"\nAgora são {agora:%H:%M} de {dias[agora.weekday()]}, {agora:%d/%m/%Y} (horário de Brasília); use "
+            "isso para responder hora, data e dia da semana."
             "\nVocê é a assistente virtual (IA) da Drogarias PoupAqui no WhatsApp; atende as lojas da rede. "
             f"Agora é hora de \"{periodo}\": se for cumprimentar, use esse cumprimento, mesmo que a pessoa tenha "
             "usado outro. Numa saudação simples, cumprimente de volta e pergunte como pode ajudar.")}]
