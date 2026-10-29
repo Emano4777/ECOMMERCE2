@@ -181,6 +181,7 @@ def run_once(stats=None, assistente=False):
         import poupaqui_ai_assistente as A
         conn = connect()
         try:
+            A.liberar_whisper_ocioso()   # memoria do servidor: solta o Whisper parado ha 10 min
             # print/foto/audio: le com o modelo multimodal do Ollama local; desligado = "nao abro midia"
             leitor = None
             if os.getenv("POUPAQUI_WA_IA_LER_IMAGENS") == "1":

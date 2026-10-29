@@ -1541,6 +1541,19 @@ def separar_video(dados, max_seg=AUDIO_MAX_SEG):
 
 
 _WHISPER = {}
+_WHISPER_USO = {"em": 0.0}
+
+
+def liberar_whisper_ocioso(minutos=None):
+    """Solta o Whisper (~2 GB) depois de N min sem audio: no servidor a memoria e o recurso escasso
+    (o modelo de conversa fica carregado). No proximo audio ele recarrega em ~3 s."""
+    minutos = float(minutos if minutos is not None else (os.getenv("POUPAQUI_WHISPER_OCIOSO_MIN") or 10))
+    if _WHISPER and time.monotonic() - _WHISPER_USO["em"] > minutos * 60:
+        _WHISPER.clear()
+        import gc
+        gc.collect()
+        return True
+    return False
 
 
 def transcrever_whisper(dados, termos=(), max_seg=AUDIO_MAX_SEG):
@@ -1550,6 +1563,7 @@ def transcrever_whisper(dados, termos=(), max_seg=AUDIO_MAX_SEG):
     import numpy as np
     from faster_whisper import WhisperModel
     nome = os.getenv("POUPAQUI_WHISPER_MODEL") or "large-v3-turbo"
+    _WHISPER_USO["em"] = time.monotonic()
     if nome not in _WHISPER:
         _WHISPER[nome] = WhisperModel(nome, device="cpu", compute_type="int8",
                                       cpu_threads=int(os.getenv("POUPAQUI_WHISPER_THREADS") or 4),

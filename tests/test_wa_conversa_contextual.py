@@ -1,6 +1,7 @@
 """Contratos offline: conversa, contexto Ollama e integracao local sem envios."""
 import json
 import os
+import time
 import unittest
 from unittest.mock import patch, Mock
 
@@ -331,6 +332,14 @@ class ConversaContextualTests(unittest.TestCase):
             self.assertNotIn('DIAGNOSTICO', r.reply)                    # conversa nao vira relatorio de novo
             r = resp(['e da loja de botucatu?'], ident=INTERNO, hist=hist, repo=Repo())
             self.assertIn('DIAGNOSTICO', r.reply)                       # trocar so a loja mantem o assunto
+
+    def test_whisper_ocioso_libera_memoria(self):
+        A._WHISPER["x"] = object()
+        A._WHISPER_USO["em"] = time.monotonic()
+        self.assertFalse(A.liberar_whisper_ocioso(10))      # usado agora: fica
+        A._WHISPER_USO["em"] = time.monotonic() - 11 * 60
+        self.assertTrue(A.liberar_whisper_ocioso(10))       # parado ha 11 min: solta
+        self.assertEqual(A._WHISPER, {})
 
     def test_replica_de_identidade_nao_finge_humano(self):
         hist = [{'de': 'contato', 'texto': 'vc é gente ou robô?'},
