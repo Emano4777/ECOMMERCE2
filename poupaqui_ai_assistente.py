@@ -136,6 +136,15 @@ class RepoLeitura:
             if idle:
                 self.conn.rollback()
 
+    def lojas_cadastro(self):
+        """[(cnpj, razao, cidade)] de todas as lojas; cidade vem de users.endereco ("Sao Pedro- 19...")."""
+        out = []
+        for cnpj, razao, end in self._query("SELECT cnpjloja, razao, endereco FROM users "
+                                            "WHERE COALESCE(cnpjloja, '') <> ''", ()):
+            cidade = re.split(r"\s*-\s*\d|\s*-\s*$", str(end or ""))[0].strip()
+            out.append((str(cnpj), str(razao or ""), cidade))
+        return out
+
     def loja_por_cnpj(self, cnpj):
         rows = self._query("SELECT id::text, razao FROM users WHERE cnpjloja = %s LIMIT 2", (str(cnpj),))
         if len(rows) != 1:  # inexistente ou ambiguo: nao entrega nada
@@ -207,7 +216,8 @@ _ACK = {"ok", "okay", "okk", "blz", "beleza", "certo", "ta", "ta bom", "ta certo
         "suave", "de boa", "tranquilo", "tmj", "falou", "firmeza", "pode crer"}
 _PEDIDO_RE = re.compile(r"\b(pedido\w*|encomenda|mercadoria|compra)\b")
 _PEDIDO_Q_RE = re.compile(r"\b(cheg\w*|saiu|sai|status|andamento|situacao|fatur\w*|previs\w*|entreg\w*|"
-                          r"quando|onde|aprovad\w*|atendid\w*|caminho|despach\w*|como (esta|ta|fica)|foi|foram|"
+                          r"quando|onde|aprovad\w*|atendid\w*|caminho|despach\w*|como (esta|ta|fica|estao|tao|andam)|"
+                          r"foi|foram|"
                           r"enviad\w*|mandad\w*|transmitid\w*)\b")
 _CORTE_RE = re.compile(r"\b(corte|cutoff|horario|ate que horas|ate quando|prazo|entrega\w*|entregam)\b")
 _FIN_RE = re.compile(r"\b(boleto\w*|pagament\w*|pagar|paguei|pix|cobran\w*|cobrad\w*|reembols\w*|estorn\w*|"
@@ -651,6 +661,29 @@ def tem_conteudo_alem_de_cortesia(norm):
     return len(resto) >= 2
 
 
+_RAZAO_GENERICA = {"drogaria", "drogarias", "farmacia", "farma", "ltda", "me", "epp", "eireli", "comercio", "de",
+                   "da", "do", "e", "produtos", "farmaceuticos", "medicamentos", "cia", "sa", "loja", "lojas", "filial"}
+
+
+def lojas_citadas(texto_norm, lojas):
+    """Lojas que o texto cita pela cidade ("loja de sao pedro") ou por parte distintiva da razao social
+    ("loja giacometti"). [(cnpj, razao, cidade)]; vazio se nenhuma."""
+    achadas = []
+    for cnpj, razao, cidade in lojas:
+        c = normalize(cidade)
+        c_base = re.sub(r"\s+\d+$", "", c)   # "barretos 2" tambem e citada como "barretos"
+        if c and re.search(rf"\b(loja|lojas|filial|unidade|de|da|do|em)\s+({re.escape(c)}|{re.escape(c_base)})\b", texto_norm):
+            achadas.append((cnpj, razao, cidade))
+            continue
+        nomes = [w for w in normalize(razao).split() if len(w) >= 5 and w not in _RAZAO_GENERICA]
+        if any(re.search(rf"\b(loja|drogaria|farmacia)\s+(\w+\s+)?{re.escape(w)}\b", texto_norm) for w in nomes):
+            achadas.append((cnpj, razao, cidade))
+    # cidade exata vence a cidade "base" ("barretos 2" citada explicitamente)
+    exatas = [a for a in achadas if re.search(rf"\b{re.escape(normalize(a[2]))}\b", texto_norm) and
+              re.search(r"\d$", normalize(a[2]))]
+    return exatas or achadas
+
+
 def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agora=None, llm_geral=None,
               sonda=None):
     """Decide e redige a resposta. Nunca envia. Qualquer erro de consulta -> HUMAN.
@@ -663,9 +696,17 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     ctx = {"fontes": []}
 
     def fim(r):
+        # consulta de outra loja pela equipe interna: deixa explicito de qual loja sao os dados (e o historico
+        # passa a ter a referencia para "e os pedidos dela?")
+        if ctx.get("loja_citada") and r.reply and r.acao == "ANSWER" and ctx["fontes"]:
+            corpo = re.sub(r"\b(da|na|a) sua loja\b", r"\1 loja", r.reply)   # quem pergunta e a equipe, nao a loja
+            r.reply = f"{ctx['loja_citada']}: {corpo[0].lower() + corpo[1:]}"
         # a pessoa precisa saber que a imagem/audio foi entendido (o texto chega marcado pelo worker)
         if r.reply and r.acao == "ANSWER":
-            if any(t.startswith("[Imagem enviada pelo contato]") for t in textos):
+            if any(t.startswith("[Vídeo enviado pelo contato]") for t in textos) and not re.search(
+                    r"\b(video|imagem|foto)\b", normalize(r.reply)):
+                r.reply = "Vi o vídeo. " + r.reply
+            elif any(t.startswith("[Imagem enviada pelo contato]") for t in textos):
                 # quem acabou de mandar o print nao precisa ouvir "me manda um print"
                 # remove a frase inteira ("Se aparecer alguma mensagem, me manda o texto ou um print.")
                 r.reply = re.sub(r"\s*[^.?!]*\bme manda (o texto ou )?um print( da tela)?[.?!]", "", r.reply)
@@ -732,6 +773,47 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     loja_ok = verificada and identidade.get("tipo") == "loja"
     prefixo = f"{_saudacao_periodo(agora)}! " if saudou else ""
 
+    # equipe interna (vinculo feito pelo admin) consulta QUALQUER loja citando cidade/nome ("loja de sao
+    # pedro"); a loja tambem vale para as mensagens seguintes (procura no historico). Loja so ve os proprios dados.
+    if verificada and identidade.get("tipo") == "interno" and repo is not None and hasattr(repo, "lojas_cadastro"):
+        import poupaqui_ai_suporte as S0
+        sup0 = S0.detectar_suporte(norm)
+        precisa = intencao in ("pedido", "financeiro") or sup0 in ("relatorio", "ecommerce") or (
+            sup0 in ("pe_fora", "rel_fora", "ecom_fora", "acesso") and re.search(r"\bloja\w*\b", norm))
+        if precisa or re.search(r"\b(loja|lojas|filial|unidade)\s+(de|da|do)\b", norm):
+            try:
+                lojas = repo.lojas_cadastro()
+            except Exception:
+                lojas = []
+            citadas = lojas_citadas(norm, lojas)
+            if not citadas:
+                for h in reversed((historico or [])[-8:]):
+                    if h.get("de") in ("operador", "sistema"):
+                        break
+                    citadas = lojas_citadas(normalize(h.get("texto")), lojas)
+                    if citadas:
+                        break
+            if len(citadas) > 1:
+                opcoes = "; ".join(f"{r} ({c})" for _, r, c in citadas[:6])
+                return fim(Resposta("ANSWER", prefixo + f"Encontrei mais de uma loja com essa referência: {opcoes}. "
+                                    "Qual delas?", "interno: loja ambigua", False, "loja"))
+            if citadas:
+                cnpj, razao, cidade = citadas[0]
+                identidade = {"verificada": True, "metodo": "interno_cita_loja", "tipo": "loja", "ref": cnpj,
+                              "nome": razao, "interno": True}
+                loja_ok = True
+                ctx["loja_citada"] = f"Loja de {cidade} ({razao})"
+                # "e da loja de botucatu?": so troca a loja, o assunto e o da mensagem anterior
+                if intencao == "geral" and not sup0 and hist_norm:
+                    anterior = detectar_intencao(hist_norm)
+                    if anterior in ("pedido", "financeiro"):
+                        intencao = anterior
+                    else:
+                        ctx["sup_herdado"] = S0.detectar_suporte(hist_norm)
+            elif precisa:
+                return fim(Resposta("ANSWER", prefixo + "De qual loja? Me diga a cidade ou o nome da loja que eu "
+                                    "consulto os dados dela no sistema.", "interno: falta a loja", False, intencao))
+
     # Primeiro resolve a mudanca de assunto; nao mistura sono com erro antigo.
     import poupaqui_ai_suporte as S
     if intencao == "geral" and _ANTES_RE.search(norm):
@@ -792,6 +874,8 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                             "contato informou que resolveu", False, "resolvido"))
     if intencao not in ("saude", "alteracao", "ack", "saudacao", "smalltalk", "data"):
         sup = S.detectar_suporte(norm)
+        if sup is None and ctx.get("sup_herdado"):   # equipe trocou so a loja: mesmo diagnostico na loja nova
+            sup, texto_diag = ctx["sup_herdado"], f"{hist_norm} {norm}"
         if sup is None and sup_hist:
             # "continua", ou a resposta a uma pergunta do diagnostico ("aparece
             # erro 500", "no pedido eletronico") herda o assunto do historico
@@ -1324,10 +1408,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
 # ─── Leitura de imagem/print (modelo de visao local) ──────────────────────
 
 MIDIA_MAX_BYTES = 5 * 1024 * 1024
-VISAO_PROMPT = ("Esta imagem foi enviada por um cliente no WhatsApp de uma rede de farmácias (pode ser print de "
-                "sistema, foto de produto, nota ou outra coisa). Transcreva o texto visível, sem inventar o que "
-                "não dá para ler, e diga em uma frase objetiva o que a imagem mostra. Responda só em JSON: "
-                '{"texto": "...", "resumo": "..."}')
+VISAO_PROMPT = ("Olhe a imagem e responda só em JSON {\"texto\": \"...\", \"resumo\": \"...\"}. "
+                "\"resumo\": uma frase concreta dizendo o que aparece (o objeto, o lugar ou a tela), com o nome "
+                "comum das coisas: churrasqueira, cozinha, caixa de remédio, nota fiscal, tela de erro, prateleira. "
+                "\"texto\": SÓ o que está escrito na imagem, copiado como está; se não houver texto escrito, deixe "
+                "vazio. Não invente o que não dá para ler.")
 
 
 def baixar_midia_wasender(message_id, midia, api_key=None, timeout=20):
@@ -1347,8 +1432,9 @@ def baixar_midia_wasender(message_id, midia, api_key=None, timeout=20):
         raise RuntimeError("decrypt-media sem publicUrl")
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
                                 timeout=timeout) as r:
-        dados = r.read(MIDIA_MAX_BYTES + 1)
-    if len(dados) > MIDIA_MAX_BYTES:
+        limite = MIDIA_MAX_BYTES * (3 if midia.get("campo") == "videoMessage" else 1)   # video ate 15 MB
+        dados = r.read(limite + 1)
+    if len(dados) > limite:
         raise RuntimeError("imagem acima do limite")
     return dados
 
@@ -1381,6 +1467,32 @@ def audio_para_wav(dados, max_seg=AUDIO_MAX_SEG, formato="wav"):
     if not saida:
         raise RuntimeError("conversao de audio falhou")
     return saida, segundos > max_seg + 0.5
+
+
+def separar_video(dados, max_seg=AUDIO_MAX_SEG):
+    """(trilha de audio OGG ou None, quadro JPEG do meio do video ou None). mp4 do WhatsApp nem sempre
+    funciona por pipe (indice no fim do arquivo): passa por arquivo temporario."""
+    import shutil
+    import subprocess
+    import tempfile
+    ffmpeg = os.getenv("POUPAQUI_FFMPEG") or shutil.which("ffmpeg")
+    if not ffmpeg:
+        import imageio_ffmpeg
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    with tempfile.TemporaryDirectory() as d:
+        arq = os.path.join(d, "v.mp4")
+        with open(arq, "wb") as fh:
+            fh.write(dados)
+        info = subprocess.run([ffmpeg, "-hide_banner", "-i", arq], capture_output=True, timeout=30).stderr.decode(
+            "utf-8", "replace")
+        m = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", info)
+        dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 2.0
+        trilha = subprocess.run([ffmpeg, "-loglevel", "error", "-i", arq, "-vn", "-t", str(max_seg), "-c:a",
+                                 "libopus", "-f", "ogg", "pipe:1"], capture_output=True, timeout=60).stdout or None
+        quadro = subprocess.run([ffmpeg, "-loglevel", "error", "-ss", f"{dur / 2:.2f}", "-i", arq, "-frames:v", "1",
+                                 "-vf", "scale='min(1024,iw)':-2", "-f", "image2", "-c:v", "mjpeg", "pipe:1"],
+                                capture_output=True, timeout=60).stdout or None
+    return trilha, quadro
 
 
 _WHISPER = {}
@@ -1446,22 +1558,23 @@ def leitor_midia_ollama(base_url=None, model=None, timeout=60, baixar=None, voca
         if not is_loopback_url(base_url):
             return None
         dados = baixar(message_id, midia)
-        audio = midia.get("campo") == "audioMessage"
-        cortado = False
-        if audio:
-            termos = [str(n) for n in (vocabulario() if vocabulario else [])][:40]
-            if os.getenv("POUPAQUI_WA_IA_TRANSCRICAO", "whisper") == "whisper":
+        if midia.get("campo") == "videoMessage":
+            # video = fala (Whisper no audio) + o que aparece (visao num quadro do meio do video)
+            trilha, quadro = separar_video(dados)
+            fala = ""
+            if trilha:
                 try:
-                    texto, cortado = transcrever_whisper(dados, termos)
-                    # vazio = o filtro de voz nao achou fala (audio em silencio/baixo): nao e falha de leitura
-                    return {"audio": True, "texto": texto[:1400], "cortado": cortado, "sem_fala": not texto}
+                    fala, _ = transcrever_whisper(trilha, [str(n) for n in (vocabulario() if vocabulario else [])])
                 except ImportError:
-                    pass  # sem faster-whisper: cai no modelo multimodal do Ollama
-            dados, cortado = audio_para_wav(dados)
-            prompt = AUDIO_PROMPT + (f" Nomes que podem aparecer: {', '.join(termos)}, Pedido Eletrônico." if termos
-                                     else "")
-        else:
-            prompt = VISAO_PROMPT
+                    fala = ""
+            visto = (ver(quadro) or {}) if quadro else {}
+            if not (fala or visto.get("resumo")):
+                return None
+            return {"video": True, "fala": fala[:1200], "resumo": visto.get("resumo", ""),
+                    "texto": visto.get("texto", "")}
+        return ouvir(dados) if midia.get("campo") == "audioMessage" else ver(dados)
+
+    def perguntar(prompt, dados, audio):
         # mesmo num_ctx da conversa (ollama_geral): valor diferente recarrega o modelo a cada troca
         options = {"num_ctx": 2048, "num_predict": 500 if audio else 300, "temperature": 0 if audio else 0.1}
         if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
@@ -1477,13 +1590,36 @@ def leitor_midia_ollama(base_url=None, model=None, timeout=60, baixar=None, voca
             data = json.loads(r.read().decode())
         if data.get("done_reason") != "stop":
             return None
-        conteudo = ((data.get("message") or {}).get("content") or "").strip()
-        if audio:
-            if not conteudo or conteudo.lower().startswith("[sem fala"):
-                return {"audio": True, "texto": "", "cortado": cortado, "sem_fala": True}
-            return {"audio": True, "texto": conteudo[:1400], "cortado": cortado}
+        return ((data.get("message") or {}).get("content") or "").strip()
+
+    def ouvir(dados):
+        termos = [str(n) for n in (vocabulario() if vocabulario else [])][:40]
+        if os.getenv("POUPAQUI_WA_IA_TRANSCRICAO", "whisper") == "whisper":
+            try:
+                texto, cortado = transcrever_whisper(dados, termos)
+                # vazio = o filtro de voz nao achou fala (audio em silencio/baixo): nao e falha de leitura
+                return {"audio": True, "texto": texto[:1400], "cortado": cortado, "sem_fala": not texto}
+            except ImportError:
+                pass  # sem faster-whisper: cai no modelo multimodal do Ollama
+        wav, cortado = audio_para_wav(dados)
+        conteudo = perguntar(AUDIO_PROMPT + (f" Nomes que podem aparecer: {', '.join(termos)}, Pedido Eletrônico."
+                                             if termos else ""), wav, True)
+        if conteudo is None:
+            return None
+        if not conteudo or conteudo.lower().startswith("[sem fala"):
+            return {"audio": True, "texto": "", "cortado": cortado, "sem_fala": True}
+        return {"audio": True, "texto": conteudo[:1400], "cortado": cortado}
+
+    def ver(dados):
+        conteudo = perguntar(VISAO_PROMPT, dados, False)
+        if conteudo is None:
+            return None
         lido = json.loads(conteudo or "{}")
-        return {"texto": str(lido.get("texto") or "")[:1200], "resumo": str(lido.get("resumo") or "")[:300]}
+        texto = str(lido.get("texto") or "").strip()
+        # sem texto na foto o modelo as vezes devolve a propria instrucao como "texto"
+        if re.search(r"\b(json|resumo|responda|olhe a imagem|enviada por um cliente|nao invente)\b", normalize(texto)):
+            texto = ""
+        return {"texto": texto[:1200], "resumo": str(lido.get("resumo") or "")[:300]}
     return fn
 
 

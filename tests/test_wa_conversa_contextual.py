@@ -291,6 +291,21 @@ class ConversaContextualTests(unittest.TestCase):
         for t in ("Oi, tudo bem? Tá frio hoje, né?", "o pedido da Germed não chegou", "Ok", "Bom dia, Miguel."):
             self.assertFalse(A.transcricao_suspeita(t, "Pedido Eletrônico, relatórios, e-commerce"), t)
 
+    @unittest.skipUnless(__import__("shutil").which("ffmpeg"), "sem ffmpeg")
+    def test_video_separa_audio_e_quadro(self):
+        import subprocess, shutil, tempfile
+        ff = shutil.which("ffmpeg")
+        with tempfile.TemporaryDirectory() as d:
+            arq = os.path.join(d, "v.mp4")
+            subprocess.run([ff, "-loglevel", "error", "-f", "lavfi", "-i", "color=c=red:s=320x240:d=2", "-f", "lavfi",
+                            "-i", "sine=f=440:d=2", "-shortest", "-pix_fmt", "yuv420p", arq], check=True)
+            trilha, quadro = A.separar_video(open(arq, "rb").read())
+        self.assertTrue(trilha and trilha[:4] == b"OggS")
+        self.assertTrue(quadro and quadro[:2] == bytes([0xFF, 0xD8]))   # JPEG
+        import poupaqui_wa_atendimento as wa
+        t = wa.texto_da_midia({"video": True, "resumo": "tela de erro", "fala": "o sistema caiu"})
+        self.assertEqual(t, "[Vídeo enviado pelo contato] O que aparece: tela de erro Fala no vídeo: o sistema caiu")
+
     def test_replica_de_identidade_nao_finge_humano(self):
         hist = [{'de': 'contato', 'texto': 'vc é gente ou robô?'},
                 {'de': 'assistente', 'texto': 'Sou o assistente virtual da Drogarias PoupAqui.'}]

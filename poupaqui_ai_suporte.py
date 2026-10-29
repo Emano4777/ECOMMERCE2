@@ -201,7 +201,7 @@ _REL_FORA_RE = re.compile(rf"\b{_SIS_REL}\b.*\b(nao (abre|carrega|entra)|fora do
                           r"sai\w* do ar|nao (ta|esta|tao|estao) no ar|"
                           r"erro\w* (ao|para|pra) (carregar|abrir|entrar)|nao carreg\w*|travou|travando|travad\w*)\b")
 _REL_DIV_RE = re.compile(
-    rf"\b({_SIS_REL[1:-1]}|vendas?|faturamento da loja|numeros?)\b.*\b(errad\w*|diverg\w*|nao bat\w*|nao ta batendo|"
+    rf"\b({_SIS_REL[1:-1]}|vendas?|faturamento da loja|numeros?|dados)\b.*\b(errad\w*|diverg\w*|nao bat\w*|nao ta batendo|"
     r"diferente\w*|incorret\w*|falt\w*|zerad\w*|estranh\w*|menor|maior|sumi\w*|desatualizad\w*|"
     r"nao atualiz\w*|incomplet\w*|nao aparec\w*|nao (mostra|consta)\w*)\b"
     r"|\b(errad\w*|diverg\w*|nao bat\w*|nao aparec\w*)\b.*\b" + _SIS_REL + r"\b")

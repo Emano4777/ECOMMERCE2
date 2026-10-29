@@ -212,6 +212,7 @@ def _message_text(msg, message):
 
 _MIDIA_CAMPOS = ("url", "mimetype", "mediaKey", "fileSha256", "fileLength", "fileName", "directPath", "seconds")
 MIDIA_IMAGEM_TIPOS = ("image/jpeg", "image/png", "image/webp")
+MIDIA_VIDEO_TIPOS = ("video/mp4", "video/3gpp", "video/quicktime", "video/webm")
 MIDIA_AUDIO_TIPOS = ("audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav", "audio/x-wav", "audio/webm")
 
 
@@ -220,7 +221,7 @@ def _media_info(message):
     WhatsApp vem criptografado; sem guardar isso na chegada nao da para ler depois)."""
     message = message if isinstance(message, dict) else {}
     for campo, tipos in (("imageMessage", MIDIA_IMAGEM_TIPOS), ("documentMessage", MIDIA_IMAGEM_TIPOS),
-                         ("audioMessage", MIDIA_AUDIO_TIPOS)):
+                         ("audioMessage", MIDIA_AUDIO_TIPOS), ("videoMessage", MIDIA_VIDEO_TIPOS)):
         m = message.get(campo)
         if isinstance(m, dict) and str(m.get("mimetype") or "").split(";")[0].strip() in tipos \
                 and m.get("url") and m.get("mediaKey"):
@@ -803,6 +804,17 @@ AUDIO_SEM_FALA = "[Áudio sem fala reconhecível]"
 def texto_da_midia(lido, legenda=""):
     """Texto que substitui a midia no fluxo: audio vira a propria fala transcrita; imagem vira o
     que o modelo de visao viu, marcado como imagem."""
+    if lido.get("video"):
+        partes = ["[Vídeo enviado pelo contato]"]
+        if legenda:
+            partes.append(f"Legenda: {legenda}.")
+        if lido.get("resumo"):
+            partes.append(f"O que aparece: {str(lido['resumo']).strip()}")
+        if lido.get("fala"):
+            partes.append(f"Fala no vídeo: {str(lido['fala']).strip()}")
+        if lido.get("texto"):
+            partes.append(f"Texto na tela: {str(lido['texto']).strip()}")
+        return " ".join(partes)[:1500]
     if lido.get("audio") and lido.get("sem_fala"):
         return AUDIO_SEM_FALA
     if lido.get("audio"):
@@ -822,7 +834,7 @@ def _ler_midias(conn, batch, texts, kinds, leitor):
     """Le cada imagem do lote. A chave de criptografia (midia) e apagada depois, lida ou nao."""
     for i, b in enumerate(batch):
         midia = b[6]
-        if kinds[i] not in ("image", "document", "audio") or not midia:
+        if kinds[i] not in ("image", "document", "audio", "video") or not midia:
             continue
         try:
             lido = leitor(b[1], midia if isinstance(midia, dict) else json.loads(midia))
@@ -831,7 +843,7 @@ def _ler_midias(conn, batch, texts, kinds, leitor):
             print(f"leitor_midia falhou ({kinds[i]}): {type(exc).__name__}", file=sys.stderr, flush=True)
             lido = None
         with _cur(conn) as cur:
-            if lido and (lido.get("texto") or lido.get("resumo") or lido.get("sem_fala")):
+            if lido and (lido.get("texto") or lido.get("resumo") or lido.get("fala") or lido.get("sem_fala")):
                 texts[i], kinds[i] = texto_da_midia(lido, b[3]), "text"
                 cur.execute("UPDATE ecommerce_wa_mensagens SET corpo = %s, midia = NULL WHERE id = %s",
                             (texts[i], b[0]))
@@ -842,7 +854,7 @@ def _ler_midias(conn, batch, texts, kinds, leitor):
     # inteiro no "nao consigo abrir"
     if any(k == "text" and t and t != AUDIO_SEM_FALA for k, t in zip(kinds, texts)):
         for i, k in enumerate(kinds):
-            if k in ("image", "document", "audio"):
+            if k in ("image", "document", "audio", "video"):
                 kinds[i], texts[i] = "text", ""
 
 

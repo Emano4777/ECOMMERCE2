@@ -62,6 +62,11 @@ class ParseTests(unittest.TestCase):
                          "[Áudio transcrito] meu pedido nao chegou")
         self.assertIn("só o começo", wa.texto_da_midia({"audio": True, "texto": "x", "cortado": True}))
 
+    def test_video_guarda_metadados(self):
+        vid = {"videoMessage": {"url": "u", "mimetype": "video/mp4", "mediaKey": "K==", "seconds": 9}}
+        it = wa.parse_inbound(payload("V1", text="", message=vid))[0]
+        self.assertEqual((it["tipo"], it["midia"]["campo"]), ("video", "videoMessage"))
+
     def test_ignores_from_me_groups_channels_status(self):
         self.assertEqual(wa.parse_inbound(payload("A", from_me=True)), [])
         self.assertEqual(wa.parse_inbound(payload("B", jid="123-456@g.us")), [])
