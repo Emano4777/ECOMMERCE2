@@ -27440,6 +27440,8 @@ def crm_wasender_webhook():
     if not esperado or not secrets.compare_digest(str(recebido or ""), str(esperado)):
         return jsonify({"ok": False}), 401
     payload = request.get_json(silent=True) or {}
+    # Metadado temporario de diagnostico; nunca registra numero, corpo ou segredo.
+    app.logger.warning("wasender_event_type=%s", str(payload.get("event") or "(missing)").replace("\n", " ").replace("\r", " ")[:60])
     if payload.get("event") in {"messages.upsert", "message.sent", "messages.received", "message.received"}:
         # Atendimento IA: mensagem que SAIU do numero (fromMe) digitada pelo
         # operador silencia a IA naquele contato. Os parsers separam fromMe.
