@@ -1226,6 +1226,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         web = fn.ultimo_web if correcao else None
         fn.ultimo_web = None
         if (not correcao and os.getenv("POUPAQUI_WA_IA_BUSCA_WEB", "1") == "1"
+                and re.search(r"\b(dolar|euro|bitcoin|cotacao|cambio)\b", current_norm)):
+            # cotacao nao precisa de decisao do modelo (ele as vezes dizia "nao tenho acesso")
+            web = WEB.cotacao()
+            fn.ultima_busca = {"tipo": "cotacao", "consulta": "", "ok": bool(web)}
+        elif (not correcao and os.getenv("POUPAQUI_WA_IA_BUSCA_WEB", "1") == "1"
                 and WEB.parece_pergunta_de_fato(current_norm, " ".join(falas))
                 and not re.search(r"\b(receita|como (faz|faco|fazer)|passo a passo|me ensina)\b", current_norm)):
             # receita/explicacao o modelo ja sabe; busca so alongava a geracao (estourava o tempo)
