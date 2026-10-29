@@ -1261,7 +1261,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             # receita/explicacao o modelo ja sabe; busca so alongava a geracao (estourava o tempo)
             contexto = [{"role": h["role"], "content": h["content"][:200]} for h in list(reversed(history))[-4:]]
             try:
-                decisao = json.loads(chamar([{"role": "system", "content": DECIDE_BUSCA_PROMPT}] + contexto +
+                decide = DECIDE_BUSCA_PROMPT + (
+                    f" Hoje é {_agora(None):%d/%m/%Y}. Faça a consulta como numa busca do Google, específica: em "
+                    "\"quem é/ocupa hoje\" e \"o último/a última X\", inclua o ano atual (ex.: \"presidente do "
+                    f"Brasil {_agora(None):%Y}\", \"Oscar {_agora(None):%Y} melhor filme vencedor\").")
+                decisao = json.loads(chamar([{"role": "system", "content": decide}] + contexto +
                                             [{"role": "user", "content": messages[-1]["content"]}],
                                             dict(options, num_predict=60, temperature=0), fmt="json",
                                             limite=min(timeout, 15)) or "{}")
