@@ -239,12 +239,28 @@ def main(argv=None):
             out({"ignorado": "outra instancia do worker local ja esta rodando"})
             return 0
         interval = max(15, a.loop)
-        while True:
+        # systemctl stop/restart manda SIGTERM: vira SystemExit para os finally rodarem (o run_worker
+        # libera o lease) e as mensagens em maos voltam para a fila na hora, nao em 10 min
+        import signal
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        try:
+            while True:
+                try:
+                    out({"em": time.strftime("%Y-%m-%d %H:%M:%S"), **run_once(assistente=a.assistente)})
+                except Exception as exc:  # banco/rede caiu: tenta na proxima volta
+                    out({"erro": f"{type(exc).__name__}: {str(exc)[:200]}"})
+                time.sleep(interval)
+        except (SystemExit, KeyboardInterrupt):
             try:
-                out({"em": time.strftime("%Y-%m-%d %H:%M:%S"), **run_once(assistente=a.assistente)})
-            except Exception as exc:  # banco/rede caiu: tenta na proxima volta
-                out({"erro": f"{type(exc).__name__}: {str(exc)[:200]}"})
-            time.sleep(interval)
+                conn = connect()
+                try:
+                    out({"encerrando": time.strftime("%Y-%m-%d %H:%M:%S"),
+                         "devolvidas_para_fila": wa.devolver_em_curso(conn)})
+                finally:
+                    conn.close()
+            except Exception as exc:
+                out({"erro_ao_encerrar": type(exc).__name__})
+            raise
     if a.once:
         out(run_once(assistente=a.assistente))
         return 0

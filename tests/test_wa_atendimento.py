@@ -333,6 +333,25 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertEqual([n["tipo"] for n in novas], ["text", "text"])   # audio nao derruba o lote
         self.assertEqual(novas[-1]["texto"], "Qual o horario de corte da Germed?")
 
+    def test_desligamento_no_meio_devolve_mensagens_e_libera_lease(self):
+        self.link(TEST_PHONE)
+        self.receive("SIG1"); self.age()
+
+        def classificador_interrompido(p):
+            raise SystemExit(0)   # SIGTERM do systemctl restart no meio da resposta
+        wa.set_db_mode(self.conn, "test")
+        with self.assertRaises(SystemExit):
+            wa.run_worker(self.conn, classificador_interrompido, self.sender())
+        self.assertEqual(wa.devolver_em_curso(self.conn), 1)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT status FROM ecommerce_wa_mensagens WHERE message_id = 'SIG1'")
+            self.assertEqual(cur.fetchone()[0], "pendente")
+            cur.execute("SELECT valor FROM ecommerce_wa_ia_config WHERE chave = 'worker_lease'")
+            self.assertEqual(cur.fetchone()[0], "livre")
+        self.conn.commit()
+        wa.run_worker(self.conn, self.classifier(), self.sender())   # proxima passada responde na hora
+        self.assertEqual(len(self.sent), 1)
+
     def test_test_mode_blocks_non_allowlisted(self):
         # em test, contato fora da allowlist nem entra no worker: fica pendente, sem IA nem alerta
         self.receive("M1", phone="5517988881111"); self.age()   # loja verificada, fora da allowlist

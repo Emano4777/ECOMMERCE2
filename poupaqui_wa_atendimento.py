@@ -876,6 +876,7 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
     if not batch:
         return None
     ids = [b[0] for b in batch]
+    EM_CURSO["ids"] = list(ids)
     primeira_em = min(b[5] for b in batch)
     status_msgs = "processado"
     try:
@@ -1228,6 +1229,25 @@ def _send_alert(conn, decisao_id, phone, destinos, sender, decision, origem, ide
     return status
 
 
+# o que o worker tem nas maos agora: num desligamento (systemctl restart) as mensagens voltam para a
+# fila na hora, em vez de ficarem 'processando' ate 10 min e o contato sem resposta
+EM_CURSO = {"ids": []}
+
+
+def devolver_em_curso(conn):
+    """Mensagens reservadas por este processo voltam a 'pendente' (desligamento no meio da resposta)."""
+    ids, EM_CURSO["ids"] = EM_CURSO["ids"], []
+    if not ids:
+        return 0
+    with _cur(conn) as cur:
+        cur.execute("""UPDATE ecommerce_wa_mensagens SET status = 'pendente', reservado_em = NULL,
+                       tentativas = GREATEST(tentativas - 1, 0) WHERE id = ANY(%s) AND status = 'processando'""",
+                    (ids,))
+        n = cur.rowcount
+    conn.commit()
+    return n
+
+
 def acquire_worker_lease(conn, ttl_minutes=5):
     """Lock de execucao por lease em tabela. Advisory lock de sessao nao serve:
     o DATABASE_URL passa pelo pooler do Supabase em modo transacao, entao o
@@ -1318,8 +1338,10 @@ def run_worker(conn, classifier, sender, logger=None, max_contacts=None, engine=
                 res = process_contact(conn, phone, mode, classifier, sender, state, logger, model_label,
                                       assistente, leitor_midia)
             except Exception:
+                EM_CURSO["ids"] = []   # erro normal: o proprio fluxo ja tratou as mensagens
                 summary["erros"] += 1
                 continue
+            EM_CURSO["ids"] = []       # concluido; num desligamento (SystemExit) a lista fica para devolver
             if res:
                 summary["contatos"] += 1
                 summary["resultados"].append(res)
