@@ -318,6 +318,20 @@ class ConversaContextualTests(unittest.TestCase):
         t = wa.texto_da_midia({"video": True, "resumo": "tela de erro", "fala": "o sistema caiu"})
         self.assertEqual(t, "[Vídeo enviado pelo contato] O que aparece: tela de erro Fala no vídeo: o sistema caiu")
 
+    def test_interno_conversa_depois_de_relatorio_nao_repete_diagnostico(self):
+        class Repo(FakeRepo):
+            def lojas_cadastro(self):
+                return [("11111111000111", "DROGARIA ALFA LTDA", "Sao Pedro"), ("22222222000122", "DROGARIA BETA LTDA", "Botucatu")]
+        import poupaqui_ai_suporte as S
+        hist = [{'de': 'contato', 'texto': 'deu ruim no relatorio de sao pedro'},
+                {'de': 'assistente', 'texto': 'Loja de Sao Pedro (DROGARIA ALFA LTDA): conferi os arquivos de vendas.'}]
+        with patch.object(S, "responder_suporte", return_value=A.Resposta("ANSWER", "DIAGNOSTICO", "t", False, "relatorio")):
+            r = resp(['to meio zonzo, sei la'], ident=INTERNO, hist=hist, repo=Repo(),
+                     llm=lambda t, h: 'Poxa, descansa um pouco que passa.')
+            self.assertNotIn('DIAGNOSTICO', r.reply)                    # conversa nao vira relatorio de novo
+            r = resp(['e da loja de botucatu?'], ident=INTERNO, hist=hist, repo=Repo())
+            self.assertIn('DIAGNOSTICO', r.reply)                       # trocar so a loja mantem o assunto
+
     def test_replica_de_identidade_nao_finge_humano(self):
         hist = [{'de': 'contato', 'texto': 'vc é gente ou robô?'},
                 {'de': 'assistente', 'texto': 'Sou o assistente virtual da Drogarias PoupAqui.'}]

@@ -787,6 +787,7 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             # loja citada na propria mensagem vale sempre ("deu ruim no relatorio de sao pedro"); do
             # historico so quando o assunto e de dados de loja
             citadas = lojas_citadas(norm, lojas)
+            citada_agora = bool(citadas)
             sup_ant = S0.detectar_suporte(hist_norm) if hist_norm else None
             if not citadas and (precisa or sup0 or sup_ant):
                 for h in reversed((historico or [])[-8:]):
@@ -805,8 +806,11 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                               "nome": razao, "interno": True}
                 loja_ok = True
                 ctx["loja_citada"] = f"Loja de {cidade} ({razao})"
-                # "e da loja de botucatu?": so troca a loja, o assunto e o da mensagem anterior
-                if intencao == "geral" and not sup0 and hist_norm:
+                # "e da loja de botucatu?": so troca a loja, o assunto e o da mensagem anterior. So quando a
+                # loja e citada AGORA: loja vinda do historico nao transforma "to meio zonzo" em diagnostico
+                if citada_agora and intencao == "geral" and _PEDIDO_RE.search(norm):
+                    intencao = "pedido"      # "mas e os pedidos da sao pedro?": o assunto esta na propria frase
+                elif citada_agora and intencao == "geral" and not sup0 and hist_norm:
                     anterior = detectar_intencao(hist_norm)
                     if anterior in ("pedido", "financeiro"):
                         intencao = anterior
