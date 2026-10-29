@@ -987,9 +987,10 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
         if "sono" in _ultima_do_assistente(historico):
             txt = "Tá difícil segurar o sono então! Vai conseguir descansar daqui a pouco?"
     else:
-        txt = "Não peguei bem o que você quis dizer. Pode me explicar de outro jeito?"
+        # o modelo entendeu mas nao conseguiu responder (falhou ou foi barrado): nao fingir que nao entendeu
+        txt = "Essa eu fiquei devendo, não consegui te responder direito agora. Quer perguntar de outro jeito?"
         if normalize(txt) == _ultima_do_assistente(historico):
-            txt = "Qual parte você quer conversar melhor comigo?"
+            txt = "Ainda não consegui essa. Me conta com outras palavras o que você quer saber?"
     return Resposta("ANSWER", txt, "conversa: " + (rejeicao or "resposta rejeitada por regra de seguranca"), False,
                     "smalltalk" if casual else "geral")
 
@@ -1024,7 +1025,7 @@ def problema_formato_conversa(r):
         return "longa demais"
     if _PROMISE_RE.search(normalize(r)):
         return "promete acao"
-    if re.search(r"\b(dados verificados|dados fornecidos|json|instruc\w*|resultados de busca|prompt)\b", normalize(r)):
+    if re.search(r"\b(dados verificados|dados fornecidos|json|instruc\w*|prompt)\b", normalize(r)):
         return "sem informacao/metalinguagem"
     return None
 
@@ -1284,7 +1285,14 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                 elif tipo == "cotacao":
                     web = WEB.cotacao()
                 elif decisao.get("consulta"):
-                    resultados = WEB.buscar(decisao["consulta"])
+                    consulta = str(decisao["consulta"])
+                    # "o ultimo X"/"quem e hoje" sem ano traz definicao generica: o ano entra pelo codigo
+                    # (o modelo nem sempre segue a instrucao)
+                    if re.search(r"\b(ultim\w*|atual\w*|hoje|agora|quem e|quem eh)\b", normalize(consulta)) \
+                            and not re.search(r"\b20\d\d\b", consulta):
+                        consulta = f"{consulta} {_agora(None):%Y}"
+                        decisao["consulta"] = consulta
+                    resultados = WEB.buscar(consulta)
                     web = WEB.contexto_para_prompt(resultados, _agora(None)) if resultados else None
                 fn.ultima_busca = {"tipo": tipo, "consulta": WEB.limpar_consulta(decisao.get("consulta") or
                                                                                  decisao.get("cidade") or ""),
