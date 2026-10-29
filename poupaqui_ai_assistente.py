@@ -1350,7 +1350,7 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         falas = [re.sub(r"^\[Áudio transcrito[^\]]*\]\s*", "", str(t)) for t in textos]
         messages.append({"role": "user", "content": "\n".join(f[:500] for f in falas)[:2000]})
         options = {"temperature": 0.6, "top_p": 0.8, "repeat_penalty": 1.05,
-                   "seed": 43 if correcao else 42, "num_ctx": 2048, "num_predict": 180}
+                   "seed": 43 if correcao else 42, "num_ctx": 2048, "num_predict": 220}
         # piloto HostGator (quota 2,5 CPUs): sem num_thread o llama.cpp abre threads demais e
         # cai para ~0,3 tok/s; com 2 threads o gemma4:e2b gera ~11-15 tok/s
         if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
@@ -1365,13 +1365,19 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                                          headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=limite) as r:
                 data = json.loads(r.read().decode())
-            return (data.get("message") or {}).get("content") if data.get("done_reason") == "stop" else None
+            conteudo = (data.get("message") or {}).get("content")
+            if data.get("done_reason") == "length" and conteudo and not fmt:
+                # estourou o limite (lista de cantadas, receita): aproveita ate a ultima frase/linha completa
+                corte = max(conteudo.rfind(c) for c in (".\n", "!\n", "?\n", ". ", "! ", "? "))
+                return conteudo[:corte + 1].rstrip() if corte > 40 else None
+            return conteudo if data.get("done_reason") == "stop" else None
 
         # pergunta de fato/atualidade: o modelo decide se busca e o que buscar; o resultado vai pro prompt
         import poupaqui_ai_web as WEB
         web = fn.ultimo_web if correcao else None
         fn.ultimo_web = None
-        clima_re = r"\b(chov\w*|chuva|clima|temperatura|previsao do tempo|frio|calor|tempo (amanha|hoje))\b"
+        # "calor"/"frio" sozinhos sao comentario ("hoje ta um calor danado ne"), nao pedido de previsao
+        clima_re = r"\b(chov\w*|chuva|clima|temperatura|previsao do tempo|tempo (amanha|hoje)|(vai|vai fazer|ta|esta) (frio|calor) (amanha|hoje|ai|em))\b"
         ultima_fala = next((h["content"] for h in history if h["role"] == "user"), "")   # mais recente 1o
         # "qual cidade?" -> "sao jose do rio preto": e a cidade; previsao direto, sem gastar a decisao
         cidade_resposta = (not correcao and not web and re.search(clima_re, normalize(ultima_fala))
@@ -1426,7 +1432,7 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             if re.search(r"\b(nao|sem|nenhum\w*|desconhecid\w*|especificad\w*|informad\w*|vazio|n/?a)\b",
                          normalize(cidade)) or len(cidade) < 3:
                 cidade = ""
-            clima_re = r"\b(chov\w*|chuva|clima|temperatura|previsao do tempo|frio|calor|tempo (amanha|hoje))\b"
+            # (mesma regra do topo: calor/frio so como pergunta de previsao)
             ultima_fala = next((h["content"] for h in history if h["role"] == "user"), "")   # history: mais recente 1o
             if re.search(clima_re, current_norm) or (cidade and re.search(clima_re, normalize(ultima_fala))):
                 tipo = "clima"   # inclusive a continuacao "e em sao paulo?" depois de uma pergunta de clima
@@ -1466,6 +1472,8 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             options["num_predict"] = 380   # receita/explicacao pedida pode ser mais longa
             extra.append("A pessoa pediu receita/passo a passo: responda completo e prático, com ingredientes e "
                          "quantidades em lista curta e o modo de preparo em poucos passos numerados.")
+        elif criativo:
+            options["num_predict"] = 300   # lista de cantadas/piadas/musicas nao pode ser cortada no meio
         messages.insert(len(messages) - 1, {"role": "system", "content": "\n".join(extra)})
         return chamar(messages, options, limite=min(timeout, 10) if correcao else timeout)
     fn.ultimo_web = None
