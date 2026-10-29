@@ -1371,7 +1371,12 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             web = WEB.cotacao()
             fn.ultima_busca = {"tipo": "cotacao", "consulta": "", "ok": bool(web)}
         elif (not correcao and os.getenv("POUPAQUI_WA_IA_BUSCA_WEB", "1") == "1"
-                and WEB.parece_pergunta_de_fato(current_norm, " ".join(falas))
+                and (WEB.parece_pergunta_de_fato(current_norm, " ".join(falas))
+                     # resposta a uma pergunta do assistente num assunto de fato ("qual cidade?" -> "rio preto"):
+                     # a decisao ve o contexto; sem isso o modelo inventava a previsao
+                     or (bool(history) and history[0]["role"] == "assistant" and history[0]["content"].rstrip().endswith("?")
+                         and any(h["role"] == "user" and WEB.parece_pergunta_de_fato(normalize(h["content"]), h["content"])
+                                 for h in history[1:3])))
                 # pergunta para a IA ("qual o seu nome?", "vc acha...?") nao precisa de busca: a decisao custava
                 # uma chamada extra ao modelo e ainda tirava o prompt da conversa do cache
                 and not re.search(r"\b(seu|sua|teu|tua) (nome|idade|opiniao|criador|dono)\b|"
