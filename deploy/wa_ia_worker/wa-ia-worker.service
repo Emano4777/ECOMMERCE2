@@ -1,0 +1,32 @@
+# Worker do atendimento WhatsApp IA na HostGator (substitui o worker/tunel do PC local).
+# O que ele faz (responder, so registrar, so a allowlist) e decidido pelo MODO no banco
+# (off|shadow|test|live) e pelo teto POUPAQUI_WA_IA_MAX_MODE do worker.env.
+# Usa o ollama-piloto em 127.0.0.1:11434 e o Whisper do venv isolado /opt/wa-ia.
+# Limites: nunca mais que 2 nucleos e 3 GB, e peso baixo para a producao ganhar a disputa de CPU.
+#   Instalar: cp deploy/wa_ia_worker/wa-ia-worker.service /etc/systemd/system/ && systemctl daemon-reload
+#             && systemctl enable --now wa-ia-worker
+#   Parar:    systemctl disable --now wa-ia-worker
+[Unit]
+Description=PoupAqui WA IA worker (atendimento WhatsApp)
+After=network-online.target ollama-piloto.service
+Wants=network-online.target ollama-piloto.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/wa-ia/app
+EnvironmentFile=/opt/wa-ia/worker.env
+Environment=PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1 HF_HUB_DISABLE_SYMLINKS_WARNING=1
+ExecStart=/opt/wa-ia/venv/bin/python scripts/wa_ia_worker_local.py --loop 30 --assistente
+Restart=always
+RestartSec=15
+Nice=10
+CPUWeight=20
+CPUQuota=200%
+MemoryHigh=2560M
+MemoryMax=3G
+IOWeight=20
+StandardOutput=append:/opt/wa-ia/logs/worker.log
+StandardError=append:/opt/wa-ia/logs/worker.log
+
+[Install]
+WantedBy=multi-user.target

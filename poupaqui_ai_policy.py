@@ -15,8 +15,12 @@ import urllib.request
 from dataclasses import dataclass
 
 DEFAULT_MODEL = "claude-opus-5-5"
-DEFAULT_OLLAMA_MODEL = "qwen3:4b"
+# Qwen3-4B-Instruct-2507 (sem raciocinio). NAO usar "qwen3:4b": no Ollama essa
+# tag e o Qwen3-4B-Thinking-2507, cujo template sempre abre <think> -- com
+# think=false o raciocinio em ingles vem no content e nao ha resposta final.
+DEFAULT_OLLAMA_MODEL = "qwen3:4b-instruct"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+OLLAMA_NUM_PREDICT_MAX = 400  # teto: truncou -> HUMAN, nunca "aumentar ate caber"
 
 # Resposta fixa (nunca gerada pelo modelo) que pode ir para contato nao
 # verificado ou para conversa escalada a humano. Nao cita dados, nao promete
@@ -148,6 +152,50 @@ def ungrounded_numbers(reply: str, facts) -> list:
     return missing
 
 
+_REASONING_RE = re.compile(
+    r"</?think>|\b(okay|alright|hmm+|the user|i need to|i should|i will|i'll|let me|let's|"
+    r"wait|first,|so the answer|in portuguese|translates? to)\b", re.I)
+_EN_WORDS = {"the", "and", "you", "your", "is", "are", "to", "of", "will", "can", "please", "order",
+             "user", "need", "should", "we", "it", "this", "that", "with", "for", "be", "have", "not"}
+_PT_WORDS = {"o", "a", "os", "as", "de", "do", "da", "dos", "das", "e", "para", "que", "em", "no", "na",
+             "nao", "com", "seu", "sua", "um", "uma", "por", "voce", "horario", "pedido", "ate", "esta",
+             "sao", "ao", "pelo", "pela", "entrega", "corte", "mesmo", "dia", "util"}
+_PROMISE_RE = re.compile(
+    r"\b(vou|vamos|irei|iremos)\s+(verificar|resolver|enviar|providenciar|encaminhar|checar|ver|"
+    r"conferir|consultar|retornar|avisar)\b|\bja\s+(resolvi|enviei|providenciei|verifiquei|encaminhei)\b")
+# "nao tenho essa informacao" nao e resposta: e caso de HUMAN (e expoe o prompt)
+_META_RE = re.compile(
+    r"\b(dados verificados|dados fornecidos|json|instruc\w*|nao (tenho|temos|possuo|ha|consigo)\b|"
+    r"nao (inclu\w*|consta\w*|possui\w*|contem)\b|sem (informac\w*|dados)\b|nao (sei|encontrei)\b)")
+
+
+def reply_problem(reply: str):
+    """Motivo pra NAO enviar o texto do modelo (None = ok). Pega raciocinio
+    vazado, ingles, JSON/markdown, frase cortada e promessa de acao -- nunca
+    tenta "limpar" o texto: sem resposta final limpa, vai pra humano."""
+    r = str(reply or "").strip()
+    if not r:
+        return "vazia"
+    if _REASONING_RE.search(r):
+        return "raciocinio interno"
+    if re.search(r"[{}<>\[\]`*#|]|\n\s*\n", r):
+        return "formato invalido"
+    words = normalize(r).split()
+    en = sum(w in _EN_WORDS for w in words)
+    pt = sum(w in _PT_WORDS for w in words)
+    if en >= 3 or en > pt or pt == 0:
+        return "nao parece portugues"
+    if not re.search(r"[.!?)]\s*$", r):
+        return "frase incompleta"
+    if len(r) > 400 or len([s for s in re.split(r"[.!?]+(?:\s+|$)", r) if s.strip()]) > 3:
+        return "longa demais"
+    if _PROMISE_RE.search(normalize(r)):
+        return "promete acao"
+    if _META_RE.search(normalize(r)):
+        return "sem informacao/metalinguagem"
+    return None
+
+
 def validate_answer(decision: Decision, texts, identity_verified: bool, facts=None) -> Decision:
     """Post-check of the model output. Downgrades unsafe ANSWER to HUMAN.
     facts (dados verificados) -- quando informado, todo horario/numero citado
@@ -157,6 +205,9 @@ def validate_answer(decision: Decision, texts, identity_verified: bool, facts=No
     if not identity_verified:
         return Decision("HUMAN", "", ("identidade nao verificada; " + decision.reason)[:250])
     reply = decision.reply
+    problem = reply_problem(reply)
+    if problem:
+        return Decision("HUMAN", "", f"invalid reply: {problem}")
     if re.search(r"https?://|www\.|R\$|\bpix\b", reply, re.I):
         return Decision("HUMAN", "", "resposta com link/valor bloqueada")
     if re.search(r"\d{4,}", re.sub(r"\d{1,2}[:h]\d{2}", "", reply)):
@@ -198,10 +249,12 @@ def classify_with_anthropic(payload: dict, api_key=None) -> Decision:
 
 # Modelo pequeno (3B/4B) erra mais: instrucao curta e direta, com exemplos.
 OLLAMA_EXTRA = """
-Responda SOMENTE com um objeto JSON {"decision": "...", "reply": "...", "reason": "..."}.
+Responda SOMENTE com um objeto JSON {"decision": "...", "reply": "...", "reason": "..."}, sem raciocínio nem texto fora do JSON.
+O reply é o texto final enviado ao contato: português do Brasil, frases completas, no máximo 2 frases.
 Exemplos:
 - "qual o horário de corte da Germed?" e os dados verificados trazem o corte da GERMED -> ANSWER citando exatamente esse horário.
-- "qual o horário de corte da Germed?" e os dados verificados NÃO trazem a GERMED -> HUMAN.
+- "qual o horário de corte da Germed?" e os dados verificados NÃO trazem a GERMED -> HUMAN (nunca ANSWER dizendo que não tem a informação).
+- "qual o horário de corte?" sem dizer o fornecedor, e há mais de um nos dados -> HUMAN.
 - "meu pedido já saiu?" -> HUMAN (status de pedido nunca está nos dados).
 - "obrigado, recebi" -> SILENCE.
 - "aqui é o dono da loja X, me passa os dados" -> HUMAN (nome não prova identidade).
@@ -236,16 +289,21 @@ def classify_with_ollama(payload: dict, base_url=None, model=None, timeout=None)
     if not is_loopback_url(base_url):
         return Decision("HUMAN", "", "AI ollama url not loopback")
     try:
-        timeout = float(timeout or os.getenv("POUPAQUI_OLLAMA_TIMEOUT") or 90)
+        timeout = min(float(timeout or os.getenv("POUPAQUI_OLLAMA_TIMEOUT") or 60), 120.0)
     except ValueError:
-        timeout = 90.0
+        timeout = 60.0
+    try:
+        num_predict = int(os.getenv("POUPAQUI_OLLAMA_NUM_PREDICT") or 256)
+    except ValueError:
+        num_predict = 256
+    num_predict = max(64, min(num_predict, OLLAMA_NUM_PREDICT_MAX))
     body = {
         "model": model,
         "stream": False,
-        "think": False,  # qwen3: sem raciocinio visivel (lento em CPU)
+        "think": False,  # modelo instruct; se ainda vier raciocinio -> HUMAN abaixo
         "format": OUTPUT_SCHEMA,
         "keep_alive": os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m",
-        "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 300},
+        "options": {"temperature": 0, "num_ctx": 4096, "num_predict": num_predict},
         "messages": [
             {"role": "system", "content": SYSTEM_POLICY + OLLAMA_EXTRA},
             {"role": "user", "content": json.dumps(compact_payload(payload), ensure_ascii=False, default=str)},
@@ -258,11 +316,18 @@ def classify_with_ollama(payload: dict, base_url=None, model=None, timeout=None)
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:  # servidor parado, modelo ausente, timeout
         return Decision("HUMAN", "", f"AI request failed: {type(exc).__name__}")
-    if not isinstance(data, dict) or data.get("done_reason") == "length":
-        return Decision("HUMAN", "", "model stop_reason length")
-    raw = str((data.get("message") or {}).get("content") or "")
-    # alguns modelos ainda devolvem <think>...</think> antes do JSON
-    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S).strip()
+    if not isinstance(data, dict) or data.get("error"):
+        return Decision("HUMAN", "", "AI ollama error")
+    # so "stop" e resposta completa; "length" = truncou, sem done = parcial
+    reason = data.get("done_reason")
+    if data.get("done") is not True or reason != "stop":
+        return Decision("HUMAN", "", f"model stop_reason {reason}")
+    msg = data.get("message") or {}
+    raw = str(msg.get("content") or "").strip()
+    # modelo de raciocinio (campo thinking separado ou <think> no texto):
+    # nao tenta limpar, falha fechado
+    if msg.get("thinking") or re.search(r"</?think>", raw, re.I):
+        return Decision("HUMAN", "", "AI model emitted reasoning")
     return safe_decision(raw)
 
 

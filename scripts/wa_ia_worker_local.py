@@ -10,10 +10,15 @@ Uso (na raiz do repo):
   python scripts/wa_ia_worker_local.py --status           # modo, motor, fila, pendencias
   python scripts/wa_ia_worker_local.py --pendentes        # escalacoes HUMAN abertas
   python scripts/wa_ia_worker_local.py --resolver 5517... # fecha escalacoes de um contato
+  python scripts/wa_ia_worker_local.py --humanos          # contatos com atendimento humano ativo
+  python scripts/wa_ia_worker_local.py --assumir 5517...  # operador assume (IA quieta ate --devolver)
+  python scripts/wa_ia_worker_local.py --assumir 5517... --minutos 60   # assume por 60 min
+  python scripts/wa_ia_worker_local.py --devolver 5517... # IA volta, so para mensagens novas
   python scripts/wa_ia_worker_local.py --motor local      # assume a fila (servidor para)
   python scripts/wa_ia_worker_local.py --modo shadow      # off|shadow|test (live exige --confirmo-live)
   python scripts/wa_ia_worker_local.py --once             # uma passada
   python scripts/wa_ia_worker_local.py --loop 30          # passada a cada 30s (tarefa agendada)
+  python scripts/wa_ia_worker_local.py --once --assistente  # dados reais + conversa geral via Ollama
 
 Se o Ollama estiver fora do ar a passada e pulada: as mensagens ficam na fila
 (expiram em POUPAQUI_WA_IA_MAX_IDADE_MIN) em vez de virar HUMAN em massa.
@@ -37,6 +42,7 @@ from poupaqui_ai_policy import (  # noqa: E402
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 LOCK_PATH = os.path.join(ROOT, ".wa_ia_worker_local.lock")
+PILOT_PHONE = "5517991436759"
 
 
 def load_env():
@@ -83,13 +89,27 @@ def ollama_health():
     except Exception as exc:
         return False, {"erro": f"ollama indisponivel: {type(exc).__name__}"}
     has = any(t == model or t == f"{model}:latest" for t in tags)
-    return has, {"versao": ver, "modelo": model, "modelo_instalado": has,
-                 "modelos": tags, "carregados": loaded}
+    info = {"versao": ver, "modelo": model, "modelo_instalado": has, "modelos": tags, "carregados": loaded}
+    if not has:
+        return False, info
+    # modelo so-raciocinio (ex.: qwen3:4b = Qwen3-4B-Thinking-2507) nao desliga
+    # o <think>: recusa antes de gastar CPU; a fila espera em vez de virar HUMAN
+    try:
+        req = urllib.request.Request(f"{url}/api/show", data=json.dumps({"model": model}).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            finetune = str(json.loads(r.read().decode("utf-8")).get("model_info", {})
+                           .get("general.finetune") or "")
+    except Exception as exc:
+        return False, {**info, "erro": f"ollama /api/show falhou: {type(exc).__name__}"}
+    info["finetune"] = finetune
+    if "think" in finetune.lower():
+        return False, {**info, "erro": "modelo de raciocinio obrigatorio; use um modelo instruct"}
+    return True, info
 
 
 def make_sender():
-    """WA Sender direto (sem importar app.py). Defesa extra: fora de teto 'live'
-    so envia para a allowlist de teste, mesmo que algo acima falhe."""
+    """WA Sender direto; piloto local limitado ao unico contato autorizado."""
     api_key = (os.getenv("WASENDER_API_KEY") or "").strip()
 
     def send(numero, texto, _tentativa=0):
@@ -98,7 +118,7 @@ def make_sender():
         phone = wa.normalize_phone(numero)
         if not phone:
             raise RuntimeError("numero invalido")
-        if wa.env_mode_ceiling() != "live" and phone not in wa.test_phones():
+        if phone != PILOT_PHONE or phone not in wa.test_phones():
             raise RuntimeError("destino fora da allowlist de teste")
         req = urllib.request.Request(
             "https://wasenderapi.com/api/send-message",
@@ -126,18 +146,42 @@ def make_sender():
 
 
 def single_instance():
-    """Trava de arquivo: uma unica instancia do worker neste PC."""
-    import msvcrt
+    """Trava de arquivo: uma unica instancia do worker nesta maquina (Windows ou Linux/servidor)."""
     fh = open(LOCK_PATH, "a+")
     try:
-        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         fh.close()
         return None
     return fh
 
 
-def run_once(stats=None):
+def run_once(stats=None, assistente=False):
+    # Piloto local autorizado: teto e destino restritos mesmo com env herdado live.
+    os.environ["POUPAQUI_WA_IA_MAX_MODE"] = wa.effective_mode(wa.env_mode_ceiling(), "test")
+    os.environ["POUPAQUI_WA_IA_TEST_PHONES"] = PILOT_PHONE
+    if assistente:
+        # Dados reais e suporte deterministico; conversa geral via Ollama local.
+        # o alerta sai antes e a resposta so diz "ja passei" se ele foi entregue
+        import poupaqui_ai_assistente as A
+        conn = connect()
+        try:
+            # print/foto/audio: le com o modelo multimodal do Ollama local; desligado = "nao abro midia"
+            leitor = None
+            if os.getenv("POUPAQUI_WA_IA_LER_IMAGENS") == "1":
+                repo = A.RepoLeitura(conn)
+                leitor = A.leitor_midia_ollama(timeout=75, vocabulario=lambda: [
+                    f["nome"] for f in repo.fornecedores_entrega()])
+            return wa.run_worker(conn, classifier=None, sender=make_sender(), engine="local",
+                                 model_label="assistente", assistente=A.assistente_worker(llm_geral=A.ollama_geral(timeout=60)),
+                                 max_contacts=wa._cfg_int("POUPAQUI_WA_IA_MAX_CONTATOS_RUN", 4), leitor_midia=leitor)
+        finally:
+            conn.close()
     ok, info = ollama_health()
     if not ok:
         return {"ignorado": "ollama/modelo indisponivel", "ollama": info}
@@ -166,13 +210,21 @@ def main(argv=None):
     g.add_argument("--status", action="store_true")
     g.add_argument("--pendentes", action="store_true")
     g.add_argument("--resolver", metavar="TELEFONE")
+    g.add_argument("--humanos", action="store_true")
+    g.add_argument("--assumir", metavar="TELEFONE")
+    g.add_argument("--devolver", metavar="TELEFONE")
+    ap.add_argument("--minutos", type=int, help="prazo do --assumir (padrao: ate --devolver)")
     g.add_argument("--motor", choices=wa.ENGINES)
     g.add_argument("--modo", choices=wa.MODES)
     g.add_argument("--once", action="store_true")
     g.add_argument("--loop", type=int, metavar="SEG")
     ap.add_argument("--confirmo-live", action="store_true", help="necessario para --modo live")
     ap.add_argument("--completo", action="store_true", help="mostra telefones inteiros em --pendentes")
+    ap.add_argument("--assistente", action="store_true",
+                    help="com --once/--loop: usa o assistente com dados reais em vez do classificador Ollama")
     a = ap.parse_args(argv)
+    if a.modo == "live":
+        raise SystemExit("piloto local restrito a test; live nao autorizado")
 
     def out(obj):
         print(json.dumps(obj, ensure_ascii=False, default=str), flush=True)
@@ -189,12 +241,12 @@ def main(argv=None):
         interval = max(15, a.loop)
         while True:
             try:
-                out({"em": time.strftime("%Y-%m-%d %H:%M:%S"), **run_once()})
+                out({"em": time.strftime("%Y-%m-%d %H:%M:%S"), **run_once(assistente=a.assistente)})
             except Exception as exc:  # banco/rede caiu: tenta na proxima volta
                 out({"erro": f"{type(exc).__name__}: {str(exc)[:200]}"})
             time.sleep(interval)
     if a.once:
-        out(run_once())
+        out(run_once(assistente=a.assistente))
         return 0
 
     conn = connect()
@@ -207,6 +259,21 @@ def main(argv=None):
             wa.set_db_mode(conn, a.modo)
         elif a.resolver:
             out({"resolvidas": wa.resolve_human(conn, a.resolver)})
+            return 0
+        elif a.assumir:
+            phone = wa.assumir_atendimento(conn, a.assumir, a.minutos)
+            out({"assumido": _mask(phone), "ate": "devolver" if not a.minutos else f"{a.minutos} min"})
+            return 0
+        elif a.devolver:
+            out({"devolvido": wa.devolver_atendimento(conn, a.devolver)})
+            return 0
+        elif a.humanos:
+            rows = wa.atendimentos_humanos(conn)
+            for r in rows:
+                if not a.completo:
+                    r["telefone"] = _mask(r["telefone"])
+                out(r)
+            out({"total": len(rows)})
             return 0
         elif a.pendentes:
             rows = wa.pending_human(conn)

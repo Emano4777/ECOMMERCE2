@@ -27440,7 +27440,25 @@ def crm_wasender_webhook():
     if not esperado or not secrets.compare_digest(str(recebido or ""), str(esperado)):
         return jsonify({"ok": False}), 401
     payload = request.get_json(silent=True) or {}
-    if payload.get("event") in {"messages.received", "message.received"}:
+    if payload.get("event") in {"messages.upsert", "message.sent", "messages.received", "message.received"}:
+        # Atendimento IA: mensagem que SAIU do numero (fromMe) digitada pelo
+        # operador silencia a IA naquele contato. Os parsers separam fromMe.
+        # Cada armazenador confirma sua transacao: em lote misto pode haver
+        # commit parcial. Retornar 503 permite retry, deduplicado por message_id.
+        try:
+            from poupaqui_wa_atendimento import estrutura_fromme, store_outbound
+            cont_saida = store_outbound(payload, db())
+            # mensagem enviada que nao virou registro: loga so a ESTRUTURA (nomes de campos), sem dados
+            if not any(cont_saida.get(k) for k in ("ia", "sistema", "manual")) and estrutura_fromme(payload):
+                app.logger.warning("wasender_fromme_ignorada=%s cont=%s", estrutura_fromme(payload)[:3], cont_saida)
+        except Exception:
+            app.logger.exception("wasender webhook: falha gravando mensagem enviada")
+            try:
+                db().rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": "storage_failed"}), 503
+    if payload.get("event") in {"messages.upsert", "messages.received", "message.received"}:
         # Dedicated test receiver: no Pode Ir forwarding, no automated replies.
         from wasender_inbound_test import record_test_replies
         from poupaqui_wa_atendimento import store_inbound
@@ -27458,7 +27476,7 @@ def crm_wasender_webhook():
             return jsonify({"ok": False, "error": "storage_failed"}), 503
         # Keep existing marketing opt-out behavior, now reading data.messages correctly.
         data = payload.get("data") or {}
-        msgs = data.get("messages") or []
+        msgs = data.get("messages") or data.get("message") or []
         if isinstance(msgs, dict):
             msgs = [msgs]
         for msg in msgs if isinstance(msgs, list) else []:

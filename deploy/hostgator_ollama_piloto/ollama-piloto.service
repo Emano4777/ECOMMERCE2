@@ -1,0 +1,48 @@
+# Ollama PILOTO isolado para a triagem do atendimento WhatsApp IA.
+# NAO habilitar no boot (sem `systemctl enable`): sobe so manualmente.
+# Isolamento: bind so em 127.0.0.1, 2 dos 4 vCPUs, RAM com teto rigido e sem
+# swap, prioridade minima de CPU/IO e primeiro alvo do OOM killer.
+[Unit]
+Description=Ollama PILOTO isolado (WhatsApp IA) - nao habilitado no boot
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/ollama-piloto/dist/bin/ollama serve
+DynamicUser=yes
+StateDirectory=ollama-piloto
+Environment=HOME=/var/lib/ollama-piloto
+Environment=OLLAMA_MODELS=/var/lib/ollama-piloto/models
+Environment=OLLAMA_HOST=127.0.0.1:11434
+Environment=OLLAMA_NUM_PARALLEL=1
+Environment=OLLAMA_MAX_LOADED_MODELS=1
+Environment=OLLAMA_MAX_QUEUE=4
+Environment=OLLAMA_KEEP_ALIVE=10m
+Environment=OLLAMA_NOHISTORY=1
+
+# Recursos
+AllowedCPUs=2-3
+CPUQuota=200%
+CPUWeight=20
+Nice=15
+IOWeight=10
+MemoryHigh=4500M
+MemoryMax=5G
+MemorySwapMax=0
+TasksMax=256
+OOMScoreAdjust=900
+Restart=no
+
+# Sandbox
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

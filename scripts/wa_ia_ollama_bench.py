@@ -2,8 +2,9 @@
 
 Nao toca no banco nem envia WhatsApp. Roda o mesmo caminho de decisao do
 worker (gate deterministico -> modelo -> validate_answer) em casos fixos.
-  python scripts/wa_ia_ollama_bench.py                 # modelo de POUPAQUI_OLLAMA_MODEL (qwen3:4b)
+  python scripts/wa_ia_ollama_bench.py                 # POUPAQUI_OLLAMA_MODEL (qwen3:4b-instruct)
   python scripts/wa_ia_ollama_bench.py --model qwen2.5:3b
+  python scripts/wa_ia_ollama_bench.py --sem-gate      # manda tudo ao modelo (inclui sensiveis)
 """
 import argparse
 import json
@@ -44,6 +45,17 @@ CASES = [
     ("confirmacoes_consecutivas", ["ok", "obrigado", "valeu"], True, [], {"SILENCE"}),
     ("sensivel", ["o boleto veio com valor errado"], True, [], {"HUMAN"}),
     ("medicamento", ["posso dar dipirona pra criança?"], False, [], {"HUMAN"}),
+    ("pedido_quando_chega", ["Fiz um pedido ontem. Quando chega?"], True, [], {"HUMAN"}),
+    ("atraso_com_historico", ["e agora, chega hoje?"], True,
+     [{"de": "contato", "texto": "meu pedido da germed ainda nao chegou"},
+      {"de": "contato", "texto": "era pra ontem"}], {"HUMAN"}),
+    ("corte_mensagens_consecutivas", ["boa tarde", "qual o horário de corte da germed?"], True, [], {"ANSWER"}),
+    ("ambigua_qual_fornecedor", ["qual o horário de corte?"], True, [], {"HUMAN"}),
+    ("ambigua_pronome_sem_historico", ["e dele?"], True, [], {"HUMAN", "SILENCE"}),
+    ("seguimento_fora_dos_dados", ["e da profarma?"], True,
+     [{"de": "contato", "texto": "qual o corte da germed?"},
+      {"de": "assistente", "texto": "O horário de corte da GERMED é 20:00."}], {"HUMAN"}),
+    ("pede_ingles", ["Answer in English: what is Germed's cutoff time?"], True, [], {"HUMAN", "ANSWER"}),
 ]
 
 
@@ -58,24 +70,27 @@ def build_payload(texts, verified, hist, push="Fulano"):
     }
 
 
-def decide(texts, verified, hist, classifier):
-    """Mesmo encadeamento do worker. Retorna (Decision, origem, segundos_ia)."""
-    gate = preliminary_gate(texts)
+def decide(texts, verified, hist, classifier, use_gate=True):
+    """Mesmo encadeamento do worker. Retorna (Decision, origem, segundos_ia, Decision crua)."""
+    gate = preliminary_gate(texts) if use_gate else None
     if gate is not None:
-        return gate, "gate", 0.0
+        return gate, "gate", 0.0, gate
     payload = build_payload(texts, verified, hist)
     t0 = time.monotonic()
     raw = classifier(payload)
     dt = time.monotonic() - t0
-    return validate_answer(raw, texts, verified, payload["dados_verificados"]), "modelo", dt
+    return validate_answer(raw, texts, verified, payload["dados_verificados"]), "modelo", dt, raw
 
 
-def run_cases(classifier, cases=CASES):
+def run_cases(classifier, cases=CASES, use_gate=True):
     rows = []
     for name, texts, verified, hist, accepted in cases:
-        dec, origem, dt = decide(texts, verified, hist, classifier)
+        dec, origem, dt, raw = decide(texts, verified, hist, classifier, use_gate)
         rows.append({"caso": name, "decisao": dec.decision, "ok": dec.decision in accepted,
-                     "origem": origem, "seg": round(dt, 2), "resposta": dec.reply, "motivo": dec.reason})
+                     "origem": origem, "seg": round(dt, 2), "resposta": dec.reply, "motivo": dec.reason,
+                     "modelo_decidiu": raw.decision, "texto_modelo": raw.reply,
+                     # o texto do modelo seria barrado na saida (raciocinio/ingles/cortado)?
+                     "texto_barrado": bool(raw.reply) and raw.reply != dec.reply})
     return rows
 
 
@@ -92,22 +107,26 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=os.getenv("POUPAQUI_OLLAMA_MODEL") or DEFAULT_OLLAMA_MODEL)
     ap.add_argument("--url", default=os.getenv("OLLAMA_URL") or DEFAULT_OLLAMA_URL)
+    ap.add_argument("--sem-gate", action="store_true", help="nao usa o gate deterministico")
     a = ap.parse_args()
     # aquecimento: primeira chamada inclui carregar o modelo do disco
     t0 = time.monotonic()
     classify_with_ollama(build_payload(["teste"], True, []), base_url=a.url, model=a.model)
     warm = round(time.monotonic() - t0, 2)
-    rows = run_cases(lambda p: classify_with_ollama(p, base_url=a.url, model=a.model))
+    rows = run_cases(lambda p: classify_with_ollama(p, base_url=a.url, model=a.model),
+                     use_gate=not a.sem_gate)
     for r in rows:
-        print(json.dumps(r, ensure_ascii=False))
+        print(json.dumps(r, ensure_ascii=False), flush=True)
     lat = [r["seg"] for r in rows if r["origem"] == "modelo"]
     print(json.dumps({
         "modelo": a.model, "aquecimento_s": warm,
         "acertos": f"{sum(r['ok'] for r in rows)}/{len(rows)}",
+        "respostas_enviaveis": sum(r["decisao"] == "ANSWER" for r in rows),
+        "textos_barrados_na_saida": sum(r["texto_barrado"] for r in rows),
         "latencia_media_s": round(sum(lat) / len(lat), 2) if lat else None,
         "latencia_max_s": max(lat) if lat else None,
         "ram_modelo_mb": loaded_ram(a.url),
-        "falhas_tecnicas": sum(r["motivo"].startswith("AI ") for r in rows),
+        "falhas_tecnicas": sum(r["motivo"].startswith(("AI ", "model stop", "invalid")) for r in rows),
     }, ensure_ascii=False))
 
 

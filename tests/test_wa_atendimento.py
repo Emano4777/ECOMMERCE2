@@ -17,6 +17,8 @@ from poupaqui_ai_policy import (  # noqa: E402
     Decision, preliminary_gate, safe_decision, validate_answer, is_opt_out,
 )
 
+# trava de lock vira erro em 10s em vez de pendurar a suite
+TIMEOUTS_DB = "-c statement_timeout=30000 -c lock_timeout=10000 -c idle_in_transaction_session_timeout=60000"
 TEST_PHONE = "5517991436759"
 
 
@@ -36,6 +38,29 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(items[0]["telefone"], TEST_PHONE)
         self.assertEqual(items[0]["tipo"], "text")
         self.assertEqual(items[0]["nome_whatsapp"], "Fulano")
+
+    def test_imagem_guarda_metadados_para_download(self):
+        img = {"imageMessage": {"url": "https://mmg.whatsapp.net/x", "mimetype": "image/jpeg", "mediaKey": "K==",
+                                "fileSha256": "S==", "fileLength": "1234", "caption": "olha o erro", "jpegThumbnail": "T"}}
+        it = wa.parse_inbound(payload("I1", text="olha o erro", message=img))[0]
+        self.assertEqual(it["tipo"], "image")
+        self.assertEqual(it["midia"], {"campo": "imageMessage", "url": "https://mmg.whatsapp.net/x",
+                                       "mimetype": "image/jpeg", "mediaKey": "K==", "fileSha256": "S==",
+                                       "fileLength": "1234"})
+        pdf = {"documentMessage": {"url": "u", "mimetype": "application/pdf", "mediaKey": "K"}}
+        self.assertIsNone(wa.parse_inbound(payload("I2", message=pdf))[0]["midia"])
+        self.assertIsNone(wa.parse_inbound(payload("I3"))[0]["midia"])
+
+    def test_audio_guarda_metadados_e_vira_fala(self):
+        aud = {"audioMessage": {"url": "https://mmg.whatsapp.net/a", "mimetype": "audio/ogg; codecs=opus",
+                                "mediaKey": "K==", "seconds": 12, "ptt": True}}
+        it = wa.parse_inbound(payload("AU1", text="", message=aud))[0]
+        self.assertEqual(it["tipo"], "audio")
+        self.assertEqual(it["midia"]["campo"], "audioMessage")
+        self.assertEqual(it["midia"]["seconds"], 12)
+        self.assertEqual(wa.texto_da_midia({"audio": True, "texto": "meu pedido nao chegou"}),
+                         "[Áudio transcrito] meu pedido nao chegou")
+        self.assertIn("só o começo", wa.texto_da_midia({"audio": True, "texto": "x", "cortado": True}))
 
     def test_ignores_from_me_groups_channels_status(self):
         self.assertEqual(wa.parse_inbound(payload("A", from_me=True)), [])
@@ -126,10 +151,12 @@ class WorkerIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import psycopg2
-        from dotenv import load_dotenv
-        load_dotenv()
+        # so a conexao: o .env do piloto (alertas, OLLAMA_URL do tunel, modelo) nao pode vazar
+        from dotenv import dotenv_values
+        os.environ.setdefault("DATABASE_URL", dotenv_values(".env").get("DATABASE_URL") or "")
         cls.schema = "wa_ia_test_" + uuid.uuid4().hex[:8]
-        cls.raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
+        cls.raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10,
+                                   options=TIMEOUTS_DB)
         with cls.raw.cursor() as cur:
             cur.execute(f"CREATE SCHEMA {cls.schema}")
         cls.raw.commit()
@@ -240,12 +267,84 @@ class WorkerIntegrationTests(unittest.TestCase):
             cur.execute("SELECT COUNT(*) FROM ecommerce_wa_mensagens WHERE direcao='out_ia'")
             self.assertEqual(cur.fetchone()[0], 1)
 
+    def test_imagem_lida_vira_texto_e_chave_some(self):
+        self.link(TEST_PHONE)
+        img = {"imageMessage": {"url": "https://mmg.whatsapp.net/x", "mimetype": "image/png", "mediaKey": "K=="}}
+        self.receive("IMG1", text="", message=img); self.age()
+        lidos = []
+
+        def leitor(mid, midia):
+            lidos.append((mid, midia["mediaKey"]))
+            return {"texto": "Erro ao enviar pedido HTTP 500", "resumo": "print de erro do Pedido Eletronico"}
+        wa.set_db_mode(self.conn, "test")
+        wa.run_worker(self.conn, self.classifier(), self.sender(), leitor_midia=leitor)
+        self.assertEqual(lidos, [("IMG1", "K==")])
+        nova = self.calls[0]["mensagens_novas"][-1]
+        self.assertEqual(nova["tipo"], "text")
+        self.assertIn("Erro ao enviar pedido HTTP 500", nova["texto"])
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT tipo, corpo, midia FROM ecommerce_wa_mensagens WHERE message_id = 'IMG1'")
+            tipo, corpo, midia = cur.fetchone()
+        self.conn.commit()
+        self.assertEqual(tipo, "image")
+        self.assertTrue(corpo.startswith("[Imagem enviada pelo contato]"))
+        self.assertIsNone(midia)   # chave de criptografia nao fica guardada
+
+    def test_imagem_sem_leitor_continua_midia(self):
+        self.link(TEST_PHONE)
+        img = {"imageMessage": {"url": "u", "mimetype": "image/png", "mediaKey": "K=="}}
+        self.receive("IMG2", text="", message=img); self.age()
+        wa.set_db_mode(self.conn, "test")
+        wa.run_worker(self.conn, self.classifier(), self.sender(),
+                      leitor_midia=lambda mid, m: (_ for _ in ()).throw(RuntimeError("falhou")))
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT corpo, midia FROM ecommerce_wa_mensagens WHERE message_id = 'IMG2'")
+            corpo, midia = cur.fetchone()
+        self.conn.commit()
+        self.assertEqual((corpo, midia), ("", None))
+
+    def test_lid_do_contato_resolve_mensagem_manual(self):
+        # recebida traz LID + telefone; a enviada (operador) vem so com o LID
+        self.receive("L1", text="oi", jid="123456789@lid")
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT lid FROM ecommerce_wa_contatos WHERE telefone = %s", (TEST_PHONE,))
+            self.assertEqual(cur.fetchone()[0], "123456789@lid")
+        self.conn.commit()
+        saida = {"event": "messages.upsert", "data": {"messages": {
+            "key": {"id": "OUT1", "fromMe": True, "remoteJid": "123456789@lid"},
+            "message": {"conversation": "Oi, aqui é o Emanuel, já vejo pra você"}}}}
+        self.assertEqual(wa.store_outbound(saida, self.conn)["manual"], 1)
+        self.assertIsNotNone(wa.takeover_ativo(self.conn, TEST_PHONE))
+        self.conn.commit()
+        desconhecido = {"event": "messages.upsert", "data": {"messages": {
+            "key": {"id": "OUT2", "fromMe": True, "remoteJid": "987654321@lid"},
+            "message": {"conversation": "oi"}}}}
+        self.assertEqual(wa.store_outbound(desconhecido, self.conn).get("sem_telefone"), 1)
+
+    def test_midia_que_falha_junto_com_texto_responde_o_resto(self):
+        self.link(TEST_PHONE)
+        aud = {"audioMessage": {"url": "u", "mimetype": "audio/ogg; codecs=opus", "mediaKey": "K=="}}
+        self.receive("MIX1", text="", message=aud)
+        self.receive("MIX2", text="Qual o horario de corte da Germed?"); self.age()
+        wa.set_db_mode(self.conn, "test")
+        wa.run_worker(self.conn, self.classifier(), self.sender(),
+                      leitor_midia=lambda mid, m: (_ for _ in ()).throw(RuntimeError("falhou")))
+        novas = self.calls[0]["mensagens_novas"]
+        self.assertEqual([n["tipo"] for n in novas], ["text", "text"])   # audio nao derruba o lote
+        self.assertEqual(novas[-1]["texto"], "Qual o horario de corte da Germed?")
+
     def test_test_mode_blocks_non_allowlisted(self):
+        # em test, contato fora da allowlist nem entra no worker: fica pendente, sem IA nem alerta
         self.receive("M1", phone="5517988881111"); self.age()   # loja verificada, fora da allowlist
         res = self.run_worker("test")
-        self.assertEqual(res["resultados"][0]["envio"], "bloqueado_fora_allowlist")
-        self.assertEqual(self.sent, [])
-        self.assertEqual(self.calls[0]["identidade_verificada"]["ref"], "11111111000111")
+        self.assertEqual(res["resultados"], [])
+        self.assertEqual((self.sent, self.calls, self.decisions()), ([], [], []))
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT status FROM ecommerce_wa_mensagens WHERE message_id = 'M1'")
+            self.assertEqual(cur.fetchone()[0], "pendente")
+        # mensagem velha de fora da allowlist tambem nao e expirada pelo worker de test
+        self.age(10 ** 6)
+        self.assertEqual(self.run_worker("test")["expiradas"], 0)
 
     def test_env_ceiling_beats_db_live(self):
         self.receive("M1", phone="5517988881111"); self.age()
@@ -322,7 +421,10 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
     def test_rate_limit_per_hour(self):
+        # numero da allowlist em test usa o limite proprio (POUPAQUI_WA_IA_TEST_MAX_HORA)
         os.environ["POUPAQUI_WA_IA_MAX_HORA"] = "1"
+        os.environ["POUPAQUI_WA_IA_TEST_MAX_HORA"] = "1"
+        self.addCleanup(os.environ.pop, "POUPAQUI_WA_IA_TEST_MAX_HORA", None)
         try:
             self.link(TEST_PHONE)
             self.receive("M1"); self.age(); self.run_worker("test")
