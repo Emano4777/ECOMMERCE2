@@ -24608,7 +24608,7 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
 # - nao cancela pedido sozinho: cancelamento vai para o atendente;
 # - prompt sem as ferramentas: e lido pela CPU (~46 s a frio com tudo; com
 #   cache, ~0,5 s), entao quanto menor, melhor;
-# - prazo curto (o nginx corta em 60 s): estourou ou falhou, o chamador cai no
+# - prazo de 70 s (Apache e gunicorn do site esperam 90 s): estourou ou falhou, cai no
 #   Claude como reserva (POUPINHA_FALLBACK_CLAUDE=0 desliga).
 
 
@@ -24759,7 +24759,7 @@ def _ollama_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
     req = urllib.request.Request(base + "/api/chat", data=json.dumps(body).encode("utf-8"),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=prazo_s or float(os.getenv("POUPINHA_OLLAMA_PRAZO_S") or 45)) as r:
+        with urllib.request.urlopen(req, timeout=prazo_s or float(os.getenv("POUPINHA_OLLAMA_PRAZO_S") or 70)) as r:
             texto = _sem_markdown(((json.loads(r.read().decode("utf-8")).get("message") or {}).get("content")) or "")
     except Exception as exc:
         app.logger.warning("_ollama_suporte_responder error: %s", exc)
