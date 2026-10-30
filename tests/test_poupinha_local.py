@@ -85,5 +85,33 @@ class PoupinhaLocalTests(unittest.TestCase):
             cl.assert_not_called()
 
 
+
+class EscaladaAbandonadaTests(unittest.TestCase):
+    class Cur:
+        def __init__(self, velha, humano):
+            self.r, self.sql = {"velha": velha, "humano": humano}, []
+
+        def execute(self, sql, params=None):
+            self.sql.append(sql)
+
+        def fetchone(self):
+            return self.r
+
+    def chat(self, **kw):
+        return {"id": "ch", "status": "escalada_admin", "motivo_categoria": "sem_resposta",
+                "escalada_em": "2026-10-15", **kw}
+
+    def test_falha_da_ia_sem_humano_ha_horas_volta_para_ia(self):
+        self.assertTrue(app._suporte_escalada_abandonada(self.Cur(True, False), self.chat()))
+
+    def test_mantem_com_humano_nos_outros_casos(self):
+        self.assertFalse(app._suporte_escalada_abandonada(self.Cur(True, True), self.chat()))     # humano respondeu
+        self.assertFalse(app._suporte_escalada_abandonada(self.Cur(False, False), self.chat()))   # ainda recente
+        cur = self.Cur(True, False)
+        self.assertFalse(app._suporte_escalada_abandonada(cur, self.chat(motivo_categoria="cliente_pediu")))
+        self.assertEqual(cur.sql, [])                                                             # nem consulta
+        self.assertFalse(app._suporte_escalada_abandonada(cur, self.chat(status="bot")))
+
+
 if __name__ == "__main__":
     unittest.main()
