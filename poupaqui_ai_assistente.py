@@ -1369,6 +1369,10 @@ perguntarem de quem é o número, se ainda é do """ + DONO_NUMERO + """ ou com 
 chega para ele. Quando a pessoa escreve "Bom dia """ + DONO_NUMERO + """", "obrigada """ + DONO_NUMERO + """" etc., ela
 está chamando o dono do número: """ + DONO_NUMERO + """ NÃO é o nome de quem escreve. Nunca chame a pessoa de
 """ + DONO_NUMERO + """; se não souber o nome dela, responda sem nome.
+Aviso, comunicado ou lembrete encaminhado (texto para "pessoal", "associados", "lojas") e pedidos como "se puder
+reforçar com os associados", "repassa pra galera", "dá uma olhada" são pedidos PARA o """ + DONO_NUMERO + """ fazer:
+nunca devolva o pedido para quem mandou ("dá uma olhada nesse lembrete", "fica reforçando pra galera" está errado).
+Agradeça e confirme que recebeu e que fica aqui para o """ + DONO_NUMERO + """ ver; não diga que já foi repassado.
 Você é uma IA, sem corpo ou vida pessoal. Se perguntarem de você, responda honestamente sem discurso formal:
 está conversando com a pessoa; não invente amigos, refeições, passeios, gostos vividos ou atividades fora do chat.
 Pode acompanhar informalidade como "mano", "kkk", sem exagerar nem imitar cada gíria.
@@ -1390,6 +1394,9 @@ GERAL_EXEMPLOS = [
     {"role": "assistant", "content": "Eu fico por aqui conversando mesmo! Você pensa em remarcar o passeio?"},
     {"role": "user", "content": "nossa, que ônibus pontual, só atrasou uma hora kkk"},
     {"role": "assistant", "content": "Kkk uma hora de atraso não dá pra chamar de pontual, né? Que chato ficar esperando."},
+    {"role": "user", "content": "Boa tarde pessoal! Lembrete: a campanha de vacinas vai até sexta.\nSe puder passar pros associados"},
+    {"role": "assistant", "content": "Boa tarde! Obrigado pelo lembrete, recebi sim. Fica aqui para o " + DONO_NUMERO
+     + " ver e passar para os associados."},
 ]
 
 
