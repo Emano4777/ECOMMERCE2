@@ -362,6 +362,15 @@ class ConversaContextualTests(unittest.TestCase):
         r = resp(['e setembro?'], ident=INTERNO, hist=hist2, repo=repo)
         self.assertIn('setembro', r.reply)
         self.assertIn('R$ 27.000,00', r.reply)
+        # historico curto ja sem a pergunta original: o assunto (e o mes) vem da ultima resposta de dados
+        hist3 = [{'de': 'contato', 'texto': 'e setembro?'}, {'de': 'assistente', 'texto': r.reply}]
+        r = resp(['e da loja de botucatu?'], ident=INTERNO, hist=hist3, repo=repo,
+                 llm=lambda t, h: 'Botucatu vendeu R$ 95.420,50')
+        self.assertTrue(r.reply.startswith('Loja de Botucatu'), r.reply)
+        self.assertEqual(repo.pedido[0], '22222222000122')
+        self.assertIn('em setembro', r.reply)
+        self.assertEqual(A.problema_conversa('Em agosto o faturamento foi de R$ 105.112,00.', ['e ai']),
+                         'valor de venda inventado')
 
     def test_tudo_bem_pergunta_de_volta_so_quando_falta(self):
         r = resp(['De boa, TD bem?'])

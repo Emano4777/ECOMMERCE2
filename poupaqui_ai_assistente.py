@@ -703,7 +703,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             import difflib
             n_r = normalize(r.reply)
             recentes = [normalize(h.get("texto")) for h in (historico or [])[-8:] if h.get("de") == "assistente"]
-            if any(difflib.SequenceMatcher(None, n_r, x).ratio() > 0.85 for x in recentes if x):
+            # mesmo diagnostico = mesmo texto, mesmos numeros e mesma loja (outra loja no mesmo formato nao e repeticao)
+            loja_n = normalize(ctx.get("loja_citada") or "")
+            if any(difflib.SequenceMatcher(None, n_r, x).ratio() > 0.85 and re.findall(r"\d+", n_r) ==
+                   re.findall(r"\d+", x) and (not loja_n or x.startswith(loja_n)) for x in recentes if x):
                 pergunta = next((f for f in reversed(re.split(r"(?<=[.!?])\s+", r.reply.strip())) if f.endswith("?")), "")
                 r.reply = ("Conferi de novo e continua igual ao que te passei agora há pouco." +
                            (f" {pergunta}" if pergunta else " Se mudou alguma coisa aí, me conta o que apareceu."))
@@ -836,6 +839,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                         ctx["texto_herdado"] = f"{pergunta_ant} {norm}"
                 elif citada_agora and intencao == "geral" and _PEDIDO_RE.search(norm):
                     intencao = "pedido"      # "mas e os pedidos da sao pedro?": o assunto esta na propria frase
+                elif citada_agora and intencao == "geral" and not sup0 and _assunto_da_resposta(ultima_ia):
+                    # "e da loja de botucatu?" logo depois de um total de vendas: mesma consulta, mesmo mes
+                    ctx["sup_herdado"], base = _assunto_da_resposta(ultima_ia)
+                    ctx["texto_herdado"] = f"{base} {norm}"
                 elif citada_agora and intencao == "geral" and not sup0 and hist_norm:
                     anterior = detectar_intencao(hist_norm)
                     if anterior in ("pedido", "financeiro"):
@@ -914,6 +921,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         sup = S.detectar_suporte(norm)
         if sup is None and ctx.get("sup_herdado"):   # equipe trocou so a loja: mesmo diagnostico na loja nova
             sup, texto_diag = ctx["sup_herdado"], ctx.get("texto_herdado") or f"{hist_norm} {norm}"
+        dados_ia = _assunto_da_resposta(_ultima_do_assistente(historico)) if sup is None else None
+        if dados_ia and intencao == "geral" and re.search(
+                rf"\b({'|'.join(S.MESES)}|mes passado|mes anterior)\b", norm):
+            sup, texto_diag = dados_ia[0], f"{dados_ia[1]} {norm}"   # "e setembro?" apos um total de vendas
         if sup is None and sup_hist:
             # "continua", ou a resposta a uma pergunta do diagnostico ("aparece
             # erro 500", "no pedido eletronico") herda o assunto do historico
@@ -1176,6 +1187,17 @@ def problema_formato_conversa(r):
     return None
 
 
+_RESP_VENDAS_RE = re.compile(r"\bvendas da (?:sua )?loja em (janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|"
+                             r"setembro|outubro|novembro|dezembro)\b")
+
+
+def _assunto_da_resposta(ultima_ia_norm):
+    """Assunto de dados da ultima resposta do assistente (o historico curto do contato pode nao ter mais a
+    pergunta original): ("vendas", "vendas de outubro") ou None."""
+    m = _RESP_VENDAS_RE.search(ultima_ia_norm or "")
+    return ("vendas", f"vendas de {m.group(1)}") if m else None
+
+
 def problema_conversa(txt, textos, historico=None):
     """Valida formato sem confundir emoji final com frase truncada; nao relaxa dados."""
     checked = (txt or '').strip()
@@ -1202,6 +1224,8 @@ def problema_conversa(txt, textos, historico=None):
     n = normalize(txt)
     if _CONVERSA_SAUDE_RE.search(n):
         return 'orientacao de saude fora do escopo'
+    if re.search(r"R\$\s?\d", txt) and re.search(r"\b(vend\w*|fatur\w*|ticket|itens)\b", n):
+        return 'valor de venda inventado'   # numero de venda so sai da consulta ao sistema, nunca da conversa
     if _CONVERSA_PROIBIDO_RE.search(txt) or _CONVERSA_DADO_RE.search(n) or _DADO_LOJA_RE.search(n):
         return 'dados factuais ou termos restritos'
     if promete_encaminhamento(txt) or re.search(r"\b(equipe|atendente|suporte)\b", n):
