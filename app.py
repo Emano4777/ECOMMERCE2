@@ -25313,6 +25313,21 @@ def _notificar_admin_suporte(chat_id, resumo):
         app.logger.warning("_notificar_admin_suporte error: %s", exc)
 
 
+def _suporte_escalada_abandonada(cur, chat, horas=12):
+    """Chat que foi para atendente so porque a IA falhou ('sem_resposta': o cliente nao pediu gente) e que
+    nenhum humano (loja/admin) respondeu em `horas`: deixar o cliente esperando para sempre e pior que
+    voltar para a IA. Ex.: falha da IA em 15/10 prendeu o chat em 'escalada_admin' ate 30/10."""
+    if chat.get("status") == "bot" or chat.get("motivo_categoria") != "sem_resposta" or not chat.get("escalada_em"):
+        return False
+    cur.execute(
+        "SELECT NOW() - %s > make_interval(hours => %s) AS velha, EXISTS(SELECT 1 FROM ecommerce_suporte_msgs "
+        "WHERE chat_id=%s AND autor IN ('loja','admin') AND enviada_em >= %s) AS humano",
+        (chat["escalada_em"], horas, chat["id"], chat["escalada_em"]),
+    )
+    r = cur.fetchone()
+    return bool(r["velha"]) and not r["humano"]
+
+
 def _suporte_chat_ativo(consumidor_id, pedido_id=None):
     conn = db()
     cur = conn.cursor()
@@ -25389,6 +25404,16 @@ def api_suporte_mensagem():
     )
     cur.execute("UPDATE ecommerce_suporte_chats SET ultima_atividade_em=NOW() WHERE id=%s", (chat_id,))
     conn.commit()
+
+    try:
+        if _suporte_escalada_abandonada(cur, chat):
+            cur.execute("UPDATE ecommerce_suporte_chats SET status='bot' WHERE id=%s", (chat_id,))
+            conn.commit()
+            chat = dict(chat)
+            chat["status"] = "bot"
+    except Exception as exc:
+        app.logger.warning("api_suporte_mensagem: erro checando escalada abandonada: %s", exc)
+        conn.rollback()
 
     if chat["status"] != "bot":
         cur.close()
