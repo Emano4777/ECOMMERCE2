@@ -684,6 +684,22 @@ def lojas_citadas(texto_norm, lojas):
     return exatas or achadas
 
 
+_CIDADE_PALAVRA_COMUM = {"santa", "santo", "nova", "novo", "porto", "campos", "monte", "bom", "boa", "vila", "rio"}
+
+
+def lojas_citadas_solta(texto_norm, lojas):
+    """Cidade solta na pergunta de dados ("quanto caxias vendeu?"): cidade inteira ou a 1a palavra dela
+    (5+ letras, nao generica). So para quando a mensagem ja e sobre dados de loja."""
+    achadas = []
+    for cnpj, razao, cidade in lojas:
+        c = re.sub(r"\s+\d+$", "", normalize(cidade))
+        primeira = c.split()[0] if c else ""
+        alvos = [c] + ([primeira] if len(primeira) >= 5 and primeira not in _CIDADE_PALAVRA_COMUM else [])
+        if c and any(re.search(rf"\b{re.escape(a)}\b", texto_norm) for a in alvos):
+            achadas.append((cnpj, razao, cidade))
+    return achadas
+
+
 def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agora=None, llm_geral=None,
               sonda=None):
     """Decide e redige a resposta. Nunca envia. Qualquer erro de consulta -> HUMAN.
@@ -809,6 +825,8 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             # loja citada na propria mensagem vale sempre ("deu ruim no relatorio de sao pedro"); do
             # historico so quando o assunto e de dados de loja
             citadas = lojas_citadas(norm, lojas)
+            if not citadas and (precisa or sup0):
+                citadas = lojas_citadas_solta(norm, lojas)   # "quanto caxias vendeu?"
             ultima_ia = _ultima_do_assistente(historico)
             pergunta_ant = None
             if not citadas and "de qual loja" in ultima_ia and len(norm.split()) <= 6:
@@ -1198,7 +1216,8 @@ def problema_formato_conversa(r):
 _PRAZO_CASO_RE = re.compile(r"\b(quanto tempo|qual (o |e o )?(prazo|tempo)|tem (previsao|prazo)|demora (muito|quanto)|"
                             r"quando (vai|vao|fica|ficar|sera|e que) (ser )?(resolv\w*|arrum\w*|corrig\w*|pronto)|"
                             r"(prazo|tempo|previsao) (de|da|pra|para) (resol\w*|resposta|retorno|arrum\w*|corre\w*))\b")
-_RESP_VENDAS_RE = re.compile(r"\bvendas da (?:sua )?loja em (janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|"
+# "vendas da loja em outubro", "arquivo de vendas da loja de setembro", "nao tenho as vendas de setembro"
+_RESP_VENDAS_RE = re.compile(r"\bvendas (?:da (?:sua )?loja (?:em|de)|de) (janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|"
                              r"setembro|outubro|novembro|dezembro)\b")
 
 

@@ -372,6 +372,27 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertIn('em setembro', r.reply)
         self.assertEqual(A.problema_conversa('Em agosto o faturamento foi de R$ 105.112,00.', ['e ai']),
                          'valor de venda inventado')
+        # cidade solta na pergunta ("quanto caxias vendeu?") e troca de loja apos resposta "sem arquivo"
+        r = resp(['quanto botucatu vendeu?'], ident=INTERNO, hist=[], repo=repo)
+        self.assertTrue(r.reply.startswith('Loja de Botucatu'), r.reply)
+        sem = [{'de': 'contato', 'texto': 'e setembro?'},
+               {'de': 'assistente', 'texto': 'Loja de Caxias (X): ainda não chegou arquivo de vendas da loja de setembro.'}]
+        r = resp(['Certo consegue ver o da loja de Sao Pedro'], ident=INTERNO, hist=sem, repo=repo)
+        self.assertTrue(r.reply.startswith('Loja de Sao Pedro'), r.reply)
+        self.assertIn('em setembro', r.reply)
+
+    def test_vendas_loja_que_parou_de_mandar(self):
+        from datetime import datetime
+        import poupaqui_ai_suporte as S
+
+        class Repo:
+            def vendas_mes(self, cnpj, ano, mes):
+                return []
+
+            def ultimo_mes_vendas(self, cnpj):
+                return (2025, 12, datetime(2026, 4, 5, 18, 34))
+        r = S.diag_vendas('vendas de outubro', {"fontes": []}, Repo(), '1', datetime(2026, 10, 30, 9, tzinfo=A.TZ))
+        self.assertIn('mais recente dela é de dezembro/2025, recebido em 05/04/2026', r.reply)
 
     def test_prazo_apos_protocolo_e_lacuna_de_madrugada(self):
         hist = [{'de': 'contato', 'texto': 'acho q ta com problema no relatorio'},

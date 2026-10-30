@@ -155,12 +155,37 @@ def _cur(conn):
 _schema_ok = False
 
 
+_SCHEMA_TABELAS = sorted(set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA_SQL)))
+_SCHEMA_COLUNAS = sorted(set(re.findall(r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)", SCHEMA_SQL)))
+_SCHEMA_INDICES = sorted(set(re.findall(r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS (\w+)", SCHEMA_SQL)))
+
+
+def _schema_completo(cur):
+    """Tudo que o SCHEMA_SQL cria ja existe? (so leitura de catalogo: nenhum lock nas tabelas)"""
+    cur.execute("""SELECT
+        (SELECT COUNT(*) FROM information_schema.tables
+          WHERE table_schema = current_schema() AND table_name = ANY(%s)),
+        (SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = current_schema() AND (table_name || '.' || column_name) = ANY(%s)),
+        (SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ANY(%s))""",
+                (_SCHEMA_TABELAS, [f"{t}.{c}" for t, c in _SCHEMA_COLUNAS], _SCHEMA_INDICES))
+    return tuple(cur.fetchone()) == (len(_SCHEMA_TABELAS), len(_SCHEMA_COLUNAS), len(_SCHEMA_INDICES))
+
+
 def ensure_schema(conn, force=False):
-    # uma vez por processo: CREATE INDEX IF NOT EXISTS ainda pega lock na tabela
+    # uma vez por processo. Depois de um deploy sobem varios processos juntos (site com 3 workers + worker da IA)
+    # e a WA Sender manda eventos em rajada: o ALTER TABLE de cada um pede lock exclusivo e eles se travavam
+    # (DeadlockDetected no webhook em 29/10, 503 ate o reenvio). Agora: schema completo = so leitura de
+    # catalogo, sem lock; faltando algo, um de cada vez (lock de TRANSACAO: o de sessao nao serve no pooler).
     global _schema_ok
     if _schema_ok and not force:
         return
     with _cur(conn) as cur:
+        if not force and _schema_completo(cur):
+            conn.commit()
+            _schema_ok = True
+            return
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext('poupaqui_wa_ensure_schema'))")
         cur.execute(SCHEMA_SQL)
     conn.commit()
     _schema_ok = True

@@ -144,6 +144,19 @@ class RepoSuporte(RepoLeitura):
                 pass
         return sorted(out)
 
+    def ultimo_mes_vendas(self, cnpj):
+        """(ano, mes, recebido_em) do arquivo de venda mais recente da loja, ou None."""
+        rows = self._query("""SELECT ano_mes, MAX(created_at) FROM vendas_totalizadas WHERE cnpj = %s
+                              GROUP BY ano_mes ORDER BY MAX(created_at) DESC LIMIT 12""", (cnpj,))
+        meses = []
+        for am, em in rows:
+            try:
+                m, a = str(am).split("-")
+                meses.append((int(a), int(m), em))
+            except ValueError:
+                pass
+        return max(meses) if meses else None
+
     def config_ecommerce(self, cnpj):
         # so colunas de publicacao: a tabela tem tokens de pagamento que nunca sao lidos
         rows = self._query("""SELECT catalogo_publico, estoque_min_publicacao, catalogo_sync_em
@@ -760,6 +773,15 @@ def diag_vendas(texto_norm, ctx, repo, cnpj, agora):
     dias = repo.vendas_mes(cnpj, ano, mes)
     ctx["fontes"].append(f"vendas_totalizadas {mes:02d}/{ano}: {len(dias)} dias")
     if not dias:
+        ult = repo.ultimo_mes_vendas(cnpj) if hasattr(repo, "ultimo_mes_vendas") else None
+        if ult and (ult[0], ult[1]) < (ano, mes):
+            # loja que parou de mandar: dizer desde quando ajuda mais que "ainda nao chegou"
+            nome_ult = MESES[ult[1] - 1].replace("marco", "março")
+            recebido = f", recebido em {ult[2]:%d/%m/%Y}" if ult[2] else ""
+            return _r("ANSWER", f"Não tenho as vendas de {nome_mes} da sua loja: o arquivo de vendas mais recente "
+                      f"dela é de {nome_ult}/{ult[0]}{recebido}. Depois disso não chegou mais nenhum, então os "
+                      "relatórios estão sem as vendas desde então.", "vendas: loja sem arquivo recente", False,
+                      "vendas", ctx)
         return _r("ANSWER", f"Ainda não chegou arquivo de vendas da sua loja de {nome_mes}, então não tenho esse total. "
                   f"Os arquivos chegam com cerca de {ATRASO_ARQUIVO_VENDAS_DIAS} dias de atraso (e algumas lojas "
                   "mandam um arquivo só depois que o mês fecha).", "vendas: sem arquivo no mes", False, "vendas", ctx)

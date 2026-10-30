@@ -57,6 +57,28 @@ class PoupinhaLocalTests(unittest.TestCase):
         self.assertIn("Dados consultados agora no sistema", corpo["messages"][-1]["content"])
         self.assertNotIn("cancelar um pedido pendente", corpo["messages"][0]["content"])
 
+    def test_nome_do_produto_em_varias_formas(self):
+        casos = {"lubrificante intimo": "lubrificante intimo",
+                 "Quero qualquer lubrificante intimo que vc tiver ai consegue me mandar?": "lubrificante intimo",
+                 "quero comprar dipirona": "dipirona", "preciso de fralda xxg": "fralda xxg",
+                 "me manda um dorflex por favor": "dorflex", "vocês vendem whey?": "whey",
+                 "quero cancelar meu pedido": "", "quero falar com um atendente": "", "beleza": "",
+                 "como funciona o frete": "", "Tem remédio para gases ?": "", "oi tudo bem": ""}
+        for frase, esperado in casos.items():
+            self.assertEqual(app._poupinha_nome_produto(frase), esperado, frase)
+
+    def test_pedidos_recentes_so_quando_o_assunto_e_pedido(self):
+        corpos = []
+        ctx = "- Pedido #A1B2C3D4: status \"Cancelado\""
+        with patch.object(app, "_executar_ferramenta_suporte", return_value="K-MED R$ 27,90"), \
+                patch("urllib.request.urlopen", _resposta_ollama("Temos K-Med.", corpos)):
+            app._ollama_suporte_responder("lubrificante intimo", pedidos_recentes_ctx=ctx, consumidor_id="c1",
+                                          chat_id="ch1")
+            app._ollama_suporte_responder("cadê meu pedido?", pedidos_recentes_ctx=ctx, consumidor_id="c1",
+                                          chat_id="ch1")
+        self.assertNotIn("A1B2C3D4", json.dumps(corpos[0]))
+        self.assertIn("A1B2C3D4", json.dumps(corpos[1]))
+
     def test_remedio_para_sintoma_nao_consulta_produto(self):
         corpos = []
         with patch.object(app, "_executar_ferramenta_suporte") as ferr, \

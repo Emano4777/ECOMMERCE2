@@ -24626,7 +24626,11 @@ _POUPINHA_PROMPT_LOCAL = (
     "nunca invente estoque, preço, cupom, horário de loja ou status de pedido: diga o que o cliente pode perguntar "
     "(ex.: o nome do produto) ou onde conferir. Você não cancela pedidos nem chama atendente sozinha: quem cuida "
     "disso é o sistema. Não indique remédio para sintoma (isso é com o farmacêutico): para \"tem remédio para X?\", "
-    "pergunte qual produto ele procura ou sugira falar com o farmacêutico da loja. Responda em uma a três frases."
+    "pergunte qual produto ele procura ou sugira falar com o farmacêutico da loja. Responda em uma a três frases. "
+    "Quando os dados trouxerem produtos, diga quais a farmácia tem e o preço, e que ele adiciona ao carrinho pelo "
+    "site (você não envia nem separa produto). Se não achou, diga que não encontrou esse produto na farmácia mais "
+    "próxima agora, em vez de mandar ele pesquisar sozinho. Só fale dos pedidos do cliente se ele perguntar de "
+    "pedido, compra ou entrega."
 )
 
 
@@ -24667,6 +24671,42 @@ _POUPINHA_CONSULTAS = [
 ]
 
 
+# "quero/procuro/preciso de X", "me manda X": pedido de produto sem "tem X?"
+_POUPINHA_QUERO_RE = re.compile(
+    r"\b(?:quero|queria|procuro|procurando|preciso de|precisava de|busco|tem como (?:me )?(?:mandar|enviar|vender)|"
+    r"me (?:manda|mande|envia|envie|vende|arruma)|onde (?:acho|encontro)|vende[mn]?)\s+(?:um |uma |o |a |os |as |"
+    r"algum |alguma |qualquer |de )?(?P<n>[\w\- .,%]{3,60})", re.I)
+# o nome acaba antes de "que vc tiver", "consegue", "pra mim"...
+_POUPINHA_FIM_NOME_RE = re.compile(r"\s+(?:que|q|pra|para|consegue|vc|voce|você|ai|aí|por|pfv|pf|se|me|hoje|agora)\b.*$",
+                                   re.I)
+# mensagem curta so com o nome ("lubrificante intimo"): nao e duvida de FAQ, cumprimento nem pedido
+_POUPINHA_NAO_NOME_SOLTO_RE = re.compile(
+    r"\b(oi|ola|olá|opa|bom dia|boa tarde|boa noite|obrigad\w*|valeu|tudo bem|ok|sim|nao|não|frete|pagamento|pix|"
+    r"cart[aã]o|troca|devolu\w*|cupo\w*|indica\w*|pontos?|n[ií]ve\w*|lista|presente|rastre\w*|notifica\w*|app|"
+    r"aplicativo|recorr\w*|assinatura|clube|pedido|entrega|senha|conta|cadastro|login|atendente|loja|horario|"
+    r"horário|como|quando|onde|porque|por que|qual|quais|quanto|beleza|blz|show|certo|entendi|perfeito|top|legal|"
+    r"tchau|kk+|haha\w*|rs+|isso|nada|ajuda)\b", re.I)
+
+
+def _poupinha_nome_produto(pergunta):
+    """Nome do produto pedido na mensagem, ou "" se nao for pergunta de produto."""
+    t = (pergunta or "").strip()
+    m = _POUPINHA_PRODUTO_RE.search(t)
+    nome = next((g for g in (m.groups() if m else ()) if g), "")
+    if not nome:
+        m = _POUPINHA_QUERO_RE.search(t)
+        nome = m.group("n") if m else ""
+    if not nome and len(t.split()) <= 4 and not _POUPINHA_NAO_NOME_SOLTO_RE.search(t) and re.search(r"[a-zA-Z]{3}", t):
+        nome = t
+    nome = re.sub(r"^(?:comprar|levar|pedir)\s+(?:um |uma |o |a |os |as |algum |alguma |qualquer )?", "",
+                  nome.strip(" ?!.,"), flags=re.I)
+    if re.match(r"^\w+(ar|er|ir)\b", nome, re.I):   # "quero cancelar/saber/falar ...": verbo, nao produto
+        return ""
+    nome = _POUPINHA_FIM_NOME_RE.sub("", nome)
+    nome = re.sub(r"\b(por favor|pfv|pf)\b", "", nome, flags=re.I).strip(" ,.?!")
+    return "" if not nome or _POUPINHA_NAO_PRODUTO_RE.search(nome) else nome
+
+
 def _poupinha_consultas(pergunta, consumidor_id, chat_id):
     """Consultas que o codigo decide pela mensagem: [(ferramenta, resultado)]."""
     if not consumidor_id:
@@ -24675,10 +24715,8 @@ def _poupinha_consultas(pergunta, consumidor_id, chat_id):
     m = _POUPINHA_PEDIDO_COD_RE.search(pergunta)
     if m and re.search(r"[0-9]", m.group(1)) and re.search(r"pedido|#", pergunta, re.I):
         feitas.append(("buscar_pedido", {"identificador": m.group(1)}))
-    m = _POUPINHA_PRODUTO_RE.search(pergunta.strip())
-    nome = next((g for g in (m.groups() if m else ()) if g), "")
-    nome = re.sub(r"\b(ai|aí|ai\?|por favor|pfv|pf)\b", "", nome, flags=re.I).strip(" ,.")
-    if nome and not _POUPINHA_NAO_PRODUTO_RE.search(nome):
+    nome = _poupinha_nome_produto(pergunta)
+    if nome:
         feitas.append(("consultar_produto", {"nome": nome}))
     for rx, ferramenta in _POUPINHA_CONSULTAS:
         if rx.search(pergunta):
@@ -24690,6 +24728,10 @@ def _ollama_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
                               consumidor_id=None, chat_id=None, prazo_s=None):
     """Mesmo contrato de _claude_suporte_responder: (texto, usou_dado_pessoal, escalou); texto None em falha.
     O codigo decide consulta e encaminhamento (este modelo nao chama ferramentas); o modelo so redige."""
+    # pedidos recentes so quando o assunto e pedido: com eles em toda mensagem o modelo comentava um pedido
+    # cancelado numa pergunta de produto
+    if pedidos_recentes_ctx and not re.search(r"pedid|compr|entreg|cheg|rastre|status|pag|cancel", pergunta, re.I):
+        pedidos_recentes_ctx = None
     usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
     for rx, categoria, resposta in _POUPINHA_ESCALA:
         if rx.search(pergunta) and consumidor_id and chat_id:
