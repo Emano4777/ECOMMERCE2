@@ -122,6 +122,9 @@ ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS escalado BOOLEAN N
 ALTER TABLE ecommerce_wa_ia_decisoes ADD COLUMN IF NOT EXISTS resumo JSONB;
 ALTER TABLE ecommerce_wa_mensagens ADD COLUMN IF NOT EXISTS midia JSONB;
 ALTER TABLE ecommerce_wa_contatos ADD COLUMN IF NOT EXISTS lid TEXT;
+ALTER TABLE ecommerce_wa_contatos ADD COLUMN IF NOT EXISTS memoria TEXT;
+ALTER TABLE ecommerce_wa_contatos ADD COLUMN IF NOT EXISTS memoria_em TIMESTAMPTZ;
+ALTER TABLE ecommerce_wa_contatos ADD COLUMN IF NOT EXISTS memoria_n INT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS ix_wa_contatos_lid ON ecommerce_wa_contatos (lid);
 CREATE TABLE IF NOT EXISTS ecommerce_wa_atendimento_humano (
     telefone TEXT PRIMARY KEY,
@@ -686,8 +689,15 @@ def identify_contact(conn, phone, manual=None):
     exibido no WhatsApp nunca entra aqui -- vai pro contexto como nao verificado."""
     if manual and manual[0]:
         tipo, ref = manual
-        return {"verificada": True, "metodo": "vinculo_manual", "tipo": tipo, "ref": ref,
-                "candidatos": [{"tipo": tipo, "ref": ref}]}
+        out = {"verificada": True, "metodo": "vinculo_manual", "tipo": tipo, "ref": ref,
+               "candidatos": [{"tipo": tipo, "ref": ref}]}
+        if tipo == "interno":
+            # equipe interna que tambem e o telefone de uma loja: essa loja vira o padrao quando a
+            # mensagem nao cita nenhuma (citando outra, vale a citada)
+            pelo_tel = identify_contact(conn, phone, None)
+            if pelo_tel.get("verificada") and pelo_tel.get("tipo") == "loja":
+                out["loja_padrao"] = {"ref": pelo_tel["ref"], "nome": pelo_tel.get("nome")}
+        return out
     key = phone_key(phone)
     cands = {}
     if key:
@@ -898,9 +908,9 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
             _ler_midias(conn, batch, texts, kinds, leitor_midia)
         push_name = next((b[4] for b in reversed(batch) if b[4]), None)
         with _cur(conn) as cur:
-            cur.execute("""SELECT opt_out, vinculo_manual_tipo, vinculo_manual_ref
+            cur.execute("""SELECT opt_out, vinculo_manual_tipo, vinculo_manual_ref, memoria
                            FROM ecommerce_wa_contatos WHERE telefone = %s""", (phone,))
-            contato = cur.fetchone() or (False, None, None)
+            contato = cur.fetchone() or (False, None, None, None)
         opt_out = bool(contato[0])
         identity = {"verificada": False, "metodo": None, "tipo": None, "ref": None, "candidatos": []}
         model_name = None
@@ -925,6 +935,8 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
                 decision = Decision("HUMAN", "", HUMAN_LOCK_REASON)
             else:
                 identity = identify_contact(conn, phone, (contato[1], contato[2]))
+                if contato[3]:
+                    identity["memoria"] = contato[3]   # o que a IA ja aprendeu deste contato (perfil curto)
                 hist = _history(conn, phone, ids, _cfg_int("POUPAQUI_WA_IA_HISTORICO_MAX", 20))
                 conn.commit()  # sem transacao aberta durante diagnosticos/sondas
                 model_name = model_label or "assistente"
@@ -1048,7 +1060,14 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
                   model_name, envio_ini, alerta_status, bool(escalar and precisa_equipe),
                   json.dumps(resumo, ensure_ascii=False, default=str) if resumo else None))
             decisao_id = cur.fetchone()[0]
-            if frase and not alertas:
+            ja_disse = False
+            if frase and not alertas and _confirmado(anterior) and reply:
+                # "a equipe ja recebeu esse caso..." uma vez basta: nao repete em toda mensagem
+                cur.execute("""SELECT 1 FROM ecommerce_wa_mensagens WHERE telefone = %s AND direcao = 'out_ia'
+                               AND recebido_em > NOW() - INTERVAL '3 hours' AND corpo LIKE %s LIMIT 1""",
+                            (phone, "%já recebeu esse caso%"))
+                ja_disse = cur.fetchone() is not None
+            if frase and not alertas and not ja_disse:
                 # sem alerta novo: o resultado ja e conhecido (anterior confirmado,
                 # sem canal, shadow, fora da allowlist) -> texto final agora
                 reply = _texto_final(decision, reply, "ja_avisada" if _confirmado(anterior) else "indisponivel",
@@ -1123,6 +1142,36 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
         conn.commit()
         result["envio"] = status
     return result
+
+
+def contatos_para_memoria(conn, limite=1, novas_min=6):
+    """Contatos com conversa nova suficiente para atualizar o perfil aprendido, parados ha 3+ min
+    (nao atrapalha conversa em andamento) e sem atendimento humano ativo."""
+    with _cur(conn) as cur:
+        cur.execute("""
+            SELECT c.telefone, c.memoria, COUNT(m.id) AS n
+            FROM ecommerce_wa_contatos c
+            JOIN ecommerce_wa_mensagens m ON m.telefone = c.telefone AND m.direcao = 'in'
+            WHERE NOT c.opt_out
+            GROUP BY c.telefone, c.memoria, c.memoria_n
+            HAVING COUNT(m.id) - c.memoria_n >= %s AND MAX(m.recebido_em) < NOW() - INTERVAL '3 minutes'
+            ORDER BY MAX(m.recebido_em) DESC LIMIT %s""", (novas_min, limite))
+        rows = [r for r in cur.fetchall() if not takeover_ativo(cur, r[0])]
+    conn.commit()
+    return rows
+
+
+def historico_para_memoria(conn, phone, limite=40):
+    out = _history(conn, phone, [], limite)
+    conn.commit()
+    return out
+
+
+def salvar_memoria(conn, phone, memoria, n):
+    with _cur(conn) as cur:
+        cur.execute("""UPDATE ecommerce_wa_contatos SET memoria = %s, memoria_em = NOW(), memoria_n = %s,
+                       atualizado_em = NOW() WHERE telefone = %s""", (memoria, n, phone))
+    conn.commit()
 
 
 def _confirmado(anterior):
