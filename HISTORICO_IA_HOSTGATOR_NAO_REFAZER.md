@@ -231,3 +231,16 @@ Este arquivo é registro persistente do projeto para futuras sessões e agentes.
   high 3,6 milhões). Correção: drop-in /etc/systemd/system/ollama-piloto.service.d/cache.conf com LLAMA_ARG_CACHE_RAM=768 e
   LLAMA_ARG_CTX_CHECKPOINTS=4 (o runner herda o ambiente do ollama serve — conferido em /proc/<pid>/environ) + restart do piloto.
   Depois: replay completo OK (12–20 s por resposta de conversa, dados em 0,3 s), anon ~8,3 GB.
+
+## 30/10/2026 — Poupinha do site no modelo local (PUBLICADO na main: c89d521, deploy 09:11)
+- Chat "Fale com a Poupinha" (app.py, /api/suporte/mensagem) agora usa gemma4:e4b do ollama-piloto (_ollama_suporte_responder);
+  Claude Haiku so como reserva quando o local falha/estoura 45 s (POUPINHA_FALLBACK_CLAUDE=0 desliga; POUPINHA_IA_MOTOR=claude volta).
+- O gemma4 instalado NAO chama ferramentas (tools) — testado com prompt minimo, think on/off: o CODIGO decide as consultas
+  (produto/preco, pedido pelo numero, cupom, cobertura, loja aberta) e o encaminhamento (atendente, cancelamento, reembolso).
+  Nao cancela pedido sozinho (vai para atendente). Prompt = FAQ do Claude sem as ferramentas (~1480 tokens).
+- Tempos medidos no servidor: a frio ~30 s (leitura do prompt pela CPU), com cache 3-7 s. /api/suporte/abrir dispara
+  _poupinha_aquecer() em segundo plano (1x/min por processo). nginx corta em 60 s, gunicorn do site timeout 90 s.
+- num_ctx 4096 UNIFICADO (POUPAQUI_OLLAMA_NUM_CTX) no WhatsApp e na Poupinha: valor diferente recarrega o modelo.
+  Runner agora -c 12288 -np 3; anon ~8,4 GB (MemoryHigh 9G).
+- WhatsApp (worker): 'quantos a loja X vendeu'/'qual foi a venda' consultam vendas; dia D-2 nao conta como lacuna antes das 8h
+  (protocolo #96 foi alarme falso as 00:23); 'qual o tempo de resolucao?' apos protocolo responde sem inventar prazo.
