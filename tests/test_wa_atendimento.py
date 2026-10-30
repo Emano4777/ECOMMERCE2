@@ -193,8 +193,9 @@ class WorkerIntegrationTests(unittest.TestCase):
         os.environ["POUPAQUI_WA_IA_MAX_MODE"] = "test"
         os.environ["POUPAQUI_WA_IA_TEST_PHONES"] = TEST_PHONE
         with self.conn.cursor() as cur:
-            cur.execute("""TRUNCATE ecommerce_wa_mensagens, ecommerce_wa_ia_decisoes,
-                           ecommerce_wa_contatos, ecommerce_wa_ia_config""")
+            # todas as tabelas do worker: um atendimento humano que sobra de um teste (2 h) silenciava os seguintes
+            cur.execute("""TRUNCATE ecommerce_wa_mensagens, ecommerce_wa_ia_decisoes, ecommerce_wa_contatos,
+                           ecommerce_wa_ia_config, ecommerce_wa_atendimento_humano, ecommerce_wa_envios_auto""")
         self.conn.commit()
         self.calls, self.sent = [], []
 
