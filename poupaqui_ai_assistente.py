@@ -26,6 +26,9 @@ from datetime import datetime, timedelta, timezone
 
 from poupaqui_ai_policy import is_loopback_url, normalize, reply_problem
 
+# Dono do numero: quem escreve para este WhatsApp esta sempre falando com ele.
+DONO_NUMERO = (os.getenv("POUPAQUI_WA_DONO_NUMERO") or "Emanuel").strip()
+
 try:
     from zoneinfo import ZoneInfo
     TZ = ZoneInfo("America/Sao_Paulo")
@@ -239,7 +242,8 @@ _SMALLTALK = [
      "Tudo ótimo por aqui, obrigado por perguntar! E com você, tudo bem?"),
     (re.compile(r"\b(quem e voce|quem fala|robo|bot|chatbot|falo com quem|"
                 r"voces? (e|sao) (um |uma )?(humano|gente|pessoa|ia|inteligencia artificial))\b"),
-     "Sou o assistente virtual da Drogarias PoupAqui. " + CAPACIDADES),
+     "Aqui é o WhatsApp do " + DONO_NUMERO + ", da tecnologia da Drogarias PoupAqui; sou o assistente virtual "
+     "que responde as mensagens que chegam pra ele. " + CAPACIDADES),
     (re.compile(r"\b(o que (voce|vc|ce) (faz|consegue fazer|sabe fazer|pode fazer)|"
                 r"(no que|em que|como) (voce |vc )?(pode|consegue) (me )?ajudar|quais (servicos|funcoes)|menu)\b|"
                 r"^(ajuda|preciso de ajuda)$"),
@@ -1235,8 +1239,7 @@ def _assunto_da_resposta(ultima_ia_norm):
     return ("vendas", f"vendas de {m.group(1)}") if m else None
 
 
-# Dono do numero: o contato escreve "Bom dia Emanuel" para ele, e o modelo devolvia "pra voce tambem, Emanuel".
-DONO_NUMERO = (os.getenv("POUPAQUI_WA_DONO_NUMERO") or "Emanuel").strip()
+# o contato escreve "Bom dia Emanuel" para o dono, e o modelo devolvia "pra voce tambem, Emanuel"
 _VOCATIVO_DONO_RE = re.compile(
     r"(^|[,!?.]\s*|\b(oi|ol[aá]|opa|valeu|obrigad[oa]|dia|tarde|noite|fala|e a[ií]|tamb[eé]m|voc[eê])\s+)"
     + re.escape(DONO_NUMERO) + r"\b(?!\s+(é|e|recebe|responde|cuida|vai|está|esta|fica)\b)", re.I)
@@ -1363,7 +1366,9 @@ se a pessoa quer, nem fique só perguntando preferências.
 Ironia: elogio exagerado sobre algo ruim ("chegou rapidinho, só demorou 3 dias", "amei esperar 1 hora") é
 reclamação: reconheça o incômodo com leveza, nunca responda "que bom". Elogio sem contradição é elogio: agradeça.
 Este WhatsApp é o número do """ + DONO_NUMERO + """, responsável pelo
-departamento de tecnologia da Drogarias PoupAqui; você é a IA que responde as mensagens que chegam nele. Se
+departamento de tecnologia da Drogarias PoupAqui; você é a IA que responde as mensagens que chegam nele. TODA
+mensagem que chega aqui é alguém (loja da rede, fornecedor, distribuidora, colega) falando COM o """ + DONO_NUMERO + """:
+leia cada fala como dirigida a ele e responda pelo lado dele. Se
 perguntarem de quem é o número, se ainda é do """ + DONO_NUMERO + """ ou com que nome salvar o contato, confirme que
 é o número do """ + DONO_NUMERO + """ (tecnologia) e que podem manter o contato com o nome dele; o que mandarem aqui
 chega para ele. Quando a pessoa escreve "Bom dia """ + DONO_NUMERO + """", "obrigada """ + DONO_NUMERO + """" etc., ela
@@ -1432,8 +1437,12 @@ DECIDE_BUSCA_PROMPT = (
 # ─── Memoria por contato (perfil curto aprendido das conversas) ────────────
 
 MEMORIA_PROMPT = (
-    "Você mantém um perfil curto de UM contato do WhatsApp da Drogarias PoupAqui, para a assistente conversar "
-    "melhor com ele da próxima vez. Atualize o perfil anterior com a conversa abaixo. Guarde só: como a pessoa "
+    "Você mantém um perfil curto de UM contato que manda mensagem para o WhatsApp do " + DONO_NUMERO + " "
+    "(tecnologia da Drogarias PoupAqui), para a assistente que responde por ele conversar melhor com esse contato "
+    "da próxima vez. Quem escreve está sempre falando COM o " + DONO_NUMERO + ": \"Bom dia " + DONO_NUMERO + "\" é "
+    "o contato chamando o dono do número, então " + DONO_NUMERO + " NUNCA é o nome nem o tratamento do contato; "
+    "guarde o nome do contato só se ele mesmo se apresentar. Anote a relação dele com o " + DONO_NUMERO + " quando "
+    "estiver clara (loja da rede, fornecedor, distribuidora, colega). Atualize o perfil anterior com a conversa abaixo. Guarde só: como a pessoa "
     "escreve (gírias, formal ou informal, usa kkk, emojis), como gosta de ser tratada (apelidos, tom), assuntos "
     "frequentes e o que costuma pedir, função ou loja quando ela disser (ex.: suporte da PoupAqui, loja de X), e "
     "preferências de conversa (quer resposta curta, gosta de brincadeira). NUNCA guarde: saúde, remédios, "
@@ -1443,6 +1452,15 @@ MEMORIA_PROMPT = (
 _MEMORIA_PROIBIDO_RE = re.compile(r"\d{4,}|@|\b(cpf|cnpj|senha|rg|endereco|rua|avenida|telefone|celular|e-?mail|"
                                   r"remedio\w*|medicament\w*|doenc\w*|diagnostic\w*|exame\w*|gravid\w*|"
                                   r"r\$|reais|salario|divida\w*|cartao)\b")
+# memorias antigas gravaram "Tratamento: pelo nome (Emanuel)" e "Nome: Luiz Emanuel" (o contato chamava o dono)
+_MEMORIA_NOME_DONO_RE = re.compile(r"\b(nome|tratamento|tratad\w*|chamad\w*|chama|apelido)\b.{0,40}\b"
+                                   + re.escape(normalize(DONO_NUMERO)) + r"\b")
+
+
+def memoria_limpa(memoria):
+    """Perfil sem as linhas que dao ao contato o nome do dono do numero."""
+    linhas = [l for l in str(memoria or "").splitlines() if not _MEMORIA_NOME_DONO_RE.search(normalize(l))]
+    return "\n".join(linhas).strip() or None
 
 
 def resumir_memoria(memoria_antiga, historico, base_url=None, model=None, timeout=90):
@@ -1470,7 +1488,7 @@ def resumir_memoria(memoria_antiga, historico, base_url=None, model=None, timeou
     texto = ((data.get("message") or {}).get("content") or "").strip()
     linhas = [l.strip() for l in texto.splitlines() if l.strip().startswith(("-", "•", "*"))]
     linhas = ["- " + l.lstrip("-•* ").strip() for l in linhas if not _MEMORIA_PROIBIDO_RE.search(normalize(l))]
-    return "\n".join(linhas[:6])[:600] or None
+    return memoria_limpa("\n".join(linhas[:6])[:600])
 
 
 # fechamentos genericos: repetidos em toda resposta soam robo
@@ -1503,8 +1521,8 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
         # o que e fixo fica no 1o system (o Ollama reaproveita esse prefixo: a leitura do prompt cai de ~4,6 s
         # para ~0,3 s); o que muda a cada chamada (hora, avisos, busca) vai num system no FIM, antes da fala
-        messages = [{"role": "system", "content": GERAL_PROMPT + "\nVocê é a assistente virtual (IA) da Drogarias "
-                     "PoupAqui no WhatsApp; atende as lojas da rede."}]
+        messages = [{"role": "system", "content": GERAL_PROMPT + "\nVocê é a IA que responde pelo " + DONO_NUMERO
+                     + " no WhatsApp dele (lojas da rede, fornecedores, distribuidoras e colegas falam com ele aqui)."}]
         extra = [(
             f"Agora são {agora:%H:%M} de {dias[agora.weekday()]}, {agora:%d/%m/%Y} (horário de Brasília); use "
             "isso para responder hora, data e dia da semana. Calendário já calculado (não refaça a conta): "
@@ -1528,6 +1546,7 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         if parece_ironia(current_norm):
             extra.append('A última fala é IRÔNICA: o elogio contradiz o que aconteceu (demora, espera, '
                          'atraso). É uma reclamação; reconheça o incômodo com leveza.')
+        memoria = memoria_limpa(memoria)
         if memoria:
             # perfil aprendido nas conversas anteriores deste contato (gravado no banco pelo worker)
             extra.append("O que você já sabe desta pessoa por conversas anteriores (use com naturalidade para "

@@ -514,6 +514,10 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertIn('NÃO é o nome de quem escreve', A.GERAL_PROMPT)
         # aviso encaminhado + 'se puder reforcar com os associados' e pedido PARA o dono, nao para o contato
         self.assertIn('nunca devolva o pedido para quem mandou', A.GERAL_PROMPT)
+        # memoria antiga gravou o dono como nome do contato: sai na leitura e na gravacao
+        self.assertEqual(A.memoria_limpa('- Tom: informal\n- Tratamento: Pelo nome (Emanuel).\n- Nome: Luiz Emanuel'),
+                         '- Tom: informal')
+        self.assertIn('NUNCA é o nome nem o tratamento do contato', A.MEMORIA_PROMPT)
         self.assertIsNone(A.problema_conversa('Bom dia! Recebi o lembrete. Fica aqui para o Emanuel ver e reforçar '
                                               'com os associados.', ['Bom dia Emanuel', 'Se puder reforçar com os associados']))
 
