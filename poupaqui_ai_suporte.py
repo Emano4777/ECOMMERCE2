@@ -32,6 +32,7 @@ SITES = {
 }
 ESTOQUE_VELHO_DIAS = 3
 ATRASO_ARQUIVO_VENDAS_DIAS = 2   # o arquivo do dia D chega na madrugada de D+2 (observado em out/2026)
+HORA_PROCESSAMENTO_VENDAS = 8    # processado ~06:10 (created_at); antes das 8h o dia de D-2 ainda pode faltar
 MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro",
          "outubro", "novembro", "dezembro"]
 UA = "PoupAqui-Assistente-Healthcheck/1.0"
@@ -224,7 +225,9 @@ _REL_DIV_RE = re.compile(
     + _SIS_REL + r"\b")
 # pergunta de VALOR de venda (nao divergencia): "quanto eles venderam esse mes", "vendas de setembro"
 _VENDAS_Q_RE = re.compile(
-    r"\b(quanto (que )?(\w+ ){0,3}(vend\w*|fatur\w*)|quant[oa]s? vendas|total (de |das )?vendas?|"
+    r"\b(quant[oa]s? (que )?(\w+ ){0,5}(vend\w*|fatur\w*)|quant[oa]s? vendas|total (de |das )?vendas?|"
+    r"(qual|quanto|como) (foi|e|deu|ta|esta|fica|ficou) (a |o |as |os )?(venda|vendas|faturamento|movimento)\b|"
+    r"vendas? d[ao]s? (loja|filial|unidade)|"
     r"vendas? (d[oa] |dest[ea] |dess[ea] |nest[ea] |ness[ea] |n[oa] |de |em |ate )?(mes|semana|ano|hoje|ontem|"
     r"janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)|"
     r"faturamento|relatorio\w* de vendas?|resumo (de |das )?vendas?|ticket medio|"
@@ -672,7 +675,9 @@ def diag_relatorio(texto_norm, ctx, repo, loja, cnpj, agora, persistente=False, 
                          f"{len(cob['totalizadas'])} dias totalizados")
     nome_mes = MESES[mes - 1].replace("marco", "março")
     ultimo_dia = date(ano, mes, monthrange(ano, mes)[1])
-    limite = min(ultimo_dia, hoje - timedelta(days=ATRASO_ARQUIVO_VENDAS_DIAS))
+    # o arquivo de D e processado ~06:10 de D+2: de madrugada o de D+2 ainda nao e devido (nao e lacuna)
+    atraso = ATRASO_ARQUIVO_VENDAS_DIAS + (1 if _agora(agora).hour < HORA_PROCESSAMENTO_VENDAS else 0)
+    limite = min(ultimo_dia, hoje - timedelta(days=atraso))
     esperados = {date(ano, mes, d) for d in range(1, limite.day + 1)} if limite >= date(ano, mes, 1) else set()
     pedir = ("Para eu entender a diferença, me diga qual relatório (vendas, ticket médio, ranking...), qual número "
              "aparece e com o que você está comparando.")

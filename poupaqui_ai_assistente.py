@@ -787,6 +787,14 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     loja_ok = verificada and identidade.get("tipo") == "loja"
     prefixo = f"{_saudacao_periodo(agora)}! " if saudou else ""
 
+    # "qual o tempo de resolucao?" logo apos abrir protocolo: nao ha prazo combinado, entao nao inventa um
+    prot = re.search(r"\bprotocolo (\d+)\b", _ultima_do_assistente(historico))
+    if prot and _PRAZO_CASO_RE.search(norm):
+        return fim(Resposta("ANSWER", prefixo + "Não tenho um prazo fechado pra te passar: o caso (protocolo "
+                            f"{prot.group(1)}) já está com a equipe técnica, e quem pegar te dá retorno por aqui. "
+                            "Se mudar alguma coisa até lá, me conta que eu junto no mesmo protocolo.",
+                            "prazo de caso escalado: sem prazo inventado", False, "prazo_caso"))
+
     # equipe interna (vinculo feito pelo admin) consulta QUALQUER loja citando cidade/nome ("loja de sao
     # pedro"); a loja tambem vale para as mensagens seguintes (procura no historico). Loja so ve os proprios dados.
     if verificada and identidade.get("tipo") == "interno" and repo is not None and hasattr(repo, "lojas_cadastro"):
@@ -1187,6 +1195,9 @@ def problema_formato_conversa(r):
     return None
 
 
+_PRAZO_CASO_RE = re.compile(r"\b(quanto tempo|qual (o |e o )?(prazo|tempo)|tem (previsao|prazo)|demora (muito|quanto)|"
+                            r"quando (vai|vao|fica|ficar|sera|e que) (ser )?(resolv\w*|arrum\w*|corrig\w*|pronto)|"
+                            r"(prazo|tempo|previsao) (de|da|pra|para) (resol\w*|resposta|retorno|arrum\w*|corre\w*))\b")
 _RESP_VENDAS_RE = re.compile(r"\bvendas da (?:sua )?loja em (janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|"
                              r"setembro|outubro|novembro|dezembro)\b")
 

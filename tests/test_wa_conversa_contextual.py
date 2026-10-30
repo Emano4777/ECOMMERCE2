@@ -346,7 +346,8 @@ class ConversaContextualTests(unittest.TestCase):
                     return [(date(2026, 10, d), 1000.0, 20, 50) for d in range(1, 27)]
                 return [(date(ano, mes, d), 900.0, 18, 40) for d in range(1, 31)]
         import poupaqui_ai_suporte as S
-        for t in ('quanto eles venderam esse mes?', 'relatorio de vendas', 'vendas de setembro', 'qual o faturamento'):
+        for t in ('quanto eles venderam esse mes?', 'relatorio de vendas', 'vendas de setembro', 'qual o faturamento',
+                  'Quantos a loja de são Pedro vendeu?', 'Qual foi a venda da loja de são Pedro?'):
             self.assertEqual(S.detectar_suporte(A.normalize(t)), 'vendas', t)
         self.assertEqual(S.detectar_suporte(A.normalize('o relatorio de vendas ta errado')), 'relatorio')
         repo = Repo()
@@ -371,6 +372,26 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertIn('em setembro', r.reply)
         self.assertEqual(A.problema_conversa('Em agosto o faturamento foi de R$ 105.112,00.', ['e ai']),
                          'valor de venda inventado')
+
+    def test_prazo_apos_protocolo_e_lacuna_de_madrugada(self):
+        hist = [{'de': 'contato', 'texto': 'acho q ta com problema no relatorio'},
+                {'de': 'assistente', 'texto': 'Já passei para a equipe técnica com o que você me contou (protocolo 96).'}]
+        r = resp(['Obrigado qual o tempo de resolução?'], hist=hist, llm=lambda t, h: 'Qual tipo de resolução?')
+        self.assertIn('protocolo 96', r.reply)
+        self.assertIn('Não tenho um prazo fechado', r.reply)
+        from datetime import datetime, date
+        import poupaqui_ai_suporte as S
+
+        class Repo:
+            def cobertura_vendas(self, cnpj, ano, mes):
+                dias = {date(2026, 10, d) for d in range(1, 28)}
+                return {"itens": dias, "totalizadas": dias, "ultimo_processado": None,
+                        "dias_meses_anteriores": [30, 31], "processado_mes_anterior": None}
+        madrugada = datetime(2026, 10, 30, 0, 23, tzinfo=A.TZ)
+        r = S.diag_relatorio('relatorio com problema', {"fontes": []}, Repo(), None, '1', madrugada)
+        self.assertNotIn('Faltam', r.reply)                       # 28/10 so chega ~06:10 do dia 30
+        r = S.diag_relatorio('relatorio com problema', {"fontes": []}, Repo(), None, '1', madrugada.replace(hour=10))
+        self.assertIn('Faltam os dias 28/10', r.reply)
 
     def test_tudo_bem_pergunta_de_volta_so_quando_falta(self):
         r = resp(['De boa, TD bem?'])
