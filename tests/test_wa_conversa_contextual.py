@@ -341,6 +341,45 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertTrue(A.liberar_whisper_ocioso(10))       # parado ha 11 min: solta
         self.assertEqual(A._WHISPER, {})
 
+    def test_fecho_generico_nao_repete(self):
+        hist = [{'de': 'assistente', 'texto': 'Boa! Em que posso ajudar hoje?'}]
+        self.assertEqual(A._sem_fecho_repetido('Pois é, tá calor mesmo. Se precisar de algo, é só chamar.', hist),
+                         'Pois é, tá calor mesmo.')
+        self.assertEqual(A._sem_fecho_repetido('Pois é, tá calor mesmo. Como posso ajudar você hoje?', []),
+                         'Pois é, tá calor mesmo. Como posso ajudar você hoje?')   # 1a vez: fica
+
+    def test_diagnostico_repetido_vira_resumo(self):
+        import poupaqui_ai_suporte as S
+        longo = ("Conferi os arquivos de vendas da loja em outubro: recebemos de 01/10 ate 27/10, todos completos. "
+                 "Entao nao e falta de arquivo. Qual relatorio esta diferente?")
+        hist = [{'de': 'contato', 'texto': 'deu ruim no relatorio'}, {'de': 'assistente', 'texto': longo}]
+        with patch.object(S, "responder_suporte", return_value=A.Resposta("ANSWER", longo, "t", False, "relatorio")):
+            r = resp(['o relatorio ta com problema'], hist=hist)
+        self.assertTrue(r.reply.startswith('Conferi de novo e continua igual'), r.reply)
+        self.assertIn('Qual relatorio esta diferente?', r.reply)
+
+    def test_memoria_vai_para_o_modelo_e_filtra_sensivel(self):
+        bodies = []
+
+        def fake(req, timeout=None):
+            bodies.append(json.loads(req.data.decode()))
+            m = Mock(); m.__enter__ = lambda s: s; m.__exit__ = lambda *a: False
+            m.read.return_value = json.dumps({'done_reason': 'stop', 'message': {'content': 'Fala, mestre! Tudo certo.'}}).encode()
+            return m
+        with patch('urllib.request.urlopen', fake):
+            r = resp(['salve'], hist=[], llm=A.ollama_geral(), ident={'verificada': True, 'tipo': 'interno',
+                                                                      'memoria': '- trata por mestre, bem informal'})
+        self.assertTrue(any('trata por mestre' in m['content'] for m in bodies[0]['messages'] if m['role'] == 'system'))
+        resumo = "\n".join(['- fala com girias e kkk', '- toma losartana', '- CPF 12345678900',
+                            '- e do suporte da PoupAqui'])
+        with patch('urllib.request.urlopen', lambda req, timeout=None: Mock(
+                __enter__=lambda s: s, __exit__=lambda *a: False,
+                read=lambda: json.dumps({'done_reason': 'stop', 'message': {'content': resumo}}).encode())):
+            perfil = A.resumir_memoria(None, [{'de': 'contato', 'texto': t} for t in ('oi', 'salve', 'kkk')])
+        self.assertIn('girias', perfil)
+        self.assertIn('suporte', perfil)
+        self.assertNotIn('12345678900', perfil)
+
     def test_replica_de_identidade_nao_finge_humano(self):
         hist = [{'de': 'contato', 'texto': 'vc é gente ou robô?'},
                 {'de': 'assistente', 'texto': 'Sou o assistente virtual da Drogarias PoupAqui.'}]

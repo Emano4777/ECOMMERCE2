@@ -690,12 +690,23 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     repo precisa ser RepoSuporte para os diagnosticos tecnicos; sonda substitui a
     checagem HTTP (testes)."""
     identidade = identidade or {}
+    memoria = identidade.get("memoria")   # perfil aprendido do contato (antes de a identidade virar a loja citada)
     textos = corrigir_se_preciso([str(t or "").strip() for t in textos])
     tipos = list(tipos) or ["text"] * len(textos)
     t0 = time.monotonic()
     ctx = {"fontes": []}
 
     def fim(r):
+        # mesmo diagnostico de agora ha pouco (ex.: relatorio conferido 3 vezes): nao repete o paragrafo
+        # inteiro, so diz que continua igual e mantem a pergunta que importa
+        if r.reply and r.acao == "ANSWER" and len(r.reply) > 120:
+            import difflib
+            n_r = normalize(r.reply)
+            recentes = [normalize(h.get("texto")) for h in (historico or [])[-8:] if h.get("de") == "assistente"]
+            if any(difflib.SequenceMatcher(None, n_r, x).ratio() > 0.85 for x in recentes if x):
+                pergunta = next((f for f in reversed(re.split(r"(?<=[.!?])\s+", r.reply.strip())) if f.endswith("?")), "")
+                r.reply = ("Conferi de novo e continua igual ao que te passei agora há pouco." +
+                           (f" {pergunta}" if pergunta else " Se mudou alguma coisa aí, me conta o que apareceu."))
         # consulta de outra loja pela equipe interna: deixa explicito de qual loja sao os dados (e o historico
         # passa a ter a referencia para "e os pedidos dela?")
         if ctx.get("loja_citada") and r.reply and r.acao == "ANSWER" and ctx["fontes"]:
@@ -869,7 +880,7 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                             "replica sobre identidade", False, "smalltalk"))
     casual = bool(_CASUAL_RE.search(norm)) and intencao in ("geral", "smalltalk") and not S.detectar_suporte(norm)
     if casual:
-        return fim(_conversar(textos, historico, llm_geral, casual=True))
+        return fim(_conversar(textos, historico, llm_geral, casual=True, memoria=memoria))
 
     # suporte tecnico (Pedido Eletronico fora, relatorio divergente, e-commerce)
     sup, texto_diag = None, norm
@@ -935,7 +946,7 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         if llm_geral is None:
             return fim(Resposta("ANSWER", reserva, "saudacao", intencao="saudacao"))
         # saudacao simples recomeca a conversa: sem historico o modelo nao repete a resposta anterior
-        return fim(_conversar(textos, [], llm_geral, reserva=reserva, intencao="saudacao"))
+        return fim(_conversar(textos, [], llm_geral, reserva=reserva, intencao="saudacao", memoria=memoria))
     if intencao == "data":
         a = _agora(agora)
         dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
@@ -951,7 +962,8 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         # "vc e robo?": o modelo responde do jeito dele, mas precisa dizer que e IA
         exige = (r"\b(ia|inteligencia artificial|assistente virtual|virtual|robo|bot)\b"
                  if _IDENTIDADE_RE.search(norm) else None)
-        return fim(_conversar(textos, historico, llm_geral, reserva=reserva, exige=exige, intencao="smalltalk"))
+        return fim(_conversar(textos, historico, llm_geral, reserva=reserva, exige=exige, intencao="smalltalk",
+                              memoria=memoria))
     if intencao == "saude":
         return fim(Resposta("ANSWER", prefixo + "Por aqui não consigo orientar sobre uso de medicamentos. O ideal é "
                             "conversar com o farmacêutico responsável ou com o médico. Se for algo do pedido, "
@@ -1034,10 +1046,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         return fim(Resposta("ANSWER", "Não tenho essa informação confirmada por aqui. A equipe precisa conferir.",
                             "informacao institucional nao verificada", True, "institucional",
                             resumo={"assunto": "Informacao institucional nao confirmada"}))
-    return fim(_conversar(textos, historico, llm_geral))
+    return fim(_conversar(textos, historico, llm_geral, memoria=memoria))
 
 
-def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, intencao=None):
+def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, intencao=None, memoria=None):
     """Conversa pelo modelo, validada. reserva: texto pronto SO se o modelo falhar/for barrado;
     exige: regex que a resposta precisa conter (ex.: dizer que e IA)."""
     norm = normalize(" ".join(textos))
@@ -1045,19 +1057,21 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
     started = time.monotonic()
     if llm is not None:
         try:
-            txt = para_whatsapp(llm(textos, historico) or "")
+            com_mem = {"memoria": memoria} if memoria and getattr(llm, "aceita_memoria", False) else {}
+            txt = para_whatsapp(llm(textos, historico, **com_mem) or "")
         except Exception:
             pass
     # "Boa tarde!" no inicio sem a pessoa ter cumprimentado: tira o cumprimento e aproveita o resto
     # (antes a resposta inteira era barrada como "saudacao inventada")
-    txt = _sem_cumprimento_indevido(txt, textos)
+    txt = _sem_fecho_repetido(_sem_cumprimento_indevido(txt, textos), historico)
     # Uma revisao limitada usa motivo concreto; nunca tenta aproveitar raciocinio
     # truncado, timeout ou resposta vazia. Texto revisado passa pelas mesmas regras.
     initial_problem = problema_conversa(txt, textos, historico)
     if txt and initial_problem and hasattr(llm, 'revisar') and time.monotonic() - started < 15:
         try:
-            txt = _sem_cumprimento_indevido(para_whatsapp(llm.revisar(textos, historico, initial_problem) or ''),
-                                            textos)
+            com_mem = {"memoria": memoria} if memoria and getattr(llm, "aceita_memoria", False) else {}
+            txt = _sem_fecho_repetido(_sem_cumprimento_indevido(
+                para_whatsapp(llm.revisar(textos, historico, initial_problem, **com_mem) or ''), textos), historico)
         except Exception:
             txt = ''
     # Fluencia nao basta: o modelo pequeno pode trocar sono por saudacao/menu.
@@ -1294,11 +1308,73 @@ DECIDE_BUSCA_PROMPT = (
     'foi dito antes"}')
 
 
+# ─── Memoria por contato (perfil curto aprendido das conversas) ────────────
+
+MEMORIA_PROMPT = (
+    "Você mantém um perfil curto de UM contato do WhatsApp da Drogarias PoupAqui, para a assistente conversar "
+    "melhor com ele da próxima vez. Atualize o perfil anterior com a conversa abaixo. Guarde só: como a pessoa "
+    "escreve (gírias, formal ou informal, usa kkk, emojis), como gosta de ser tratada (apelidos, tom), assuntos "
+    "frequentes e o que costuma pedir, função ou loja quando ela disser (ex.: suporte da PoupAqui, loja de X), e "
+    "preferências de conversa (quer resposta curta, gosta de brincadeira). NUNCA guarde: saúde, remédios, "
+    "documentos, CPF/CNPJ, telefones, e-mails, endereços, valores, senhas, ou qualquer coisa íntima. Se algo for "
+    "incerto, deixe de fora. Responda só com o perfil: até 6 tópicos curtos começando com '- ', no máximo 600 "
+    "caracteres, em português.")
+_MEMORIA_PROIBIDO_RE = re.compile(r"\d{4,}|@|\b(cpf|cnpj|senha|rg|endereco|rua|avenida|telefone|celular|e-?mail|"
+                                  r"remedio\w*|medicament\w*|doenc\w*|diagnostic\w*|exame\w*|gravid\w*|"
+                                  r"r\$|reais|salario|divida\w*|cartao)\b")
+
+
+def resumir_memoria(memoria_antiga, historico, base_url=None, model=None, timeout=90):
+    """Perfil novo do contato (texto curto) ou None. O modelo resume; o codigo descarta linha com dado
+    sensivel antes de gravar (o prompt pede, mas modelo pequeno nao e garantia)."""
+    base_url = (base_url or os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    model = model or os.getenv("POUPAQUI_OLLAMA_MODEL") or "gemma4:e2b"
+    if not is_loopback_url(base_url):
+        return None
+    falas = [f"{'Contato' if h.get('de') == 'contato' else 'Assistente'}: {str(h.get('texto') or '')[:300]}"
+             for h in historico or [] if h.get("de") in ("contato", "assistente") and h.get("texto")]
+    if len([f for f in falas if f.startswith("Contato")]) < 3:
+        return None
+    options = {"num_ctx": 2048, "num_predict": 220, "temperature": 0.2}
+    if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
+        options["num_thread"] = int(os.environ["POUPAQUI_OLLAMA_NUM_THREAD"])
+    body = {"model": model, "stream": False, "think": False, "keep_alive": KEEP_ALIVE, "options": options,
+            "messages": [{"role": "system", "content": MEMORIA_PROMPT},
+                         {"role": "user", "content": f"Perfil anterior:\n{memoria_antiga or '(vazio)'}\n\n"
+                                                     "Conversa recente:\n" + "\n".join(falas[-30:])[:3500]}]}
+    req = urllib.request.Request(f"{base_url}/api/chat", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read().decode())
+    texto = ((data.get("message") or {}).get("content") or "").strip()
+    linhas = [l.strip() for l in texto.splitlines() if l.strip().startswith(("-", "•", "*"))]
+    linhas = ["- " + l.lstrip("-•* ").strip() for l in linhas if not _MEMORIA_PROIBIDO_RE.search(normalize(l))]
+    return "\n".join(linhas[:6])[:600] or None
+
+
+# fechamentos genericos: repetidos em toda resposta soam robo
+_FECHO_GENERICO_RE = re.compile(
+    r"\s*((em que|como) (eu )?posso (te |lhe )?ajudar( voce| vc)?( hoje| agora| mais)?\??|"
+    r"(se precisar de (algo|alguma coisa|mais alguma coisa|qualquer coisa)[^.!?]*|qualquer coisa)[, ]*"
+    r"(e|é) s[oó] (chamar|falar|me chamar)[^.!?]*[.!]?)\s*$", re.I)
+
+
+def _sem_fecho_repetido(txt, historico):
+    """Tira o "como posso ajudar?"/"qualquer coisa e so chamar" do fim se ja foi usado nas ultimas
+    respostas (deixa a conversa natural); mantem se e a resposta inteira."""
+    recentes = [h.get("texto") or "" for h in (historico or [])[-6:] if h.get("de") == "assistente"][-3:]
+    if txt and any(_FECHO_GENERICO_RE.search(r) for r in recentes):
+        sem = _FECHO_GENERICO_RE.sub("", txt).rstrip()
+        if len(sem) >= 12:
+            return sem if sem[-1:] in ".!?)\"'" else sem + "."
+    return txt
+
+
 def ollama_geral(base_url=None, model=None, timeout=40):
     base_url = (base_url or os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
     model = model or os.getenv("POUPAQUI_OLLAMA_MODEL") or "qwen3:4b-instruct"
 
-    def fn(textos, historico, correcao=None):
+    def fn(textos, historico, correcao=None, memoria=None):
         if not is_loopback_url(base_url):
             return None
         periodo = _saudacao_periodo(None).lower()  # "bom dia" | "boa tarde" | "boa noite" (horario de Brasilia)
@@ -1331,6 +1407,11 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         if parece_ironia(current_norm):
             extra.append('A última fala é IRÔNICA: o elogio contradiz o que aconteceu (demora, espera, '
                          'atraso). É uma reclamação; reconheça o incômodo com leveza.')
+        if memoria:
+            # perfil aprendido nas conversas anteriores deste contato (gravado no banco pelo worker)
+            extra.append("O que você já sabe desta pessoa por conversas anteriores (use com naturalidade para "
+                         "acompanhar o jeito dela; não diga que tem anotações nem repita isso): "
+                         + str(memoria)[:600])
         messages.extend(GERAL_EXEMPLOS)
         # Apenas dialogo deste contato, limitado; nunca transforma texto em system.
         # Retira assuntos de negocio/saude e interrompe no takeover mais recente.
@@ -1346,6 +1427,13 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                 continue
             history.append({"role": "user" if h["de"] == "contato" else "assistant", "content": text})
         messages.extend(reversed(history))
+        # so do historico JA FILTRADO (sem pedido/estoque/dado de loja): nunca leva dado de negocio ao modelo
+        ja_ditas = [h["content"] for h in history if h["role"] == "assistant"][:3]
+        if ja_ditas:
+            extra.append("Varie o jeito de falar: não repita aberturas e fechamentos que você já usou nesta conversa "
+                         "(ex.: " + "; ".join("«" + re.split(r"(?<=[.!?])\s+", t.strip())[-1][:80] + "»"
+                                               for t in ja_ditas if t.strip()) + "). Não termine toda resposta "
+                         "oferecendo ajuda.")
         # audio transcrito e a propria fala: o modelo recebe so o que foi dito
         falas = [re.sub(r"^\[Áudio transcrito[^\]]*\]\s*", "", str(t)) for t in textos]
         messages.append({"role": "user", "content": "\n".join(f[:500] for f in falas)[:2000]})
@@ -1478,7 +1566,8 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         return chamar(messages, options, limite=min(timeout, 10) if correcao else timeout)
     fn.ultimo_web = None
     fn.ultima_busca = None
-    fn.revisar = lambda textos, historico, motivo: fn(textos, historico, motivo)
+    fn.revisar = lambda textos, historico, motivo, memoria=None: fn(textos, historico, motivo, memoria=memoria)
+    fn.aceita_memoria = True
     return fn
 
 

@@ -188,9 +188,21 @@ def run_once(stats=None, assistente=False):
                 repo = A.RepoLeitura(conn)
                 leitor = A.leitor_midia_ollama(timeout=75, vocabulario=lambda: [
                     f["nome"] for f in repo.fornecedores_entrega()])
-            return wa.run_worker(conn, classifier=None, sender=make_sender(), engine="local",
-                                 model_label="assistente", assistente=A.assistente_worker(llm_geral=A.ollama_geral(timeout=60)),
-                                 max_contacts=wa._cfg_int("POUPAQUI_WA_IA_MAX_CONTATOS_RUN", 4), leitor_midia=leitor)
+            res = wa.run_worker(conn, classifier=None, sender=make_sender(), engine="local",
+                                model_label="assistente", assistente=A.assistente_worker(llm_geral=A.ollama_geral(timeout=60)),
+                                max_contacts=wa._cfg_int("POUPAQUI_WA_IA_MAX_CONTATOS_RUN", 4), leitor_midia=leitor)
+            # passada sem mensagem para responder: aprende um contato (perfil curto no banco), sem atrasar ninguem
+            if (res.get("contatos") == 0 and not res.get("ignorado") and res.get("modo") != "off"
+                    and os.getenv("POUPAQUI_WA_IA_MEMORIA", "1") == "1"):
+                try:
+                    for phone, antiga, n in wa.contatos_para_memoria(conn, limite=1):
+                        nova = A.resumir_memoria(antiga, wa.historico_para_memoria(conn, phone))
+                        wa.salvar_memoria(conn, phone, nova or antiga, n)
+                        res["memoria_atualizada"] = _mask(phone) if nova else f"{_mask(phone)} (sem mudanca)"
+                except Exception as exc:
+                    conn.rollback()
+                    res["memoria_erro"] = type(exc).__name__
+            return res
         finally:
             conn.close()
     ok, info = ollama_health()
