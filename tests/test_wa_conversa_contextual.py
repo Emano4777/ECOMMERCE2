@@ -380,6 +380,23 @@ class ConversaContextualTests(unittest.TestCase):
         r = resp(['Certo consegue ver o da loja de Sao Pedro'], ident=INTERNO, hist=sem, repo=repo)
         self.assertTrue(r.reply.startswith('Loja de Sao Pedro'), r.reply)
         self.assertIn('em setembro', r.reply)
+        # "e outubro?" depois disso: mesma loja (do historico), outro mes
+        h = sem + [{'de': 'contato', 'texto': 'Certo consegue ver o da loja de Sao Pedro'},
+                   {'de': 'assistente', 'texto': r.reply}]
+        r = resp(['e outubro?'], ident=INTERNO, hist=h, repo=repo)
+        self.assertTrue(r.reply.startswith('Loja de Sao Pedro'), r.reply)
+        self.assertIn('em outubro', r.reply)
+
+    def test_mesmo_texto_com_outro_mes_nao_e_repeticao(self):
+        import poupaqui_ai_suporte as S
+        out = ("Não tenho as vendas de outubro da sua loja: o arquivo de vendas mais recente dela é de dezembro/2025, "
+               "recebido em 05/04/2026. Depois disso não chegou mais nenhum.")
+        hist = [{'de': 'contato', 'texto': 'quanto vendeu?'}, {'de': 'assistente', 'texto': out}]
+        with patch.object(S, "responder_suporte",
+                          return_value=A.Resposta("ANSWER", out.replace("outubro", "setembro"), "t", False, "vendas")):
+            r = resp(['quanto vendeu em setembro?'], hist=hist)
+        self.assertIn('setembro', r.reply)
+        self.assertNotIn('continua igual', r.reply)
 
     def test_vendas_loja_que_parou_de_mandar(self):
         from datetime import datetime

@@ -719,10 +719,13 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             import difflib
             n_r = normalize(r.reply)
             recentes = [normalize(h.get("texto")) for h in (historico or [])[-8:] if h.get("de") == "assistente"]
-            # mesmo diagnostico = mesmo texto, mesmos numeros e mesma loja (outra loja no mesmo formato nao e repeticao)
+            # mesmo diagnostico = mesmo texto, mesmos numeros/meses e mesma loja (outra loja ou outro mes no mesmo
+            # formato nao e repeticao: "sem vendas de outubro" x "sem vendas de setembro")
             loja_n = normalize(ctx.get("loja_citada") or "")
-            if any(difflib.SequenceMatcher(None, n_r, x).ratio() > 0.85 and re.findall(r"\d+", n_r) ==
-                   re.findall(r"\d+", x) and (not loja_n or x.startswith(loja_n)) for x in recentes if x):
+            fatos = re.compile(r"\d+|\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|"
+                               r"novembro|dezembro)\b")
+            if any(difflib.SequenceMatcher(None, n_r, x).ratio() > 0.85 and fatos.findall(n_r) ==
+                   fatos.findall(x) and (not loja_n or x.startswith(loja_n)) for x in recentes if x):
                 pergunta = next((f for f in reversed(re.split(r"(?<=[.!?])\s+", r.reply.strip())) if f.endswith("?")), "")
                 r.reply = ("Conferi de novo e continua igual ao que te passei agora há pouco." +
                            (f" {pergunta}" if pergunta else " Se mudou alguma coisa aí, me conta o que apareceu."))
@@ -837,7 +840,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                                      if h.get("de") == "contato" and normalize(h.get("texto"))), None)
             citada_agora = bool(citadas)
             sup_ant = S0.detectar_suporte(hist_norm) if hist_norm else None
-            if not citadas and (precisa or sup0 or sup_ant):
+            # "e outubro?" logo apos um total de vendas: a loja e a da resposta anterior
+            outro_mes_dados = bool(_assunto_da_resposta(ultima_ia)) and bool(re.search(
+                rf"\b({'|'.join(S0.MESES)}|mes passado|mes anterior)\b", norm))
+            if not citadas and (precisa or sup0 or sup_ant or outro_mes_dados):
                 for h in reversed((historico or [])[-8:]):
                     if h.get("de") in ("operador", "sistema"):
                         break
