@@ -18222,6 +18222,15 @@ def consumidor_google_start():
         flash("Login com Google ainda não está configurado.", "info")
         return redirect(request.referrer or url_for("consumidor_login", next=request.args.get("next") or ""))
 
+    # O Google sempre volta no endereco do redirect_uri (sem www). O cookie de sessao e por endereco: se o
+    # login comecar no www, o state fica no cookie do www e o callback (sem www) nao acha -> "Nao foi possivel
+    # validar o login". Comeca de novo no mesmo endereco do callback. O Apache entrega Host sem www nos dois
+    # casos; o endereco que o navegador usou vem no X-Forwarded-Host.
+    cb = urllib.parse.urlsplit(_google_redirect_uri())
+    origem = (request.headers.get("X-Forwarded-Host") or request.host).split(",")[0].strip().lower()
+    if cb.netloc and origem and origem != cb.netloc.lower():
+        return redirect(f"{cb.scheme or 'https'}://{cb.netloc}{request.full_path.rstrip('?')}")
+
     state = secrets.token_urlsafe(24)
     session["google_oauth_state"] = state
     session["google_oauth_next"] = request.args.get("next") or url_for("index")
