@@ -129,6 +129,20 @@ class RepoSuporte(RepoLeitura):
                 "dias_meses_anteriores": [n for _, n in hist],
                 "processado_mes_anterior": ant[0][0] if ant else None}
 
+    def vendas_mes(self, cnpj, ano, mes):
+        """[(dia, valor, vendas, itens)] do mes, do arquivo totalizado (um por dia; reenvio vale o mais novo)."""
+        rows = self._query("""SELECT DISTINCT ON (data) data, ticket_medio * quantidade_vendas, quantidade_vendas, itens
+                              FROM vendas_totalizadas WHERE cnpj = %s AND ano_mes = %s
+                              ORDER BY data, created_at DESC""", (cnpj, f"{mes:02d}-{ano}"))
+        out = []
+        for d, valor, vendas, itens in rows:
+            try:
+                out.append((datetime.strptime(str(d).strip(), "%d%m%Y").date(), float(valor or 0),
+                            int(vendas or 0), int(itens or 0)))
+            except ValueError:
+                pass
+        return sorted(out)
+
     def config_ecommerce(self, cnpj):
         # so colunas de publicacao: a tabela tem tokens de pagamento que nunca sao lidos
         rows = self._query("""SELECT catalogo_publico, estoque_min_publicacao, catalogo_sync_em
@@ -208,6 +222,13 @@ _REL_DIV_RE = re.compile(
     r"zoad\w*)\b"
     r"|\b(errad\w*|diverg\w*|nao bat\w*|nao aparec\w*|deu ruim|deu problema|problema|bug\w*|zoad\w*)\b.*\b"
     + _SIS_REL + r"\b")
+# pergunta de VALOR de venda (nao divergencia): "quanto eles venderam esse mes", "vendas de setembro"
+_VENDAS_Q_RE = re.compile(
+    r"\b(quanto (que )?(\w+ ){0,3}(vend\w*|fatur\w*)|quant[oa]s? vendas|total (de |das )?vendas?|"
+    r"vendas? (d[oa] |dest[ea] |dess[ea] |nest[ea] |ness[ea] |n[oa] |de |em |ate )?(mes|semana|ano|hoje|ontem|"
+    r"janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)|"
+    r"faturamento|relatorio\w* de vendas?|resumo (de |das )?vendas?|ticket medio|"
+    r"como (estao|tao|ta|esta|foram|foi) (as )?vendas?)\b")
 _PROD_SUMIU_RE = re.compile(
     r"\b(nao (aparec\w*|mostr\w*|encontr\w*|ach\w*|sobe|subiu)|sumi\w*|desaparec\w*|some)\b")
 _ONDE_ECOM_RE = re.compile(rf"\b({_SIS_ECOM[1:-1]}|site|catalogo|online|internet|vitrine)\b")
@@ -277,6 +298,8 @@ def detectar_suporte(texto_norm):
         return "rel_fora"
     if _REL_DIV_RE.search(t):
         return "relatorio"
+    if _VENDAS_Q_RE.search(t):
+        return "vendas"
     if _ECOM_FORA_RE.search(t) or (_CHECKOUT_RE.search(t) and re.search(r"\b(site|cliente\w*|compra)\b", t)):
         return "ecom_fora"
     if _PE_FORA_RE.search(t):
@@ -720,6 +743,44 @@ def diag_relatorio(texto_norm, ctx, repo, loja, cnpj, agora, persistente=False, 
                        f"Os arquivos de vendas da sua loja em {nome_mes} estão completos até {limite:%d/%m}.")
 
 
+def _moeda(v):
+    return "R$ " + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def diag_vendas(texto_norm, ctx, repo, cnpj, agora):
+    """Total vendido no mes (arquivo totalizado), com o mesmo periodo do mes anterior para comparar."""
+    hoje = _agora(agora).date()
+    ano, mes = _mes_alvo(texto_norm, hoje)
+    nome_mes = MESES[mes - 1].replace("marco", "março")
+    dias = repo.vendas_mes(cnpj, ano, mes)
+    ctx["fontes"].append(f"vendas_totalizadas {mes:02d}/{ano}: {len(dias)} dias")
+    if not dias:
+        return _r("ANSWER", f"Ainda não chegou arquivo de vendas da sua loja de {nome_mes}, então não tenho esse total. "
+                  f"Os arquivos chegam com cerca de {ATRASO_ARQUIVO_VENDAS_DIAS} dias de atraso (e algumas lojas "
+                  "mandam um arquivo só depois que o mês fecha).", "vendas: sem arquivo no mes", False, "vendas", ctx)
+    total, n, itens = sum(d[1] for d in dias), sum(d[2] for d in dias), sum(d[3] for d in dias)
+    ini, ult = dias[0][0], dias[-1][0]
+    mensal = len(dias) == 1 and ini.day == 1 and (ano, mes) != (hoje.year, hoje.month)
+    periodo = "pelo arquivo do mês" if mensal else (
+        f"de {ini:%d/%m} a {ult:%d/%m}" if ini != ult else f"em {ini:%d/%m}")
+    txt = (f"Vendas da sua loja em {nome_mes} ({periodo}): {_moeda(total)} em {n} vendas"
+           + (f", ticket médio de {_moeda(total / n)}" if n else "") + f" e {itens} itens.")
+    # mesmo periodo do mes anterior (so se ele veio por dia; arquivo mensal nao da para cortar)
+    ant_d = date(ano, mes, 1) - timedelta(days=1)
+    ant = repo.vendas_mes(cnpj, ant_d.year, ant_d.month)
+    if len(ant) > 2 and not mensal:
+        mesmo = [d for d in ant if d[0].day <= ult.day]
+        tot_ant = sum(d[1] for d in mesmo)
+        if tot_ant > 0:
+            nome_ant = MESES[ant_d.month - 1].replace("marco", "março")
+            txt += (f" No mesmo período de {nome_ant} foram {_moeda(tot_ant)} "
+                    f"({(total / tot_ant - 1) * 100:+.0f}%).").replace("+-", "-")
+    if (ano, mes) == (hoje.year, hoje.month) and ult < hoje - timedelta(days=1):
+        txt += (f" Os dias depois de {ult:%d/%m} ainda não entraram: o arquivo chega com cerca de "
+                f"{ATRASO_ARQUIVO_VENDAS_DIAS} dias de atraso.")
+    return _r("ANSWER", txt, "vendas do mes", False, "vendas", ctx)
+
+
 def diag_ecommerce(texto_norm, ctx, repo, cnpj, agora):
     cfg = repo.config_ecommerce(cnpj)
     ctx["fontes"].append("ecommerce_config_loja (publicacao)")
@@ -863,6 +924,10 @@ def responder_suporte(tipo, texto_norm, ctx, repo, identidade, agora, sonda=None
                   "equipe.", "identidade nao verificada", True, tipo, ctx,
                   resumo={"assunto": f"Número não cadastrado pedindo dados de loja ({tipo})"})
     cnpj = str(identidade.get("ref") or "")
+    if tipo == "vendas":
+        # "e setembro?" depois de perguntar outubro: o mes da mensagem nova vence o do historico
+        mes_agora = re.search(rf"\b({'|'.join(MESES)}|mes passado)\b", atual_norm)
+        return diag_vendas(atual_norm if mes_agora else texto_norm, ctx, repo, cnpj, agora)
     if tipo == "relatorio":
         return diag_relatorio(texto_norm, ctx, repo, None, cnpj, agora, persistente,
                               seguimento=mesmo_assunto and tipo_hist == "relatorio")

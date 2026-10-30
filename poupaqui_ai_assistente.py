@@ -236,7 +236,7 @@ _SMALLTALK = [
     (re.compile(r"\b(obrigad\w*|agradec\w*|valeu|vlw)\b"),
      "Nós que agradecemos! Qualquer coisa, é só chamar por aqui."),
     (re.compile(r"\b(tudo bem|td bem|tudo bom|como vai|como voce esta|tudo certo por ai)\b"),
-     "Tudo ótimo por aqui, obrigado por perguntar!"),
+     "Tudo ótimo por aqui, obrigado por perguntar! E com você, tudo bem?"),
     (re.compile(r"\b(quem e voce|quem fala|robo|bot|chatbot|falo com quem|"
                 r"voces? (e|sao) (um |uma )?(humano|gente|pessoa|ia|inteligencia artificial))\b"),
      "Sou o assistente virtual da Drogarias PoupAqui. " + CAPACIDADES),
@@ -789,7 +789,7 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     if verificada and identidade.get("tipo") == "interno" and repo is not None and hasattr(repo, "lojas_cadastro"):
         import poupaqui_ai_suporte as S0
         sup0 = S0.detectar_suporte(norm)
-        precisa = intencao in ("pedido", "financeiro") or sup0 in ("relatorio", "ecommerce")
+        precisa = intencao in ("pedido", "financeiro") or sup0 in ("relatorio", "ecommerce", "vendas")
         try:
             lojas = repo.lojas_cadastro()
         except Exception:
@@ -798,6 +798,14 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             # loja citada na propria mensagem vale sempre ("deu ruim no relatorio de sao pedro"); do
             # historico so quando o assunto e de dados de loja
             citadas = lojas_citadas(norm, lojas)
+            ultima_ia = _ultima_do_assistente(historico)
+            pergunta_ant = None
+            if not citadas and "de qual loja" in ultima_ia and len(norm.split()) <= 6:
+                # resposta a "De qual loja?": so a cidade/nome ("sao pedro"); o assunto e o da pergunta anterior
+                citadas = lojas_citadas(f"loja de {norm}", lojas) or lojas_citadas(f"loja {norm}", lojas)
+                ia_i = max((i for i, h in enumerate(historico or []) if h.get("de") == "assistente"), default=-1)
+                pergunta_ant = next((normalize(h.get("texto")) for h in reversed((historico or [])[:ia_i])
+                                     if h.get("de") == "contato" and normalize(h.get("texto"))), None)
             citada_agora = bool(citadas)
             sup_ant = S0.detectar_suporte(hist_norm) if hist_norm else None
             if not citadas and (precisa or sup0 or sup_ant):
@@ -819,7 +827,14 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                 ctx["loja_citada"] = f"Loja de {cidade} ({razao})"
                 # "e da loja de botucatu?": so troca a loja, o assunto e o da mensagem anterior. So quando a
                 # loja e citada AGORA: loja vinda do historico nao transforma "to meio zonzo" em diagnostico
-                if citada_agora and intencao == "geral" and _PEDIDO_RE.search(norm):
+                if pergunta_ant and intencao == "geral":
+                    anterior = detectar_intencao(pergunta_ant)
+                    if anterior in ("pedido", "financeiro"):
+                        intencao = anterior
+                    elif S0.detectar_suporte(pergunta_ant):
+                        ctx["sup_herdado"] = S0.detectar_suporte(pergunta_ant)
+                        ctx["texto_herdado"] = f"{pergunta_ant} {norm}"
+                elif citada_agora and intencao == "geral" and _PEDIDO_RE.search(norm):
                     intencao = "pedido"      # "mas e os pedidos da sao pedro?": o assunto esta na propria frase
                 elif citada_agora and intencao == "geral" and not sup0 and hist_norm:
                     anterior = detectar_intencao(hist_norm)
@@ -898,7 +913,7 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     if intencao not in ("saude", "alteracao", "ack", "saudacao", "smalltalk", "data"):
         sup = S.detectar_suporte(norm)
         if sup is None and ctx.get("sup_herdado"):   # equipe trocou so a loja: mesmo diagnostico na loja nova
-            sup, texto_diag = ctx["sup_herdado"], f"{hist_norm} {norm}"
+            sup, texto_diag = ctx["sup_herdado"], ctx.get("texto_herdado") or f"{hist_norm} {norm}"
         if sup is None and sup_hist:
             # "continua", ou a resposta a uma pergunta do diagnostico ("aparece
             # erro 500", "no pedido eletronico") herda o assunto do historico
@@ -906,10 +921,13 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             slots = any(rel[k] for k in ("sistema", "acao", "erro", "desde", "escopo", "etapa", "tentou"))
             detalhe_numerico = bool(re.search(r"\b\d{2,}\b", norm)) and bool(re.search(
                 r"\b(venda\w*|caixa|relatorio|valor\w*|pedido\w*|total|diverg\w*)\b", norm))
-            if (intencao == "geral" and (_CONTINUA_RE.search(norm) or slots or detalhe_numerico)) or (
+            # "e setembro?", "e o mes passado?" depois de um total de vendas
+            outro_mes = sup_hist == "vendas" and bool(re.search(
+                rf"\b({'|'.join(S.MESES)}|mes passado|mes anterior)\b", norm))
+            if (intencao == "geral" and (_CONTINUA_RE.search(norm) or slots or detalhe_numerico or outro_mes)) or (
                     intencao == "financeiro" and slots):  # "trava no pagamento, aparece recusado"
                 sup, texto_diag = sup_hist, f"{hist_norm} {norm}"
-    if sup in ("relatorio", "ecommerce") and verificada and identidade.get("tipo") == "interno":
+    if sup in ("relatorio", "ecommerce", "vendas") and verificada and identidade.get("tipo") == "interno":
         # equipe interna sem loja definida: pergunta qual, em vez de pedir "o numero cadastrado da loja"
         return fim(Resposta("ANSWER", prefixo + "De qual loja? Me diga a cidade ou o nome da loja que eu confiro "
                             "os dados dela no sistema.", "interno: falta a loja", False, sup))
@@ -954,7 +972,9 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                             "data/hora", intencao="data"))
     if intencao == "smalltalk":
         txt = next(r for rx, r in _SMALLTALK if rx.search(norm))
-        extra = " Em que posso ajudar?" if not re.search(r"ajudar|equipe|chamar", txt) else ""
+        if re.search(r"\be (voce|vc|ce|tu|contigo|com voce)\b", norm):   # "tudo bem, e voce?": ja disse como esta
+            txt = txt.replace(" E com você, tudo bem?", "")
+        extra = " Em que posso ajudar?" if not re.search(r"ajudar|equipe|chamar|\?$", txt) else ""
         reserva = prefixo + txt + extra
         # "o que voce faz"/menu: lista real de capacidades (o modelo poderia inventar o que faz)
         if llm_geral is None or txt == CAPACIDADES:
@@ -1260,9 +1280,15 @@ Pedido de sugestão (música, cantada, receita, ideia, nome): dê logo 2 ou 3 op
 se a pessoa quer, nem fique só perguntando preferências.
 Ironia: elogio exagerado sobre algo ruim ("chegou rapidinho, só demorou 3 dias", "amei esperar 1 hora") é
 reclamação: reconheça o incômodo com leveza, nunca responda "que bom". Elogio sem contradição é elogio: agradeça.
+Este WhatsApp é o número do """ + (os.getenv("POUPAQUI_WA_DONO_NUMERO") or "Emanuel") + """, responsável pelo
+departamento de tecnologia da Drogarias PoupAqui; você é a IA que responde as mensagens que chegam nele. Se
+perguntarem de quem é o número, se ainda é do Emanuel ou com que nome salvar o contato, confirme que é o número do
+Emanuel (tecnologia) e que podem manter o contato com o nome dele; o que mandarem aqui chega para ele.
 Você é uma IA, sem corpo ou vida pessoal. Se perguntarem de você, responda honestamente sem discurso formal:
 está conversando com a pessoa; não invente amigos, refeições, passeios, gostos vividos ou atividades fora do chat.
 Pode acompanhar informalidade como "mano", "kkk", sem exagerar nem imitar cada gíria.
+Educação de conversa: se a pessoa pergunta "tudo bem?", responda e pergunte de volta como ela está (se ela já disse que está bem, não repita a pergunta). Se ela
+reclamar do seu jeito ("nem perguntou como eu tô"), peça desculpa curta e sem formalidade e faça o que faltou.
 Não acrescente saudações, assunto comercial, menu ou "como posso ajudar" no meio de uma conversa.
 Pode conversar sobre qualquer assunto geral (receita de comida, esporte, notícia, curiosidade, contas). Para fato
 atual, use só os resultados de busca quando vierem; sem resultado, diga que não sabe em vez de chutar.

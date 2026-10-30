@@ -333,6 +333,43 @@ class ConversaContextualTests(unittest.TestCase):
             r = resp(['e da loja de botucatu?'], ident=INTERNO, hist=hist, repo=Repo())
             self.assertIn('DIAGNOSTICO', r.reply)                       # trocar so a loja mantem o assunto
 
+    def test_vendas_do_mes_e_resposta_de_qual_loja(self):
+        from datetime import date
+
+        class Repo(FakeRepo):
+            def lojas_cadastro(self):
+                return [("11111111000111", "DROGARIA ALFA LTDA", "Sao Pedro"), ("22222222000122", "DROGARIA BETA LTDA", "Botucatu")]
+
+            def vendas_mes(self, cnpj, ano, mes):
+                self.pedido = (cnpj, ano, mes)
+                if mes == 10:
+                    return [(date(2026, 10, d), 1000.0, 20, 50) for d in range(1, 27)]
+                return [(date(ano, mes, d), 900.0, 18, 40) for d in range(1, 31)]
+        import poupaqui_ai_suporte as S
+        for t in ('quanto eles venderam esse mes?', 'relatorio de vendas', 'vendas de setembro', 'qual o faturamento'):
+            self.assertEqual(S.detectar_suporte(A.normalize(t)), 'vendas', t)
+        self.assertEqual(S.detectar_suporte(A.normalize('o relatorio de vendas ta errado')), 'relatorio')
+        repo = Repo()
+        hist = [{'de': 'contato', 'texto': 'Relatório de vendas quanto eles venderam esse mês?'},
+                {'de': 'assistente', 'texto': 'De qual loja? Me diga a cidade ou o nome da loja que eu confiro os dados dela no sistema.'}]
+        r = resp(['Sao Pedro'], ident=INTERNO, hist=hist, repo=repo)
+        self.assertTrue(r.reply.startswith('Loja de Sao Pedro'), r.reply)
+        self.assertIn('R$ 26.000,00 em 520 vendas', r.reply)
+        self.assertIn('ticket médio de R$ 50,00', r.reply)
+        self.assertIn('setembro foram R$ 23.400,00 (+11%)', r.reply)
+        self.assertEqual(repo.pedido[0], '11111111000111')
+        hist2 = hist + [{'de': 'contato', 'texto': 'Sao Pedro'}, {'de': 'assistente', 'texto': r.reply}]
+        r = resp(['e setembro?'], ident=INTERNO, hist=hist2, repo=repo)
+        self.assertIn('setembro', r.reply)
+        self.assertIn('R$ 27.000,00', r.reply)
+
+    def test_tudo_bem_pergunta_de_volta_so_quando_falta(self):
+        r = resp(['De boa, TD bem?'])
+        self.assertIn('E com você', r.reply)
+        r = resp(['Tudo bem graças a Deus e você?'])
+        self.assertNotIn('E com você', r.reply)
+        self.assertIn('Emanuel', A.GERAL_PROMPT)
+
     def test_whisper_ocioso_libera_memoria(self):
         A._WHISPER["x"] = object()
         A._WHISPER_USO["em"] = time.monotonic()
