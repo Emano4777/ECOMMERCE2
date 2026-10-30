@@ -1354,6 +1354,9 @@ def _dias_ate_fim_do_mes(d):
 
 # quanto o modelo fica carregado sem uso: carregar de novo custa ~5-10 s na 1a resposta
 KEEP_ALIVE = os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m"
+# contexto por conversa; o MESMO valor em todo uso do modelo (WhatsApp e Poupinha do site):
+# num_ctx diferente entre chamadas faz o Ollama recarregar o modelo
+NUM_CTX = int(os.getenv("POUPAQUI_OLLAMA_NUM_CTX") or 4096)
 
 DECIDE_BUSCA_PROMPT = (
     "Decida se a ÚLTIMA fala precisa de busca na internet. Regra: só busque o que você NÃO tem como saber sozinho, "
@@ -1396,7 +1399,7 @@ def resumir_memoria(memoria_antiga, historico, base_url=None, model=None, timeou
              for h in historico or [] if h.get("de") in ("contato", "assistente") and h.get("texto")]
     if len([f for f in falas if f.startswith("Contato")]) < 3:
         return None
-    options = {"num_ctx": 2048, "num_predict": 220, "temperature": 0.2}
+    options = {"num_ctx": NUM_CTX, "num_predict": 220, "temperature": 0.2}
     if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
         options["num_thread"] = int(os.environ["POUPAQUI_OLLAMA_NUM_THREAD"])
     body = {"model": model, "stream": False, "think": False, "keep_alive": KEEP_ALIVE, "options": options,
@@ -1499,7 +1502,7 @@ def ollama_geral(base_url=None, model=None, timeout=40):
         falas = [re.sub(r"^\[Áudio transcrito[^\]]*\]\s*", "", str(t)) for t in textos]
         messages.append({"role": "user", "content": "\n".join(f[:500] for f in falas)[:2000]})
         options = {"temperature": 0.6, "top_p": 0.8, "repeat_penalty": 1.05,
-                   "seed": 43 if correcao else 42, "num_ctx": 2048, "num_predict": 220}
+                   "seed": 43 if correcao else 42, "num_ctx": NUM_CTX, "num_predict": 220}
         # piloto HostGator (quota 2,5 CPUs): sem num_thread o llama.cpp abre threads demais e
         # cai para ~0,3 tok/s; com 2 threads o gemma4:e2b gera ~11-15 tok/s
         if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
@@ -1666,7 +1669,7 @@ def baixar_midia_wasender(message_id, midia, api_key=None, timeout=20):
     return dados
 
 
-AUDIO_MAX_SEG = 70   # ~25 tokens/s de audio no gemma4: 70 s cabem no num_ctx 2048 da conversa
+AUDIO_MAX_SEG = 70   # ~25 tokens/s de audio no gemma4: 70 s (~1750 tokens) cabem no num_ctx da conversa
 AUDIO_PROMPT = ("Transcreva exatamente o que é falado neste áudio de WhatsApp, em português do Brasil, sem "
                 "comentar nem resumir. Se não houver fala, responda só: [sem fala].")
 
@@ -1817,7 +1820,7 @@ def leitor_midia_ollama(base_url=None, model=None, timeout=60, baixar=None, voca
 
     def perguntar(prompt, dados, audio):
         # mesmo num_ctx da conversa (ollama_geral): valor diferente recarrega o modelo a cada troca
-        options = {"num_ctx": 2048, "num_predict": 500 if audio else 300, "temperature": 0 if audio else 0.1}
+        options = {"num_ctx": NUM_CTX, "num_predict": 500 if audio else 300, "temperature": 0 if audio else 0.1}
         if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
             options["num_thread"] = int(os.environ["POUPAQUI_OLLAMA_NUM_THREAD"])
         body = {"model": model, "stream": False, "think": False, "keep_alive": KEEP_ALIVE,

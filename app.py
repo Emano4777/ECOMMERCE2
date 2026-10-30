@@ -24476,35 +24476,9 @@ def _suporte_cache_salvar(pergunta_norm, pergunta_original, resposta):
     threading.Thread(target=_persist, daemon=True).start()
 
 
-def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None, consumidor_id=None, chat_id=None):
-    """Chama Claude Haiku pra responder uma pergunta de suporte, com tool use
-    pra consultar dado real ao vivo e ate agir (pedido especifico, produto,
-    cupom, cobertura de entrega, horario, cancelar pedido, escalar pra humano
-    — ver _SUPORTE_TOOLS). Retorna uma tupla (texto, usou_dado_pessoal,
-    escalou); texto e None em qualquer falha (sem API key, timeout, erro).
-    usou_dado_pessoal e True quando a resposta usou contexto de pedido/
-    ferramenta — sinaliza pro chamador que essa resposta NUNCA pode ir pro
-    cache generico por similaridade (senao vaza pedido/cupom/link de
-    pagamento de um cliente pra outro que pergunte algo parecido). escalou e
-    True quando a ferramenta escalar_atendimento foi chamada com sucesso
-    nesse turno — sinaliza pro chamador mostrar o aviso de "encaminhado" na
-    UI.
-
-    historico: mensagens anteriores do MESMO chat (ecommerce_suporte_msgs,
-    autor 'consumidor'/'ia', em ordem cronologica, SEM a mensagem atual) —
-    sem isso a IA respondia cada mensagem isolada, sem lembrar nada do que
-    o cliente ja tinha dito antes na mesma conversa.
-
-    pedidos_recentes_ctx: resumo dos ultimos pedidos do cliente, usado so
-    quando o chat NAO tem pedido_id vinculado (chat geral) — sem isso, uma
-    pergunta tipo "cade meu pedido" fora do contexto de um pedido especifico
-    fazia a IA so repetir "va em Meus Pedidos" sem nenhum dado real pra
-    consultar."""
-    api_key = _anthropic_api_key()
-    if not api_key:
-        return None, False, False
-    usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
-    escalou = False
+def _suporte_mensagens(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None):
+    """Historico do chat + pergunta atual (com o contexto de pedido) em turnos user/assistant
+    alternados -- formato comum ao Claude e ao Ollama."""
     user_msg = pergunta.strip()[:2000]
     if pedido_ctx:
         user_msg = (
@@ -24539,6 +24513,39 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
         messages[-1]["content"] += "\n" + user_msg
     else:
         messages.append({"role": "user", "content": user_msg})
+    return messages
+
+
+def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None, consumidor_id=None, chat_id=None):
+    """Chama Claude Haiku pra responder uma pergunta de suporte, com tool use
+    pra consultar dado real ao vivo e ate agir (pedido especifico, produto,
+    cupom, cobertura de entrega, horario, cancelar pedido, escalar pra humano
+    — ver _SUPORTE_TOOLS). Retorna uma tupla (texto, usou_dado_pessoal,
+    escalou); texto e None em qualquer falha (sem API key, timeout, erro).
+    usou_dado_pessoal e True quando a resposta usou contexto de pedido/
+    ferramenta — sinaliza pro chamador que essa resposta NUNCA pode ir pro
+    cache generico por similaridade (senao vaza pedido/cupom/link de
+    pagamento de um cliente pra outro que pergunte algo parecido). escalou e
+    True quando a ferramenta escalar_atendimento foi chamada com sucesso
+    nesse turno — sinaliza pro chamador mostrar o aviso de "encaminhado" na
+    UI.
+
+    historico: mensagens anteriores do MESMO chat (ecommerce_suporte_msgs,
+    autor 'consumidor'/'ia', em ordem cronologica, SEM a mensagem atual) —
+    sem isso a IA respondia cada mensagem isolada, sem lembrar nada do que
+    o cliente ja tinha dito antes na mesma conversa.
+
+    pedidos_recentes_ctx: resumo dos ultimos pedidos do cliente, usado so
+    quando o chat NAO tem pedido_id vinculado (chat geral) — sem isso, uma
+    pergunta tipo "cade meu pedido" fora do contexto de um pedido especifico
+    fazia a IA so repetir "va em Meus Pedidos" sem nenhum dado real pra
+    consultar."""
+    api_key = _anthropic_api_key()
+    if not api_key:
+        return None, False, False
+    usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
+    escalou = False
+    messages = _suporte_mensagens(pergunta, pedido_ctx, historico, pedidos_recentes_ctx)
 
     ctx = ssl.create_default_context()
     for _ in range(4):
@@ -24580,6 +24587,171 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
         return (texto or None), usou_dado_pessoal, escalou
 
     return "No momento não consigo buscar essa informação. Você pode tentar de novo ou falar com um atendente.", True, escalou
+
+
+# ─── POUPINHA NO MODELO LOCAL (Ollama no proprio servidor) ───────────────────
+# Mesmo FAQ do prompt do Claude e mesmas consultas (_executar_ferramenta_suporte),
+# rodando no gemma4 do HostGator (o mesmo do atendimento WhatsApp). Diferencas:
+# - o gemma4 instalado nao chama ferramentas (testado em 30/10/2026, nem com
+#   prompt minimo): o CODIGO decide a consulta pela mensagem (produto, pedido,
+#   cupom, cobertura, horario) e o encaminhamento (atendente, cancelamento,
+#   reembolso); o modelo so redige a resposta em cima dos dados;
+# - nao cancela pedido sozinho: cancelamento vai para o atendente;
+# - prompt sem as ferramentas: e lido pela CPU (~46 s a frio com tudo; com
+#   cache, ~0,5 s), entao quanto menor, melhor;
+# - prazo curto (o nginx corta em 60 s): estourou ou falhou, o chamador cai no
+#   Claude como reserva (POUPINHA_FALLBACK_CLAUDE=0 desliga).
+
+
+def _sem_markdown(texto):
+    """O balao do chat e texto puro: tira **negrito**, # titulos e marcadores de lista que o modelo escape."""
+    t = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), texto or "")
+    t = re.sub(r"(?m)^\s*#{1,6}\s*", "", t)
+    t = re.sub(r"(?m)^\s*[-*•]\s+", "", t)
+    return t.replace("*", "").strip()
+
+
+_POUPINHA_PROMPT_LOCAL = (
+    "Quando a mensagem trouxer \"Dados consultados agora no sistema\", responda com base neles, em texto corrido, "
+    "sem copiar o bloco bruto; se o dado não responder a pergunta, diga isso em vez de adivinhar. Sem esses dados, "
+    "nunca invente estoque, preço, cupom, horário de loja ou status de pedido: diga o que o cliente pode perguntar "
+    "(ex.: o nome do produto) ou onde conferir. Você não cancela pedidos nem chama atendente sozinha: quem cuida "
+    "disso é o sistema. Não indique remédio para sintoma (isso é com o farmacêutico): para \"tem remédio para X?\", "
+    "pergunte qual produto ele procura ou sugira falar com o farmacêutico da loja. Responda em uma a três frases."
+)
+
+
+def _poupinha_prompt_ollama():
+    """FAQ do prompt do Claude sem a parte de ferramentas (este modelo nao chama tools: quem consulta e o codigo)."""
+    p = _SUPORTE_SISTEMA_PROMPT
+    faq = p.split("Não existe mais botão")[0].rstrip()
+    pedidos = p[p.index("Quando a mensagem vier acompanhada"):p.index("Você tem ferramentas")].strip()
+    return f"{faq}\n\n{pedidos}\n\n{_POUPINHA_PROMPT_LOCAL}"
+
+
+# o que o cliente pede que exige gente (o modelo local nao decide isso): (regex, categoria, resposta)
+_POUPINHA_ESCALA = [
+    (re.compile(r"\b(atendente|humano|humana|pessoa (de verdade|real)|falar com (alguem|algu[eé]m|uma pessoa|a loja|a farmacia)|"
+                r"falar com voc[eê]s|suporte humano)\b", re.I),
+     "cliente_pediu", "Pronto, chamei um atendente: ele continua a conversa aqui mesmo, é só aguardar."),
+    (re.compile(r"\b(cancel\w*)\b.{0,30}\bpedido\b|\bpedido\b.{0,30}\bcancel\w*|^\s*cancel\w*", re.I),
+     "acao_humana", "O cancelamento é feito por um atendente: já chamei, ele continua a conversa aqui mesmo."),
+    (re.compile(r"\b(reembols\w*|estorn\w*|dinheiro de volta|cobrad[oa] (duas vezes|em dobro|errado))\b", re.I),
+     "acao_humana", "Isso precisa de um atendente: já chamei, ele continua a conversa aqui mesmo."),
+]
+_POUPINHA_PRODUTO_RE = re.compile(
+    r"\b(?:tem|tens|tera|vende[mn]?|voc[eê]s tem|vcs tem|possui|acha|encontro)\s+(?:o |a |os |as |um |uma )?"
+    r"(?P<a>[\w\- .,%]{3,50}?)\s*(?:a[ií]|disponivel|disponível|em estoque|na loja|pra vender)?\s*[?!.]*$"
+    r"|\b(?:pre[cç]o|valor)\s+(?:d[oa]s?\s+|de\s+)?(?P<b>[\w\- .,%]{3,50}?)\s*[?!.]*$"
+    r"|\bquanto (?:custa|t[aá]|est[aá]|[eé]|sai)\s+(?:o |a |os |as |um |uma )?(?P<c>[\w\- .,%]{3,50}?)\s*[?!.]*$",
+    re.I)
+_POUPINHA_NAO_PRODUTO_RE = re.compile(r"^(remedio|remédio|medicamento|algo|alguma coisa|algum|frete|cupom|desconto|"
+                                      r"entrega|pedido|loja|app|aplicativo|horario|horário)\b", re.I)
+_POUPINHA_PEDIDO_COD_RE = re.compile(r"#?\b([0-9A-Fa-f]{8})\b")
+_POUPINHA_CONSULTAS = [
+    (re.compile(r"\bcupo(m|ns)\b|\bdesconto\b", re.I), "verificar_cupom_disponivel"),
+    (re.compile(r"\b(entrega\w* (no|na|pro|para o|pra) (meu|minha)|atende\w* (minha|meu|a minha)|"
+                r"(meu|minha) (endereco|endereço|cidade|bairro|cep)|area de entrega|área de entrega)\b", re.I),
+     "verificar_cobertura_entrega"),
+    (re.compile(r"\b(aberta|abert[oa] agora|fechad[oa]|que horas (abre|fecha)|horario de funcionamento|"
+                r"horário de funcionamento|funciona (hoje|agora|domingo|feriado))\b", re.I), "loja_aberta_agora"),
+]
+
+
+def _poupinha_consultas(pergunta, consumidor_id, chat_id):
+    """Consultas que o codigo decide pela mensagem: [(ferramenta, resultado)]."""
+    if not consumidor_id:
+        return []
+    feitas = []
+    m = _POUPINHA_PEDIDO_COD_RE.search(pergunta)
+    if m and re.search(r"[0-9]", m.group(1)) and re.search(r"pedido|#", pergunta, re.I):
+        feitas.append(("buscar_pedido", {"identificador": m.group(1)}))
+    m = _POUPINHA_PRODUTO_RE.search(pergunta.strip())
+    nome = next((g for g in (m.groups() if m else ()) if g), "")
+    nome = re.sub(r"\b(ai|aí|ai\?|por favor|pfv|pf)\b", "", nome, flags=re.I).strip(" ,.")
+    if nome and not _POUPINHA_NAO_PRODUTO_RE.search(nome):
+        feitas.append(("consultar_produto", {"nome": nome}))
+    for rx, ferramenta in _POUPINHA_CONSULTAS:
+        if rx.search(pergunta):
+            feitas.append((ferramenta, {}))
+    return [(f, _executar_ferramenta_suporte(f, a, consumidor_id, chat_id)) for f, a in feitas[:3]]
+
+
+def _ollama_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None,
+                              consumidor_id=None, chat_id=None, prazo_s=None):
+    """Mesmo contrato de _claude_suporte_responder: (texto, usou_dado_pessoal, escalou); texto None em falha.
+    O codigo decide consulta e encaminhamento (este modelo nao chama ferramentas); o modelo so redige."""
+    usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
+    for rx, categoria, resposta in _POUPINHA_ESCALA:
+        if rx.search(pergunta) and consumidor_id and chat_id:
+            m = _POUPINHA_PEDIDO_COD_RE.search(pergunta)
+            r = _executar_ferramenta_suporte("escalar_atendimento", {
+                "motivo": pergunta.strip()[:300], "categoria": categoria,
+                "pedido_identificador": m.group(1) if m else None}, consumidor_id, chat_id)
+            if isinstance(r, str) and r.startswith("ESCALADO_OK"):
+                return resposta, True, True
+            return None, True, False   # nao escalou: o chamador decide (reserva/aviso padrao)
+    consultas = _poupinha_consultas(pergunta, consumidor_id, chat_id)
+    msg_cliente = pergunta
+    if consultas:
+        usou_dado_pessoal = True
+        dados = "\n".join(f"- {f}: {str(r)[:1200]}" for f, r in consultas)
+        msg_cliente = f"Dados consultados agora no sistema:\n{dados}\n\nMensagem do cliente: {pergunta}"
+    base = (os.getenv("POUPINHA_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    body = {"model": os.getenv("POUPINHA_OLLAMA_MODEL") or "gemma4:e4b", "stream": False, "think": False,
+            "messages": [{"role": "system", "content": _poupinha_prompt_ollama()}] + _suporte_mensagens(
+                msg_cliente, pedido_ctx, historico, pedidos_recentes_ctx),
+            # num_ctx e keep_alive iguais aos do atendimento WhatsApp: num_ctx diferente recarrega o modelo
+            "keep_alive": os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m",
+            "options": {"num_ctx": int(os.getenv("POUPAQUI_OLLAMA_NUM_CTX") or 4096), "num_predict": 300,
+                        "temperature": 0.2, "num_thread": int(os.getenv("POUPAQUI_OLLAMA_NUM_THREAD") or 2)}}
+    req = urllib.request.Request(base + "/api/chat", data=json.dumps(body).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=prazo_s or float(os.getenv("POUPINHA_OLLAMA_PRAZO_S") or 45)) as r:
+            texto = _sem_markdown(((json.loads(r.read().decode("utf-8")).get("message") or {}).get("content")) or "")
+    except Exception as exc:
+        app.logger.warning("_ollama_suporte_responder error: %s", exc)
+        return None, usou_dado_pessoal, False
+    return (texto or None), usou_dado_pessoal, False
+
+
+_POUPINHA_AQUECIDO_EM = [0.0]
+
+
+def _poupinha_aquecer():
+    """Le o prompt da Poupinha no modelo local em segundo plano (num_predict 1): a pergunta que vem depois
+    reaproveita o cache do prefixo (~0,5 s em vez de ~30 s). No maximo 1 vez por minuto por processo."""
+    if (os.getenv("POUPINHA_IA_MOTOR") or "ollama").strip().lower() == "claude":
+        return
+    if time.monotonic() - _POUPINHA_AQUECIDO_EM[0] < 60:
+        return
+    _POUPINHA_AQUECIDO_EM[0] = time.monotonic()
+
+    def _run():
+        base = (os.getenv("POUPINHA_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+        body = {"model": os.getenv("POUPINHA_OLLAMA_MODEL") or "gemma4:e4b", "stream": False, "think": False,
+                "messages": [{"role": "system", "content": _poupinha_prompt_ollama()}, {"role": "user", "content": "oi"}],
+                "keep_alive": os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m",
+                "options": {"num_ctx": int(os.getenv("POUPAQUI_OLLAMA_NUM_CTX") or 4096), "num_predict": 1,
+                            "num_thread": int(os.getenv("POUPAQUI_OLLAMA_NUM_THREAD") or 2)}}
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "/api/chat", data=json.dumps(body).encode("utf-8"),
+                                   headers={"Content-Type": "application/json"}, method="POST"), timeout=90).read()
+        except Exception as exc:
+            app.logger.info("_poupinha_aquecer: %s", exc)
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _suporte_responder(pergunta, **kw):
+    """Motor da Poupinha: POUPINHA_IA_MOTOR=ollama (padrao, modelo local) ou claude. O local que falhar ou
+    estourar o prazo cai no Claude (POUPINHA_FALLBACK_CLAUDE=0 desliga a reserva)."""
+    if (os.getenv("POUPINHA_IA_MOTOR") or "ollama").strip().lower() != "claude":
+        r = _ollama_suporte_responder(pergunta, **kw)
+        if r[0] or r[2] or (os.getenv("POUPINHA_FALLBACK_CLAUDE") or "1") != "1":
+            return r
+        app.logger.warning("poupinha: modelo local sem resposta, usando Claude de reserva")
+    return _claude_suporte_responder(pergunta, **kw)
 
 
 def _pedido_ctx_para_ia(pedido_id, consumidor_id):
@@ -25163,6 +25335,7 @@ def api_suporte_abrir():
     if pedido_id and not _pedido_ctx_para_ia(pedido_id, consumidor_id):
         pedido_id = None  # pedido invalido/nao pertence a esse cliente — ignora
     chat = _suporte_chat_ativo(consumidor_id, pedido_id)
+    _poupinha_aquecer()   # enquanto o cliente digita, o modelo local ja le o prompt (a frio sao ~30 s)
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT autor, mensagem, enviada_em FROM ecommerce_suporte_msgs WHERE chat_id=%s ORDER BY enviada_em", (chat["id"],))
@@ -25237,7 +25410,7 @@ def api_suporte_mensagem():
     try:
         if chat["pedido_id"]:
             pedido_ctx = _pedido_ctx_para_ia(chat["pedido_id"], consumidor_id)
-            resposta, _, escalou = _claude_suporte_responder(
+            resposta, _, escalou = _suporte_responder(
                 mensagem, pedido_ctx=pedido_ctx, historico=historico, consumidor_id=consumidor_id, chat_id=chat_id
             )
         else:
@@ -25250,7 +25423,7 @@ def api_suporte_mensagem():
                     from_cache = True
                 else:
                     pedidos_recentes_ctx = _pedidos_recentes_ctx_para_ia(consumidor_id)
-                    resposta, usou_dado_pessoal, escalou = _claude_suporte_responder(
+                    resposta, usou_dado_pessoal, escalou = _suporte_responder(
                         mensagem, historico=historico, pedidos_recentes_ctx=pedidos_recentes_ctx,
                         consumidor_id=consumidor_id, chat_id=chat_id,
                     )

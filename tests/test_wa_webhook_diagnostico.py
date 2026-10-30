@@ -84,10 +84,13 @@ class WebhookDiagnosticoTests(unittest.TestCase):
         fail = [True]
 
         def outbound(payload, conn):
+            novas = 0
             for item in wa.parse_outbound(payload):
                 if item['message_id'] not in saved:
                     saved.add(item['message_id'])
                     takeovers.append(item['telefone'])
+                    novas += 1
+            return {'ia': 0, 'sistema': 0, 'manual': novas}   # mesmo formato do store_outbound real
 
         def inbound(payload, conn):
             if fail and fail.pop():
