@@ -24602,9 +24602,10 @@ def _claude_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos
 # Mesmo FAQ do prompt do Claude e mesmas consultas (_executar_ferramenta_suporte),
 # rodando no gemma4 do HostGator (o mesmo do atendimento WhatsApp). Diferencas:
 # - o gemma4 instalado nao chama ferramentas (testado em 30/10/2026, nem com
-#   prompt minimo): o CODIGO decide a consulta pela mensagem (produto, pedido,
-#   cupom, cobertura, horario) e o encaminhamento (atendente, cancelamento,
-#   reembolso); o modelo so redige a resposta em cima dos dados;
+#   prompt minimo): em vez disso, uma 1a chamada curta faz o MODELO dizer em
+#   JSON o que o cliente quer (produto/pedido/cupom/cobertura/horario/atendente/
+#   conversa, com o termo de busca corrigido); o codigo executa essa consulta e
+#   uma 2a chamada responde com os dados e a conversa;
 # - nao cancela pedido sozinho: cancelamento vai para o atendente;
 # - prompt sem as ferramentas: e lido pela CPU (~46 s a frio com tudo; com
 #   cache, ~0,5 s), entao quanto menor, melhor;
@@ -24621,146 +24622,151 @@ def _sem_markdown(texto):
 
 
 _POUPINHA_PROMPT_LOCAL = (
-    "Quando a mensagem trouxer \"Dados consultados agora no sistema\", responda com base neles, em texto corrido, "
-    "sem copiar o bloco bruto; se o dado não responder a pergunta, diga isso em vez de adivinhar. Sem esses dados, "
-    "nunca invente estoque, preço, cupom, horário de loja ou status de pedido: diga o que o cliente pode perguntar "
-    "(ex.: o nome do produto) ou onde conferir. Você não cancela pedidos nem chama atendente sozinha: quem cuida "
-    "disso é o sistema. Não indique remédio para sintoma (isso é com o farmacêutico): para \"tem remédio para X?\", "
-    "pergunte qual produto ele procura ou sugira falar com o farmacêutico da loja. Responda em uma a três frases. "
-    "Quando os dados trouxerem produtos, diga quais a farmácia tem e o preço, e que ele adiciona ao carrinho pelo "
-    "site (você não envia nem separa produto). Se não achou, diga que não encontrou esse produto na farmácia mais "
-    "próxima agora, em vez de mandar ele pesquisar sozinho. Só fale dos pedidos do cliente se ele perguntar de "
-    "pedido, compra ou entrega."
+    "Leia a conversa em ordem e responda à ÚLTIMA mensagem do cliente, entendendo referências ao que já foi dito, "
+    "erros de digitação e gírias. Cumprimento ou agradecimento: responda natural e curto, sem falar de produto; só diga "
+    "como está se perguntarem como você está (você é uma assistente virtual). Quando a mensagem "
+    "trouxer \"Dados consultados agora no sistema\", responda com base neles, em texto corrido, sem copiar o bloco "
+    "bruto. Produtos encontrados: cite até três pelo nome com o preço, e que ele adiciona ao carrinho pelo site (você "
+    "não envia nem separa produto). Produto não encontrado: diga isso e pergunte se ele quer procurar por outro nome ou "
+    "marca; não ofereça produto sem relação com o que ele pediu. Sem esses dados, nunca invente estoque, preço, cupom, "
+    "horário de loja ou status de pedido. Não indique remédio para sintoma (isso é com o farmacêutico). Só fale dos "
+    "pedidos do cliente se ele perguntar de pedido, compra ou entrega. Responda em uma a três frases."
 )
 
 
 def _poupinha_prompt_ollama():
-    """FAQ do prompt do Claude sem a parte de ferramentas (este modelo nao chama tools: quem consulta e o codigo)."""
+    """FAQ do prompt do Claude sem a parte de ferramentas (quem consulta e o codigo, pela decisao do modelo)."""
     p = _SUPORTE_SISTEMA_PROMPT
     faq = p.split("Não existe mais botão")[0].rstrip()
     pedidos = p[p.index("Quando a mensagem vier acompanhada"):p.index("Você tem ferramentas")].strip()
     return f"{faq}\n\n{pedidos}\n\n{_POUPINHA_PROMPT_LOCAL}"
 
 
-# o que o cliente pede que exige gente (o modelo local nao decide isso): (regex, categoria, resposta)
-_POUPINHA_ESCALA = [
-    (re.compile(r"\b(atendente|humano|humana|pessoa (de verdade|real)|falar com (alguem|algu[eé]m|uma pessoa|a loja|a farmacia)|"
-                r"falar com voc[eê]s|suporte humano)\b", re.I),
-     "cliente_pediu", "Pronto, chamei um atendente: ele continua a conversa aqui mesmo, é só aguardar."),
-    (re.compile(r"\b(cancel\w*)\b.{0,30}\bpedido\b|\bpedido\b.{0,30}\bcancel\w*|^\s*cancel\w*", re.I),
-     "acao_humana", "O cancelamento é feito por um atendente: já chamei, ele continua a conversa aqui mesmo."),
-    (re.compile(r"\b(reembols\w*|estorn\w*|dinheiro de volta|cobrad[oa] (duas vezes|em dobro|errado))\b", re.I),
-     "acao_humana", "Isso precisa de um atendente: já chamei, ele continua a conversa aqui mesmo."),
-]
-_POUPINHA_PRODUTO_RE = re.compile(
-    r"\b(?:tem|tens|tera|vende[mn]?|voc[eê]s tem|vcs tem|possui|acha|encontro)\s+(?:o |a |os |as |um |uma )?"
-    r"(?P<a>[\w\- .,%]{3,50}?)\s*(?:a[ií]|disponivel|disponível|em estoque|na loja|pra vender)?\s*[?!.]*$"
-    r"|\b(?:pre[cç]o|valor)\s+(?:d[oa]s?\s+|de\s+)?(?P<b>[\w\- .,%]{3,50}?)\s*[?!.]*$"
-    r"|\bquanto (?:custa|t[aá]|est[aá]|[eé]|sai)\s+(?:o |a |os |as |um |uma )?(?P<c>[\w\- .,%]{3,50}?)\s*[?!.]*$",
-    re.I)
-_POUPINHA_NAO_PRODUTO_RE = re.compile(r"^(remedio|remédio|medicamento|algo|alguma coisa|algum|frete|cupom|desconto|"
-                                      r"entrega|pedido|loja|app|aplicativo|horario|horário)\b", re.I)
-_POUPINHA_PEDIDO_COD_RE = re.compile(r"#?\b([0-9A-Fa-f]{8})\b")
-_POUPINHA_CONSULTAS = [
-    (re.compile(r"\bcupo(m|ns)\b|\bdesconto\b", re.I), "verificar_cupom_disponivel"),
-    (re.compile(r"\b(entrega\w* (no|na|pro|para o|pra) (meu|minha)|atende\w* (minha|meu|a minha)|"
-                r"(meu|minha) (endereco|endereço|cidade|bairro|cep)|area de entrega|área de entrega)\b", re.I),
-     "verificar_cobertura_entrega"),
-    (re.compile(r"\b(aberta|abert[oa] agora|fechad[oa]|que horas (abre|fecha)|horario de funcionamento|"
-                r"horário de funcionamento|funciona (hoje|agora|domingo|feriado))\b", re.I), "loja_aberta_agora"),
-]
+# 1a etapa: o MODELO entende o que o cliente quer (com a conversa, digitacao errada e referencias) e o codigo so
+# executa a consulta escolhida. O gemma4 instalado nao chama tools; lista de frases fixas nao dava conta
+# ("se ta bem?" virava busca de produto, "intimio" nao achava nada).
+_POUPINHA_DECIDE_PROMPT = (
+    "Você entende o que o cliente quer no chat de suporte de uma rede de farmácias online. Leia a conversa (use as "
+    "mensagens anteriores para entender referências como \"e o genérico dele?\" e corrija erros de digitação) e "
+    "classifique só a ÚLTIMA mensagem do cliente. Responda só JSON: "
+    '{"acao": "...", "produto": "", "categoria": "", "pedido": ""}. Valores de acao: '
+    '"produto" = quer saber se tem, o preço, ou quer comprar um produto ou tipo de produto (ex.: "tem dipirona?", '
+    '"lubrificante intimo", "tem algum suplemento?", "quero protetor solar"); em produto escreva o termo de busca curto '
+    'e corrigido ("lubrificante intimo", "suplemento", "dipirona") e em categoria "generico", "similar" ou "referencia" '
+    'só se ele pedir isso. '
+    '"sintoma" = pede algo para um sintoma ou doença sem dizer o produto ("tem algo pra gases?"). '
+    '"pedido" = status, entrega, pagamento ou rastreio de um pedido dele; em pedido o código de 8 caracteres se citado. '
+    '"cupom" = se tem cupom ou desconto. "cobertura" = se entregam no endereço dele. "horario" = se a farmácia está '
+    'aberta ou que horas abre. '
+    '"atendente" = pede para falar com uma pessoa, ou quer cancelar pedido, reembolso ou estorno. '
+    '"conversa" = cumprimento, "tudo bem?", agradecimento, dúvida sobre como o site funciona (frete, pagamento, troca, '
+    'app, pontos, indicação, lista de presentes, compra recorrente) e qualquer outra coisa.'
+)
+_POUPINHA_ACOES = {"produto", "sintoma", "pedido", "cupom", "cobertura", "horario", "atendente", "conversa"}
+_POUPINHA_FERRAMENTA = {"cupom": "verificar_cupom_disponivel", "cobertura": "verificar_cobertura_entrega",
+                        "horario": "loja_aberta_agora"}
+_POUPINHA_CANCELA_RE = re.compile(r"cancel|reembols|estorn|dinheiro de volta", re.I)
 
 
-# "quero/procuro/preciso de X", "me manda X": pedido de produto sem "tem X?"
-_POUPINHA_QUERO_RE = re.compile(
-    r"\b(?:quero|queria|procuro|procurando|preciso de|precisava de|busco|tem como (?:me )?(?:mandar|enviar|vender)|"
-    r"me (?:manda|mande|envia|envie|vende|arruma)|onde (?:acho|encontro)|vende[mn]?)\s+(?:um |uma |o |a |os |as |"
-    r"algum |alguma |qualquer |de )?(?P<n>[\w\- .,%]{3,60})", re.I)
-# o nome acaba antes de "que vc tiver", "consegue", "pra mim"...
-_POUPINHA_FIM_NOME_RE = re.compile(r"\s+(?:que|q|pra|para|consegue|vc|voce|você|ai|aí|por|pfv|pf|se|me|hoje|agora)\b.*$",
-                                   re.I)
-# mensagem curta so com o nome ("lubrificante intimo"): nao e duvida de FAQ, cumprimento nem pedido
-_POUPINHA_NAO_NOME_SOLTO_RE = re.compile(
-    r"\b(oi|ola|olá|opa|bom dia|boa tarde|boa noite|obrigad\w*|valeu|tudo bem|ok|sim|nao|não|frete|pagamento|pix|"
-    r"cart[aã]o|troca|devolu\w*|cupo\w*|indica\w*|pontos?|n[ií]ve\w*|lista|presente|rastre\w*|notifica\w*|app|"
-    r"aplicativo|recorr\w*|assinatura|clube|pedido|entrega|senha|conta|cadastro|login|atendente|loja|horario|"
-    r"horário|como|quando|onde|porque|por que|qual|quais|quanto|beleza|blz|show|certo|entendi|perfeito|top|legal|"
-    r"tchau|kk+|haha\w*|rs+|isso|nada|ajuda)\b", re.I)
+def _poupinha_ollama(messages, timeout, num_predict=300, temperature=0.2, formato=None):
+    """Uma chamada ao modelo local. num_ctx e keep_alive iguais aos do atendimento WhatsApp (num_ctx diferente
+    recarrega o modelo)."""
+    base = (os.getenv("POUPINHA_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    body = {"model": os.getenv("POUPINHA_OLLAMA_MODEL") or "gemma4:e4b", "stream": False, "think": False,
+            "messages": messages, "keep_alive": os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m",
+            "options": {"num_ctx": int(os.getenv("POUPAQUI_OLLAMA_NUM_CTX") or 4096), "num_predict": num_predict,
+                        "temperature": temperature, "num_thread": int(os.getenv("POUPAQUI_OLLAMA_NUM_THREAD") or 2)}}
+    if formato:
+        body["format"] = formato
+    req = urllib.request.Request(base + "/api/chat", data=json.dumps(body).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return ((json.loads(r.read().decode("utf-8")).get("message") or {}).get("content")) or ""
 
 
-def _poupinha_nome_produto(pergunta):
-    """Nome do produto pedido na mensagem, ou "" se nao for pergunta de produto."""
-    t = (pergunta or "").strip()
-    m = _POUPINHA_PRODUTO_RE.search(t)
-    nome = next((g for g in (m.groups() if m else ()) if g), "")
-    if not nome:
-        m = _POUPINHA_QUERO_RE.search(t)
-        nome = m.group("n") if m else ""
-    if not nome and len(t.split()) <= 4 and not _POUPINHA_NAO_NOME_SOLTO_RE.search(t) and re.search(r"[a-zA-Z]{3}", t):
-        nome = t
-    nome = re.sub(r"^(?:comprar|levar|pedir)\s+(?:um |uma |o |a |os |as |algum |alguma |qualquer )?", "",
-                  nome.strip(" ?!.,"), flags=re.I)
-    if re.match(r"^\w+(ar|er|ir)\b", nome, re.I):   # "quero cancelar/saber/falar ...": verbo, nao produto
-        return ""
-    nome = _POUPINHA_FIM_NOME_RE.sub("", nome)
-    nome = re.sub(r"\b(por favor|pfv|pf)\b", "", nome, flags=re.I).strip(" ,.?!")
-    return "" if not nome or _POUPINHA_NAO_PRODUTO_RE.search(nome) else nome
+def _poupinha_decidir(pergunta, historico, timeout):
+    """{"acao", "produto", "categoria", "pedido"} decidido pelo modelo, ou None se falhar."""
+    linhas = []
+    for h in (historico or [])[-6:]:
+        texto = (h.get("mensagem") or "").strip().replace("\n", " ")
+        if texto:
+            linhas.append(f"{'Cliente' if h.get('autor') == 'consumidor' else 'Poupinha'}: {texto[:300]}")
+    conversa = "\n".join(linhas) or "(início da conversa)"
+    try:
+        bruto = _poupinha_ollama(
+            [{"role": "system", "content": _POUPINHA_DECIDE_PROMPT},
+             {"role": "user", "content": f"Conversa até agora:\n{conversa}\n\nÚltima mensagem do cliente: "
+                                         f"{pergunta.strip()[:500]}"}],
+            timeout, num_predict=80, temperature=0, formato="json")
+        d = json.loads(bruto)
+    except Exception as exc:
+        app.logger.warning("_poupinha_decidir: %s", exc)
+        return None
+    if not isinstance(d, dict) or d.get("acao") not in _POUPINHA_ACOES:
+        return None
+    return {k: str(d.get(k) or "").strip() for k in ("acao", "produto", "categoria", "pedido")}
 
 
-def _poupinha_consultas(pergunta, consumidor_id, chat_id):
-    """Consultas que o codigo decide pela mensagem: [(ferramenta, resultado)]."""
+def _poupinha_consultas(decisao, consumidor_id, chat_id):
+    """Executa a consulta que o modelo escolheu: [(ferramenta, resultado)]."""
     if not consumidor_id:
         return []
-    feitas = []
-    m = _POUPINHA_PEDIDO_COD_RE.search(pergunta)
-    if m and re.search(r"[0-9]", m.group(1)) and re.search(r"pedido|#", pergunta, re.I):
-        feitas.append(("buscar_pedido", {"identificador": m.group(1)}))
-    nome = _poupinha_nome_produto(pergunta)
-    if nome:
-        feitas.append(("consultar_produto", {"nome": nome}))
-    for rx, ferramenta in _POUPINHA_CONSULTAS:
-        if rx.search(pergunta):
-            feitas.append((ferramenta, {}))
-    return [(f, _executar_ferramenta_suporte(f, a, consumidor_id, chat_id)) for f, a in feitas[:3]]
+    acao = decisao.get("acao")
+    if acao == "produto" and decisao.get("produto"):
+        cat = decisao.get("categoria") if decisao.get("categoria") in ("generico", "similar", "referencia") else None
+        r = str(_executar_ferramenta_suporte("consultar_produto", {"nome": decisao["produto"], "categoria": cat},
+                                             consumidor_id, chat_id))
+        # sem o produto, a ferramenta lista os mais vendidos da loja: o modelo oferecia antigripal para quem
+        # pediu lubrificante. Fica so o "nao encontrei" (e os parecidos, quando houver)
+        return [("consultar_produto", r.split("Produtos mais vendidos")[0].strip())]
+    if acao == "pedido":
+        cod = re.sub(r"[^0-9A-Za-z]", "", decisao.get("pedido") or "")
+        if len(cod) == 8:
+            return [("buscar_pedido", _executar_ferramenta_suporte("buscar_pedido", {"identificador": cod},
+                                                                   consumidor_id, chat_id))]
+        return []
+    if acao in _POUPINHA_FERRAMENTA:
+        f = _POUPINHA_FERRAMENTA[acao]
+        return [(f, _executar_ferramenta_suporte(f, {}, consumidor_id, chat_id))]
+    return []
 
 
 def _ollama_suporte_responder(pergunta, pedido_ctx=None, historico=None, pedidos_recentes_ctx=None,
                               consumidor_id=None, chat_id=None, prazo_s=None):
     """Mesmo contrato de _claude_suporte_responder: (texto, usou_dado_pessoal, escalou); texto None em falha.
-    O codigo decide consulta e encaminhamento (este modelo nao chama ferramentas); o modelo so redige."""
+    1) o modelo decide o que o cliente quer; 2) o codigo executa a consulta; 3) o modelo responde com os dados."""
+    prazo = time.monotonic() + (prazo_s or float(os.getenv("POUPINHA_OLLAMA_PRAZO_S") or 70))
+    decisao = _poupinha_decidir(pergunta, historico, max(5.0, min(30.0, prazo - time.monotonic()))) \
+        or {"acao": "conversa"}
+    acao = decisao["acao"]
+    if acao == "atendente" and consumidor_id and chat_id:
+        cancela = bool(_POUPINHA_CANCELA_RE.search(pergunta))
+        cod = re.sub(r"[^0-9A-Za-z]", "", decisao.get("pedido") or "")
+        r = _executar_ferramenta_suporte("escalar_atendimento", {
+            "motivo": pergunta.strip()[:300], "categoria": "acao_humana" if cancela else "cliente_pediu",
+            "pedido_identificador": cod if len(cod) == 8 else None}, consumidor_id, chat_id)
+        if isinstance(r, str) and r.startswith("ESCALADO_OK"):
+            return ("Isso é feito por um atendente: já chamei, ele continua a conversa aqui mesmo." if cancela else
+                    "Pronto, chamei um atendente: ele continua a conversa aqui mesmo, é só aguardar."), True, True
+        return None, True, False   # nao escalou: o chamador decide (reserva/aviso padrao)
     # pedidos recentes so quando o assunto e pedido: com eles em toda mensagem o modelo comentava um pedido
     # cancelado numa pergunta de produto
-    if pedidos_recentes_ctx and not re.search(r"pedid|compr|entreg|cheg|rastre|status|pag|cancel", pergunta, re.I):
+    if acao != "pedido":
         pedidos_recentes_ctx = None
     usou_dado_pessoal = bool(pedido_ctx or pedidos_recentes_ctx)
-    for rx, categoria, resposta in _POUPINHA_ESCALA:
-        if rx.search(pergunta) and consumidor_id and chat_id:
-            m = _POUPINHA_PEDIDO_COD_RE.search(pergunta)
-            r = _executar_ferramenta_suporte("escalar_atendimento", {
-                "motivo": pergunta.strip()[:300], "categoria": categoria,
-                "pedido_identificador": m.group(1) if m else None}, consumidor_id, chat_id)
-            if isinstance(r, str) and r.startswith("ESCALADO_OK"):
-                return resposta, True, True
-            return None, True, False   # nao escalou: o chamador decide (reserva/aviso padrao)
-    consultas = _poupinha_consultas(pergunta, consumidor_id, chat_id)
+    consultas = _poupinha_consultas(decisao, consumidor_id, chat_id)
     msg_cliente = pergunta
     if consultas:
         usou_dado_pessoal = True
         dados = "\n".join(f"- {f}: {str(r)[:1200]}" for f, r in consultas)
         msg_cliente = f"Dados consultados agora no sistema:\n{dados}\n\nMensagem do cliente: {pergunta}"
-    base = (os.getenv("POUPINHA_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
-    body = {"model": os.getenv("POUPINHA_OLLAMA_MODEL") or "gemma4:e4b", "stream": False, "think": False,
-            "messages": [{"role": "system", "content": _poupinha_prompt_ollama()}] + _suporte_mensagens(
-                msg_cliente, pedido_ctx, historico, pedidos_recentes_ctx),
-            # num_ctx e keep_alive iguais aos do atendimento WhatsApp: num_ctx diferente recarrega o modelo
-            "keep_alive": os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m",
-            "options": {"num_ctx": int(os.getenv("POUPAQUI_OLLAMA_NUM_CTX") or 4096), "num_predict": 300,
-                        "temperature": 0.2, "num_thread": int(os.getenv("POUPAQUI_OLLAMA_NUM_THREAD") or 2)}}
-    req = urllib.request.Request(base + "/api/chat", data=json.dumps(body).encode("utf-8"),
-                                 headers={"Content-Type": "application/json"}, method="POST")
+    restante = prazo - time.monotonic()
+    if restante < 3:
+        return None, usou_dado_pessoal, False
     try:
-        with urllib.request.urlopen(req, timeout=prazo_s or float(os.getenv("POUPINHA_OLLAMA_PRAZO_S") or 70)) as r:
-            texto = _sem_markdown(((json.loads(r.read().decode("utf-8")).get("message") or {}).get("content")) or "")
+        texto = _sem_markdown(_poupinha_ollama(
+            [{"role": "system", "content": _poupinha_prompt_ollama()}] + _suporte_mensagens(
+                msg_cliente, pedido_ctx, historico, pedidos_recentes_ctx), restante))
     except Exception as exc:
         app.logger.warning("_ollama_suporte_responder error: %s", exc)
         return None, usou_dado_pessoal, False
@@ -24780,17 +24786,13 @@ def _poupinha_aquecer():
     _POUPINHA_AQUECIDO_EM[0] = time.monotonic()
 
     def _run():
-        base = (os.getenv("POUPINHA_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
-        body = {"model": os.getenv("POUPINHA_OLLAMA_MODEL") or "gemma4:e4b", "stream": False, "think": False,
-                "messages": [{"role": "system", "content": _poupinha_prompt_ollama()}, {"role": "user", "content": "oi"}],
-                "keep_alive": os.getenv("POUPAQUI_OLLAMA_KEEP_ALIVE") or "10m",
-                "options": {"num_ctx": int(os.getenv("POUPAQUI_OLLAMA_NUM_CTX") or 4096), "num_predict": 1,
-                            "num_thread": int(os.getenv("POUPAQUI_OLLAMA_NUM_THREAD") or 2)}}
-        try:
-            urllib.request.urlopen(urllib.request.Request(base + "/api/chat", data=json.dumps(body).encode("utf-8"),
-                                   headers={"Content-Type": "application/json"}, method="POST"), timeout=90).read()
-        except Exception as exc:
-            app.logger.info("_poupinha_aquecer: %s", exc)
+        # os dois prompts fixos: o de entender a mensagem e o de responder
+        for system in (_POUPINHA_DECIDE_PROMPT, _poupinha_prompt_ollama()):
+            try:
+                _poupinha_ollama([{"role": "system", "content": system}, {"role": "user", "content": "oi"}], 90,
+                                 num_predict=1)
+            except Exception as exc:
+                app.logger.info("_poupinha_aquecer: %s", exc)
     threading.Thread(target=_run, daemon=True).start()
 
 
