@@ -498,6 +498,21 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertIn('interno', r.reply)
         self.assertNotIn('5001', r.reply)
 
+    def test_nao_chama_contato_pelo_nome_do_dono(self):
+        # "Bom dia Emanuel" e para o dono do numero; o modelo respondia "Pra voce tambem, Emanuel."
+        llm = lambda textos, historico, **k: 'Valeu! Pra você também, Emanuel. Boas vendas!'
+        r = A.responder(['Ótimo, isso mesmo. Estamos em sintonia. Boas vendas'],
+                        historico=[{'de': 'contato', 'texto': 'Bom dia Emanuel tudo bem'},
+                                   {'de': 'assistente', 'texto': 'Bom dia! Tudo ótimo por aqui, e com você?'}],
+                        llm_geral=llm)
+        self.assertNotIn('Emanuel', r.reply)
+        self.assertIn('Pra você também', r.reply)
+        self.assertEqual(A._sem_nome_dono('Oi Emanuel, tudo bem?'), 'Oi, tudo bem?')
+        self.assertEqual(A._sem_nome_dono('É o número do Emanuel, pode salvar assim.'),
+                         'É o número do Emanuel, pode salvar assim.')
+        self.assertIsNotNone(A.problema_conversa('Valeu, Emanuel!', ['obrigada']))
+        self.assertIn('NÃO é o nome de quem escreve', A.GERAL_PROMPT)
+
 
 @unittest.skipUnless(os.getenv('POUPAQUI_TEST_OLLAMA_REAL') == '1', 'LLM real exige opt-in local')
 class OllamaRealTests(unittest.TestCase):

@@ -1126,7 +1126,7 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
             pass
     # "Boa tarde!" no inicio sem a pessoa ter cumprimentado: tira o cumprimento e aproveita o resto
     # (antes a resposta inteira era barrada como "saudacao inventada")
-    txt = _sem_fecho_repetido(_sem_cumprimento_indevido(txt, textos), historico)
+    txt = _sem_fecho_repetido(_sem_cumprimento_indevido(_sem_nome_dono(txt), textos), historico)
     # Uma revisao limitada usa motivo concreto; nunca tenta aproveitar raciocinio
     # truncado, timeout ou resposta vazia. Texto revisado passa pelas mesmas regras.
     initial_problem = problema_conversa(txt, textos, historico)
@@ -1134,7 +1134,8 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
         try:
             com_mem = {"memoria": memoria} if memoria and getattr(llm, "aceita_memoria", False) else {}
             txt = _sem_fecho_repetido(_sem_cumprimento_indevido(
-                para_whatsapp(llm.revisar(textos, historico, initial_problem, **com_mem) or ''), textos), historico)
+                _sem_nome_dono(para_whatsapp(llm.revisar(textos, historico, initial_problem, **com_mem) or '')),
+                textos), historico)
         except Exception:
             txt = ''
     # Fluencia nao basta: o modelo pequeno pode trocar sono por saudacao/menu.
@@ -1234,6 +1235,25 @@ def _assunto_da_resposta(ultima_ia_norm):
     return ("vendas", f"vendas de {m.group(1)}") if m else None
 
 
+# Dono do numero: o contato escreve "Bom dia Emanuel" para ele, e o modelo devolvia "pra voce tambem, Emanuel".
+DONO_NUMERO = (os.getenv("POUPAQUI_WA_DONO_NUMERO") or "Emanuel").strip()
+_VOCATIVO_DONO_RE = re.compile(
+    r"(^|[,!?.]\s*|\b(oi|ol[aá]|opa|valeu|obrigad[oa]|dia|tarde|noite|fala|e a[ií]|tamb[eé]m|voc[eê])\s+)"
+    + re.escape(DONO_NUMERO) + r"\b(?!\s+(é|e|recebe|responde|cuida|vai|está|esta|fica)\b)", re.I)
+
+
+
+def _sem_nome_dono(txt):
+    """Tira o nome do dono usado como vocativo ("Pra voce tambem, Emanuel." -> "Pra voce tambem.")."""
+    if not txt:
+        return txt
+    nome = re.escape(DONO_NUMERO)
+    txt = re.sub(r"^\s*" + nome + r"\s*[,!]\s*", "", txt, flags=re.I)
+    txt = re.sub(r"\s*,\s*" + nome + r"\b(?!\s+(é|e|recebe|responde|cuida|vai|está|esta|fica)\b)", "", txt, flags=re.I)
+    txt = re.sub(r"\b(oi|ol[aá]|opa|valeu|obrigad[oa]|dia|tarde|noite|fala)\s+" + nome + r"\b", r"\1", txt, flags=re.I)
+    return txt[:1].upper() + txt[1:] if txt else txt
+
+
 def problema_conversa(txt, textos, historico=None):
     """Valida formato sem confundir emoji final com frase truncada; nao relaxa dados."""
     checked = (txt or '').strip()
@@ -1262,6 +1282,8 @@ def problema_conversa(txt, textos, historico=None):
         return 'orientacao de saude fora do escopo'
     if re.search(r"R\$\s?\d", txt) and re.search(r"\b(vend\w*|fatur\w*|ticket|itens)\b", n):
         return 'valor de venda inventado'   # numero de venda so sai da consulta ao sistema, nunca da conversa
+    if _VOCATIVO_DONO_RE.search(txt or ''):
+        return 'chamou o contato pelo nome do dono do numero'   # "Bom dia Emanuel" e para o dono, nao o contato
     if _CONVERSA_PROIBIDO_RE.search(txt) or _CONVERSA_DADO_RE.search(n) or _DADO_LOJA_RE.search(n):
         return 'dados factuais ou termos restritos'
     if promete_encaminhamento(txt) or re.search(r"\b(equipe|atendente|suporte)\b", n):
@@ -1340,10 +1362,13 @@ Pedido de sugestão (música, cantada, receita, ideia, nome): dê logo 2 ou 3 op
 se a pessoa quer, nem fique só perguntando preferências.
 Ironia: elogio exagerado sobre algo ruim ("chegou rapidinho, só demorou 3 dias", "amei esperar 1 hora") é
 reclamação: reconheça o incômodo com leveza, nunca responda "que bom". Elogio sem contradição é elogio: agradeça.
-Este WhatsApp é o número do """ + (os.getenv("POUPAQUI_WA_DONO_NUMERO") or "Emanuel") + """, responsável pelo
+Este WhatsApp é o número do """ + DONO_NUMERO + """, responsável pelo
 departamento de tecnologia da Drogarias PoupAqui; você é a IA que responde as mensagens que chegam nele. Se
-perguntarem de quem é o número, se ainda é do Emanuel ou com que nome salvar o contato, confirme que é o número do
-Emanuel (tecnologia) e que podem manter o contato com o nome dele; o que mandarem aqui chega para ele.
+perguntarem de quem é o número, se ainda é do """ + DONO_NUMERO + """ ou com que nome salvar o contato, confirme que
+é o número do """ + DONO_NUMERO + """ (tecnologia) e que podem manter o contato com o nome dele; o que mandarem aqui
+chega para ele. Quando a pessoa escreve "Bom dia """ + DONO_NUMERO + """", "obrigada """ + DONO_NUMERO + """" etc., ela
+está chamando o dono do número: """ + DONO_NUMERO + """ NÃO é o nome de quem escreve. Nunca chame a pessoa de
+""" + DONO_NUMERO + """; se não souber o nome dela, responda sem nome.
 Você é uma IA, sem corpo ou vida pessoal. Se perguntarem de você, responda honestamente sem discurso formal:
 está conversando com a pessoa; não invente amigos, refeições, passeios, gostos vividos ou atividades fora do chat.
 Pode acompanhar informalidade como "mano", "kkk", sem exagerar nem imitar cada gíria.
