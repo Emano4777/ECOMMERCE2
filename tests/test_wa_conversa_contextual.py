@@ -518,6 +518,57 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertEqual(A.memoria_limpa('- Tom: informal\n- Tratamento: Pelo nome (Emanuel).\n- Nome: Luiz Emanuel'),
                          '- Tom: informal')
         self.assertIn('NUNCA é o nome nem o tratamento do contato', A.MEMORIA_PROMPT)
+        self.assertEqual(A._sem_nome_dono('Recebi a lista, obrigado. Fico aqui para você ver.'),
+                         'Recebi a lista, obrigado. Fica aqui para o Emanuel ver.')
+        self.assertEqual(A._sem_nome_dono('Não achei. Fico aqui para o Emanuel ver.'),
+                         'Não achei. Fica aqui para o Emanuel ver.')
+
+    def test_planilha_recebida_sem_protocolo(self):
+        # planilha diaria/semanal caia em "nao consigo abrir" + protocolo para a equipe
+        import poupaqui_wa_atendimento as W
+        self.assertEqual(W._message_text({}, {'documentMessage': {'fileName': 'POUPAQUI SP.xlsx'}}),
+                         '[Arquivo: POUPAQUI SP.xlsx]')
+        self.assertEqual(W._message_text({}, {'documentWithCaptionMessage': {'message': {'documentMessage': {
+            'fileName': 'LISTA.xlsx', 'caption': 'segue a lista'}}}}), '[Arquivo: LISTA.xlsx] segue a lista')
+        r = A.responder(['[Arquivo: POUPAQUI SP.xlsx]'], ['document'], {'verificada': False}, [], FakeRepo())
+        self.assertEqual((r.acao, r.escalar), ('ANSWER', False))
+        self.assertEqual(r.reply, 'Recebi a planilha POUPAQUI SP.xlsx, obrigado! Fica aqui para o Emanuel ver.')
+        forn = {'verificada': True, 'metodo': 'telefone', 'tipo': 'fornecedor', 'ref': '17', 'nome': 'MEDCENTER'}
+        r = A.responder(['[Arquivo: LISTA MEDCENTER REP .xlsx]', 'Bom dia Emanuel',
+                         'Segue a lista da semana para atualização'], ['document', 'text', 'text'], forn, [], FakeRepo())
+        self.assertFalse(r.escalar)
+        self.assertIn('Recebi a planilha LISTA MEDCENTER REP .xlsx', r.reply)
+        self.assertIn('Fica aqui para o Emanuel atualizar', r.reply)
+        r = A.responder([''], ['document'], {'verificada': False}, [], FakeRepo())   # mensagem antiga, sem nome
+        self.assertEqual(r.reply, 'Recebi o arquivo, obrigado! Fica aqui para o Emanuel ver.')
+
+    def test_pedido_eletronico_modelo_decide_e_codigo_consulta(self):
+        import poupaqui_ai_suporte as S
+        interno = {'verificada': True, 'metodo': 'vinculo_manual', 'tipo': 'interno', 'ref': 'suporte'}
+        chamadas = []
+
+        def llm(textos, historico, **k):
+            return 'Tudo certo!'
+        llm.pe = lambda textos, historico, repo: chamadas.append(textos) or 'Fica em Contatos e Suporte.'
+        r = A.responder(['Onde msm no pedido eletrônico que tem o contato dos fornecedores?'], (), interno, [],
+                        FakeRepo(), llm_geral=llm)
+        self.assertEqual(r.reply, 'Fica em Contatos e Suporte.')
+        self.assertIn('pedido eletronico', r.motivo)
+        # sem o modelo: duvida de uso, nunca "de qual loja?" (o "pedido" da frase)
+        r = A.responder(['Onde msm no pedido eletrônico que tem o contato dos fornecedores?'], (), interno, [],
+                        FakeRepo())
+        self.assertNotIn('De qual loja', r.reply)
+        self.assertEqual(S.detectar_suporte(A.normalize('onde msm no pedido eletronico que tem o contato')), 'sistema')
+        # o modelo diz que nao e sobre o PE ("pe" do corpo): segue a conversa normal
+        llm.pe = lambda textos, historico, repo: None
+        r = A.responder(['machuquei o pé ontem kkk'], (), interno, [], FakeRepo(), llm_geral=llm)
+        self.assertNotIn('pedido eletronico', r.motivo)
+        # resposta do PE: so endereco do guia e preco so vindo da consulta
+        self.assertIn('https://pedidoeletronico.poupaqui.com.br/contatos-e-suporte', S.PE_LINKS)
+        self.assertIn('Contatos e Suporte', S.GUIA_PE)
+        self.assertIn('NÃO encontrado', A._dados_produto_pe('babysec aqua', {'exatos': [], 'parecidos': []}))
+        self.assertIn('R$ 17,60', A._dados_produto_pe('babysec xxg', {'exatos': [
+            {'descricao': 'FD BABYSEC XXG', 'fornecedor': 'V2 FARMA', 'valor': 17.6, 'estoque': 3}]}))
         self.assertIsNone(A.problema_conversa('Bom dia! Recebi o lembrete. Fica aqui para o Emanuel ver e reforçar '
                                               'com os associados.', ['Bom dia Emanuel', 'Se puder reforçar com os associados']))
 

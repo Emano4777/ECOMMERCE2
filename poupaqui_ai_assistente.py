@@ -704,6 +704,9 @@ def lojas_citadas_solta(texto_norm, lojas):
     return achadas
 
 
+_MIDIA_TIPOS = {"audio", "image", "video", "contact", "location"}
+
+
 def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agora=None, llm_geral=None,
               sonda=None):
     """Decide e redige a resposta. Nunca envia. Qualquer erro de consulta -> HUMAN.
@@ -765,6 +768,37 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                                 "sem som ou muito baixo). Pode mandar de novo ou escrever?", "audio sem fala",
                                 False, "midia"))
         textos, tipos = [t for t, _ in outros], [k for _, k in outros]
+    # planilha/PDF (lista semanal de fornecedor, "POUPAQUI SP.xlsx"): a IA nao abre, mas sabe o que chegou e para
+    # quem e. Antes caia no "nao consigo abrir" + protocolo para a equipe, ou em "fico aqui para voce ver".
+    arq = [i for i, (t, k) in enumerate(zip(textos, tipos)) if k == "document" or t.startswith("[Arquivo")]
+    if arq:
+        nomes, resto = [], []
+        for i, (t, k) in enumerate(zip(textos, tipos)):
+            m = re.match(r"\[Arquivo(?::\s*([^\]]*))?\]\s*", t) if i in arq else None
+            if i in arq:
+                nomes.append(((m.group(1) if m else "") or "").strip())
+                resto.append(t[m.end():] if m else t)
+            else:
+                resto.append(t)
+        resto_norm = normalize(" ".join(resto))
+        pergunta = re.search(r"\b(qual|quais|quando|como|onde|pq|porque|por que|consegue|pode|poderia|cade|"
+                             r"tem como|da pra|sabe)\b", resto_norm) or "?" in " ".join(resto)
+        if not pergunta and not _MIDIA_TIPOS.intersection(k for i, k in enumerate(tipos) if i not in arq):
+            planilha = all(re.search(r"\.(xlsx?|csv|ods)$", n, re.I) for n in nomes if n) and any(nomes)
+            pdf = all(re.search(r"\.pdf$", n, re.I) for n in nomes if n) and any(nomes)
+            tipo_txt = "a planilha" if planilha else "o PDF" if pdf else "o arquivo"
+            citados = [n for n in nomes if n]
+            if len(nomes) > 1:
+                tipo_txt = "as planilhas" if planilha else "os arquivos"
+            objeto = tipo_txt + (f" {', '.join(citados[:3])}" if citados else "")
+            verbo = "atualizar" if re.search(r"\batualiz\w*", resto_norm) else "ver"
+            saud = f"{_saudacao_periodo(agora)}! " if _SAUDACAO_RE.search(resto_norm) else ""
+            return fim(Resposta("ANSWER", f"{saud}Recebi {objeto}, obrigado! Fica aqui para o {DONO_NUMERO} "
+                                f"{verbo}.", "arquivo recebido (fica para o dono do numero)", False, "arquivo"))
+        # com pergunta junto: o resto do fluxo responde sabendo que veio um arquivo
+        textos = [(f"(enviou o arquivo {nomes[arq.index(i)] or 'sem nome'}) " + resto[i]).strip() if i in arq
+                  else t for i, t in enumerate(textos)]
+        tipos = ["text" if i in arq else k for i, k in enumerate(tipos)]
     midia = [k for k in tipos if k in ("audio", "image", "video", "document", "contact", "location")]
     if midia:
         # conteudo desconhecido (pode ser print de erro ou pedido urgente): humano precisa ver
@@ -810,6 +844,21 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     loja_ok = verificada and identidade.get("tipo") == "loja"
     prefixo = f"{_saudacao_periodo(agora)}! " if saudou else ""
 
+    # pergunta sobre o Pedido Eletronico (onde fica, como faz, se um produto esta nele): o modelo entende e
+    # escolhe a consulta. Falha/fora do ar do PE continua no diagnostico de suporte.
+    if verificada and _PE_MENCAO_RE.search(norm) and hasattr(llm_geral, "pe"):
+        import poupaqui_ai_suporte as S1
+        if S1.detectar_suporte(norm) in (None, "sistema", "ecommerce"):   # "nao esta no PE" parece produto sumido
+            try:
+                txt_pe = llm_geral.pe(textos, historico, repo)
+            except Exception:
+                txt_pe = None
+            if txt_pe:
+                if prefixo and normalize(txt_pe).startswith(("bom dia", "boa tarde", "boa noite", "ola", "oi")):
+                    prefixo = ""
+                return fim(Resposta("ANSWER", prefixo + txt_pe, "pedido eletronico (modelo + guia/consulta)",
+                                    False, "pe"))
+
     # "qual o tempo de resolucao?" logo apos abrir protocolo: nao ha prazo combinado, entao nao inventa um
     prot = re.search(r"\bprotocolo (\d+)\b", _ultima_do_assistente(historico))
     if prot and _PRAZO_CASO_RE.search(norm):
@@ -823,7 +872,9 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     if verificada and identidade.get("tipo") == "interno" and repo is not None and hasattr(repo, "lojas_cadastro"):
         import poupaqui_ai_suporte as S0
         sup0 = S0.detectar_suporte(norm)
-        precisa = intencao in ("pedido", "financeiro") or sup0 in ("relatorio", "ecommerce", "vendas")
+        # "onde no pedido eletronico fica o contato dos fornecedores?" e duvida de uso, nao pedido de uma loja
+        precisa = ((intencao in ("pedido", "financeiro") and sup0 != "sistema")
+                   or sup0 in ("relatorio", "ecommerce", "vendas"))
         try:
             lojas = repo.lojas_cadastro()
         except Exception:
@@ -1254,6 +1305,11 @@ def _sem_nome_dono(txt):
     txt = re.sub(r"^\s*" + nome + r"\s*[,!]\s*", "", txt, flags=re.I)
     txt = re.sub(r"\s*,\s*" + nome + r"\b(?!\s+(é|e|recebe|responde|cuida|vai|está|esta|fica)\b)", "", txt, flags=re.I)
     txt = re.sub(r"\b(oi|ol[aá]|opa|valeu|obrigad[oa]|dia|tarde|noite|fala)\s+" + nome + r"\b", r"\1", txt, flags=re.I)
+    # "Recebi a lista. Fico aqui para você ver." -> e o dono que ve, nao quem mandou
+    txt = re.sub(r"\bFic(o|a) aqui (para|pra) (você|voce|vc) (ver|atualizar|olhar)\b",
+                 lambda m: f"Fica aqui {m.group(2)} o {DONO_NUMERO} {m.group(4)}", txt, flags=re.I)
+    txt = re.sub(r"\b(f)ico aqui (para|pra) o " + nome + r"\b", lambda m: f"{m.group(1)}ica aqui {m.group(2)} o "
+                 + DONO_NUMERO, txt, flags=re.I)
     return txt[:1].upper() + txt[1:] if txt else txt
 
 
@@ -1708,7 +1764,108 @@ def ollama_geral(base_url=None, model=None, timeout=40):
     fn.ultima_busca = None
     fn.revisar = lambda textos, historico, motivo, memoria=None: fn(textos, historico, motivo, memoria=memoria)
     fn.aceita_memoria = True
+    fn.pe = lambda textos, historico, repo: responder_pe(textos, historico, repo, base_url, model)
     return fn
+
+
+# ─── Pedido Eletronico: o modelo entende a pergunta; o codigo so consulta ──
+# "PE"/"pedido eletronico" + pergunta: antes caia em "de qual loja?" (o "pedido" da frase) ou em "fiquei
+# devendo" ("pq nao esta no PE?" sobre o produto do print). Frase fixa nao cobre as variacoes.
+_PE_MENCAO_RE = re.compile(r"\b(pe|pedido eletronico|pedidoeletronico)\b")
+PE_DECIDE_PROMPT = (
+    "Mensagens chegam no WhatsApp do " + DONO_NUMERO + " (tecnologia da Drogarias PoupAqui). \"PE\" é o Pedido "
+    "Eletrônico, o sistema em que as lojas compram dos fornecedores. Leia a conversa (o texto de imagem ou print "
+    "enviado aparece nela) e classifique a ÚLTIMA mensagem. Responda só JSON {\"assunto\": \"...\", "
+    "\"produto\": \"\"}. assunto: \"uso\" = onde fica ou como fazer algo no PE (menu, tela, contato de fornecedor, "
+    "importar planilha, histórico, carrinho); \"produto\" = se um produto tem, aparece ou está no PE, ou por que "
+    "não está (em produto escreva o nome curto para busca: marca e linha, ex.: \"babysec aqua\", "
+    "\"dipirona 1g\"; se o produto só aparece na imagem, use o nome dela); \"outro\" = não é pergunta sobre o PE "
+    "(\"pé\" do corpo, comentário, erro ou sistema fora do ar).")
+PE_RESPONDE_PROMPT = (
+    "Você é a IA que responde pelo " + DONO_NUMERO + " (tecnologia da Drogarias PoupAqui) no WhatsApp dele; quem "
+    "escreve é de uma loja ou da equipe. Responda em português, curto (uma a quatro frases), sem markdown, à "
+    "ÚLTIMA mensagem, usando só o guia abaixo e os dados consultados. Se o guia não cobre o que perguntaram, diga "
+    "que esse caminho você não tem confirmado e que fica aqui para o " + DONO_NUMERO + " ver. Pode escrever os "
+    "endereços que estão no guia. Produto: diga se está nas tabelas dos fornecedores do PE (quais fornecedores e "
+    "o menor preço, só como vier nos dados) ou que não encontrou; se não encontrou e a pessoa diz que o "
+    "fornecedor tem estoque, explique que o PE mostra só o que está na tabela atual de cada fornecedor e que fica "
+    "aqui para o " + DONO_NUMERO + " ver a atualização. Nunca invente preço, fornecedor, menu ou prazo.\n\n")
+
+
+def _ollama_json(base_url, model, messages, timeout, num_predict=200, temperature=0.0, formato=None):
+    options = {"num_ctx": NUM_CTX, "num_predict": num_predict, "temperature": temperature}
+    if os.getenv("POUPAQUI_OLLAMA_NUM_THREAD", "").isdigit():
+        options["num_thread"] = int(os.environ["POUPAQUI_OLLAMA_NUM_THREAD"])
+    body = {"model": model, "stream": False, "think": False, "keep_alive": KEEP_ALIVE, "options": options,
+            "messages": messages}
+    if formato:
+        body["format"] = formato
+    req = urllib.request.Request(f"{base_url}/api/chat", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read().decode())
+    return ((data.get("message") or {}).get("content") or "").strip() if data.get("done_reason") == "stop" else ""
+
+
+def _dados_produto_pe(termo, achado):
+    def linhas(itens):
+        return "; ".join(f"{p['descricao']} ({p['fornecedor']}"
+                         + (f", R$ {p['valor']:.2f}".replace(".", ",") if p.get("valor") else "") + ")"
+                         for p in itens[:6])
+    if achado.get("exatos"):
+        return f"Busca por \"{termo}\" nas tabelas dos fornecedores do PE: encontrado: {linhas(achado['exatos'])}."
+    txt = f"Busca por \"{termo}\" nas tabelas dos fornecedores do PE: NÃO encontrado em nenhum fornecedor."
+    if achado.get("parecidos"):
+        txt += f" Itens parecidos da mesma marca que existem: {linhas(achado['parecidos'])}."
+    return txt
+
+
+def responder_pe(textos, historico, repo, base_url=None, model=None, timeout=60):
+    """Texto da resposta sobre o Pedido Eletronico, ou None (nao e sobre o PE / modelo falhou / resposta barrada)."""
+    import poupaqui_ai_suporte as S
+    base_url = (base_url or os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    model = model or os.getenv("POUPAQUI_OLLAMA_MODEL") or "gemma4:e4b"
+    if not is_loopback_url(base_url):
+        return None
+    inicio = time.monotonic()
+    linhas = [f"{'Contato' if h.get('de') == 'contato' else 'Assistente'}: {str(h.get('texto') or '')[:400]}"
+              for h in (historico or [])[-6:] if h.get("de") in ("contato", "assistente") and h.get("texto")]
+    atual = "\n".join(str(t)[:800] for t in textos if str(t).strip())[:2000]
+    conversa = ("\n".join(linhas) or "(início da conversa)") + f"\n\nÚltima mensagem do contato:\n{atual}"
+    try:
+        d = json.loads(_ollama_json(base_url, model, [{"role": "system", "content": PE_DECIDE_PROMPT},
+                                                      {"role": "user", "content": conversa}],
+                                    min(25, timeout), num_predict=60, formato="json") or "{}")
+    except Exception:
+        return None
+    assunto = str(d.get("assunto") or "") if isinstance(d, dict) else ""
+    if assunto not in ("uso", "produto"):
+        return None
+    dados = ""
+    if assunto == "produto" and str(d.get("produto") or "").strip() and hasattr(repo, "produto_pe"):
+        termo = str(d["produto"]).strip()[:60]
+        try:
+            dados = _dados_produto_pe(termo, repo.produto_pe(termo))
+        except Exception:
+            return None
+    restante = timeout - (time.monotonic() - inicio)
+    if restante < 5:
+        return None
+    try:
+        txt = _ollama_json(base_url, model, [
+            {"role": "system", "content": PE_RESPONDE_PROMPT + "Guia do Pedido Eletrônico:\n" + S.GUIA_PE},
+            {"role": "user", "content": conversa + (f"\n\nDados consultados agora no sistema:\n{dados}" if dados else "")}],
+            restante, num_predict=260, temperature=0.2)
+    except Exception:
+        return None
+    txt = para_whatsapp(_sem_nome_dono(txt.replace("**", "").replace("*", "")))
+    # so endereco do guia; preco so quando veio dos dados consultados
+    if not txt or any(u.rstrip("/.,") + ("/" if u.rstrip("/.,") == S.PE_URL else "") not in S.PE_LINKS
+                      for u in re.findall(r"https?://\S+", txt)):
+        return None
+    if re.search(r"R\$\s?\d", txt) and "R$" not in dados:
+        return None
+    return txt
 
 
 # ─── Leitura de imagem/print (modelo de visao local) ──────────────────────

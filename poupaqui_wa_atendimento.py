@@ -235,6 +235,13 @@ def _message_text(msg, message):
             or (message.get("imageMessage") or {}).get("caption")
             or (message.get("videoMessage") or {}).get("caption")
             or (message.get("documentMessage") or {}).get("caption") or "")
+    doc = (message.get("documentMessage")
+           or (((message.get("documentWithCaptionMessage") or {}).get("message") or {}).get("documentMessage")))
+    if isinstance(doc, dict):
+        # planilha/PDF: o nome do arquivo e o que diz do que se trata ("LISTA MEDCENTER REP .xlsx")
+        body = body or doc.get("caption") or ""
+        nome = str(doc.get("fileName") or doc.get("title") or "").strip()[:150]
+        body = f"[Arquivo: {nome}] {body}" if nome else (body or "[Arquivo]")
     return str(body).strip()[:4000]
 
 
@@ -890,7 +897,9 @@ def _ler_midias(conn, batch, texts, kinds, leitor):
     if any(k == "text" and t and t != AUDIO_SEM_FALA for k, t in zip(kinds, texts)):
         for i, k in enumerate(kinds):
             if k in ("image", "document", "audio", "video"):
-                kinds[i], texts[i] = "text", ""
+                # arquivo fica como "[Arquivo: nome]": a resposta sabe que chegou uma planilha e qual
+                manter = k == "document" and str(texts[i] or "").startswith("[Arquivo")
+                kinds[i], texts[i] = "text", (texts[i] if manter else "")
 
 
 def process_contact(conn, phone, mode, classifier, sender, state, logger=None, model_label=None, assistente=None,

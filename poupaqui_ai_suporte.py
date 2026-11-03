@@ -30,6 +30,31 @@ SITES = {
     "relatorios": ("site de relatórios", "https://relatorios.poupaqui.com.br/"),
     "ecommerce": ("e-commerce", "https://www.drogariaspoupaqui.com.br/"),
 }
+# Guia do Pedido Eletronico: so o que existe no sistema (menu partials/navbar.html, rotas do app.py e a pagina
+# /tutorial do servidor, lidos em 03/11/2026). O modelo responde "onde fica / como faz" so com isto.
+PE_URL = "https://pedidoeletronico.poupaqui.com.br"
+PE_LINKS = {PE_URL + p for p in ("/", "/contatos-e-suporte", "/excel2", "/meus-pedidos", "/tutorial")}
+GUIA_PE = f"""Pedido Eletrônico (PE): sistema de compras das lojas da rede, em {PE_URL}/ (entra com o usuário da loja).
+Os produtos que aparecem são os das tabelas atuais dos fornecedores; produto que não está na tabela de nenhum
+fornecedor não aparece. Quando o fornecedor atualiza a tabela e um item sai dela, o item sai do carrinho e o
+sistema mostra um aviso com a "Sugestão" (opção mais barata) para adicionar com 1 clique.
+Menu de cima:
+- Pedido Eletrônico (página inicial): busca de produtos. Dá para pesquisar vários itens de uma vez separando por
+  vírgula ou ponto e vírgula (ex.: dipirona, ibuprofeno; amoxicilina), buscar por voz, ver em Grade, Lista ou
+  Multi, ordenar por Relevância, Menor valor, A→Z ou Mais vendidos, filtrar por fornecedor e buscar alternativas
+  por princípio ativo. "Adicionar" põe o item no carrinho, que é separado por fornecedor.
+- Carrinho: trocar fornecedor ou laboratório de um item, baixar o pedido do fornecedor em Excel ou PDF, enviar o
+  pedido, excluir os itens de um fornecedor, esvaziar o carrinho e alterar o WhatsApp do fornecedor. Depois de
+  enviar, o sistema pergunta se remove do carrinho só os itens daquele fornecedor.
+- Importar Planilha ({PE_URL}/excel2): importador de pedido. Na própria página tem a planilha modelo (.xlsx) para
+  baixar e preencher; não mude colunas nem abas do modelo. Depois de importar dá para ajustar as quantidades no
+  carrinho.
+- Acompanhar Pedidos e Pendências: acompanhamento dos pedidos em andamento.
+- Contatos e Suporte ({PE_URL}/contatos-e-suporte): lista dos fornecedores com telefone/WhatsApp, horário de corte,
+  prazo de entrega e observações de entrega. Esse menu aparece para as lojas de SP.
+- Histórico (Histórico de Pedidos, {PE_URL}/meus-pedidos): os pedidos já feitos e o status de cada um.
+- Notificações; Compra Inteligente (aparece só quando está liberada para a loja); Tutorial ({PE_URL}/tutorial,
+  com vídeo e perguntas frequentes); VitNatu (marca própria); Adicionar usuário; Sair."""
 ESTOQUE_VELHO_DIAS = 3
 ATRASO_ARQUIVO_VENDAS_DIAS = 2   # o arquivo do dia D chega na madrugada de D+2 (observado em out/2026)
 HORA_PROCESSAMENTO_VENDAS = 8    # processado ~06:10 (created_at); antes das 8h o dia de D-2 ainda pode faltar
@@ -214,6 +239,30 @@ class RepoSuporte(RepoLeitura):
                 p["oculto"] = p["ean"] in ocultos
         return {"data_estoque": data_estoque, "produtos": out}
 
+    def produto_pe(self, termo, limite=8):
+        """Produto nas tabelas atuais dos fornecedores do Pedido Eletronico (lojas de SP: tabela medicamentos;
+        fabric = CNPJ do fornecedor). {"exatos": [...], "parecidos": [...]}: exatos tem todas as palavras do
+        termo; parecidos (so quando nao ha exatos) tem as duas primeiras, para dizer o que existe da marca."""
+        toks = [t for t in normalize(termo).split() if len(t) >= 3 and not t.isdigit()][:4]
+        if not toks:
+            return {"exatos": [], "parecidos": []}
+
+        def busca(ts):
+            sql = """SELECT COALESCE(f.nome, m.fabric), m.descricao, m.valor, m.estoque FROM medicamentos m
+                     LEFT JOIN fornecedores f ON f.cnpj::text = TRIM(m.fabric) WHERE TRUE"""
+            params = []
+            for t in ts:
+                sql += " AND m.descricao_norm LIKE %s"
+                params.append("%" + re.sub(r"[%_\\]", "", t) + "%")
+            rows = self._query(sql + " ORDER BY m.valor NULLS LAST LIMIT %s", tuple(params + [limite]))
+            return [{"fornecedor": (f or "").strip(), "descricao": d, "valor": float(v) if v is not None else None,
+                     "estoque": e} for f, d, v, e in rows]
+        exatos = busca(toks)
+        parecidos = busca(toks[:2]) if not exatos and len(toks) > 2 else []
+        if not exatos and not parecidos and len(toks) > 1:
+            parecidos = busca(toks[:1])
+        return {"exatos": exatos, "parecidos": parecidos}
+
 
 # ─── Intencao ──────────────────────────────────────────────────────────────
 
@@ -249,7 +298,8 @@ _PROD_SUMIU_RE = re.compile(
     r"\b(nao (aparec\w*|mostr\w*|encontr\w*|ach\w*|sobe|subiu)|sumi\w*|desaparec\w*|some)\b")
 _ONDE_ECOM_RE = re.compile(rf"\b({_SIS_ECOM[1:-1]}|site|catalogo|online|internet|vitrine)\b")
 _COMO_RE = re.compile(r"\b(como (eu )?(faco|faz|fazer|consigo|coloco|cadastr\w*|mudo|altero|troco|vejo|acesso|"
-                      r"tiro|imprimo|exporto|gero|emito)|onde (eu )?(vejo|fica|acho|encontro|clico))\b")
+                      r"tiro|imprimo|exporto|gero|emito)|onde (eu )?(vejo|fica|acho|encontro|clico))\b"
+                      r"|\bonde\b.{0,45}\b(tem|ta|esta|fica|aparece)\b|\bcade\b")
 _COMO_SIS_RE = re.compile(rf"\b({_SIS_PE[1:-1]}|{_SIS_ECOM[1:-1]}|{_SIS_REL[1:-1]}|site|senha|login|"
                           r"carrinho|cotacao|tela|botao|aba|menu|cadastro|usuario)\b")
 _EAN_RE = re.compile(r"\b(\d{8}|\d{12,14})\b")
