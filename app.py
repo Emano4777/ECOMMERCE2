@@ -10045,18 +10045,14 @@ def index():
     return render_template("home.html")
 
 
-_RAIO_CATALOGO_KM = 30  # mesmo raio de "loja proxima"/catalogo usado no resto do site
-
-
 @app.get("/api/ads-elegivel")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_ads_elegivel():
-    """Anuncios (AdSense) so devem aparecer pra quem acessa de fora do raio
-    de CATALOGO (_RAIO_CATALOGO_KM, o mesmo usado pra decidir quais lojas
-    aparecem como "perto de voce") -- nao o raio de entrega, que e bem mais
-    curto e so importa no checkout. Onde o site ja mostra oferta de loja de
-    verdade no catalogo, nao faz sentido (nem e desejado) disputar espaco de
-    tela com anuncio."""
+    """Anuncios (AdSense) aparecem pra quem esta fora do raio de ENTREGA
+    (raio_entrega_km) de todas as lojas que entregam. Dentro do raio de
+    alguma loja o visitante pode comprar de verdade, entao nao disputa tela
+    com anuncio. Antes valia o raio de catalogo (30 km de qualquer loja
+    publica), que escondia anuncio de muita gente que nao recebe entrega."""
     try:
         lat_usr = float(request.args.get("lat", 0))
         lng_usr = float(request.args.get("lng", 0))
@@ -10066,7 +10062,7 @@ def api_ads_elegivel():
         # Sem localizacao conhecida: lado conservador, sem anuncio.
         return jsonify({"elegivel": False})
 
-    cache_key = ("ads_elegivel_v2", round(lat_usr, 2), round(lng_usr, 2))
+    cache_key = ("ads_elegivel_v3", round(lat_usr, 3), round(lng_usr, 3))
     cached = _home_api_cache_get(cache_key, 3600)
     if cached is not None:
         return jsonify(cached)
@@ -10075,12 +10071,14 @@ def api_ads_elegivel():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT g.lat, g.lng
+        SELECT g.lat, g.lng, c.raio_entrega_km
         FROM ecommerce_lojas_geo g
         JOIN ecommerce_config_loja c ON c.cnpjloja = g.cnpjloja
         JOIN users u ON u.cnpjloja = g.cnpjloja
         WHERE g.lat IS NOT NULL AND g.lng IS NOT NULL
           AND COALESCE(c.catalogo_publico, TRUE) = TRUE
+          AND COALESCE(c.aceita_entrega, FALSE) = TRUE
+          AND COALESCE(c.raio_entrega_km, 0) > 0
           AND u.is_admin = FALSE
         """
     )
@@ -10088,7 +10086,7 @@ def api_ads_elegivel():
     cur.close()
 
     coberto = any(
-        haversine(lat_usr, lng_usr, float(l["lat"]), float(l["lng"])) <= _RAIO_CATALOGO_KM
+        haversine(lat_usr, lng_usr, float(l["lat"]), float(l["lng"])) <= float(l["raio_entrega_km"])
         for l in lojas
     )
     resultado = {"elegivel": not coberto}
