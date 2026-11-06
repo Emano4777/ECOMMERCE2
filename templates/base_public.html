@@ -3457,7 +3457,7 @@ function reenviarVerificacao(btn) {
   setTimeout(revelarPromoAssinatura, 1500);
 })();
 
-/* ── AdSense: so carrega o script/exibe anuncio pra quem acessa de fora
+/* ── AdSense: carrega o script/exibe anuncio pra quem esta sem localizacao ou fora
    do raio de entrega de TODAS as lojas -- onde o site nao tem oferta real
    pra vender, mostra anuncio; onde tem loja cobrindo a regiao, nao disputa
    espaco de tela com produto de verdade. Reage a troca de localizacao em
@@ -3469,6 +3469,7 @@ function reenviarVerificacao(btn) {
    injetado, e nada mais e injetado enquanto a classe estiver ativa). */
 (function () {
   var _adsCarregado = false;
+  var _adsConsulta = 0;
   var style = document.createElement('style');
   style.textContent = 'body.pq-ads-off ins.adsbygoogle,' +
     'body.pq-ads-off iframe[id^="aswift_"],' +
@@ -3502,10 +3503,17 @@ function reenviarVerificacao(btn) {
   function carregarAdsSeElegivel(latArg, lngArg) {
     var lat = latArg != null ? latArg : parseFloat(localStorage.getItem('pq_lat') || '0');
     var lng = lngArg != null ? lngArg : parseFloat(localStorage.getItem('pq_lng') || '0');
-    if (!lat && !lng) return;
+    var consulta = ++_adsConsulta;
+    if (!lat && !lng) {
+      aplicarElegibilidade(true);
+      return;
+    }
+    aplicarElegibilidade(false);
     fetch('/api/ads-elegivel?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { aplicarElegibilidade(!!(d && d.elegivel)); })
+      .then(function (d) {
+        if (consulta === _adsConsulta) aplicarElegibilidade(!!(d && d.elegivel));
+      })
       .catch(function () {});
   }
 

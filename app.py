@@ -10048,7 +10048,7 @@ def index():
 @app.get("/api/ads-elegivel")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_ads_elegivel():
-    """Anuncios (AdSense) aparecem pra quem esta fora do raio de ENTREGA
+    """Anuncios (AdSense) aparecem pra quem esta sem localizacao ou fora do raio de ENTREGA
     (raio_entrega_km) de todas as lojas que entregam. Dentro do raio de
     alguma loja o visitante pode comprar de verdade, entao nao disputa tela
     com anuncio. Antes valia o raio de catalogo (30 km de qualquer loja
@@ -10059,8 +10059,8 @@ def api_ads_elegivel():
     except (ValueError, TypeError):
         lat_usr, lng_usr = 0.0, 0.0
     if not lat_usr and not lng_usr:
-        # Sem localizacao conhecida: lado conservador, sem anuncio.
-        return jsonify({"elegivel": False})
+        # Sem localizacao conhecida: mostra anuncios ate verificar a cobertura.
+        return jsonify({"elegivel": True})
 
     cache_key = ("ads_elegivel_v3", round(lat_usr, 3), round(lng_usr, 3))
     cached = _home_api_cache_get(cache_key, 3600)
