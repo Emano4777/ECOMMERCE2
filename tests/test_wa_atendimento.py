@@ -327,6 +327,74 @@ class WorkerIntegrationTests(unittest.TestCase):
             "message": {"conversation": "oi"}}}}
         self.assertEqual(wa.store_outbound(desconhecido, self.conn).get("sem_telefone"), 1)
 
+    # caso real 09/11 (Marcel): o dono pergunta pelo celular, a saida vem so com um LID desconhecido, o contato
+    # responde citando a pergunta, apaga uma mensagem e corrige. A IA nao pode entrar na conversa.
+    def _saida_lid(self, mid, lid, texto):
+        return wa.store_outbound({"event": "messages.upsert", "data": {"messages": {
+            "key": {"id": mid, "fromMe": True, "remoteJid": lid, "senderLid": "999@lid"},
+            "message": {"conversation": texto}}}}, self.conn)
+
+    def test_saida_com_lid_desconhecido_vai_para_o_contato_quando_ele_escreve(self):
+        self.assertEqual(self._saida_lid("OUTL1", "555000111@lid", "daniel foi pra são pedro esse fds?")
+                         .get("sem_telefone"), 1)
+        self.assertIsNone(wa.takeover_ativo(self.conn, TEST_PHONE))
+        self.receive("INL1", text="Não!!", jid="555000111@lid")
+        self.conn.commit()
+        self.assertIsNotNone(wa.takeover_ativo(self.conn, TEST_PHONE))
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT telefone, direcao FROM ecommerce_wa_mensagens WHERE message_id = 'OUTL1'")
+            self.assertEqual(cur.fetchone(), (TEST_PHONE, "out_manual"))
+        self.conn.commit()
+
+    def test_resposta_citando_mensagem_do_dono_silencia_a_ia(self):
+        self.link(TEST_PHONE)
+        cita = {"extendedTextMessage": {"text": "Não!!", "contextInfo": {
+            "stanzaId": "NAO_REGISTRADA", "quotedMessage": {"conversation": "daniel foi pra são pedro esse fds?"}}}}
+        self.receive("Q1", text="Não!!", message=cita); self.age()
+        self.assertIsNotNone(wa.takeover_ativo(self.conn, TEST_PHONE))
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT status FROM ecommerce_wa_mensagens WHERE message_id = 'Q1'")
+            self.assertEqual(cur.fetchone()[0], "respondido_humano")
+        self.conn.commit()
+
+    def test_resposta_citando_a_ia_segue_com_a_ia(self):
+        self.link(TEST_PHONE)
+        with self.conn.cursor() as cur:
+            cur.execute("""INSERT INTO ecommerce_wa_mensagens (message_id, telefone, direcao, tipo, corpo, status)
+                           VALUES ('IA1', %s, 'out_ia', 'text', 'Qual loja você quer consultar?', 'processado')""",
+                        (TEST_PHONE,))
+        self.conn.commit()
+        cita = {"extendedTextMessage": {"text": "a de sao pedro", "contextInfo": {
+            "stanzaId": "3EB0XYZ", "quotedMessage": {"conversation": "Qual loja você quer consultar?"}}}}
+        self.receive("Q2", text="a de sao pedro", message=cita)
+        self.assertIsNone(wa.takeover_ativo(self.conn, TEST_PHONE))
+        self.conn.commit()
+
+    def test_mensagem_apagada_sai_do_contexto(self):
+        self.receive("AP1", text="So vai vir na semana do dia 29")
+        apaga = {"protocolMessage": {"type": 0, "key": {"id": "AP1", "remoteJid": f"{TEST_PHONE}@s.whatsapp.net"}}}
+        self.receive("AP2", text="", message=apaga)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT corpo FROM ecommerce_wa_mensagens WHERE message_id = 'AP1'")
+            self.assertEqual(cur.fetchone()[0], "")
+            cur.execute("SELECT COUNT(*) FROM ecommerce_wa_mensagens WHERE message_id = 'AP2'")
+            self.assertEqual(cur.fetchone()[0], 0)
+        self.conn.commit()
+
+    def test_eco_da_ia_ensina_o_lid(self):
+        with self.conn.cursor() as cur:
+            cur.execute("""INSERT INTO ecommerce_wa_contatos (telefone) VALUES (%s)""", (TEST_PHONE,))
+            cur.execute("""INSERT INTO ecommerce_wa_ia_decisoes (telefone, message_ids, modo, decisao, resposta,
+                                                                 envio_status, motivo, origem)
+                           VALUES (%s, ARRAY['X1'], 'test', 'ANSWER', 'Boa tarde! O que houve?', 'enviado', 't',
+                                   'assistente')""",
+                        (TEST_PHONE,))
+        self.conn.commit()
+        self.assertEqual(self._saida_lid("ECO1", "777000222@lid", "Boa tarde! O que houve?").get("ia"), 1)
+        self.assertEqual(self._saida_lid("OUTL2", "777000222@lid", "agora fui eu")["manual"], 1)
+        self.assertIsNotNone(wa.takeover_ativo(self.conn, TEST_PHONE))
+        self.conn.commit()
+
     def test_midia_que_falha_junto_com_texto_responde_o_resto(self):
         self.link(TEST_PHONE)
         aud = {"audioMessage": {"url": "u", "mimetype": "audio/ogg; codecs=opus", "mediaKey": "K=="}}
