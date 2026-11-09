@@ -147,7 +147,7 @@ class EncaminhamentoIntegrationTests(unittest.TestCase):
         self.assertIn("sonda_http", alerta)
         self.assertIn("LOJA UM LTDA", alerta)                              # identidade verificada pelo telefone
         d = self.decisao()
-        self.assertIn("Já passei para a equipe técnica", resposta)
+        self.assertIn("Abri um chamado para o Emanuel verificar", resposta)
         self.assertIn(f"protocolo {d[7]}", resposta)
         self.assertEqual((d[0], d[1], d[2], d[4]), ("ANSWER", "enviado", "enviado", True))
         self.assertEqual(d[3], resposta)                                   # auditoria = o que saiu
@@ -193,7 +193,7 @@ class EncaminhamentoIntegrationTests(unittest.TestCase):
         self.receive("M2", text="e ai, alguma novidade? continua")
         self.worker(fake_assistente())
         self.assertEqual([p for p, _ in self.sent], [EQUIPE, TEST_PHONE, TEST_PHONE])  # 1 alerta so
-        self.assertIn(f"já recebeu esse caso", self.sent[-1][1])
+        self.assertIn("já foi aberto", self.sent[-1][1])
         self.assertIn(f"protocolo {primeiro}", self.sent[-1][1])
 
     def test_resolvido_sem_escalar_nao_alerta(self):
@@ -290,7 +290,7 @@ class EncaminhamentoIntegrationTests(unittest.TestCase):
         self.assertIn("erro 500", alerta)
         self.assertIn("Relato anterior:", alerta)
         self.assertIn("quando clico em enviar", alerta)
-        self.assertIn("Já passei para a equipe técnica", resposta)
+        self.assertIn("Abri um chamado para o Emanuel verificar", resposta)
 
 
 if __name__ == "__main__":

@@ -273,6 +273,15 @@ _FALHA = (r"(sai\w* do ar|cai\w* do ar|nao (ta|esta|tao|estao) no ar|caiu|cai|ca
 _SIS_PE = r"(pedido eletronico|pedidoeletronico|sistema de pedido\w*|sistema|plataforma|portal|site de pedido\w*)"
 _SIS_ECOM = r"(e ?commerce|loja virtual|loja online|drogariaspoupaqui|site da loja|site de vendas|aplicativo|app)"
 _SIS_REL = r"(relatorio\w*|\bbi\b|dashboard|painel de vendas|ranking|ticket medio|sell ?out)"
+# arquivo que a loja baixa/atualiza no PE (import, cotacao, planilha): a pagina no ar nao prova que ele funciona
+_FUNCAO_PE = r"(import\w*|cotac\w*|planilha\w*|arquivo\w*|tabela de preco\w*|lista de preco\w*)"
+_FUNCAO_FALHA = (r"(nao (?:esta |ta |to |estou |tem )?(atualiz\w*|baix\w*|abre|abriu|carreg\w*|ger\w*|aparec\w*|vem|veio|funcion\w*|consigo|"
+                 r"consegui|sai|saiu)|desatualizad\w*|bug\w*|erro\w*|error|problema\w*|falha\w*|trav\w*|"
+                 r"internal server|server error)")
+_FUNCAO_PE_RE = re.compile(rf"\b{_FUNCAO_PE}\b.*\b{_FUNCAO_FALHA}|\b{_FUNCAO_FALHA}.*\b{_FUNCAO_PE}\b")
+# tela de erro do servidor (print ou texto copiado): nunca e algo que a loja resolve do lado dela
+_ERRO_SERVIDOR_RE = re.compile(r"\b(internal server error|server error|erro interno( do servidor)?|bad gateway|"
+                               r"service unavailable|gateway time ?out|(erro|error|http) (500|502|503|504))\b")
 _PE_FORA_RE = re.compile(rf"\b{_SIS_PE}\b.*\b{_FALHA}\b|\b{_FALHA}\b.*\b{_SIS_PE}\b|^(caiu|ta fora|fora do ar)\b")
 _ECOM_FORA_RE = re.compile(rf"\b{_SIS_ECOM}\b.*\b{_FALHA}\b|\b{_FALHA}\b.*\b{_SIS_ECOM}\b")
 _REL_FORA_RE = re.compile(rf"\b{_SIS_REL}\b.*\b(nao (abre|carrega|entra)|fora do ar|caiu|tela branca|"
@@ -368,7 +377,7 @@ def detectar_suporte(texto_norm):
         return "vendas"
     if _ECOM_FORA_RE.search(t) or (_CHECKOUT_RE.search(t) and re.search(r"\b(site|cliente\w*|compra)\b", t)):
         return "ecom_fora"
-    if _PE_FORA_RE.search(t):
+    if _PE_FORA_RE.search(t) or _FUNCAO_PE_RE.search(t):
         return "pe_fora"
     if _ACAO_PE_RE.search(t) and re.search(rf"\b{_FALHA}\b", t):
         return "pe_fora"
@@ -376,6 +385,8 @@ def detectar_suporte(texto_norm):
         return "acesso"   # entrar em QUAL sistema: decide pelo texto/historico
     if _COMO_RE.search(t) and _COMO_SIS_RE.search(t):
         return "sistema"
+    if _ERRO_SERVIDOR_RE.search(t):
+        return "pe_fora"   # print de erro do servidor sem citar o sistema: as lojas usam o PE; o diagnostico escala
     return None
 
 
@@ -410,11 +421,23 @@ _TENTOU = [
 _TENTOU_INF = {"atualizou a página": "atualizar a página", "tentou em outro navegador/aparelho":
                "tentar em outro navegador", "saiu e entrou de novo": "sair e entrar de novo",
                "reiniciou o computador": "reiniciar o computador", "limpou cache": "limpar o cache"}
-ACOES = {"login": "entrar (login)", "enviar_pedido": "enviar/finalizar pedido",
+ACOES = {"arquivo": "baixar/atualizar arquivo (import, cotação)", "login": "entrar (login)", "enviar_pedido": "enviar/finalizar pedido",
          "finalizar_compra": "finalizar compra no site", "abrir": "abrir a página", "lento": "lentidão"}
 
 
+def funcao_relatada(t):
+    """Qual arquivo do PE a loja citou ('o import', 'a cotação'), para nomear na resposta."""
+    m = re.search(rf"\b{_FUNCAO_PE}\b", t or "")
+    if not m:
+        return None
+    w = m.group(0)
+    return ("o import" if w.startswith("import") else "a cotação" if w.startswith("cotac") else
+            "a planilha" if w.startswith("planilha") else "a lista de preços" if "preco" in w else "o arquivo")
+
+
 def acao_relatada(t):
+    if _FUNCAO_PE_RE.search(t) or (funcao_relatada(t) and re.search(r"\b(baix\w*|atualiz\w*|download)\b", t)):
+        return "arquivo"
     if _CHECKOUT_RE.search(t):
         return "finalizar_compra"
     if _ACAO_PE_RE.search(t) or re.search(r"\bnao (envia|enviou|vai o pedido|sai o pedido)\b", t):
@@ -434,7 +457,7 @@ def sistema_relatado(t):
     if re.search(rf"\b({_SIS_ECOM[1:-1]}|painel da loja|precificador|vitrine)\b", t) or _CHECKOUT_RE.search(t):
         return "ecommerce"
     if re.search(r"\b(pedido eletronico|pedidoeletronico|sistema de pedido\w*|site de pedido\w*|cotac\w*|"
-                 r"carrinho)\b", t) or _ACAO_PE_RE.search(t):
+                 r"carrinho|import\w*)\b", t) or _ACAO_PE_RE.search(t):
         return "pedido_eletronico"
     return None
 
@@ -443,7 +466,7 @@ def extrair_relato(texto_norm):
     """Slots do relato. Valores sao trechos do proprio texto, nunca causa."""
     t = texto_norm or ""
     erro = None
-    m = _ERRO_ACESSO_RE.search(t) or _ERRO_COD_RE.search(t)
+    m = _ERRO_SERVIDOR_RE.search(t) or _ERRO_ACESSO_RE.search(t) or _ERRO_COD_RE.search(t)
     if m:
         erro = m.group(0)
     elif "tela branca" in t:
@@ -456,7 +479,7 @@ def extrair_relato(texto_norm):
     escopo = "varias lojas" if _ESCOPO_VARIAS_RE.search(t) else ("só esta loja" if _ESCOPO_UMA_RE.search(t) else None)
     desde = _DESDE_RE.search(t)
     etapa = _ETAPA_RE.search(t)
-    return {"sistema": sistema_relatado(t), "acao": acao_relatada(t), "erro": erro,
+    return {"sistema": sistema_relatado(t), "acao": acao_relatada(t), "erro": erro, "funcao": funcao_relatada(t),
             "desde": desde.group(0) if desde else None, "escopo": escopo,
             "etapa": etapa.group(1) if etapa else None,
             "tentou": [nome for rx, nome in _TENTOU if rx.search(t)]}
@@ -636,6 +659,18 @@ def diag_falha(sistema, rel, ctx, repo, loja, cnpj, agora, sonda, persistente, i
     if acao == "login" and re.search(r"bloquead|expirad|nao (existe|encontrado|cadastrado)", erro):
         return escala(f"{fatos} A mensagem \"{erro}\" é do acesso do seu usuário, e liberar ou redefinir acesso "
                       "eu não consigo fazer por aqui.", "acesso bloqueado/expirado: so humano libera")
+    # erro do servidor ao ENVIAR/ENTRAR segue o diagnostico proprio (outras lojas, Ctrl+F5, persistencia); sem
+    # acao conhecida ou no arquivo do PE, nao ha o que a loja fazer: chamado
+    servidor = bool(_ERRO_SERVIDOR_RE.search(erro)) and acao in (None, "abrir", "arquivo")
+    if acao == "arquivo" or servidor:
+        # import/cotacao/planilha ou tela de erro do servidor: a pagina no ar nao prova nada e nao ha o que a loja
+        # fazer do lado dela. Nao interroga: abre o chamado com o que ela ja contou.
+        alvo = rel.get("funcao") or "essa parte do sistema"
+        txt = (f"{fatos[:-1]}, mas isso não prova que {alvo} esteja funcionando, e essa parte eu não consigo testar "
+               "daqui.")
+        if servidor:
+            txt += f" O erro que apareceu (\"{erro}\") é do servidor, não é nada que você fez aí."
+        return escala(txt, "arquivo do PE / erro do servidor: nao da para testar daqui")
     if persistente:
         tent = [t for t in rel.get("tentou") or [] if t != "disse que já tentou"]
         depois = f" mesmo depois de {_TENTOU_INF.get(tent[0], tent[0])}" if len(tent) == 1 else (

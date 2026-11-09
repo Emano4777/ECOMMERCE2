@@ -188,10 +188,12 @@ class ConversaContextualTests(unittest.TestCase):
         body = json.loads(request.call_args.args[0].data)
         dialogue = body['messages'][1 + len(A.GERAL_EXEMPLOS):]
         # o que muda a cada chamada (hora, avisos) vem num system logo antes da ultima fala
-        self.assertEqual([m['role'] for m in dialogue], ['user', 'assistant', 'system', 'user'])
-        self.assertIn('Agora são', dialogue[2]['content'])
+        self.assertEqual([m['role'] for m in dialogue], ['user', 'assistant', 'user', 'assistant', 'system', 'user'])
+        self.assertIn('Agora são', dialogue[4]['content'])
         self.assertNotIn('Agora são', body['messages'][0]['content'])   # 1o system fixo: reaproveitado em cache
-        self.assertEqual(dialogue[0]['content'], 'Mano to com sono')
+        self.assertEqual(dialogue[0]['content'], 'historico antigo')
+        self.assertIn('operador humano Emanuel: assumi',dialogue[1]['content'])
+        self.assertEqual(dialogue[2]['content'], 'Mano to com sono')
         self.assertEqual(body['messages'][-1]['content'], 'Sim e vc oq ta fazendo de bom?')
         self.assertNotIn('5001', json.dumps(body))
         self.assertFalse(body['think'])
@@ -453,14 +455,14 @@ class ConversaContextualTests(unittest.TestCase):
         self.assertEqual(A._sem_fecho_repetido('Pois é, tá calor mesmo. Como posso ajudar você hoje?', []),
                          'Pois é, tá calor mesmo. Como posso ajudar você hoje?')   # 1a vez: fica
 
-    def test_diagnostico_repetido_vira_resumo(self):
+    def test_diagnostico_sem_consulta_nao_inventa_que_conferiu_de_novo(self):
         import poupaqui_ai_suporte as S
         longo = ("Conferi os arquivos de vendas da loja em outubro: recebemos de 01/10 ate 27/10, todos completos. "
                  "Entao nao e falta de arquivo. Qual relatorio esta diferente?")
         hist = [{'de': 'contato', 'texto': 'deu ruim no relatorio'}, {'de': 'assistente', 'texto': longo}]
         with patch.object(S, "responder_suporte", return_value=A.Resposta("ANSWER", longo, "t", False, "relatorio")):
             r = resp(['o relatorio ta com problema'], hist=hist)
-        self.assertTrue(r.reply.startswith('Conferi de novo e continua igual'), r.reply)
+        self.assertFalse(r.reply.startswith('Conferi de novo e continua igual'), r.reply)
         self.assertIn('Qual relatorio esta diferente?', r.reply)
 
     def test_memoria_vai_para_o_modelo_e_filtra_sensivel(self):

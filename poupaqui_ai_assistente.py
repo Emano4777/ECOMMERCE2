@@ -86,6 +86,7 @@ _PROMESSA_ENCAMINHAMENTO_RE = re.compile(
     r"|\b(equipe|time|atendente|setor|suporte)\b.{0,40}\b(ja )?(foi|esta|ficou|sera) "
     r"(avisad|acionad|notificad|informad|chamad)\w*"
     r"|\b(deixei|ja deixei) (avisad\w*|sua mensagem|registrad\w*)"
+    r"|\b(abri|abrimos|registrei|ja abri) (um |o )?chamado\b"
     r"|\bja (esta|estao) (verificando|olhando|cuidando)\b")
 
 ALERTA_CONFIRMADO = ("enviado", "parcial")   # pelo menos um destino da equipe recebeu
@@ -101,10 +102,19 @@ def frase_encaminhamento(status, protocolo=None, equipe="equipe", anterior_em=No
     status: 'enviado' | 'parcial' | 'ja_avisada' (alerta anterior confirmado) |
             qualquer outro (sem canal, shadow, falhou, em duvida)."""
     prot = f" (protocolo {protocolo})" if protocolo else ""
+    # assunto tecnico/geral vai para o dono do numero: "abri um chamado para o Emanuel" (o contato sabe com quem
+    # fala e fica tranquilo); financeiro/compras/e-commerce seguem nomeando a equipe certa
+    dono = equipe in ("equipe", "equipe técnica")
     if status in ALERTA_CONFIRMADO:
+        if dono:
+            return (f"Abri um chamado para o {DONO_NUMERO} verificar{prot}, já com o que você me contou. "
+                    "Não precisa se preocupar: ele vai olhar e te dá retorno por aqui.")
         return f"Já passei para a {equipe} com o que você me contou{prot}."
     if status == "ja_avisada":
         quando = f" às {_agora(anterior_em):%H:%M}" if anterior_em else ""
+        if dono:
+            return (f"O chamado para o {DONO_NUMERO} já foi aberto{quando}{prot}; o que você mandou agora ficou "
+                    "junto no chamado.")
         return f"A {equipe} já recebeu esse caso{quando}{prot}; o que você mandou agora fica junto no registro."
     return (f"Isso precisa de alguém da {equipe}, mas não consegui avisar a equipe automaticamente agora. "
             f"Deixei o caso registrado{prot} para atendimento humano; se for urgente, fale com a equipe pelo "
@@ -261,8 +271,11 @@ _CONVERSA_PROIBIDO_RE = re.compile(r"https?://|www\.|\S+@\S+\.\w|[\[\]{}<>]|\b[x
                                    r"\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b")
 _CONVERSA_DADO_RE = re.compile(r"\b(telefone|celular|whatsapp|e-?mail|cnpj|cpf)\b")
 _DADO_LOJA_RE = re.compile(r"\b(nossa loja|nossas lojas|nosso estoque|em estoque|temos (no|em) estoque|"
-                           r"seu pedido|o pedido|pedido n|status do pedido|boleto\w*|nota fiscal|duplicata\w*|"
-                           r"pedido eletronico|relatorio\w*|ecommerce|e-commerce|fornecedor\w*)\b")
+                           r"status do pedido|boleto\w*|nota fiscal|duplicata\w*)\b|"
+                           r"\bpedido\s*(?:n|numero)?\s*\d+\b|\bpedido\b.{0,40}\b(?:enviado|faturad\w*|entregue|cancelado|aprovado)\b")
+_AGENDA_PROMISE_RE = re.compile(r'\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo|horario|agenda)\b.{0,35}'
+    r'\b(?:funciona|confirmad\w*|marcad\w*|livre|disponivel)\b|\b(?:pode marcar|esta marcado|confirmo a reuniao|'
+    r'(?:nao )?tenho disponibilidade|(?:nao )?estarei disponivel)\b')
 _CONVERSA_SAUDE_RE = re.compile(r"\b(\d+ ?(mg|mcg)|comprimid\w*|capsula\w*|posologia|dose\w*|dosagem|"
                                 r"medicamento\w*|remedio\w*|antibiotic\w*|anti-?inflamatori\w*|analgesic\w*|"
                                 r"tom(e|ar|a) (o |um |uma |esse |este )?(remedio|medicamento|comprimido))\b")
@@ -706,6 +719,32 @@ def lojas_citadas_solta(texto_norm, lojas):
 
 _MIDIA_TIPOS = {"audio", "image", "video", "contact", "location"}
 
+# quando a IA nao tem como resolver nem responder com seguranca, NUNCA devolve "nao entendi / pergunte de outro
+# jeito": mostra que recebeu e abre o chamado para o dono do numero (o worker completa com a frase do chamado,
+# que diz o protocolo e acalma). O alerta leva a mensagem e o historico do contato.
+BASE_CHAMADO = "Recebi o que você me mandou."
+_PROBLEMA_RE = re.compile(r"\b(problema\w*|erro\w*|error|bug\w*|falha\w*|trav\w*|desatualizad\w*|nao (atualiz\w*|"
+                          r"funcion\w*|baix\w*|abre|abriu|carreg\w*|consigo|consegui|chegou|aparec\w*|envi\w*)|"
+                          r"deu ruim|deu pau|parou|caiu|urgente)\b")
+# pedido de trabalho (alguem precisa fazer algo): se a IA nao resolve, vira chamado; papo geral nao
+_TRABALHO_RE = re.compile(r"\b(preciso|precisa\w*|manda|mandar|me envia|enviar|consegue|pode (ver|verificar|olhar|"
+                          r"conferir|mandar|me mandar|me ajudar)|me ajuda|verifica\w*|arquivo\w*|import\w*|cotac\w*|"
+                          r"planilha\w*|sistema|relatorio\w*|fornecedor\w*|boleto\w*|nota fiscal|cadastr\w*|"
+                          r"senha|acesso|liberar|libera)\b")
+
+
+def chamado(norm, motivo, intencao="geral", assunto=None):
+    return Resposta("ANSWER", BASE_CHAMADO, motivo, True, intencao,
+                    resumo={"assunto": assunto or "Contato precisa de ajuda que a IA não conseguiu resolver",
+                            "motivo_escalacao": motivo})
+
+
+def _ja_disse(txt, historico, n=4):
+    """O assistente ja mandou esse mesmo texto ha pouco (nao repete a mesma frase pronta)."""
+    alvo = normalize(txt)
+    return bool(alvo) and any(normalize(h.get("texto")) == alvo for h in (historico or [])[-2 * n:]
+                              if h.get("de") == "assistente")
+
 
 def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agora=None, llm_geral=None,
               sonda=None):
@@ -720,9 +759,25 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     ctx = {"fontes": []}
 
     def fim(r):
+        # frase pronta longa igual a uma que acabou de ir (triagem, pedido de detalhe): a pessoa ja respondeu e
+        # ouviria a mesma coisa de novo. Em vez de repetir, abre o chamado com o que ela contou.
+        if (r.reply and r.acao == "ANSWER" and not r.escalar and not ctx["fontes"] and len(r.reply) > 60
+                and r.intencao not in ("relatorio", "vendas", "ecommerce", "pe_fora", "ecom_fora", "rel_fora",
+                                       "acesso", "sistema")      # diagnostico tem tratamento proprio
+                and _ja_disse(r.reply, historico)):
+            r = chamado(normalize(" ".join(textos)), f"resposta pronta repetida ({r.motivo})", r.intencao or "geral")
+        # chamado ja aberto nesta conversa: o seguimento ("e o import continua", print do erro) nao repete o
+        # diagnostico inteiro; confirma o que chegou e o worker completa com "o chamado ja esta aberto (protocolo)"
+        if r.escalar and r.acao == "ANSWER" and any(
+                "chamado para o" in normalize(h.get("texto")) for h in (historico or [])[-6:]
+                if h.get("de") == "assistente"):
+            import poupaqui_ai_suporte as S_
+            erro = S_._ERRO_SERVIDOR_RE.search(normalize(" ".join(textos)))
+            r.reply = (f"Esse erro (\"{erro.group(0)}\") é falha do servidor, não é nada que você fez aí."
+                       if erro else "Anotei essa informação.")
         # mesmo diagnostico de agora ha pouco (ex.: relatorio conferido 3 vezes): nao repete o paragrafo
         # inteiro, so diz que continua igual e mantem a pergunta que importa
-        if r.reply and r.acao == "ANSWER" and len(r.reply) > 120:
+        if r.reply and r.acao == "ANSWER" and len(r.reply) > 120 and ctx['fontes']:
             import difflib
             n_r = normalize(r.reply)
             recentes = [normalize(h.get("texto")) for h in (historico or [])[-8:] if h.get("de") == "assistente"]
@@ -781,8 +836,11 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
             else:
                 resto.append(t)
         resto_norm = normalize(" ".join(resto))
+        # A greeting's question mark is not a question about the attached file.
+        inquiry=re.sub(r'\b(?:bom dia|boa tarde|boa noite|tudo bem|td bem)\b[\s!?,.]*','',
+                       ' '.join(resto),flags=re.I)
         pergunta = re.search(r"\b(qual|quais|quando|como|onde|pq|porque|por que|consegue|pode|poderia|cade|"
-                             r"tem como|da pra|sabe)\b", resto_norm) or "?" in " ".join(resto)
+                             r"tem como|da pra|sabe)\b", normalize(inquiry)) or "?" in inquiry
         if not pergunta and not _MIDIA_TIPOS.intersection(k for i, k in enumerate(tipos) if i not in arq):
             planilha = all(re.search(r"\.(xlsx?|csv|ods)$", n, re.I) for n in nomes if n) and any(nomes)
             pdf = all(re.search(r"\.pdf$", n, re.I) for n in nomes if n) and any(nomes)
@@ -830,9 +888,26 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                                            and not _IDENTIDADE_RE.search(norm)):
         if tem_conteudo_alem_de_cortesia(norm):
             intencao = "geral"
+    if intencao in ('saudacao','ack','geral') and _resposta_curta_contextual(norm,historico):
+        intencao='geral'
     saudou = _SAUDACAO_RE.search(norm)
     hist_norm = _historico_norm(historico)
-    if intencao == "geral" and _FOLLOWUP_RE.search(norm) and hist_norm:
+    if intencao=='pedido' and not (_PEDIDO_RE.search(norm) or _NUMERO_RE.search(norm)):
+        recent_order=any(_PEDIDO_RE.search(normalize(h.get('texto'))) for h in (historico or [])[-4:]
+                         if h.get('de')=='contato')
+        if not recent_order:
+            # Arriving, leaving and delays also describe people, rides and stories.
+            # Without an actual order referent, interpret the conversation rather than querying orders.
+            intencao='geral'
+    # The official public address is not private store/order data and needs no login lookup.
+    if _PE_MENCAO_RE.search(norm) and re.search(r'\b(?:link|endereco|url|acessar|acesso)\b',norm) and not re.search(
+            r'\b(?:erro|nao abre|fora do ar|nao consigo|trav\w*)\b',norm):
+        from poupaqui_ai_suporte import PE_URL
+        reply='O endereço oficial do Pedido Eletrônico é '+PE_URL+'/.'
+        if re.search(r'\be[ -]?mail\b',norm):reply+=' Não tenho um e-mail confirmado para informar; os arquivos podem ficar nesta conversa para o Emanuel.'
+        return fim(Resposta('ANSWER',reply,'endereco publico oficial, sem consultar dados de loja',False,'guia_publico'))
+    if intencao == "geral" and _FOLLOWUP_RE.search(norm) and hist_norm and not re.search(
+            r'\b(?:e-?mail|reuniao|apresentacao|agenda)\b',norm):
         anterior = detectar_intencao(hist_norm)  # "e da santa cruz?" herda o assunto
         if anterior in ("corte", "pedido"):
             intencao = anterior
@@ -1038,7 +1113,10 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         r.reply = prefixo + r.reply
         # mesma mensagem com problema de sistema E pergunta de pedido (comum em audio longo):
         # responde as duas partes, com o status real do pedido da loja verificada
-        if loja_ok and "pedido" in intencoes and r.acao == "ANSWER" and repo is not None:
+        # (so quando a pessoa fala mesmo de um pedido: "pedido eletronico", "import", "atualizar" nao sao pedido)
+        fala_pedido = (_PEDIDO_RE.search(re.sub(r"\bpedido ?eletronico\b", "", norm)) or _NUMERO_RE.search(norm))
+        if (loja_ok and "pedido" in intencoes and fala_pedido and r.acao == "ANSWER" and repo is not None
+                and (r.intencao != "pe_fora" or not S.funcao_relatada(norm))):
             try:
                 loja = repo.loja_por_cnpj(identidade.get("ref"))
                 if loja:
@@ -1117,12 +1195,15 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                                 "equipe de compras.", "fornecedor: escopo humano", True, intencao,
                                 equipe="equipe de compras",
                                 resumo={"assunto": f"Mensagem de fornecedor ({intencao})"}))
-        return fim(Resposta("ANSWER", prefixo +
-                            "Pode me contar o que aconteceu? Se for no Pedido Eletrônico, me diga se o problema "
-                            "é para entrar, enviar o pedido ou outra etapa. Se apareceu algum erro, mande o texto "
-                            "ou um print. Posso orientar normalmente por aqui; só preciso confirmar a loja "
-                            "quando for necessário consultar pedidos ou dados particulares.",
-                            "contato sem vínculo: acolhimento e triagem sem dados privados", False, intencao))
+        # numero sem loja vinculada pedindo dado de loja (pedido, corte, boleto) ou contando um problema: explica
+        # por que nao consulta daqui e abre o chamado (antes: "Pode me contar o que aconteceu?" repetido, mesmo
+        # depois de a pessoa ja ter contado)
+        r = chamado(norm, "contato sem vínculo: pedido de dado de loja/problema -> chamado", intencao,
+                    assunto=("Problema relatado" if _PROBLEMA_RE.search(norm) else f"Pergunta de {intencao}")
+                    + " por número sem loja vinculada")
+        r.reply = (prefixo + "Recebi! Este número ainda não está vinculado a uma loja no sistema, então não consigo "
+                   "consultar os dados da loja por aqui.")
+        return fim(r)
 
     try:
         if intencao in ("pedido", "corte", "financeiro"):
@@ -1156,8 +1237,15 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
     # Problema inespecifico pede diagnostico, nao conversa sobre o dia.
     if re.search(r"\b(problema|deu ruim|nao funciona)\b", norm):
         repetiu = "me conta um pouco mais" in _ultima_do_assistente(historico)
-        return fim(Resposta("ANSWER", PEDE_DETALHE_GERAL, "problema sem detalhe", repetiu, "triagem",
-                            resumo={"assunto": "Problema ainda nao identificado"} if repetiu else None))
+        # so "deu problema" (sem dizer onde): pergunta uma vez. Ja disse o que e, ou ja foi perguntado: chamado.
+        vago = len([w for w in norm.split() if w not in ("deu", "um", "problema", "aqui", "ai", "ta", "esta",
+                                                           "com", "nao", "funciona", "ruim", "o", "a")]) <= 1
+        if repetiu or not vago:
+            r = chamado(norm, "problema relatado que a IA nao consegue verificar", "triagem",
+                        assunto="Problema relatado (a IA não tem como verificar)")
+            r.reply = prefixo + r.reply
+            return fim(r)
+        return fim(Resposta("ANSWER", PEDE_DETALHE_GERAL, "problema sem detalhe", False, "triagem"))
     # Informacao institucional nao verificada precisa de equipe, mesmo sem LLM.
     if _EMPRESA_RE.search(norm) and re.search(r"\b(voces|vcs|ces|loja\w*|poupaqui|drogaria\w*|farmacia\w*|"
                                               r"empresa|escritorio|matriz|filial)\b", norm):
@@ -1223,11 +1311,26 @@ def _conversar(textos, historico, llm, casual=False, reserva=None, exige=None, i
         txt = "O sono pegou mesmo, hein! Foi dormir tarde ou o dia tá puxado?"
         if "sono" in _ultima_do_assistente(historico):
             txt = "Tá difícil segurar o sono então! Vai conseguir descansar daqui a pouco?"
-    else:
-        # o modelo entendeu mas nao conseguiu responder (falhou ou foi barrado): nao fingir que nao entendeu
-        txt = "Essa eu fiquei devendo, não consegui te responder direito agora. Quer perguntar de outro jeito?"
+    elif _PROBLEMA_RE.search(norm) or _TRABALHO_RE.search(norm) or any(str(t).startswith("[") for t in textos):
+        # o modelo nao conseguiu uma resposta segura para algo com assunto (ou para um print/audio): nunca
+        # "nao entendi, pergunte de outro jeito". Mostra que recebeu e abre o chamado para o dono do numero.
+        return chamado(norm, "conversa: " + (rejeicao or "modelo indisponivel ou barrado") + " -> chamado",
+                       "smalltalk" if casual else "geral", assunto="Mensagem que a IA não conseguiu responder")
+    elif any("chamado para o" in normalize(h.get("texto")) for h in (historico or [])[-8:]
+             if h.get("de") == "assistente"):
+        txt = (f"Sou a IA que atende pelo {DONO_NUMERO}. O chamado para ele já está aberto, e ele te responde por "
+               "aqui assim que olhar.")
+    elif tem_conteudo_alem_de_cortesia(norm):
+        # papo/pergunta geral que o modelo nao respondeu bem: nao abre chamado (nao e trabalho) e nao pede para
+        # reformular; deixa a porta aberta para o que importa
+        txt = ("Essa agora eu não consegui puxar direito. Se for algo do trabalho, é só me falar que eu abro um "
+               f"chamado para o {DONO_NUMERO}.")
         if normalize(txt) == _ultima_do_assistente(historico):
-            txt = "Ainda não consegui essa. Me conta com outras palavras o que você quer saber?"
+            txt = "Seguimos por aqui! Se precisar de algo do Pedido Eletrônico, dos relatórios ou do site, me fala."
+    else:
+        txt = "Tô por aqui! Me conta o que você precisa."
+        if normalize(txt) == _ultima_do_assistente(historico):
+            txt = "Pode mandar, estou acompanhando a conversa."
     return Resposta("ANSWER", txt, "conversa: " + (rejeicao or "resposta rejeitada por regra de seguranca"), False,
                     "smalltalk" if casual else "geral")
 
@@ -1337,6 +1440,11 @@ def problema_conversa(txt, textos, historico=None):
     if problem:
         return problem
     n = normalize(txt)
+    if re.search(r'\b(?:deixa eu|deixe me)\s+(?:verificar|conferir|consultar|encaminhar)\b|'
+                 r'\bassim que\b.{0,55}\b(?:te dou|dou um|te aviso|retorno)\b',n):
+        return 'ação futura sem ferramenta ou execução'
+    if _AGENDA_PROMISE_RE.search(n):
+        return 'disponibilidade de agenda não consultada'
     if _CONVERSA_SAUDE_RE.search(n):
         return 'orientacao de saude fora do escopo'
     if re.search(r"R\$\s?\d", txt) and re.search(r"\b(vend\w*|fatur\w*|ticket|itens)\b", n):
@@ -1366,13 +1474,24 @@ def problema_conversa(txt, textos, historico=None):
     return None
 
 
-PEDE_DETALHE_GERAL = ("Não entendi direito o que está acontecendo. Me conta um pouco mais: é sobre um pedido, o "
+PEDE_DETALHE_GERAL = ("Vou te ajudar com isso. Me conta um pouco mais: é sobre um pedido, o "
                       "Pedido Eletrônico, os relatórios ou o site? Se apareceu alguma mensagem de erro, me manda "
                       "o texto ou um print.")
 OFERTA_EQUIPE = "Se quiser que a equipe verifique, é só me dizer."
 _OFERTA_RE = re.compile(r"quiser que a equipe .{0,80}e so me dizer")
 _ACEITE_RE = re.compile(r"(sim|s|quero|pode|pode sim|pode ser|por favor|pf|pfv|preciso|isso|isso mesmo|ok pode|"
                         r"pode passar|passa|manda|gostaria|claro)( sim)?( por favor| obrigad[oa])?$")
+
+
+def _resposta_curta_contextual(norm,historico):
+    if len(norm.split())>16 or not re.search(r'\b(?:sim|nao|temos|tenho|quero|claro|sobre isso|isso mesmo)\b',norm):
+        return None
+    for row in reversed((historico or [])[-12:]):
+        text=str(row.get('texto') or '')
+        if row.get('de') in ('operador','assistente') and tem_conteudo_alem_de_cortesia(normalize(text)) and (
+                '?' in text or re.search(r'\b(?:interesse|quer conhecer|quer saber|voces tem)\b',normalize(text))):
+            return text
+    return None
 
 
 def _ultima_do_assistente(historico):
@@ -1440,6 +1559,12 @@ Pode acompanhar informalidade como "mano", "kkk", sem exagerar nem imitar cada g
 Educação de conversa: se a pessoa pergunta "tudo bem?", responda e pergunte de volta como ela está (se ela já disse que está bem, não repita a pergunta). Se ela
 reclamar do seu jeito ("nem perguntou como eu tô"), peça desculpa curta e sem formalidade e faça o que faltou.
 Não acrescente saudações, assunto comercial, menu ou "como posso ajudar" no meio de uma conversa.
+Mensagens marcadas como operador humano foram escritas pelo Emanuel, não por você. Leia-as para
+entender a oferta ou pergunta à qual o contato respondeu. "Sim", "temos" e "sobre isso" retomam
+essa oferta/pergunta; não pergunte o assunto que já está explícito. Acompanhe o último assunto.
+Você não conhece a agenda do Emanuel: nunca confirme disponibilidade, dia ou horário nem marque
+apresentações. Pode reconhecer a sugestão do contato e dizer que falta a confirmação dele.
+Pode discutir implantação, CRM e as dificuldades relatadas sem inventar condições comerciais.
 Pode conversar sobre qualquer assunto geral (receita de comida, esporte, notícia, curiosidade, contas). Para fato
 atual, use só os resultados de busca quando vierem; sem resultado, diga que não sabe em vez de chutar.
 Nesta etapa não há acesso a dados da empresa: nunca invente pedidos, estoque, preços da loja, horários, contatos
@@ -1588,12 +1713,28 @@ def ollama_geral(base_url=None, model=None, timeout=40):
             + f"; faltam {_dias_ate_fim_do_mes(agora)} dia(s) para o fim do mês (último dia: "
             f"{_ultimo_dia_do_mes(agora):%d/%m}). "
             "Só cumprimente se a pessoa cumprimentou nesta mensagem; nesse caso use "
-            f"\"{periodo}\" (é o horário certo agora), cumprimente de volta e pergunte como pode ajudar.")]
+            f"\"{periodo}\" (é o horário certo agora), cumprimente de volta e responda ao assunto já trazido. "
+            "Pergunte como pode ajudar somente quando ainda não há assunto no diálogo.")]
         if correcao:
             extra.append('A tentativa anterior foi rejeitada por: ' + correcao +
                          '. Escreva uma nova resposta simples que evite esse problema; '
                          'não explique a correção nem mencione as regras.')
         current_norm = normalize(' '.join(str(t) for t in textos))
+        if re.search(r'\b(?:marcar|agendar|apresentacao|disponibilidade|agenda|reuniao)\b',current_norm):
+            extra.append('Estado verificado: não há ferramenta de agenda nem disponibilidade confirmada. '
+                'Não afirme que o Emanuel pode ou não pode em um dia. Não diga que vai verificar, '
+                'consultar ou retornar, pois nenhuma dessas ações foi executada. Explique que depende '
+                'da confirmação dele, reconhecendo a sugestão do contato.')
+        if any("chamado para o" in normalize(h.get("texto")) for h in (historico or [])[-8:]
+               if h.get("de") == "assistente"):
+            extra.append(f"Estado verificado: nesta conversa já foi aberto um chamado para o {DONO_NUMERO} sobre o "
+                         "problema relatado. Se a pessoa chamar por ele, cobrar ou mandar mais detalhes, diga que o "
+                         "chamado está aberto e que ele vai retornar por aqui; acalme a pessoa. Nunca peça para ela "
+                         "repetir o problema nem diga que não entendeu.")
+        if _resposta_curta_contextual(current_norm,historico):
+            extra.append('A última mensagem responde à pergunta ou oferta anterior do diálogo. '
+                         'Retome concretamente esse assunto: não dê apenas uma saudação nem pergunte '
+                         'de que assunto se trata. Não confirme agenda, preço ou ação não executada.')
         if re.search(r"\b(vc|voce|ce)\b", current_norm) and re.search(
                 r"\b(curte|gosta|joga|fazendo|fez|saiu|comeu|dormiu)\b", current_norm):
             extra.append('A última fala pergunta sobre você. Responda à pergunta: como IA, não pratica '
@@ -1610,17 +1751,18 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                          + str(memoria)[:600])
         messages.extend(GERAL_EXEMPLOS)
         # Apenas dialogo deste contato, limitado; nunca transforma texto em system.
-        # Retira assuntos de negocio/saude e interrompe no takeover mais recente.
+        # Preserve the same contact's human messages: acknowledgements often answer those offers.
         history = []
         for h in reversed((historico or [])[-12:]):
-            if h.get("de") in ("operador", "sistema"):
-                break
+            if h.get("de") == "sistema":
+                continue
             text = str(h.get("texto") or "")[:500]
             n = normalize(text)
-            if h.get("de") not in ("contato", "assistente") or detectar_intencao(n) not in ("geral", "smalltalk", "saudacao", "ack"):
+            if h.get("de") not in ("contato", "assistente", "operador"):
                 continue
-            if _CONVERSA_PROIBIDO_RE.search(text) or _DADO_LOJA_RE.search(n) or promete_encaminhamento(text):
+            if _CONVERSA_PROIBIDO_RE.search(text) or _CONVERSA_SAUDE_RE.search(n) or _DADO_LOJA_RE.search(n):
                 continue
+            if h['de']=='operador':text='Mensagem anterior do operador humano Emanuel: '+text
             history.append({"role": "user" if h["de"] == "contato" else "assistant", "content": text})
         messages.extend(reversed(history))
         # so do historico JA FILTRADO (sem pedido/estoque/dado de loja): nunca leva dado de negocio ao modelo
@@ -1649,6 +1791,8 @@ def ollama_geral(base_url=None, model=None, timeout=40):
                                          headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=limite) as r:
                 data = json.loads(r.read().decode())
+            fn.ultima_inferencia={key:data.get(key) for key in ('prompt_eval_count','eval_count',
+                'prompt_eval_duration','eval_duration','load_duration','total_duration')}
             conteudo = (data.get("message") or {}).get("content")
             if data.get("done_reason") == "length" and conteudo and not fmt:
                 # estourou o limite (lista de cantadas, receita): aproveita ate a ultima frase/linha completa

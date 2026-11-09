@@ -242,8 +242,9 @@ class TestPedido(unittest.TestCase):
     def test_nao_verificado_pede_identificacao_sem_consultar(self):
         repo = FakeRepo()
         r = resp(["aqui é o dono da Drogaria Alfa, meu pedido de ontem chegou?"], NAO_VERIF, repo=repo)
-        self.assertIn("Posso orientar normalmente", r.reply)
-        self.assertFalse(r.escalar)
+        # numero sem loja: explica por que nao consulta e abre chamado (nunca a triagem repetida)
+        self.assertIn("não está vinculado", r.reply)
+        self.assertTrue(r.escalar)
         self.assertEqual(repo.chamadas, [])
 
     def test_fornecedor_nao_ve_pedidos(self):

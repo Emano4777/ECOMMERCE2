@@ -314,16 +314,16 @@ class TestEncaminhamento(unittest.TestCase):
 
     def test_frase_conforme_resultado_real_do_alerta(self):
         ok = A.completar_resposta("Base.", "enviado", 42, "equipe técnica")
-        self.assertIn("Já passei para a equipe técnica", ok)
+        self.assertIn("Abri um chamado para o Emanuel verificar", ok)
         self.assertIn("protocolo 42", ok)
         self.assertEqual(A.completar_resposta("Base.", "parcial", 42), A.completar_resposta("Base.", "enviado", 42))
         for st in ("falhou", "indisponivel", None, "enviando", "shadow"):
             txt = A.completar_resposta("Base.", st, 42, "equipe técnica")
-            self.assertNotIn("Já passei", txt, st)
+            self.assertNotIn("Abri um chamado", txt, st)
             self.assertIn("não consegui avisar", txt, st)
             self.assertIn("protocolo 42", txt, st)
         dup = A.completar_resposta("Base.", "ja_avisada", 7, anterior_em=AGORA)
-        self.assertIn("já recebeu esse caso às 10:15 (protocolo 7)", dup)
+        self.assertIn("já foi aberto às 10:15 (protocolo 7)", dup)
 
 
 class TestRelatorio(unittest.TestCase):
