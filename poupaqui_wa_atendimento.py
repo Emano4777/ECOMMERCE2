@@ -36,7 +36,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import psycopg2.extensions
 
@@ -270,8 +270,36 @@ def _lid(valor):
     return v if re.fullmatch(r"\d{5,25}@lid", v) else None
 
 
+def _context_info(message):
+    """contextInfo da mensagem (texto, imagem, video, audio, documento): onde vem a citacao."""
+    message = message if isinstance(message, dict) else {}
+    for v in message.values():
+        if isinstance(v, dict) and isinstance(v.get("contextInfo"), dict):
+            return v["contextInfo"]
+    return {}
+
+
+def _citacao(message):
+    """Mensagem que o contato citou ao responder: {'id': ..., 'texto': ...} ou None."""
+    ctx = _context_info(message)
+    q = ctx.get("quotedMessage") if isinstance(ctx.get("quotedMessage"), dict) else None
+    if not (ctx.get("stanzaId") or q):
+        return None
+    texto = _message_text({}, q or {}) if q else ""
+    return {"id": str(ctx.get("stanzaId") or "")[:200] or None, "texto": texto[:500]}
+
+
+def _apagada(message):
+    """id da mensagem que o contato apagou (protocolMessage REVOKE), ou None."""
+    p = (message or {}).get("protocolMessage") if isinstance(message, dict) else None
+    if isinstance(p, dict) and str(p.get("type")) in ("0", "REVOKE") and isinstance(p.get("key"), dict):
+        return str(p["key"].get("id") or "").strip()[:200] or None
+    return None
+
+
 def parse_inbound(payload):
-    """Extrai mensagens privadas recebidas. Ignora fromMe, grupos, canais e status."""
+    """Extrai mensagens privadas recebidas. Ignora fromMe, grupos, canais e status.
+    Mensagem apagada pelo contato vem como item tipo 'apagada' com 'ref' (id da apagada)."""
     if not isinstance(payload, dict):
         return []
     data = payload.get("data") or {}
@@ -296,6 +324,13 @@ def parse_inbound(payload):
         if not phone or not mid:
             continue
         message = msg.get("message") or {}
+        # o LID da conversa (remoteJid ...@lid) e o que vem nas mensagens que o dono manda; o senderLid pode ser
+        # outro. Os dois servem para achar o contato de uma mensagem enviada pelo dono.
+        lids = [x for x in dict.fromkeys((_lid(key.get("senderLid")), _lid(jid))) if x]   # 1o: o de antes
+        ref = _apagada(message)
+        if ref:
+            out.append({"message_id": mid[:200], "telefone": phone, "tipo": "apagada", "ref": ref, "lids": lids})
+            continue
         kind = _message_kind(message)
         if kind == "ignore":
             continue
@@ -312,9 +347,47 @@ def parse_inbound(payload):
             "nome_whatsapp": str(msg.get("pushName") or "").strip()[:120] or None,
             "wa_timestamp": wa_ts,
             "midia": _media_info(message),
-            "lid": _lid(key.get("senderLid") or jid),
+            "lid": lids[0] if lids else None,
+            "lids": lids,
+            "citacao": _citacao(message),
         })
     return out
+
+
+def _resolver_saidas_por_lid(cur, phone, lids):
+    """Mensagens do dono que chegaram so com o LID (sem contato conhecido) e ficaram guardadas com
+    telefone=<lid>: agora que o contato apareceu com esse LID, passam para o telefone dele."""
+    if not lids:
+        return 0
+    cur.execute("""UPDATE ecommerce_wa_mensagens SET telefone = %s
+                   WHERE telefone = ANY(%s) AND direcao LIKE 'out_%%' RETURNING recebido_em""", (phone, lids))
+    movidas = cur.fetchall()
+    janela = _cfg_int("POUPAQUI_WA_IA_SILENCIO_MIN", 120)
+    recentes = [r[0] for r in movidas if r[0] and r[0] > datetime.now(timezone.utc) - timedelta(minutes=janela)]
+    if recentes:
+        _set_takeover(cur, phone, "manual_outbound", janela)   # o dono estava conversando: a IA fica quieta
+    return len(movidas)
+
+
+def _cita_mensagem_do_dono(cur, phone, citacao):
+    """O contato respondeu citando uma mensagem que nao e da IA nem dele mesmo (o dono escreveu pelo celular e
+    a mensagem nao chegou registrada, ou e uma manual): a conversa e com o dono."""
+    if not citacao:
+        return False
+    if citacao.get("id"):
+        cur.execute("SELECT direcao FROM ecommerce_wa_mensagens WHERE message_id = %s", (citacao["id"],))
+        r = cur.fetchone()
+        if r:
+            return r[0] == "out_manual"
+    texto = _norm_text(citacao.get("texto"))
+    if len(texto) < 2:
+        return False          # citou midia sem texto: nao da para saber de quem era
+    cur.execute("""SELECT direcao FROM ecommerce_wa_mensagens
+                   WHERE telefone = %s AND (regexp_replace(btrim(corpo), '\\s+', ' ', 'g') = %s
+                                            OR position(%s in regexp_replace(btrim(corpo), '\\s+', ' ', 'g')) = 1)
+                   ORDER BY recebido_em DESC LIMIT 1""", (phone, texto, texto[:80]))
+    r = cur.fetchone()
+    return r is None or r[0] == "out_manual"
 
 
 def store_inbound(payload, conn):
@@ -326,6 +399,14 @@ def store_inbound(payload, conn):
     novas = 0
     with _cur(conn) as cur:
         for it in items:
+            if it["tipo"] == "apagada":
+                # o contato apagou: some do contexto da IA (o texto apagado nao vale mais, ex.: "dia 29" -> "dia 20")
+                cur.execute("""UPDATE ecommerce_wa_mensagens SET corpo = '', midia = NULL
+                               WHERE message_id = %s AND telefone = %s AND direcao = 'in'""",
+                            (it["ref"], it["telefone"]))
+                continue
+            _lock_contact(cur, it["telefone"])
+            _resolver_saidas_por_lid(cur, it["telefone"], it.get("lids"))
             cur.execute("""
                 INSERT INTO ecommerce_wa_contatos (telefone, nome_whatsapp, ultima_msg_em, lid)
                 VALUES (%s, %s, NOW(), %s)
@@ -345,6 +426,11 @@ def store_inbound(payload, conn):
                   json.dumps(it["midia"]) if it.get("midia") else None))
             if cur.fetchone():
                 novas += 1
+                if _cita_mensagem_do_dono(cur, it["telefone"], it.get("citacao")):
+                    # respondeu ao dono: a conversa e dele, a IA nao entra
+                    _set_takeover(cur, it["telefone"], "citacao_operador", _cfg_int("POUPAQUI_WA_IA_SILENCIO_MIN", 120))
+                    cur.execute("""UPDATE ecommerce_wa_mensagens SET status = 'respondido_humano', processado_em = NOW()
+                                   WHERE telefone = %s AND direcao = 'in' AND status = 'pendente'""", (it["telefone"],))
     conn.commit()
     return novas
 
@@ -558,8 +644,26 @@ def store_outbound(payload, conn):
             if not phone:
                 cur.execute("SELECT telefone FROM ecommerce_wa_contatos WHERE lid = %s LIMIT 2", (it["lid"],))
                 achados = cur.fetchall()
+                if len(achados) != 1 and _norm_text(it["corpo"]):
+                    # eco de uma resposta da IA (enviada pelo telefone): ensina qual contato tem esse LID
+                    cur.execute("""SELECT DISTINCT telefone FROM ecommerce_wa_ia_decisoes
+                                   WHERE envio_status IN ('enviando', 'enviado')
+                                     AND regexp_replace(btrim(resposta), '\\s+', ' ', 'g') = %s
+                                     AND criado_em > NOW() - (%s || ' minutes')::interval LIMIT 2""",
+                                (_norm_text(it["corpo"]), str(_JANELA_IA_MIN)))
+                    achados = cur.fetchall()
+                    if len(achados) == 1:
+                        cur.execute("UPDATE ecommerce_wa_contatos SET lid = %s, atualizado_em = NOW() WHERE telefone = %s",
+                                    (it["lid"], achados[0][0]))
                 if len(achados) != 1:
+                    # contato ainda desconhecido: guarda a mensagem do dono com o LID no lugar do telefone; quando o
+                    # contato escrever (com esse LID) ela passa para ele e a IA sabe que o dono estava conversando
                     cont["sem_telefone"] = cont.get("sem_telefone", 0) + 1
+                    cur.execute("""INSERT INTO ecommerce_wa_mensagens
+                                       (message_id, telefone, direcao, tipo, corpo, status, processado_em, origem_envio)
+                                   VALUES (%s, %s, 'out_manual', %s, %s, 'processado', NOW(), 'manual_sem_contato')
+                                   ON CONFLICT (message_id) DO NOTHING""",
+                                (it["message_id"], it["lid"], it["tipo"], it["corpo"]))
                     continue
                 phone = achados[0][0]
             _lock_contact(cur, phone)
