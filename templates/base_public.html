@@ -3551,7 +3551,8 @@ function reenviarVerificacao(btn) {
       return;
     }
     aplicarElegibilidade(false);
-    fetch('/api/ads-elegivel?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng))
+    var nome = localStorage.getItem('pq_loc_nome') || '';
+    fetch('/api/ads-elegivel?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng) + '&nome=' + encodeURIComponent(nome))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (consulta === _adsConsulta) aplicarElegibilidade(!!(d && d.elegivel));

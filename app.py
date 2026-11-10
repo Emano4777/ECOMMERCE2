@@ -10045,6 +10045,16 @@ def index():
     return render_template("home.html")
 
 
+def _ads_cidade_bloqueada(nome_local):
+    """Cidades onde o anuncio AdSense fica desativado manualmente, independente
+    de raio/cobertura de loja -- pedido explicito do usuario (2026-11-10:
+    desativar so em Angelica/MS, nao mexer em mais nada)."""
+    texto = _sem_acento(nome_local or "")
+    if "angelica" not in texto:
+        return False
+    return bool(re.search(r"\bms\b", texto)) or "mato grosso do sul" in texto
+
+
 @app.get("/api/ads-elegivel")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_ads_elegivel():
@@ -10053,6 +10063,8 @@ def api_ads_elegivel():
     alguma loja o visitante pode comprar de verdade, entao nao disputa tela
     com anuncio. Antes valia o raio de catalogo (30 km de qualquer loja
     publica), que escondia anuncio de muita gente que nao recebe entrega."""
+    if _ads_cidade_bloqueada(request.args.get("nome")):
+        return jsonify({"elegivel": False})
     try:
         lat_usr = float(request.args.get("lat", 0))
         lng_usr = float(request.args.get("lng", 0))
