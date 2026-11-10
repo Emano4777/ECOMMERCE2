@@ -10048,8 +10048,13 @@ def index():
 def _ads_cidade_bloqueada(nome_local):
     """Cidades onde o anuncio AdSense fica desativado manualmente, independente
     de raio/cobertura de loja -- pedido explicito do usuario (2026-11-10:
-    desativar so em Angelica/MS, nao mexer em mais nada)."""
-    texto = _sem_acento(nome_local or "")
+    desativar so em Angelica/MS, nao mexer em mais nada).
+
+    Nao usa so _sem_acento pra normalizar: ha DUAS definicoes dessa funcao
+    no arquivo (4617 e ~31396) e a ultima (sem lower()) vence em tempo de
+    execucao -- sem o .lower() explicito aqui, "Angelica" (maiusculo, como
+    vem do nome salvo) nunca batia com o literal "angelica" comparado."""
+    texto = _sem_acento(nome_local or "").lower()
     if "angelica" not in texto:
         return False
     return bool(re.search(r"\bms\b", texto)) or "mato grosso do sul" in texto
