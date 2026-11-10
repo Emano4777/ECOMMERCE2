@@ -2235,6 +2235,7 @@ function irParaCidade(lat, lng, nome, uf) {
   setLocNome(label);
   localStorage.setItem('pq_lat', lat);
   localStorage.setItem('pq_lng', lng);
+  localStorage.setItem('pq_loc_src', 'manual');
   titleEl.textContent = 'Buscando produtos em ' + nome + '…';
   carregarProdutos(lat, lng, catalogSearchTerm());
 }

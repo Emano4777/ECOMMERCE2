@@ -3,6 +3,36 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <script>
+  /* Endereco do cadastro tem prioridade sobre localizacao DETECTADA.
+     Roda no <head>, antes de qualquer script de pagina ler pq_lat/pq_lng.
+     Antes, a deteccao automatica (Google Geolocation sem Wi-Fi = so IP,
+     que em rede movel cai em Campinas/SP capital) ficava no localStorage
+     e ganhava do endereco cadastrado pra sempre: cliente de Sao Pedro
+     logada via "nenhum produto nessa area". So a escolha MANUAL
+     (pq_loc_src='manual') continua valendo acima do cadastro. */
+  (function () {
+    try {
+      var sLat = {{ (consumidor.lat if consumidor and consumidor.lat is not none else none)|tojson }};
+      var sLng = {{ (consumidor.lng if consumidor and consumidor.lng is not none else none)|tojson }};
+      var sNome = {{ ((consumidor.endereco if consumidor else '') or '')|tojson }};
+      sLat = parseFloat(sLat); sLng = parseFloat(sLng);
+      if (!isFinite(sLat) || !isFinite(sLng)) return;
+      if (localStorage.getItem('pq_loc_src') === 'manual') return;
+      var lat = parseFloat(localStorage.getItem('pq_lat'));
+      var lng = parseFloat(localStorage.getItem('pq_lng'));
+      var perto = isFinite(lat) && isFinite(lng) &&
+        Math.abs(lat - sLat) < 0.01 && Math.abs(lng - sLng) < 0.01; // ~1 km
+      if (!perto) {
+        localStorage.setItem('pq_lat', sLat);
+        localStorage.setItem('pq_lng', sLng);
+        if (sNome) localStorage.setItem('pq_loc_nome', sNome);
+      }
+      localStorage.setItem('pq_loc_ts', Date.now());
+      localStorage.setItem('pq_loc_src', 'perfil');
+    } catch (e) {}
+  })();
+  </script>
   <meta name="google-adsense-account" content="ca-pub-7995010197286628">
   <title>{% block title %}Poupaqui - Produtos{% endblock %}</title>
   {% block meta_description %}{% endblock %}
@@ -1708,6 +1738,7 @@ const LOC_KEY_LNG  = 'pq_lng';
 const LOC_KEY_NOME = 'pq_loc_nome';
 const LOC_KEY_RECENTS = 'pq_loc_recents';
 const LOC_KEY_TS   = 'pq_loc_ts';
+const LOC_KEY_SRC  = 'pq_loc_src';
 const LOC_CACHE_TTL = 24 * 3600 * 1000; // 24h
 const LOC_USER_LOGGED = {{ (consumidor is not none)|tojson }};
 const LOC_SESSION_ADDRESS = {{ ((consumidor.endereco if consumidor else '') or '')|tojson }};
@@ -1825,10 +1856,13 @@ function reverseGeocode(lat, lng) {
     );
 }
 
-function aplicarLocalizacao(lat, lng) {
+// src: 'manual' (usuario escolheu) ou 'auto' (detectado sem o usuario pedir).
+// So 'manual' ganha do endereco do cadastro (ver script no <head>).
+function aplicarLocalizacao(lat, lng, src) {
   localStorage.setItem(LOC_KEY_LAT, lat);
   localStorage.setItem(LOC_KEY_LNG, lng);
   localStorage.setItem(LOC_KEY_TS, Date.now());
+  localStorage.setItem(LOC_KEY_SRC, src || 'manual');
   reverseGeocode(lat, lng);
   fecharModalLoc();
 
@@ -2190,6 +2224,7 @@ async function salvarEnderecoConfirmado() {
     } catch (_) { status.textContent = 'Não foi possível salvar. Tente novamente.'; btn.disabled=false; btn.textContent='Salvar e continuar'; return; }
   }
   localStorage.setItem(LOC_KEY_LAT, lat); localStorage.setItem(LOC_KEY_LNG, lng); localStorage.setItem(LOC_KEY_TS, Date.now());
+  localStorage.setItem(LOC_KEY_SRC, 'manual');
   saveRecentLoc(lat, lng, endereco); setLocNome(endereco);
   // Guarda tambem o endereco JA ESTRUTURADO (nao so lat/lng/nome) -- quem
   // ainda nao tem conta e for criar uma logo em seguida (tela de cadastro,
@@ -2240,6 +2275,7 @@ function selecionarLocalizacao(lat, lon, label) {
   }
   localStorage.setItem(LOC_KEY_LAT, lat);
   localStorage.setItem(LOC_KEY_LNG, lon);
+  localStorage.setItem(LOC_KEY_SRC, 'manual');
   saveRecentLoc(lat, lon, label || localStorage.getItem(LOC_KEY_NOME) || 'Localização selecionada');
   setLocNome(label || 'Localização selecionada');
   fecharModalLoc();
@@ -2400,12 +2436,18 @@ function buscarCidadeDebounced() {
     // voce"/"Compre novamente" (que leem o localStorage de novo, mais
     // tarde) ja pegavam a posicao corrigida. Rechamar onLocationReady aqui
     // garante que a pagina toda re-renderize com a mesma coordenada.
-    if (Date.now() - savedTs > LOC_CACHE_TTL) {
+    // So re-detecta (por IP) o que JA era deteccao automatica: nunca
+    // sobrescreve endereco do cadastro ('perfil') nem escolha 'manual' --
+    // antes, 24h depois de escolher/cadastrar o endereco certo, o IP da rede
+    // movel (ex.: Campinas) voltava a substituir sozinho.
+    const _locSrc = localStorage.getItem(LOC_KEY_SRC);
+    if (Date.now() - savedTs > LOC_CACHE_TTL && _locSrc !== 'manual' && _locSrc !== 'perfil') {
       _geolocateGM()
         .then(pos => {
           localStorage.setItem(LOC_KEY_LAT, pos.lat);
           localStorage.setItem(LOC_KEY_LNG, pos.lng);
           localStorage.setItem(LOC_KEY_TS, Date.now());
+          localStorage.setItem(LOC_KEY_SRC, 'auto');
           _reverseGeocodeGM(pos.lat, pos.lng).then(r => setLocNome(r.nome)).catch(() => {});
           if (typeof onLocationReady === 'function') onLocationReady(pos.lat, pos.lng);
         })
@@ -2432,11 +2474,11 @@ function buscarCidadeDebounced() {
   } else {
     // Sem localização: tenta Google primeiro, depois navigator.geolocation
     _geolocateGM()
-      .then(pos => aplicarLocalizacao(pos.lat, pos.lng))
+      .then(pos => aplicarLocalizacao(pos.lat, pos.lng, 'auto'))
       .catch(() => {
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
-            pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude),
+            pos => aplicarLocalizacao(pos.coords.latitude, pos.coords.longitude, 'auto'),
             () => { document.getElementById('loc-addr-text').textContent = 'Clique para definir'; },
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
           );
