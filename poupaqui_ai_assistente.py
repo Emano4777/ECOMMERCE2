@@ -733,6 +733,47 @@ _TRABALHO_RE = re.compile(r"\b(preciso|precisa\w*|manda|mandar|me envia|enviar|c
                           r"senha|acesso|liberar|libera)\b")
 
 
+_ONDE_MANDAR_RE = re.compile(r"\b(qual|que|em qual|pra qual|para qual|onde|tem)\b[^?.!]{0,25}\be[- ]?mail\b|"
+                             r"\be[- ]?mail\b[^?.!]{0,25}\b(mand\w*|envi\w*|pass\w*)\b|"
+                             r"\b(mand\w*|envi\w*)\b[^?.!]{0,20}\b(por|pro|pelo|no|via) e[- ]?mail\b")
+# a pessoa acabou de mandar um aviso/oferta/material (segue, divulgue, live, planilha, imagem)
+_AVISO_RE = re.compile(r"\b(segue|seguem|divulg\w*|ofertas?|promoc\w*|campanha|live|lista|planilha|tabela|"
+                       r"validade|lembrando|associados|comunicado)\b|\[(arquivo|imagem)")
+_PEDE_RE = re.compile(r"\b(qual|quais|quanto|quantos|como|onde|quando|pq|porque|por que|cade|consegue|pode|poderia|"
+                      r"preciso|precisa|me (manda|passa|envia|fala|diz)|verifica\w*|confere|consulta\w*|tem como|"
+                      r"da pra|sabe)\b")
+
+
+def _complemento_de_aviso(textos, norm, historico):
+    """Frase curta que completa o aviso/oferta que o proprio contato acabou de mandar (sem pergunta, sem pedido,
+    sem problema). Devolve o texto a confirmar ("faturamento via Mercado Farma") ou None."""
+    texto = " ".join(t for t in textos if t).strip()
+    if not texto or "?" in texto or len(norm.split()) > 12 or _PEDE_RE.search(norm) or _PROBLEMA_RE.search(norm):
+        return None
+    if _SAUDACAO_RE.search(norm) or detectar_intencao(norm) in ("saudacao", "ack", "smalltalk"):
+        return None
+    recentes = [h for h in (historico or [])[-6:]]
+    if not any(h.get("de") == "contato" and _AVISO_RE.search(normalize(h.get("texto")) + " " +
+                                                          str(h.get("texto") or "").lower()) for h in recentes):
+        return None
+    ultima_ia = next((normalize(h.get("texto")) for h in reversed(recentes) if h.get("de") == "assistente"), "")
+    if not re.search(r"\b(recebi|anotad\w*|fica aqui|vou reforcar|entendido|obrigad\w*|valeu)\b", ultima_ia):
+        return None   # a IA nao estava so confirmando material: a frase pode ser outra conversa
+    texto = texto.rstrip(" .!")
+    return texto if texto[:2].isupper() else texto[0].lower() + texto[1:]
+
+
+_SAUDACAO_INICIO_RE = re.compile(r"^\s*((?:bom dia|boa tarde|boa noite|ol[aá]|oi+)[^.!?]{0,20}[!.]\s*)", re.I)
+
+
+def _com_aviso_midia(reply, aviso):
+    """'Vi a imagem.' depois da saudacao, nao antes dela ('Boa tarde! Vi a imagem. Recebi...')."""
+    m = _SAUDACAO_INICIO_RE.match(reply or "")
+    if m:
+        return f"{m.group(1).rstrip()} {aviso} {reply[m.end():].lstrip()}".strip()
+    return f"{aviso} {reply}".strip()
+
+
 def chamado(norm, motivo, intencao="geral", assunto=None):
     return Resposta("ANSWER", BASE_CHAMADO, motivo, True, intencao,
                     resumo={"assunto": assunto or "Contato precisa de ajuda que a IA não conseguiu resolver",
@@ -800,14 +841,14 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         if r.reply and r.acao == "ANSWER":
             if any(t.startswith("[Vídeo enviado pelo contato]") for t in textos) and not re.search(
                     r"\b(video|imagem|foto)\b", normalize(r.reply)):
-                r.reply = "Vi o vídeo. " + r.reply
+                r.reply = _com_aviso_midia(r.reply, "Vi o vídeo.")
             elif any(t.startswith("[Imagem enviada pelo contato]") for t in textos):
                 # quem acabou de mandar o print nao precisa ouvir "me manda um print"
                 # remove a frase inteira ("Se aparecer alguma mensagem, me manda o texto ou um print.")
                 r.reply = re.sub(r"\s*[^.?!]*\bme manda (o texto ou )?um print( da tela)?[.?!]", "", r.reply)
                 r.reply = re.sub(r" ou um print\b", "", r.reply).strip()
                 if not re.search(r"\b(imagem|print|foto)\b", normalize(r.reply)):
-                    r.reply = "Vi a imagem. " + r.reply
+                    r.reply = _com_aviso_midia(r.reply, "Vi a imagem.")
             elif any(t.startswith("[Áudio transcrito (áudio longo") for t in textos):
                 r.reply = "Seu áudio era longo, então ouvi só o começo. " + r.reply
         r.fontes = ctx["fontes"]
@@ -869,6 +910,17 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
         return fim(Resposta("SILENCE", "", "sem texto", intencao="vazio"))
     if len(norm) > 4000:
         return fim(Resposta("HUMAN", "", "mensagem longa", True, "longa"))
+    # "em qual e-mail posso mandar?": o numero e do Emanuel, entao o caminho e este WhatsApp mesmo
+    if (_ONDE_MANDAR_RE.search(norm) and re.search(r"\b(qual|onde|posso|devo|pra|para)\b", norm)
+            and not re.search(r"\b(recebi|recebeu|chegou|chega|mandaram|enviaram|mandou|enviou)\b", norm)):
+        return fim(Resposta("ANSWER", f"Pode mandar por aqui mesmo, neste WhatsApp, que chega direto para o "
+                            f"{DONO_NUMERO}.", "onde enviar: este WhatsApp", False, "geral"))
+    # complemento curto de um aviso/oferta que a propria pessoa acabou de mandar ("Faturamento via Mercado
+    # Farma" depois das ofertas da Live): e informacao, nao pedido de dados -> so confirma, sem chamado
+    complemento = _complemento_de_aviso(textos, norm, historico)
+    if complemento:
+        return fim(Resposta("ANSWER", f"Anotado: {complemento}. Fica junto com o que você mandou para o "
+                            f"{DONO_NUMERO} ver.", "complemento de aviso (informacao, nao pedido)", False, "geral"))
     oferta = _oferta_aceita(norm, historico)
     if oferta:  # "sim" depois de "se quiser que a equipe verifique, é só me dizer"
         return fim(Resposta("ANSWER", "Combinado!", "contato aceitou encaminhamento oferecido", True, "oferta",
