@@ -763,6 +763,7 @@ function shortAddr(text) {
 // abaixo, na seção de retirada/entrega.
 function nomeLojaCarrinho(texto) {
   const nome = String(texto || 'Drogaria Poupaqui').trim();
+  if (/^Drogaria Poupaqui\b/i.test(nome)) return 'Drogaria Poupaqui';
   return nome.replace(/\s+(?:Av\.?|Avenida|Rua|R\.?|Rodovia|Estrada)\s+.+$/i, '').trim() || nome;
 }
 
