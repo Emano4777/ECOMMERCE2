@@ -113,6 +113,47 @@
     body { margin: 0; font-family: 'Montserrat', system-ui, sans-serif; background: var(--pq-bg); color: var(--pq-text); }
     .pq-custom-ico { filter: invert(1); mix-blend-mode: screen; display:inline-block; vertical-align:middle; }
 
+    /* ── TEMA BLACK FRIDAY (temporario, ate 27/11 -- ver black_friday_ativo
+       no inject_globals do app.py) ─────────────────────────────────────
+       So troca o FUNDO da pagina (--pq-bg, variavel de CSS herdada por
+       quem usa var(--pq-bg)) pra escuro; cards/modais continuam brancos
+       de proposito -- "produto iluminado sobre fundo escuro" e mais
+       seguro visualmente (nao precisa re-garantir contraste de texto em
+       cada um dos muitos componentes com cor fixa espalhados pelo site)
+       e fica com cara de vitrine de Black Friday mesmo assim. Vermelho e
+       amarelo da marca continuam os mesmos -- identidade Poupaqui mantida. */
+    body.pq-bf {
+      --pq-bg: #141414;
+    }
+    body.pq-bf .pq-topbar {
+      background: linear-gradient(100deg, #0a0a0a 0%, #c8102e 48%, #0a0a0a 100%);
+      border-bottom: 2px solid var(--pq-yellow);
+      box-shadow: 0 3px 20px rgba(245,200,66,.25);
+    }
+    body.pq-bf .pq-footer {
+      background: linear-gradient(100deg, #0a0a0a 0%, #c8102e 55%, #0a0a0a 100%);
+      border-top: 2px solid var(--pq-yellow);
+    }
+    .pq-bf-ribbon {
+      background: linear-gradient(90deg, #0a0a0a, #c8102e, #0a0a0a, #c8102e, #0a0a0a);
+      background-size: 300% 100%;
+      animation: pqBfShine 10s linear infinite;
+      color: var(--pq-yellow);
+      text-align: center;
+      font-weight: 900;
+      font-size: .78rem;
+      letter-spacing: .02em;
+      padding: 7px 10px;
+      text-transform: uppercase;
+    }
+    @keyframes pqBfShine {
+      0%   { background-position: 0% 0; }
+      100% { background-position: 300% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pq-bf-ribbon { animation: none; }
+    }
+
     /* ── TOPBAR iFood-style ─────────────────────────────── */
     .pq-topbar {
       background: #e00627; /* mesmo vermelho de dentro da logo (poupaqui-logo.png), nao o --pq-red do resto do site -- evita a "costura" visivel onde a logo encosta no fundo do header */
@@ -1259,7 +1300,11 @@
   </style>
   {% block extra_style %}{% endblock %}
 </head>
-<body>
+<body class="{{ 'pq-bf' if black_friday_ativo else '' }}">
+
+{% if black_friday_ativo %}
+<div class="pq-bf-ribbon"><span>🔥 BLACK FRIDAY POUPAQUI — ofertas imperdíveis até 27/11 🔥</span></div>
+{% endif %}
 
 <!-- TOPBAR -->
 <header class="pq-topbar">

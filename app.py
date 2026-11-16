@@ -990,6 +990,7 @@ def inject_globals():
         "pedidos_pendentes_count": painel_pedidos_pendentes,
         "loja_logo_url": painel_logo_url,
         "som_ativo": True,
+        "black_friday_ativo": _black_friday_ativo(),
     }
 
 
@@ -37557,6 +37558,16 @@ def _hora_atual_br():
 def _data_hoje_br():
     tz_br = timezone(timedelta(hours=-3))
     return datetime.now(tz_br).date()
+
+
+# Tema visual de Black Friday: ativo ate essa data (inclusive), vira sozinho
+# na virada pro dia seguinte (sem precisar de cron/flag manual) -- so
+# comparar a data de hoje (fuso BR) contra esse limite.
+_BLACK_FRIDAY_FIM = date(2026, 11, 27)
+
+
+def _black_friday_ativo():
+    return _data_hoje_br() <= _BLACK_FRIDAY_FIM
 
 
 def _time_from_db(val):
