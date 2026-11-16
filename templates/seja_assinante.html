@@ -3,6 +3,14 @@
 
 {% block extra_style %}
 <style>
+/* ── Ajustes de contraste pro tema Black Friday (ver base_public.html) --
+   .sa-hd h2 herda texto escuro do body, .sa-hd-sub usa --pq-muted (escuro)
+   -- nenhum dos dois tem fundo branco por baixo (ficam direto no fundo
+   da pagina, diferente dos cards .sa-feature/.sa-como/.sa-card que sao
+   brancos e nao precisam de ajuste). */
+body.pq-bf .sa-hd h2 { color: #fff; }
+body.pq-bf .sa-hd-sub { color: #bbb; }
+
 /* HERO */
 .sa-hero {
   position:relative;

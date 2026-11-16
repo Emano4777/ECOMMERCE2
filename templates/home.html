@@ -3,6 +3,15 @@
 
 {% block extra_style %}
 <style>
+/* ── Ajustes de contraste pro tema Black Friday (ver base_public.html) --
+   essas classes nao tem cor propria (herdam texto escuro do body) ou usam
+   cor fixa clara assumindo fundo claro da pagina; no fundo escuro do
+   tema ficavam ilegiveis. */
+body.pq-bf .home-title { color: #fff; }
+body.pq-bf .home-sub { color: #bbb; }
+body.pq-bf .story-circle-label { color: #e6e6e6; }
+body.pq-bf .dept-strip-wrap::after { background: linear-gradient(to right, transparent, #141414); }
+
 .home-wrap { width:100%; margin:0 auto; padding:8px 0 60px; }
 .home-hero {
   background-image:

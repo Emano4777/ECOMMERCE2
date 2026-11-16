@@ -40,6 +40,13 @@
 
 {% block extra_style %}
 <style>
+/* ── Ajustes de contraste pro tema Black Friday (ver base_public.html) --
+   .idx-title herda texto escuro do body, .idx-empty usa --pq-muted (escuro)
+   e o estado vazio escreve color:var(--pq-text) inline -- nenhum desses
+   dois tem fundo branco por baixo (ficam direto no fundo da pagina). */
+body.pq-bf .idx-title { color: #fff; }
+body.pq-bf .idx-empty { --pq-text: #e3e3e3; --pq-muted: #9a9a9a; }
+
 /* ── NAVBAR SEARCH BLOCK ────────────────────────── */
 .idx-nb-wrap {
   flex: 1 1 440px;

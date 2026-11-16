@@ -115,15 +115,17 @@
 
     /* ── TEMA BLACK FRIDAY (temporario, ate 27/11 -- ver black_friday_ativo
        no inject_globals do app.py) ─────────────────────────────────────
-       NAO escurece o fundo geral da pagina (--pq-bg): varios textos em
-       varias paginas usam cor escura fixa (ex: #1a1a1a, #333) direto
-       sobre esse fundo, fora de qualquer card branco -- escurecer o
-       fundo deixava esses textos ilegiveis em paginas inteiras (achado
-       testando a versao anterior deste tema). O visual de Black Friday
-       fica so no cabecalho, rodape e na faixa abaixo, que controlo
-       inteiramente (cores proprias, sem depender de texto de outro
-       componente). Vermelho e amarelo da marca continuam os mesmos --
-       identidade Poupaqui mantida. */
+       Fundo geral da pagina (--pq-bg) escuro. Varios textos em varias
+       paginas usam cor escura fixa (#1a1a1a, #333) ou herdada direto
+       sobre esse fundo, fora de qualquer card branco -- cada um desses
+       pontos tem sua propria correcao (body.pq-bf ...) no <style> do
+       template onde a classe original foi definida (home.html,
+       index.html, seja_assinante.html etc), perto da regra que corrige.
+       Cards/modais continuam brancos (nao precisam de correcao). Vermelho
+       e amarelo da marca continuam os mesmos -- identidade mantida. */
+    body.pq-bf {
+      --pq-bg: #141414;
+    }
     body.pq-bf .pq-topbar {
       background: linear-gradient(100deg, #0a0a0a 0%, #c8102e 48%, #0a0a0a 100%);
       border-bottom: 2px solid var(--pq-yellow);
