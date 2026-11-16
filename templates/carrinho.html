@@ -758,6 +758,14 @@ function shortAddr(text) {
   return text || 'Não informado';
 }
 
+// Algumas lojas antigas têm o endereço anexado à razão social. No cabeçalho
+// compacto do grupo mostramos só o nome; o endereço completo continua logo
+// abaixo, na seção de retirada/entrega.
+function nomeLojaCarrinho(texto) {
+  const nome = String(texto || 'Drogaria Poupaqui').trim();
+  return nome.replace(/\s+(?:Av\.?|Avenida|Rua|R\.?|Rodovia|Estrada)\s+.+$/i, '').trim() || nome;
+}
+
 function addressChoiceHtml(cnpj) {
   const current = getCurrentLocationAddress();
   const profile = getProfileAddress();
@@ -1336,7 +1344,8 @@ function renderCart() {
   cnpjs.forEach(cnpj => {
     const g = groups[cnpj];
     const cfg = _configLojas[cnpj] || {};
-    const nomeLoja = g.razao || cfg.razao || 'Drogaria Poupaqui';
+    const razaoLoja = g.razao || cfg.razao || 'Drogaria Poupaqui';
+    const nomeLoja = nomeLojaCarrinho(razaoLoja);
     const sub = g.itens.reduce((s,i) => s + (i.preco||0)*(i.qty||1), 0);
     const descontoCodigo = _cupomAplicado[cnpj]?.desconto || 0;
     const descontoQtdAuto = calcDescontoQtdAuto(cnpj, g.itens);
@@ -1556,7 +1565,7 @@ function renderCart() {
         <div class="pay-label">Recebimento</div>
         <div class="pay-options" id="delivery-opts-${esc(cnpj)}">${entregaOpts}</div>
         ${minPedidoAvisoHtml}
-        <div id="pickup-context-${esc(cnpj)}" style="display:${deliverySelected === 'entrega' ? 'none' : ''}">${pickupContextHtml(cfg, nomeLoja)}</div>
+        <div id="pickup-context-${esc(cnpj)}" style="display:${deliverySelected === 'entrega' ? 'none' : ''}">${pickupContextHtml(cfg, razaoLoja)}</div>
         <div id="delivery-context-${esc(cnpj)}" style="display:${deliverySelected === 'entrega' ? '' : 'none'}">
           ${entregaMsg ? `<div class="delivery-note">${entregaMsg}</div>` : ''}
           <div class="checkout-address-title">Entregar em</div>
