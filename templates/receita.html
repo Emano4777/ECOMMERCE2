@@ -3,6 +3,13 @@
 
 {% block extra_style %}
 <style>
+/* ── Ajustes de contraste pro tema Black Friday (ver base_public.html) --
+   .rx-hero h1 usa cor fixa escura, .rx-hero p usa --pq-muted (escuro) --
+   nenhum dos dois tem fundo branco por baixo (.rx-hero e so texto
+   centralizado direto no fundo da pagina). */
+body.pq-bf .rx-hero h1 { color: #fff; }
+body.pq-bf .rx-hero p { color: #bbb; }
+
 /* ── LAYOUT ──────────────────────────────────────────────────── */
 .rx-wrap {
   max-width: 1080px; margin: 0 auto; padding: 32px 16px 80px;
