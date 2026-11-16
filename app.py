@@ -25443,7 +25443,8 @@ def api_suporte_abrir():
     if pedido_id and not _pedido_ctx_para_ia(pedido_id, consumidor_id):
         pedido_id = None  # pedido invalido/nao pertence a esse cliente — ignora
     chat = _suporte_chat_ativo(consumidor_id, pedido_id)
-    _poupinha_aquecer()   # enquanto o cliente digita, o modelo local ja le o prompt (a frio sao ~30 s)
+    # Nao aquece o modelo ao abrir o chat: essas chamadas concorriam com a
+    # mensagem real do cliente pelos slots do Ollama e podiam causar timeout.
     conn = db()
     cur = conn.cursor()
     cur.execute("SELECT autor, mensagem, enviada_em FROM ecommerce_suporte_msgs WHERE chat_id=%s ORDER BY enviada_em", (chat["id"],))
