@@ -25397,10 +25397,11 @@ def _notificar_admin_suporte(chat_id, resumo):
         app.logger.warning("_notificar_admin_suporte error: %s", exc)
 
 
-def _suporte_escalada_abandonada(cur, chat, horas=12):
-    """Chat que foi para atendente so porque a IA falhou ('sem_resposta': o cliente nao pediu gente) e que
-    nenhum humano (loja/admin) respondeu em `horas`: deixar o cliente esperando para sempre e pior que
-    voltar para a IA. Ex.: falha da IA em 15/10 prendeu o chat em 'escalada_admin' ate 30/10."""
+def _suporte_escalada_abandonada(cur, chat, horas=0):
+    """Chat que foi para atendente so porque a IA falhou ('sem_resposta': o
+    cliente nao pediu gente) e que ainda nao recebeu resposta humana volta para
+    o bot na proxima mensagem. Escalamentos solicitados pelo cliente continuam
+    aguardando atendimento humano normalmente."""
     if chat.get("status") == "bot" or chat.get("motivo_categoria") != "sem_resposta" or not chat.get("escalada_em"):
         return False
     cur.execute(
