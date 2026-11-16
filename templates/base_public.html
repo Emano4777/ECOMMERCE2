@@ -3143,6 +3143,29 @@ window.PQEconomia = (function () {
 #pq-suporte-tip.show { opacity:1; transform:translateY(-50%) translateX(0); pointer-events:auto; }
 #pq-suporte-tip-x { background:transparent; border:0; color:#fff; opacity:.65; cursor:pointer; font-size:.7rem; padding:3px; flex-shrink:0; line-height:1; }
 #pq-suporte-tip-x:hover { opacity:1; }
+body.pq-bf #pq-suporte-tip {
+  background:#ffd21c;
+  color:#26090d;
+  border:2px solid #fff;
+  padding:9px 10px 9px 13px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.01em;
+  box-shadow:0 5px 16px rgba(0,0,0,.35);
+}
+body.pq-bf #pq-suporte-tip::before { border-right-color:#fff; }
+body.pq-bf #pq-suporte-tip::after {
+  content:'';
+  position:absolute;
+  left:-9px;
+  top:50%;
+  width:12px;
+  height:3px;
+  background:#7c2d12;
+  transform:translateY(-50%) rotate(-8deg);
+  z-index:-1;
+}
+body.pq-bf #pq-suporte-tip-x { color:#26090d; }
 #pq-suporte-panel { display:none; position:fixed; bottom:calc(env(safe-area-inset-bottom, 0px) + 90px + clamp(46px, 13vw, 56px) + 10px); left:20px; z-index:2100; width:340px; max-width:92vw; height:min(460px, 70vh); background:#fff; border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,.3); overflow:hidden; flex-direction:column; }
 .pqs-head { background:var(--pq-red); color:#fff; padding:12px 16px; font-weight:800; font-size:.92rem; display:flex; align-items:center; justify-content:space-between; }
 .pqs-head-title { display:flex; align-items:center; gap:8px; }
@@ -3169,7 +3192,7 @@ window.PQEconomia = (function () {
     <i class="fa fa-xmark"></i>
   </button>
   <div id="pq-suporte-tip">
-    <span>Precisa de ajuda? Fale com o suporte</span>
+    <span>{% if black_friday_ativo %}Aproveite a Black Friday!{% else %}Precisa de ajuda? Fale com o suporte{% endif %}</span>
     <button id="pq-suporte-tip-x" onclick="pqsFecharTip(event)" aria-label="Fechar dica"><i class="fa fa-xmark"></i></button>
   </div>
 </div>
