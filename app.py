@@ -10061,6 +10061,12 @@ def api_painel_stories_buscar_produto():
 
 @app.get("/")
 def index():
+    # Links antigos de CRM apontavam para /?q=...; a home nao executa a
+    # busca. Redirecionar preserva esses disparos ja entregues sem reenviar
+    # mensagem nenhuma.
+    busca = (request.args.get("q") or request.args.get("busca") or "").strip()
+    if busca:
+        return redirect(url_for("catalogo_publico", q=busca))
     return render_template("home.html")
 
 
@@ -29043,7 +29049,7 @@ def _processar_crm_automacoes(limite=100):
             if gatilho == "pagamento_pendente" and cliente.get("pedido_id"):
                 destino = url_for("meu_pedido_detalhe", pedido_id=cliente["pedido_id"], _external=True)
             elif gatilho == "busca_sem_carrinho" and cliente.get("busca"):
-                destino = url_for("index", q=cliente["busca"], _external=True)
+                destino = url_for("catalogo_publico", q=cliente["busca"], _external=True)
             else:
                 destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
             for canal in (automacao.get("canais") or []):
