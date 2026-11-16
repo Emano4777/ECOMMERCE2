@@ -3,6 +3,14 @@
 
 {% block extra_style %}
 <style>
+/* Contraste do conteudo que fica diretamente sobre o fundo Black Friday. */
+body.pq-bf .bapp-hero h1,
+body.pq-bf .bapp-step-copy h3 { color:#fff; }
+body.pq-bf .bapp-hero p,
+body.pq-bf .bapp-step-copy p { color:#bbb; }
+body.pq-bf .bapp-step-copy strong { color:#e8e8e8; }
+body.pq-bf .bapp-step { border-bottom-color:#3d3d3d; }
+
 .bapp-wrap { max-width:920px; margin:0 auto; padding:32px 16px 76px; }
 .bapp-hero { text-align:center; margin-bottom:8px; }
 .bapp-hero i.bapp-hero-ico { font-size:2.4rem; color:var(--pq-red); display:block; margin-bottom:10px; }

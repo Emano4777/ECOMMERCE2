@@ -3,6 +3,11 @@
 
 {% block extra_style %}
 <style>
+/* Ajustes exclusivos do tema temporario de Black Friday. */
+body.pq-bf .lv-clube-title,
+body.pq-bf .lv-all-title { color:#fff; }
+body.pq-bf .lv-clube-sub { color:#bbb !important; }
+
 /* ── HERO ────────────────────────────────────────────────── */
 .lv-hero {
   background: var(--pq-red);
@@ -203,10 +208,10 @@
   </script>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0;font-size:1.1rem;font-weight:900;display:flex;align-items:center;gap:8px">
+      <h2 class="lv-clube-title" style="margin:0;font-size:1.1rem;font-weight:900;display:flex;align-items:center;gap:8px">
         <i class="fa fa-star" style="color:var(--pq-red)"></i>Farmácias com Clube de Assinantes
       </h2>
-      <div style="font-size:.82rem;color:var(--pq-muted);margin-top:3px">Assine e tenha benefícios exclusivos nessas farmácias.</div>
+      <div class="lv-clube-sub" style="font-size:.82rem;color:var(--pq-muted);margin-top:3px">Assine e tenha benefícios exclusivos nessas farmácias.</div>
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
@@ -265,7 +270,7 @@
   </div>
 </div>
 <div style="max-width:1200px;margin:28px auto 0;padding:0 16px;border-top:1px solid var(--pq-border);padding-top:24px">
-  <h2 style="font-size:1.1rem;font-weight:900;margin:0 0 16px;display:flex;align-items:center;gap:8px">
+  <h2 class="lv-all-title" style="font-size:1.1rem;font-weight:900;margin:0 0 16px;display:flex;align-items:center;gap:8px">
     <i class="fa fa-store" style="color:var(--pq-red)"></i>Todas as nossas lojas
   </h2>
 </div>
