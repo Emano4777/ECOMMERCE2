@@ -1695,7 +1695,9 @@ def _crm_personalizar(texto, cliente, nome_loja="", cupom_texto=""):
     primeiro_nome = nome.split()[0] if nome else "Cliente"
     return (texto or "").replace("{primeiro_nome}", primeiro_nome).replace(
         "{nome}", nome
-    ).replace("{loja}", nome_loja or "nossa loja").replace("{cupom}", cupom_texto or "")
+    ).replace("{loja}", nome_loja or "nossa loja").replace("{cupom}", cupom_texto or "").replace(
+        "{busca}", str(cliente.get("busca") or "produto")
+    ).replace("{itens}", str(cliente.get("itens") or "os produtos escolhidos"))
 
 
 def _crm_texto_cupom(cupom):
@@ -1808,6 +1810,22 @@ def _crm_whatsapp_permissao(consumidor_id):
     if int(freq.get("dia") or 0) >= 1 or int(freq.get("mes") or 0) >= 4:
         return False, "Limite de frequência do WhatsApp atingido", None
     return True, None, cliente.get("whatsapp_optout_token")
+
+
+def _crm_automacao_frequencia_permitida(consumidor_id, canal):
+    """Evita sequencias de recuperacao: no maximo um contato automatico por
+    canal em 24h e quatro em 30 dias para o mesmo cadastro."""
+    cur = db().cursor()
+    cur.execute("""SELECT
+        COUNT(*) FILTER (WHERE criada_em>=NOW()-INTERVAL '24 hours') AS dia,
+        COUNT(*) FILTER (WHERE criada_em>=NOW()-INTERVAL '30 days') AS mes
+        FROM ecommerce_crm_envios
+        WHERE consumidor_id=%s AND canal=%s AND status='enviado'
+          AND origem LIKE 'automacao:%%'""", (consumidor_id, canal))
+    freq = cur.fetchone() or {}; cur.close()
+    if int(freq.get("dia") or 0) >= 1 or int(freq.get("mes") or 0) >= 4:
+        return False, "Limite de frequencia das automacoes atingido"
+    return True, None
 
 
 def _crm_automacao_ativa(cnpjloja, codigo):
@@ -27187,7 +27205,7 @@ def _crm_dados(cnpjloja):
         (%s,'aniversario','Aniversário do cliente','["email"]'::jsonb, 'aniversario', 0,
             'Feliz aniversário, {primeiro_nome}! 🎉',
             '{loja} deseja um feliz aniversário pra você! Aproveite pra conferir nossas ofertas especiais.'),
-        (%s,'carrinho','Carrinho abandonado','["email"]'::jsonb, 'carrinho', 24,
+        (%s,'carrinho','Carrinho abandonado','["push","email","whatsapp"]'::jsonb, 'carrinho', 24,
             'Você deixou itens na sua cesta',
             'Ainda estamos com os produtos separados pra você em {loja}. Que tal finalizar sua compra?')
         ON CONFLICT(cnpjloja,codigo) DO UPDATE SET
@@ -27624,7 +27642,7 @@ def painel_crm_automacao_criar():
         espera_horas = max(0, min(int(request.form.get("espera_horas") or 0), 24 * 365))
     except Exception:
         espera_horas = 0
-    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro", "cupom_vencendo", "pagamento_pendente"}
+    gatilhos_validos = {"pos_compra", "aniversario", "sem_comprar", "carrinho", "cadastro", "busca_sem_carrinho", "cupom_vencendo", "pagamento_pendente"}
     if not nome or gatilho not in gatilhos_validos or not titulo or not mensagem or not canais:
         flash("Preencha nome, gatilho, canais, assunto e mensagem da automação.", "error")
         return redirect(url_for("painel_notificacoes", aba="automacoes"))
@@ -28863,6 +28881,29 @@ def _processar_crm_automacoes(limite=100):
     gatilho preenchido passa por aqui."""
     _ensure_crm_schema()
     conn = db(); cur = conn.cursor()
+    # Garante que as recuperacoes oferecidas pela plataforma existam mesmo
+    # antes de a loja abrir a tela do CRM. ON CONFLICT preserva qualquer
+    # pausa ou ajuste que a loja ja tenha feito.
+    cur.execute("SELECT cnpjloja FROM ecommerce_crm_planos_loja")
+    for loja_row in cur.fetchall():
+        cnpj_padrao = loja_row["cnpjloja"]
+        cur.execute("""INSERT INTO ecommerce_crm_automacoes
+            (cnpjloja,codigo,nome,canais,gatilho,espera_horas,titulo,mensagem) VALUES
+            (%s,'cadastro_sem_atividade','Cadastro sem atividade','["push","email","whatsapp"]'::jsonb,'cadastro',2,
+                'Podemos ajudar, {primeiro_nome}?',
+                'Sua conta na {loja} já está pronta. Se precisar encontrar algum produto, estamos por aqui para ajudar.'),
+            (%s,'busca_sem_carrinho','Busca sem adicionar ao carrinho','["push","email","whatsapp"]'::jsonb,'busca_sem_carrinho',2,
+                'Ainda procurando por {busca}?',
+                'Vimos que você pesquisou por {busca} na {loja}. Confira novamente as opções disponíveis.'),
+            (%s,'pagamento_pendente_padrao','Pagamento nao concluido','["push","email","whatsapp"]'::jsonb,'pagamento_pendente',1,
+                'Seu pedido ainda aguarda pagamento',
+                'Seu pedido na {loja} ainda não foi pago. Abra o pedido para tentar novamente ou gerar o Pix.' )
+            ON CONFLICT(cnpjloja,codigo) DO NOTHING""", (cnpj_padrao, cnpj_padrao, cnpj_padrao))
+        cur.execute("""UPDATE ecommerce_crm_automacoes
+            SET canais='["push","email","whatsapp"]'::jsonb, atualizado_em=NOW()
+            WHERE cnpjloja=%s AND codigo='carrinho' AND personalizada=FALSE
+              AND canais='["email"]'::jsonb""", (cnpj_padrao,))
+    conn.commit()
     cur.execute("""SELECT * FROM ecommerce_crm_automacoes
         WHERE ativa=TRUE AND gatilho IS NOT NULL ORDER BY id""")
     automacoes = cur.fetchall(); processados = 0; enviados = 0
@@ -28894,9 +28935,22 @@ def _processar_crm_automacoes(limite=100):
                 JOIN ecommerce_pedidos p ON p.consumidor_id=c.id WHERE p.cnpjloja=%s AND p.status<>'cancelado'
                 GROUP BY c.id HAVING MAX(p.criado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
         elif gatilho == "cadastro":
-            origem = """SELECT c.id,c.nome,c.email,c.telefone,c.criado_em AS evento,
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,c.aceita_marketing,c.criado_em AS evento,
                 'cadastro:'||c.criado_em::text AS referencia FROM ecommerce_consumidores c
-                WHERE c.id=ANY(%s::uuid[]) AND c.criado_em <= NOW()-(%s||' hours')::interval"""
+                WHERE c.id=ANY(%s::uuid[]) AND c.criado_em <= NOW()-(%s||' hours')::interval
+                  AND NOT EXISTS (SELECT 1 FROM ecommerce_consumidor_buscas b WHERE b.consumidor_id=c.id)
+                  AND NOT EXISTS (SELECT 1 FROM ecommerce_carrinho x WHERE x.consumidor_id=c.id)
+                  AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p WHERE p.consumidor_id=c.id)"""
+            args = [_consumidores_notificacao_loja(automacao["cnpjloja"], "todos"), espera]
+        elif gatilho == "busca_sem_carrinho":
+            origem = """SELECT DISTINCT ON (c.id) c.id,c.nome,c.email,c.telefone,c.aceita_marketing,
+                b.criado_em AS evento,b.termo AS busca,'busca:'||b.id::text AS referencia
+                FROM ecommerce_consumidores c
+                JOIN ecommerce_consumidor_buscas b ON b.consumidor_id=c.id
+                WHERE c.id=ANY(%s::uuid[]) AND b.criado_em <= NOW()-(%s||' hours')::interval
+                  AND NOT EXISTS (SELECT 1 FROM ecommerce_carrinho x WHERE x.consumidor_id=c.id AND x.atualizado_em>=b.criado_em)
+                  AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p WHERE p.consumidor_id=c.id AND p.criado_em>=b.criado_em)
+                ORDER BY c.id,b.criado_em DESC"""
             args = [_consumidores_notificacao_loja(automacao["cnpjloja"], "todos"), espera]
         elif gatilho == "aniversario":
             origem = """SELECT c.id,c.nome,c.email,c.telefone,NOW() AS evento,
@@ -28910,7 +28964,8 @@ def _processar_crm_automacoes(limite=100):
                 JOIN ecommerce_pedidos p ON p.consumidor_id=c.id WHERE p.cnpjloja=%s AND p.status<>'cancelado'
                 GROUP BY c.id HAVING MAX(p.criado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
         elif gatilho == "carrinho":
-            origem = """SELECT c.id,c.nome,c.email,c.telefone,MAX(x.atualizado_em) AS evento,
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,c.aceita_marketing,MAX(x.atualizado_em) AS evento,
+                STRING_AGG(DISTINCT x.nome, ', ' ORDER BY x.nome) AS itens,
                 'carrinho:'||MAX(x.atualizado_em)::text AS referencia FROM ecommerce_consumidores c
                 JOIN ecommerce_carrinho x ON x.consumidor_id=c.id WHERE x.cnpjloja=%s
                 GROUP BY c.id HAVING MAX(x.atualizado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
@@ -28934,7 +28989,7 @@ def _processar_crm_automacoes(limite=100):
         elif gatilho == "pagamento_pendente":
             # pedido gerado (pix ou cartao) sem confirmar pagamento -- cobre
             # tanto pix nunca escaneado quanto cartao rejeitado.
-            origem = """SELECT c.id,c.nome,c.email,c.telefone,p.criado_em AS evento,
+            origem = """SELECT c.id,c.nome,c.email,c.telefone,c.aceita_marketing,p.id AS pedido_id,p.criado_em AS evento,
                 'pagamento_pendente:'||p.id::text AS referencia
                 FROM ecommerce_pedidos p JOIN ecommerce_consumidores c ON c.id=p.consumidor_id
                 WHERE p.cnpjloja=%s AND p.status='pendente'
@@ -28981,9 +29036,19 @@ def _processar_crm_automacoes(limite=100):
                         cupom_texto = _crm_texto_cupom(cupom_automacao)
             titulo = _crm_personalizar(automacao.get("titulo"), cliente, nome_loja, cupom_texto)
             mensagem = _crm_personalizar(automacao.get("mensagem"), cliente, nome_loja, cupom_texto)
-            destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
+            if gatilho == "pagamento_pendente" and cliente.get("pedido_id"):
+                destino = url_for("meu_pedido_detalhe", pedido_id=cliente["pedido_id"], _external=True)
+            elif gatilho == "busca_sem_carrinho" and cliente.get("busca"):
+                destino = url_for("index", q=cliente["busca"], _external=True)
+            else:
+                destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
             for canal in (automacao.get("canais") or []):
                 ok = False; erro = None
+                frequencia_ok, motivo_frequencia = _crm_automacao_frequencia_permitida(cliente["id"], canal)
+                if not frequencia_ok:
+                    _crm_registrar_envio(automacao["cnpjloja"], cliente["id"], canal,
+                        f"automacao:{automacao['codigo']}", "bloqueado", titulo, mensagem, erro=motivo_frequencia)
+                    continue
                 permitido_plano, motivo_plano = _crm_pode_enviar(automacao["cnpjloja"], canal)
                 if not permitido_plano:
                     _crm_registrar_envio(automacao["cnpjloja"], cliente["id"], canal,
