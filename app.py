@@ -28938,6 +28938,7 @@ def _processar_crm_automacoes(limite=100):
             origem = """SELECT c.id,c.nome,c.email,c.telefone,c.aceita_marketing,c.criado_em AS evento,
                 'cadastro:'||c.criado_em::text AS referencia FROM ecommerce_consumidores c
                 WHERE c.id=ANY(%s::uuid[]) AND c.criado_em <= NOW()-(%s||' hours')::interval
+                  AND c.criado_em >= NOW()-INTERVAL '7 days'
                   AND NOT EXISTS (SELECT 1 FROM ecommerce_consumidor_buscas b WHERE b.consumidor_id=c.id)
                   AND NOT EXISTS (SELECT 1 FROM ecommerce_carrinho x WHERE x.consumidor_id=c.id)
                   AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p WHERE p.consumidor_id=c.id)"""
@@ -28948,6 +28949,7 @@ def _processar_crm_automacoes(limite=100):
                 FROM ecommerce_consumidores c
                 JOIN ecommerce_consumidor_buscas b ON b.consumidor_id=c.id
                 WHERE c.id=ANY(%s::uuid[]) AND b.criado_em <= NOW()-(%s||' hours')::interval
+                  AND b.criado_em >= NOW()-INTERVAL '7 days'
                   AND NOT EXISTS (SELECT 1 FROM ecommerce_carrinho x WHERE x.consumidor_id=c.id AND x.atualizado_em>=b.criado_em)
                   AND NOT EXISTS (SELECT 1 FROM ecommerce_pedidos p WHERE p.consumidor_id=c.id AND p.criado_em>=b.criado_em)
                 ORDER BY c.id,b.criado_em DESC"""
@@ -28968,7 +28970,8 @@ def _processar_crm_automacoes(limite=100):
                 STRING_AGG(DISTINCT x.nome, ', ' ORDER BY x.nome) AS itens,
                 'carrinho:'||MAX(x.atualizado_em)::text AS referencia FROM ecommerce_consumidores c
                 JOIN ecommerce_carrinho x ON x.consumidor_id=c.id WHERE x.cnpjloja=%s
-                GROUP BY c.id HAVING MAX(x.atualizado_em) <= NOW()-(%s||' hours')::interval"""; args.append(espera)
+                GROUP BY c.id HAVING MAX(x.atualizado_em) <= NOW()-(%s||' hours')::interval
+                  AND MAX(x.atualizado_em) >= NOW()-INTERVAL '7 days'"""; args.append(espera)
         elif gatilho == "cupom_vencendo":
             # espera_horas aqui e reaproveitado como "avisa faltando ate X horas
             # pro vencimento" (em vez de "espera X horas depois do evento",
@@ -28994,7 +28997,8 @@ def _processar_crm_automacoes(limite=100):
                 FROM ecommerce_pedidos p JOIN ecommerce_consumidores c ON c.id=p.consumidor_id
                 WHERE p.cnpjloja=%s AND p.status='pendente'
                   AND COALESCE(p.pagamento_status,'') NOT IN ('approved','pago')
-                  AND p.criado_em <= NOW()-(%s||' hours')::interval"""; args.append(espera)
+                  AND p.criado_em <= NOW()-(%s||' hours')::interval
+                  AND p.criado_em >= NOW()-INTERVAL '7 days'"""; args.append(espera)
         else:
             continue
         cur.execute(f"""SELECT q.* FROM ({origem}) q WHERE NOT EXISTS (
