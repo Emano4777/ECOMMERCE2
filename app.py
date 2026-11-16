@@ -29047,7 +29047,7 @@ def _processar_crm_automacoes(limite=100):
             else:
                 destino = url_for("catalogo_loja", cnpjloja=automacao["cnpjloja"], _external=True)
             for canal in (automacao.get("canais") or []):
-                ok = False; erro = None
+                ok = False; erro = None; bloqueado = False
                 frequencia_ok, motivo_frequencia = _crm_automacao_frequencia_permitida(cliente["id"], canal)
                 if not frequencia_ok:
                     _crm_registrar_envio(automacao["cnpjloja"], cliente["id"], canal,
@@ -29076,12 +29076,12 @@ def _processar_crm_automacoes(limite=100):
                             finally:
                                 time.sleep(0.8)
                         else:
-                            erro = motivo
+                            erro = motivo; bloqueado = True
                 except Exception as exc:
                     erro = str(exc)
                     app.logger.warning("crm automacao %s canal %s: %s", automacao["id"], canal, exc)
                 _crm_registrar_envio(automacao["cnpjloja"],cliente["id"],canal,
-                    f"automacao:{automacao['codigo']}","enviado" if ok else "falhou",titulo,mensagem,erro=erro)
+                    f"automacao:{automacao['codigo']}","enviado" if ok else ("bloqueado" if bloqueado else "falhou"),titulo,mensagem,erro=erro)
                 enviados += int(ok)
     cur.close()
     return {"automacoes": len(automacoes), "processados": processados, "envios": enviados}
