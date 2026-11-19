@@ -19176,6 +19176,12 @@ def api_aviso_chegada_criar():
             return jsonify({"ok": False, "erro": "Informe um WhatsApp válido com DDD."}), 400
     conn = db()
     cur = conn.cursor()
+    if campanha and consumidor_id:
+        cur.execute("SELECT endereco FROM ecommerce_consumidores WHERE id=%s LIMIT 1", (consumidor_id,))
+        cadastro = cur.fetchone()
+        if not cadastro or not _local_rio_das_pedras_sp(cadastro.get("endereco")):
+            cur.close()
+            return jsonify({"ok": False, "erro": "Beneficio exclusivo para moradores de Rio das Pedras/SP."}), 403
     # dedupe: mesma conta+cidade, ou mesmo telefone+cidade+uf
     cur.execute(
         """
