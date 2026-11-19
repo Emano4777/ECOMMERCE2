@@ -3679,5 +3679,94 @@ function reenviarVerificacao(btn) {
   setTimeout(carregarAdsSeElegivel, 1500);
 })();
 </script>
+<style>
+  .pq-rdp-backdrop{position:fixed;inset:0;z-index:10020;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(8,10,14,.72);backdrop-filter:blur(5px)}
+  .pq-rdp-backdrop.is-open{display:flex}
+  .pq-rdp-modal{position:relative;width:min(920px,100%);max-height:calc(100vh - 36px);overflow:auto;display:grid;grid-template-columns:46% 54%;background:#fff;border-radius:24px;box-shadow:0 24px 80px rgba(0,0,0,.42);color:#171717}
+  .pq-rdp-visual{min-height:420px;background:#b9092f url("{{ url_for('static', filename='rio-das-pedras-chegando.webp') }}") center/cover no-repeat;border-radius:24px 0 0 24px}
+  .pq-rdp-content{padding:42px 42px 36px;display:flex;flex-direction:column;justify-content:center}
+  .pq-rdp-logo{width:148px;height:auto;margin-bottom:25px}
+  .pq-rdp-eyebrow{margin:0 0 10px;color:#c90035;font-size:.75rem;font-weight:900;letter-spacing:.08em}
+  .pq-rdp-title{margin:0 0 14px;font-size:clamp(2rem,4vw,3rem);line-height:1.02;font-weight:900;color:#13151a}
+  .pq-rdp-copy{margin:0 0 18px;font-size:1.05rem;line-height:1.55;color:#4b4f59}
+  .pq-rdp-benefit{margin:0 0 25px;padding:13px 15px;border-radius:12px;background:#fff4c6;color:#6e5100;font-size:.88rem;font-weight:800}
+  .pq-rdp-cta{display:flex;align-items:center;justify-content:center;min-height:50px;padding:12px 20px;border:0;border-radius:12px;background:#d30a3b;color:#fff!important;font:800 1rem/1.2 inherit;text-decoration:none;cursor:pointer;box-shadow:0 8px 22px rgba(211,10,59,.25)}
+  .pq-rdp-cta:hover{background:#b80732;transform:translateY(-1px)}
+  .pq-rdp-note{margin:12px 0 0;text-align:center;color:#737782;font-size:.76rem;line-height:1.35}
+  .pq-rdp-close{position:absolute;z-index:2;top:14px;right:14px;width:38px;height:38px;border:0;border-radius:50%;background:#f0f1f4;color:#272a31;font-size:25px;line-height:1;cursor:pointer}
+  @media(max-width:700px){.pq-rdp-backdrop{padding:12px;align-items:flex-end}.pq-rdp-modal{grid-template-columns:1fr;border-radius:22px}.pq-rdp-visual{min-height:190px;border-radius:22px 22px 0 0;background-position:center 47%}.pq-rdp-content{padding:25px 22px 24px}.pq-rdp-logo{width:118px;margin-bottom:16px}.pq-rdp-title{font-size:2rem}.pq-rdp-copy{font-size:.94rem}.pq-rdp-close{top:10px;right:10px}}
+</style>
+<div id="pqRdpPopup" class="pq-rdp-backdrop" aria-hidden="true">
+  <section class="pq-rdp-modal" role="dialog" aria-modal="true" aria-labelledby="pqRdpTitle">
+    <button class="pq-rdp-close" type="button" aria-label="Fechar aviso">&times;</button>
+    <div class="pq-rdp-visual" aria-hidden="true"></div>
+    <div class="pq-rdp-content">
+      <img class="pq-rdp-logo" src="{{ url_for('static', filename='poupaqui-logo-192.png') }}" alt="Poupaqui">
+      <p class="pq-rdp-eyebrow">NOVIDADE EM RIO DAS PEDRAS</p>
+      <h2 id="pqRdpTitle" class="pq-rdp-title">A Poupaqui está chegando!</h2>
+      <p class="pq-rdp-copy">Os primeiros moradores de Rio das Pedras/SP que criarem uma conta garantem <strong>10% de desconto na primeira compra.</strong></p>
+      <p class="pq-rdp-benefit">✓ Cupom pessoal &nbsp;•&nbsp; uso único &nbsp;•&nbsp; válido no lançamento</p>
+      {% if consumidor %}
+      <button id="pqRdpCta" class="pq-rdp-cta" type="button">Quero garantir meu desconto</button>
+      {% else %}
+      <a id="pqRdpCta" class="pq-rdp-cta" href="{{ url_for('consumidor_criar_conta', campanha='rio-das-pedras-10', next=url_for('index')) }}">Criar conta e garantir 10%</a>
+      {% endif %}
+      <p id="pqRdpStatus" class="pq-rdp-note">Benefício exclusivo para moradores de Rio das Pedras/SP.</p>
+    </div>
+  </section>
+</div>
+<script>
+(function () {
+  var popup = document.getElementById('pqRdpPopup');
+  if (!popup) return;
+  var closeBtn = popup.querySelector('.pq-rdp-close');
+  var cta = document.getElementById('pqRdpCta');
+  var status = document.getElementById('pqRdpStatus');
+  var seenKey = 'pq_rdp_launch_seen_v1';
+
+  function normalizar(valor) {
+    return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+  function estaEmRioDasPedras() {
+    var local = normalizar(localStorage.getItem('pq_loc_nome'));
+    return local.indexOf('rio das pedras') !== -1 && (/(^|[\s,\/-])sp([\s,\/-]|$)/.test(local) || local.indexOf('sao paulo') !== -1);
+  }
+  function abrir() {
+    if (!estaEmRioDasPedras() || sessionStorage.getItem(seenKey)) return;
+    popup.classList.add('is-open');
+    popup.setAttribute('aria-hidden', 'false');
+    sessionStorage.setItem(seenKey, '1');
+    closeBtn.focus();
+  }
+  function fechar() {
+    popup.classList.remove('is-open');
+    popup.setAttribute('aria-hidden', 'true');
+  }
+  closeBtn.addEventListener('click', fechar);
+  popup.addEventListener('click', function (ev) { if (ev.target === popup) fechar(); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') fechar(); });
+  document.addEventListener('pq:location-changed', function () {
+    if (estaEmRioDasPedras()) abrir(); else fechar();
+  });
+  setTimeout(abrir, 1800);
+
+  {% if consumidor %}
+  cta.addEventListener('click', function () {
+    cta.disabled = true;
+    cta.textContent = 'Garantindo...';
+    fetch('/api/aviso-chegada', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        cidade: 'Rio das Pedras', uf: 'SP', campanha: 'rio-das-pedras-10',
+        lat: parseFloat(localStorage.getItem('pq_lat') || '0') || null,
+        lng: parseFloat(localStorage.getItem('pq_lng') || '0') || null
+      })
+    }).then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function () { cta.textContent = 'Desconto garantido ✓'; status.textContent = 'Pronto! Vamos avisar você assim que a Poupaqui chegar.'; })
+      .catch(function () { cta.disabled = false; cta.textContent = 'Tentar novamente'; status.textContent = 'Não foi possível salvar agora. Tente novamente.'; });
+  });
+  {% endif %}
+})();
+</script>
 </body>
 </html>

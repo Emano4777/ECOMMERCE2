@@ -1863,7 +1863,7 @@ def _crm_registrar_envio(cnpjloja, consumidor_id, canal, origem, status,
 
 
 def _ensure_aviso_chegada_schema():
-    key = "aviso_chegada_v2"
+    key = "aviso_chegada_v3"
     if key in _schema_ready:
         return
     _load_db_migrations()
@@ -1884,6 +1884,7 @@ def _ensure_aviso_chegada_schema():
                 lng DOUBLE PRECISION,
                 criado_em TIMESTAMPTZ DEFAULT NOW(),
                 notificado_em TIMESTAMPTZ,
+                campanha TEXT,
                 UNIQUE (consumidor_id, cidade, uf)
             )
         """)
@@ -1894,6 +1895,7 @@ def _ensure_aviso_chegada_schema():
             conn.rollback()
         cur.execute("ALTER TABLE ecommerce_avisos_chegada ADD COLUMN IF NOT EXISTS nome TEXT")
         cur.execute("ALTER TABLE ecommerce_avisos_chegada ADD COLUMN IF NOT EXISTS telefone TEXT")
+        cur.execute("ALTER TABLE ecommerce_avisos_chegada ADD COLUMN IF NOT EXISTS campanha TEXT")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_aviso_chegada_pendente ON ecommerce_avisos_chegada(cidade, uf) WHERE notificado_em IS NULL")
         cur.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_aviso_chegada_fone_cidade
@@ -10070,6 +10072,13 @@ def index():
     return render_template("home.html")
 
 
+def _local_rio_das_pedras_sp(nome_local):
+    texto = _sem_acento(nome_local or "").lower()
+    if "rio das pedras" not in texto:
+        return False
+    return bool(re.search(r"\bsp\b", texto)) or "sao paulo" in texto
+
+
 def _ads_cidade_bloqueada(nome_local):
     """Cidades onde o anuncio AdSense fica desativado manualmente, independente
     de raio/cobertura de loja -- pedido explicito do usuario (2026-11-19:
@@ -10078,10 +10087,7 @@ def _ads_cidade_bloqueada(nome_local):
     Nao usa so _sem_acento pra normalizar: ha DUAS definicoes dessa funcao
     no arquivo (4617 e ~31396) e a ultima (sem lower()) vence em tempo de
     execucao -- por isso o .lower() explicito continua necessario."""
-    texto = _sem_acento(nome_local or "").lower()
-    if "rio das pedras" not in texto:
-        return False
-    return bool(re.search(r"\bsp\b", texto)) or "sao paulo" in texto
+    return _local_rio_das_pedras_sp(nome_local)
 
 
 @app.get("/api/ads-elegivel")
@@ -18442,6 +18448,8 @@ def indicacao_link(codigo):
 def consumidor_criar_conta():
     if session.get("consumidor_id"):
         return redirect(request.args.get("next") or url_for("index"))
+    if request.args.get("campanha") == "rio-das-pedras-10":
+        session["campanha_cadastro"] = "rio-das-pedras-10"
     google_signup = session.get("google_signup") or {}
     return render_template(
         "consumidor_cadastro.html",
@@ -18548,6 +18556,30 @@ def consumidor_criar_conta_post():
         _enviar_email_verificacao(str(user["id"]), user["email"])
     _notificar_admin_novo_consumidor(user["nome"], user["email"], user["telefone"], user.get("endereco"))
     _enfileirar_aviso_loja_regiao(str(user["id"]), user["nome"], user.get("endereco_lat"), user.get("endereco_lng"))
+
+    # Cadastro originado pelo popup de lancamento de Rio das Pedras. O
+    # endereco completo continua sendo a fonte de verdade: o parametro da
+    # campanha sozinho nunca qualifica alguem de outra cidade.
+    try:
+        campanha_cadastro = session.pop("campanha_cadastro", "")
+        if campanha_cadastro == "rio-das-pedras-10" and _local_rio_das_pedras_sp(user.get("endereco")):
+            _ensure_aviso_chegada_schema()
+            cur_camp = conn.cursor()
+            cur_camp.execute(
+                """INSERT INTO ecommerce_avisos_chegada
+                       (consumidor_id,nome,telefone,cidade,uf,lat,lng,campanha)
+                   VALUES (%s,%s,%s,'Rio das Pedras','SP',%s,%s,%s)
+                   ON CONFLICT (consumidor_id,cidade,uf) DO UPDATE SET
+                     campanha=EXCLUDED.campanha, nome=EXCLUDED.nome,
+                     telefone=EXCLUDED.telefone, lat=EXCLUDED.lat, lng=EXCLUDED.lng""",
+                (user["id"], user["nome"], user["telefone"], user.get("endereco_lat"),
+                 user.get("endereco_lng"), campanha_cadastro),
+            )
+            conn.commit()
+            cur_camp.close()
+    except Exception as exc:
+        conn.rollback()
+        app.logger.warning("campanha Rio das Pedras: falha ao registrar cadastro: %s", exc)
 
     # Programa de indicacao: se essa pessoa chegou via link de um amigo
     # (sessao guardada em /r/<codigo>), registra o vinculo. A recompensa em
@@ -19129,6 +19161,9 @@ def api_aviso_chegada_criar():
     lat = _to_float_or_none(data.get("lat"))
     lng = _to_float_or_none(data.get("lng"))
     nome = re.sub(r"\s+", " ", str(data.get("nome") or "")).strip()[:120]
+    campanha = str(data.get("campanha") or "").strip()[:80]
+    if campanha not in {"rio-das-pedras-10"}:
+        campanha = None
     telefone_fmt = _normalize_phone_br(data.get("telefone"))
     telefone = _digits(telefone_fmt) if telefone_fmt else ""
     if not cidade:
@@ -19154,10 +19189,18 @@ def api_aviso_chegada_criar():
     if not cur.fetchone():
         cur.execute(
             """
-            INSERT INTO ecommerce_avisos_chegada (consumidor_id, nome, telefone, cidade, uf, lat, lng)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ecommerce_avisos_chegada (consumidor_id, nome, telefone, cidade, uf, lat, lng, campanha)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (consumidor_id, nome or None, telefone or None, cidade, uf, lat, lng),
+            (consumidor_id, nome or None, telefone or None, cidade, uf, lat, lng, campanha),
+        )
+        conn.commit()
+    elif campanha and consumidor_id:
+        cur.execute(
+            """UPDATE ecommerce_avisos_chegada SET campanha=%s
+               WHERE consumidor_id=%s AND lower(cidade)=lower(%s)
+                 AND COALESCE(upper(uf),'')=COALESCE(%s,'')""",
+            (campanha, consumidor_id, cidade, uf),
         )
         conn.commit()
     cur.close()
@@ -30192,6 +30235,46 @@ def admin_loja_catalogo_config():
     return redirect(url_for("admin_lojas"))
 
 
+def _cupom_lancamento_rio_das_pedras(consumidor_id, cnpjloja, conn):
+    """Cria uma unica vez o cupom pessoal prometido no popup de lancamento."""
+    if not consumidor_id:
+        return None
+    _ensure_cupons_schema()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT c.codigo FROM ecommerce_cupons c
+           JOIN ecommerce_cupons_lojas cl ON cl.cupom_id=c.id AND cl.cnpjloja=%s
+           JOIN ecommerce_cupons_clientes cc ON cc.cupom_id=c.id AND cc.consumidor_id=%s
+           WHERE upper(c.codigo) LIKE 'RIO10%%' LIMIT 1""",
+        (cnpjloja, consumidor_id),
+    )
+    existente = cur.fetchone()
+    if existente:
+        cur.close()
+        return existente["codigo"]
+    codigo = f"RIO10{secrets.token_hex(3).upper()}"
+    valido_ate = datetime.now().date() + timedelta(days=60)
+    cur.execute(
+        """INSERT INTO ecommerce_cupons
+             (cnpjloja,codigo,desconto_tipo,desconto_valor,ativo,valido_ate,
+              uso_maximo,publico,escopo,tipo_regra,valor_minimo,limite_uso_cliente)
+           VALUES (NULL,%s,'pct',10,TRUE,%s,1,'especifico','todos','codigo',0,1)
+           RETURNING id""",
+        (codigo, valido_ate),
+    )
+    cupom_id = cur.fetchone()["id"]
+    cur.execute(
+        "INSERT INTO ecommerce_cupons_lojas (cupom_id,cnpjloja,codigo_upper) VALUES (%s,%s,%s)",
+        (cupom_id, cnpjloja, codigo),
+    )
+    cur.execute(
+        "INSERT INTO ecommerce_cupons_clientes (cupom_id,consumidor_id) VALUES (%s,%s)",
+        (cupom_id, consumidor_id),
+    )
+    cur.close()
+    return codigo
+
+
 def _notificar_avisos_chegada(cnpjloja):
     """Quando uma loja e ativada no catalogo publico, avisa (via notificacoes)
     quem tinha pedido para ser avisado quando chegasse uma parceria na
@@ -30212,7 +30295,7 @@ def _notificar_avisos_chegada(cnpjloja):
             return
         cidade_norm = _norm_text(cidade)
         uf_norm = (uf or "").strip().upper()
-        cur.execute("SELECT id, consumidor_id, cidade FROM ecommerce_avisos_chegada WHERE notificado_em IS NULL AND COALESCE(uf,'')=%s", (uf_norm,))
+        cur.execute("SELECT id, consumidor_id, cidade, campanha FROM ecommerce_avisos_chegada WHERE notificado_em IS NULL AND COALESCE(uf,'')=%s", (uf_norm,))
         pendentes = [r for r in cur.fetchall() if _norm_text(r["cidade"]) == cidade_norm]
         if not pendentes:
             cur.close()
@@ -30221,10 +30304,18 @@ def _notificar_avisos_chegada(cnpjloja):
         loja_row = cur.fetchone()
         razao = _public_store_name(dict(loja_row)) if loja_row else "uma nova farmácia parceira"
         for row in pendentes:
+            if not row.get("consumidor_id"):
+                continue
+            cupom = None
+            if row.get("campanha") == "rio-das-pedras-10":
+                cupom = _cupom_lancamento_rio_das_pedras(row["consumidor_id"], cnpjloja, conn)
+            mensagem = f"{razao} agora faz parte do Poupaqui. Ja da para fazer seu pedido."
+            if cupom:
+                mensagem += f" Use o cupom {cupom} e ganhe 10% de desconto na sua primeira compra."
             _notificar_consumidor(
                 row["consumidor_id"], "aviso_chegada",
                 f"Chegamos em {cidade}!",
-                f"{razao} agora faz parte do Poupaqui. Já dá pra fazer seu pedido.",
+                mensagem,
                 url=url_for("index"), conn=conn,
             )
             cur.execute("UPDATE ecommerce_avisos_chegada SET notificado_em=NOW() WHERE id=%s", (row["id"],))
