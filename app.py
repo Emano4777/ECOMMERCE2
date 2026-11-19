@@ -29271,6 +29271,7 @@ def api_cron_alpha_export():
         WHERE status IN ('pago','pronto_retirada','em_separacao','separado',
                          'em_transito','saiu_entrega','saiu_para_entrega','entregue','concluido')
           AND (alpha_status IS NULL OR alpha_status = 'erro')
+          AND NOT (COALESCE(origem,'')='mercado_livre' AND cnpjloja='54185432000143')
           AND pagamento_confirmado_em IS NOT NULL
         ORDER BY pagamento_confirmado_em
         LIMIT 1
@@ -29283,6 +29284,24 @@ def api_cron_alpha_export():
     pid = str(row["id"])
     res = _alpha_export_paid_order_safe(pid)
     return jsonify({"ok": True, "id": pid[:8], "resultado": res})
+
+
+@app.post("/api/cron/ml-whatsapp-sao-pedro")
+def api_cron_ml_whatsapp_sao_pedro():
+    if request.headers.get("Authorization", "") != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    if not WASENDER_API_KEY:
+        return jsonify({"ok": False, "erro": "WhatsApp não configurado"}), 503
+    try:
+        from ml_order_alerts import run
+        def send_ml_alert(phone, text):
+            # Retry next timer tick instead of sleeping inside a web worker.
+            result = _wa_send(phone, text, retornar_dados=True, _tentativa=2)
+            return isinstance(result, dict) and result.get("success") is True
+        return jsonify(run(db(), _ml_get_token, _ml_api_get, send_ml_alert))
+    except Exception:
+        app.logger.exception("Falha no aviso ML Sao Pedro")
+        return jsonify({"ok": False, "erro": "Falha ao processar avisos ML"}), 503
 
 
 @app.post("/api/cron/wa-notify")
@@ -29300,6 +29319,7 @@ def api_cron_wa_notify():
         SELECT id, total FROM ecommerce_pedidos
         WHERE status IN ('pago','pronto_retirada','em_separacao','separado',
                          'em_transito','saiu_entrega','saiu_para_entrega','entregue','concluido')
+          AND NOT (COALESCE(origem,'')='mercado_livre' AND cnpjloja='54185432000143')
           AND wa_loja_notificado_em IS NULL
           AND pagamento_confirmado_em IS NOT NULL
           AND pagamento_confirmado_em > NOW() - INTERVAL '48 hours'
@@ -29351,6 +29371,7 @@ def api_cron_wa_next():
         JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
         WHERE p.status IN ('pago','pronto_retirada','em_separacao','separado',
                            'em_transito','saiu_entrega','saiu_para_entrega','entregue','concluido')
+          AND NOT (COALESCE(p.origem,'')='mercado_livre' AND p.cnpjloja='54185432000143')
           AND p.wa_loja_notificado_em IS NULL
           AND p.pagamento_confirmado_em IS NOT NULL
           AND p.pagamento_confirmado_em > NOW() - INTERVAL '48 hours'
@@ -34336,7 +34357,7 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 VALUES (%s,%s,%s,%s,%s)
             """, (pedido_id, it["ean"], it["nome"], it["preco"], it["qty"]))
         conn2.commit(); cur2.close()
-        if status_ped == "pago":
+        if status_ped == "pago" and str(cnpjloja) != "54185432000143":
             _alpha_export_paid_order_safe(pedido_id)
         print(f"[ML] Pedido {order_id} criado → {pedido_id} (loja {cnpjloja})")
     except Exception as e:

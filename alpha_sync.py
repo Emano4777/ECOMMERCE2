@@ -492,6 +492,9 @@ def export_paid_order(pedido_id):
     with _local_connect(timeout_ms=30000) as lconn:
         lcur = lconn.cursor()
         pedido, itens, doc = _pedido_payload(lcur, str(pedido_id))
+        # Sao Pedro operates ML manually while its ERP is being replaced.
+        if str(pedido.get("cnpjloja")) == "54185432000143" and pedido.get("origem") == "mercado_livre":
+            return {"ok": False, "erro": "ml_sao_pedro_sem_integracao_erp"}
         # Considera pago tanto pelo status do pedido quanto pelo status do
         # pagamento — o pos-pagamento avanca o status para 'pronto_retirada'
         # (ou alem) antes do export, entao checar somente status=='pago'
