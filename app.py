@@ -9348,18 +9348,19 @@ def _ensure_motoboy_schema():
 def api_banners():
     """
     Retorna banners de lojas próximas. Publico geral (nao exige login) --
-    filtra so por proximidade, igual o restante da vitrine.
-    Query params: lat, lng, raio (km, default 80)
+    filtra so por lojas com catalogo ativo e dentro dos mesmos 30 km usados
+    pela vitrine. Fora da cobertura, o frontend exibe banners genericos.
+    Query params: lat, lng, raio (km, limitado a 30)
     Cacheado por grade de ~5km (evita query a cada abertura da home).
     """
     _ensure_banner_schema()
     try:
         lat  = float(request.args.get("lat", 0))
         lng  = float(request.args.get("lng", 0))
-        raio = min(float(request.args.get("raio", 80)), 200)
+        raio = min(float(request.args.get("raio", 30)), 30)
     except (TypeError, ValueError):
         lat = lng = 0.0
-        raio = 80.0
+        raio = 30.0
 
     logado = bool(session.get("consumidor_id"))
 
@@ -9392,7 +9393,9 @@ def api_banners():
         FROM ecommerce_banners b
         JOIN users u ON u.cnpjloja = b.cnpjloja
         JOIN ecommerce_lojas_geo g ON g.cnpjloja = b.cnpjloja
+        JOIN ecommerce_config_loja c ON c.cnpjloja = b.cnpjloja
         WHERE b.ativo = TRUE
+          AND COALESCE(c.catalogo_publico, FALSE) = TRUE
           AND (b.somente_logados = FALSE OR %s)
           AND (b.expira_em IS NULL OR b.expira_em > NOW())
           AND (6371 * acos(

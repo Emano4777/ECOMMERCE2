@@ -1900,7 +1900,7 @@ function _bnrGoTo(i){
 }
 function bnrGoTo(i){ clearInterval(_bnrTimer); _bnrGoTo(i); _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500); }
 // Inicializa o carrossel com os slides que jÃ¡ estÃ£o no HTML (banners padrÃ£o)
-let _bnrDefaultTrackHTML = null, _bnrDefaultDotsHTML = null, _bnrShowingDefault = true;
+let _bnrDefaultTrackHTML = null, _bnrDefaultDotsHTML = null, _bnrShowingDefault = true, _bnrRequestSeq = 0;
 (function _initBnrDefault(){
   const track   = document.getElementById('bnr-track');
   const dotsEl  = document.getElementById('bnr-dots');
@@ -1920,16 +1920,39 @@ let _bnrDefaultTrackHTML = null, _bnrDefaultDotsHTML = null, _bnrShowingDefault 
   _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
 })();
 
+function _bnrRestoreDefault(){
+  const track   = document.getElementById('bnr-track');
+  const dotsEl  = document.getElementById('bnr-dots');
+  const btnPrev = document.getElementById('bnr-prev');
+  const btnNext = document.getElementById('bnr-next');
+  if(!track || _bnrDefaultTrackHTML == null) return;
+  clearInterval(_bnrTimer);
+  track.innerHTML = _bnrDefaultTrackHTML;
+  if(dotsEl && _bnrDefaultDotsHTML != null) dotsEl.innerHTML = _bnrDefaultDotsHTML;
+  _bnrSlides = track.querySelectorAll('.bnr-slide');
+  _bnrCur = 0;
+  track.style.transform = 'translateX(0)';
+  if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; if(dotsEl) dotsEl.style.display='none'; }
+  else { btnPrev.style.display=btnNext.style.display=''; if(dotsEl) dotsEl.style.display=''; }
+  _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
+  _bnrShowingDefault = true;
+}
+
 function carregarBanners(lat, lng){
   if(!lat || !lng) return;
+  const requestSeq = ++_bnrRequestSeq;
   const track   = document.getElementById('bnr-track');
   const dotsEl  = document.getElementById('bnr-dots');
   const sec     = document.getElementById('bnr-section');
   const btnPrev = document.getElementById('bnr-prev');
   const btnNext = document.getElementById('bnr-next');
   if(!sec) return;
+  // Nunca deixa o banner da cidade anterior na tela enquanto consulta a
+  // nova localizacao. Se houver loja coberta, o banner dela entra depois.
+  if(!_bnrShowingDefault) _bnrRestoreDefault();
   const gk = _geoK(lat,lng);
-  const _bnrKey = `bnr_${gk}`;
+  // v2 invalida o cache antigo, que aceitava banner de loja ate 80 km.
+  const _bnrKey = `bnr_v2_${gk}`;
   const _bnrCached = _cFresh(_bnrKey, _PQC.bnr);
   const _bnrUsable = _bnrCached && (_bnrCached.banners||[]).length ? _bnrCached : null;
   const _bnrPromise = _bnrUsable != null
@@ -1937,6 +1960,7 @@ function carregarBanners(lat, lng){
     : fetch(`/api/banners?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`).then(r=>r.json()).then(d=>{ if((d.banners||[]).length) _cSet(_bnrKey, d); return d; });
   _bnrPromise
     .then(d=>{
+      if(requestSeq !== _bnrRequestSeq) return;
       const banners = d.banners || [];
       if(!banners.length){
         // Sem banner pra essa localizaÃ§Ã£o (ex.: cidade sem loja ativa ainda) --
@@ -1944,18 +1968,7 @@ function carregarBanners(lat, lng){
         // ANTERIOR presos na tela atÃ© recarregar a pÃ¡gina. Agora volta pros
         // banners padrÃ£o (os mesmos que aparecem num carregamento novo), sÃ³
         // se nÃ£o estiver jÃ¡ mostrando eles.
-        if(!_bnrShowingDefault && _bnrDefaultTrackHTML != null){
-          clearInterval(_bnrTimer);
-          track.innerHTML = _bnrDefaultTrackHTML;
-          if(dotsEl && _bnrDefaultDotsHTML != null) dotsEl.innerHTML = _bnrDefaultDotsHTML;
-          _bnrSlides = track.querySelectorAll('.bnr-slide');
-          _bnrCur = 0;
-          track.style.transform = 'translateX(0)';
-          if(_bnrSlides.length < 2){ btnPrev.style.display=btnNext.style.display='none'; if(dotsEl) dotsEl.style.display='none'; }
-          else { btnPrev.style.display=btnNext.style.display=''; if(dotsEl) dotsEl.style.display=''; }
-          _bnrTimer = setInterval(()=>_bnrGoTo(_bnrCur+1), 4500);
-          _bnrShowingDefault = true;
-        }
+        if(!_bnrShowingDefault) _bnrRestoreDefault();
         return;
       }
       clearInterval(_bnrTimer);
