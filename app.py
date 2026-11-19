@@ -9608,12 +9608,12 @@ def _marketing_link_seguro(value):
 
 @app.get("/api/popup-loja")
 def api_popup_loja():
-    """Retorna a campanha ativa da loja mais próxima do visitante."""
+    """Retorna a campanha ativa de loja com catalogo dentro de 30 km."""
     _ensure_popup_schema()
     try:
         lat = float(request.args.get("lat", 0))
         lng = float(request.args.get("lng", 0))
-        raio = min(max(float(request.args.get("raio", 80)), 1), 200)
+        raio = min(max(float(request.args.get("raio", 30)), 1), 30)
     except (TypeError, ValueError):
         return jsonify({"popup": None})
     if not (lat and lng):
@@ -9633,7 +9633,9 @@ def api_popup_loja():
         FROM ecommerce_popups_loja p
         JOIN users u ON u.cnpjloja = p.cnpjloja
         JOIN ecommerce_lojas_geo g ON g.cnpjloja = p.cnpjloja
+        JOIN ecommerce_config_loja c ON c.cnpjloja = p.cnpjloja
         WHERE p.ativo = TRUE
+          AND COALESCE(c.catalogo_publico, FALSE) = TRUE
           AND (p.somente_logados = FALSE OR %s)
           AND (p.expira_em IS NULL OR p.expira_em > NOW())
           AND (6371 * acos(

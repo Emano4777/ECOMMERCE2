@@ -1989,12 +1989,18 @@ function carregarBanners(lat, lng){
 }
 
 // â”€â”€ Comprar novamente (sÃ³ logados) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let _popupLojaRequestSeq = 0;
 function carregarPopupLoja(lat, lng) {
   if (!lat || !lng) return;
+  const requestSeq = ++_popupLojaRequestSeq;
+  // Remove imediatamente a campanha da localizacao anterior enquanto a
+  // nova consulta acontece.
+  fecharPopupLoja(true);
   window._popupLojaPending = true;
   fetch(`/api/popup-loja?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
     .then(r => r.json())
     .then(data => {
+      if (requestSeq !== _popupLojaRequestSeq) return;
       const p = data.popup;
       window._popupLojaPending = false;
       if (!p) return;
@@ -2023,9 +2029,15 @@ function carregarPopupLoja(lat, lng) {
     .catch(() => { window._popupLojaPending = false; });
 }
 
-function fecharPopupLoja() {
+function fecharPopupLoja(imediato) {
   const overlay = document.getElementById('store-pop');
   if (!overlay) return;
+  if (imediato) {
+    overlay.style.display = 'none';
+    overlay.style.animation = '';
+    window._popupLojaAberto = false;
+    return;
+  }
   overlay.style.animation = 'popFadeOut .22s ease forwards';
   setTimeout(() => {
     overlay.style.display = 'none';
