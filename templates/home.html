@@ -1890,7 +1890,19 @@ async function carregarEconomiaIa(lat, lng, produtosProximos) {
 }
 const lat = localStorage.getItem('pq_lat');
 const lng = localStorage.getItem('pq_lng');
-if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); carregarStories(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
+// Deixa o restante deste script terminar de inicializar antes do primeiro
+// carregamento. As funcoes sao elevadas pelo JavaScript, mas os estados dos
+// carrosseis (_bnrRequestSeq, _bnrShowingDefault etc.) sao declarados abaixo;
+// chama-las aqui de forma sincrona fazia a pagina parar com ReferenceError e
+// mantinha para sempre os banners genericos, mesmo em Sao Pedro.
+setTimeout(() => {
+  if (lat && lng) {
+    onLocationReady(parseFloat(lat), parseFloat(lng));
+  } else {
+    carregarBanners(0, 0);
+    setTimeout(() => carregarHome(0, 0), 2500);
+  }
+}, 0);
 
 // â”€â”€ Mais comprados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let _maisCompradosSeq = 0;
