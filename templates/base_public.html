@@ -3747,6 +3747,11 @@ function reenviarVerificacao(btn) {
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') fechar(); });
   document.addEventListener('pq:location-changed', function () {
     if (estaEmRioDasPedras()) abrir(); else fechar();
+    // O reverse geocode que grava pq_loc_nome termina depois do evento de
+    // coordenadas. Revalida sem exigir que a pessoa atualize a pagina.
+    setTimeout(abrir, 700);
+    setTimeout(abrir, 1800);
+    setTimeout(abrir, 3200);
   });
   setTimeout(abrir, 1800);
 
