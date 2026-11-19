@@ -76,7 +76,7 @@ class TestSemBecoSemSaida(unittest.TestCase):
         for frase in ["meu pedido chegou?", "qual horario de corte da germed?"]:
             r = resp([frase], ident=NAO_VERIF)
             self.assertTrue(r.escalar, frase)
-            self.assertIn("nao esta vinculado", n(r.reply), frase)
+            self.assertNotIn("vinculado", n(r.reply), frase)  # simples: só o chamado (19/11/2026)
             for p in PROIBIDO:
                 self.assertNotIn(p, n(r.reply))
 
@@ -117,7 +117,7 @@ class TestSemBecoSemSaida(unittest.TestCase):
         f = A.frase_encaminhamento("enviado", 296)
         self.assertIn(f"chamado para o {A.DONO_NUMERO}", f)
         self.assertIn("protocolo 296", f)
-        self.assertIn("preocupar", f)
+        self.assertIn("Ele te responde por aqui", f)  # simples (19/11/2026)
         self.assertIn("equipe financeira", A.frase_encaminhamento("enviado", 1, "equipe financeira"))
         self.assertTrue(A.promete_encaminhamento("Já abri um chamado para você"))
 

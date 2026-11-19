@@ -107,8 +107,7 @@ def frase_encaminhamento(status, protocolo=None, equipe="equipe", anterior_em=No
     dono = equipe in ("equipe", "equipe técnica")
     if status in ALERTA_CONFIRMADO:
         if dono:
-            return (f"Abri um chamado para o {DONO_NUMERO} verificar{prot}, já com o que você me contou. "
-                    "Não precisa se preocupar: ele vai olhar e te dá retorno por aqui.")
+            return f"Abri um chamado para o {DONO_NUMERO} verificar{prot}. Ele te responde por aqui."
         return f"Já passei para a {equipe} com o que você me contou{prot}."
     if status == "ja_avisada":
         quando = f" às {_agora(anterior_em):%H:%M}" if anterior_em else ""
@@ -723,6 +722,13 @@ _MIDIA_TIPOS = {"audio", "image", "video", "contact", "location"}
 # jeito": mostra que recebeu e abre o chamado para o dono do numero (o worker completa com a frase do chamado,
 # que diz o protocolo e acalma). O alerta leva a mensagem e o historico do contato.
 BASE_CHAMADO = "Recebi o que você me mandou."
+# pergunta por dado da loja (o que exige o número vinculado): status, boleto, nota, valor, prazo de um pedido
+_PEDE_DADO_LOJA_RE = re.compile(r"\b(qual|quais|cade|status|consult\w*|segunda via|2a via|nota fiscal|nf\b|"
+                                r"(manda|envia|passa|preciso d[oe]|gera|gerar) (o |a |do |da )?(meu |nosso )?boleto|"
+                                r"boleto (vence|venceu|vencido|nao chegou)|"
+                                r"vencimento|faturad\w*|meu pedido|o pedido|nosso pedido|numero do pedido|rastreio|"
+                                r"quanto (e|eh|esta|ta|ficou|deu|foi)|quando (chega|vem|sai|entrega)|chegou|"
+                                r"ja (saiu|foi|chegou|faturou))\b")
 _PROBLEMA_RE = re.compile(r"\b(problema\w*|erro\w*|error|bug\w*|falha\w*|trav\w*|desatualizad\w*|nao (atualiz\w*|"
                           r"funcion\w*|baix\w*|abre|abriu|carreg\w*|consigo|consegui|chegou|aparec\w*|envi\w*)|"
                           r"deu ruim|deu pau|parou|caiu|urgente)\b")
@@ -1247,14 +1253,20 @@ def responder(textos, tipos=(), identidade=None, historico=None, repo=None, agor
                                 "equipe de compras.", "fornecedor: escopo humano", True, intencao,
                                 equipe="equipe de compras",
                                 resumo={"assunto": f"Mensagem de fornecedor ({intencao})"}))
+        # "Vamos fechar? Mas consigo o Pix só semana que vem": é conversa/combinado com o dono do número, não pedido
+        # de dado da loja. Sem pergunta por dado (status, boleto, nota, valor) e sem problema relatado, conversa com
+        # o contexto — nada de "este número não está vinculado" nem chamado para quem só está negociando.
+        if not _PEDE_DADO_LOJA_RE.search(norm) and not _PROBLEMA_RE.search(norm):
+            return fim(_conversar(textos, historico, llm_geral, intencao="geral", memoria=memoria,
+                                  reserva=f"{prefixo}Anotado! Fica aqui para o {DONO_NUMERO} ver e te responder."))
         # numero sem loja vinculada pedindo dado de loja (pedido, corte, boleto) ou contando um problema: explica
         # por que nao consulta daqui e abre o chamado (antes: "Pode me contar o que aconteceu?" repetido, mesmo
         # depois de a pessoa ja ter contado)
         r = chamado(norm, "contato sem vínculo: pedido de dado de loja/problema -> chamado", intencao,
                     assunto=("Problema relatado" if _PROBLEMA_RE.search(norm) else f"Pergunta de {intencao}")
                     + " por número sem loja vinculada")
-        r.reply = (prefixo + "Recebi! Este número ainda não está vinculado a uma loja no sistema, então não consigo "
-                   "consultar os dados da loja por aqui.")
+        # simples: só o encaminhamento ("Abri um chamado para o Emanuel verificar…"), sem explicar vínculo de número
+        r.reply = prefixo.strip()
         return fim(r)
 
     try:

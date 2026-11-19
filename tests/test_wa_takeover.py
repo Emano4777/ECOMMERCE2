@@ -167,7 +167,7 @@ class TakeoverIntegrationTests(unittest.TestCase):
         self.conn.commit()
         self.receive("M1"); self.receive("M2", phone=OUTRO); self.age()
         self.worker()
-        self.assertEqual(self.sent, [(OUTRO, "O horário de corte da Germed é 20:00.")])
+        self.assertEqual(self.sent, [(OUTRO, wa.assinar_ia("O horário de corte da Germed é 20:00."))])
         self.assertEqual(self.status_de("M1"), "em_humano")
         self.assertEqual(self.ultima_decisao()[2], "humano")
         self.assertEqual(len(self.calls), 1)  # a IA nem foi consultada pro contato em atendimento

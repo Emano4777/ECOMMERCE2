@@ -150,7 +150,7 @@ class EncaminhamentoIntegrationTests(unittest.TestCase):
         self.assertIn("Abri um chamado para o Emanuel verificar", resposta)
         self.assertIn(f"protocolo {d[7]}", resposta)
         self.assertEqual((d[0], d[1], d[2], d[4]), ("ANSWER", "enviado", "enviado", True))
-        self.assertEqual(d[3], resposta)                                   # auditoria = o que saiu
+        self.assertEqual(wa.assinar_ia(d[3]), resposta)                    # auditoria = o que saiu (+ assinatura da IA)
         # eco da resposta (com protocolo) volta pelo webhook como 'ia', nao como operador
         self.assertEqual(wa.store_outbound(saida("ECO", text=resposta), self.conn)["ia"], 1)
         self.assertEqual(wa.store_outbound(saida("ECO2", phone=EQUIPE, text=alerta), self.conn)["sistema"], 1)
@@ -199,7 +199,7 @@ class EncaminhamentoIntegrationTests(unittest.TestCase):
     def test_resolvido_sem_escalar_nao_alerta(self):
         self.receive("M1", text="qual o corte da germed?")
         self.worker(fake_assistente(reply="O horário de corte da GERMED é 20:00.", escalar=False))
-        self.assertEqual(self.sent, [(TEST_PHONE, "O horário de corte da GERMED é 20:00.")])
+        self.assertEqual(self.sent, [(TEST_PHONE, wa.assinar_ia("O horário de corte da GERMED é 20:00."))])
         d = self.decisao()
         self.assertEqual((d[2], d[4]), (None, False))
         self.assertEqual(wa.pending_human(self.conn), [])

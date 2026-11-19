@@ -51,3 +51,28 @@ class ContextoAvisoTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CombinadoComODonoTests(unittest.TestCase):
+    """Tamires (19/11/2026): 'Vamos fechar? Mas consigo o Pix só semana que vem' recebia 'este número não está
+    vinculado a uma loja… abri um chamado'. Combinado/negociação com o dono é conversa, não pedido de dado da loja."""
+
+    def test_combinado_de_pagamento_e_conversa(self):
+        llm = lambda textos, historico, **k: 'Combinado! Fica para a semana que vem.'
+        for msg in ('Olá bom dia!\n\nVamos fechar ? Mas consigo o Pix só semana que vem 🥺', 'vou pagar o boleto amanhã'):
+            r = A.responder([msg], ['text'], NV, [], FakeRepo(), None, llm)
+            self.assertNotIn('vinculado', r.reply, msg)
+            self.assertFalse(r.escalar, msg)
+
+    def test_pedido_de_dado_da_loja_continua_explicando(self):
+        for msg in ('cadê meu boleto?', 'qual o status do meu pedido da germed?', 'manda a segunda via do boleto'):
+            r = A.responder([msg], ['text'], NV, [], FakeRepo(), None, LLM)
+            self.assertTrue(r.escalar, msg)  # abre o chamado para o Emanuel
+            final = A.completar_resposta(r.reply, 'enviado', 633)
+            self.assertNotIn('vinculado', final, msg)  # resposta simples, sem explicar vínculo de número
+            self.assertIn('Abri um chamado para o Emanuel verificar (protocolo 633)', final)
+
+    def test_toda_resposta_da_ia_e_assinada(self):
+        import poupaqui_wa_atendimento as W
+        self.assertEqual(W.assinar_ia('Combinado!'), 'Combinado!\n\n_🤖 IA do Emanuel_')
+        self.assertEqual(W.assinar_ia(W.assinar_ia('Oi')), W.assinar_ia('Oi'))  # não assina duas vezes

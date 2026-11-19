@@ -435,7 +435,7 @@ class OllamaWorkerIntegrationTests(unittest.TestCase):
         self.assertIn("ignorado", res)
         res = self.run_local()
         self.assertEqual(res["resultados"][0]["envio"], "enviado")
-        self.assertEqual(self.sent, [(TEST_PHONE, "O horário de corte da GERMED é 20:00.")])
+        self.assertEqual(self.sent, [(TEST_PHONE, wa.assinar_ia("O horário de corte da GERMED é 20:00."))])
         self.assertEqual(self.decisions()[0][6], "ollama:qwen3:4b")
 
     def test_end_to_end_shadow_then_test(self):
@@ -496,7 +496,7 @@ class OllamaWorkerIntegrationTests(unittest.TestCase):
         self.run_local()
         d = self.decisions()[0]
         self.assertEqual((d[0], d[1], d[4]), ("HUMAN", "enviado", GENERIC_ACK_REPLY))
-        self.assertEqual(self.sent, [(TEST_PHONE, GENERIC_ACK_REPLY)])
+        self.assertEqual(self.sent, [(TEST_PHONE, wa.assinar_ia(GENERIC_ACK_REPLY))])
         self.receive("M2", text="alo?")             # trava humana: sem novo aviso
         self.run_local()
         self.assertEqual(len(self.sent), 1)

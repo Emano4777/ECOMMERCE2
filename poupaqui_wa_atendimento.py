@@ -560,6 +560,10 @@ def _table_exists(cur, name):
 def classify_outbound(cur, phone, corpo):
     """'ia' | 'sistema' | 'manual' para uma mensagem que saiu do numero."""
     texto = _norm_text(corpo)
+    assinatura = _norm_text("_" + ASSINATURA_IA + "_") if ASSINATURA_IA else ""
+    if assinatura and texto.endswith(assinatura):
+        # o eco da resposta da IA volta com a assinatura; a decisão guardou o texto sem ela
+        texto = texto[:-len(assinatura)].strip()
     if texto:
         cur.execute("""SELECT 1 FROM ecommerce_wa_ia_decisoes
                        WHERE telefone = %s AND envio_status IN ('enviando', 'enviado')
@@ -1006,6 +1010,17 @@ def _ler_midias(conn, batch, texts, kinds, leitor):
                 kinds[i], texts[i] = "text", (texts[i] if manter else "")
 
 
+ASSINATURA_IA = (os.getenv("POUPAQUI_WA_IA_ASSINATURA") or "🤖 IA do Emanuel").strip()
+
+
+def assinar_ia(texto):
+    """Toda resposta automática diz que é a IA falando (a pessoa sabe com quem conversa)."""
+    texto = (texto or "").rstrip()
+    if not texto or not ASSINATURA_IA or ASSINATURA_IA in texto:
+        return texto
+    return texto + "\n\n_" + ASSINATURA_IA + "_"
+
+
 def process_contact(conn, phone, mode, classifier, sender, state, logger=None, model_label=None, assistente=None,
                     leitor_midia=None):
     """Processa a sequencia pendente de um contato. Retorna dict de auditoria ou None.
@@ -1258,7 +1273,7 @@ def process_contact(conn, phone, mode, classifier, sender, state, logger=None, m
         state["envios"] += 1
         status, detalhe, out_id = "falhou", "", None
         try:
-            resp = sender(phone, reply)
+            resp = sender(phone, assinar_ia(reply))
             if resp:
                 status = "enviado"
                 data = resp.get("data") if isinstance(resp, dict) else None

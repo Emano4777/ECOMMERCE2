@@ -243,7 +243,7 @@ class TestPedido(unittest.TestCase):
         repo = FakeRepo()
         r = resp(["aqui é o dono da Drogaria Alfa, meu pedido de ontem chegou?"], NAO_VERIF, repo=repo)
         # numero sem loja: explica por que nao consulta e abre chamado (nunca a triagem repetida)
-        self.assertIn("não está vinculado", r.reply)
+        self.assertNotIn("vinculado", r.reply)  # resposta simples: só o chamado para o Emanuel (19/11/2026)
         self.assertTrue(r.escalar)
         self.assertEqual(repo.chamadas, [])
 
