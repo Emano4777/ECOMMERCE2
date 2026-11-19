@@ -1467,7 +1467,7 @@ document.addEventListener('wheel', function(e) {
 
 // â”€â”€ Cache localStorage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _PQC = { prod:600e3, bnr:900e3, mais:1200e3, cupom:300e3, clube:600e3 };
-const _PQCV = 'alpha2';
+const _PQCV = 'alpha3';
 function _geoK(lat,lng){ return `${parseFloat(lat).toFixed(3)}_${parseFloat(lng).toFixed(3)}`; }
 function _cGet(k){ try{ const s=localStorage.getItem('pq_c_'+k); if(!s) return null; return JSON.parse(s); }catch{ return null; } }
 function _cSet(k,d){ try{ localStorage.setItem('pq_c_'+k, JSON.stringify({t:Date.now(),d})); }catch{} }
@@ -1724,13 +1724,30 @@ function renderHomeProdutos(produtos, opts){
     carregarProdutosGerais();
   }
 }
+function _homeHideStoreContent(){
+  ['sec-economia-ia','sec-achados','sec-mais-vendidos','sec-comprar-novamente',
+   'sec-lembretes','sec-para-voce','sec-cross-sell'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display='none';
+  });
+  const clubes=document.getElementById('hero-clubes-wrap');
+  if(clubes) clubes.style.display='none';
+}
+
+let _homeRequestSeq = 0;
 function carregarHome(lat,lng){
+  const requestSeq = ++_homeRequestSeq;
+  _homeHideStoreContent();
   const gk = _geoK(lat,lng);
   const qs = `?lat=${encodeURIComponent(lat || 0)}&lng=${encodeURIComponent(lng || 0)}`;
   _cFetch(`curva_home_${_PQCV}_${gk}`, 300e3, '/api/home/curva-a' + qs)
     .then(async data => {
+      if(requestSeq !== _homeRequestSeq) return;
       const produtos = data.trending_lojas || [];
       const lojasProximas = data.lojas_proximas || [];
+      if(data.sem_farmacia_proxima){
+        _homeHideStoreContent();
+        return;
+      }
       const cnpjsProdutos = [...new Set(produtos.map(p=>p.cnpjloja).filter(Boolean))].slice(0,18);
       const cnpjsProximos = (data.cnpjs_proximos || cnpjsProdutos).slice(0,30);
       Object.keys(planosAssinatura).forEach(k => delete planosAssinatura[k]);
@@ -1749,11 +1766,11 @@ function carregarHome(lat,lng){
         renderHomeProdutos(produtos, {rede: !!data.sem_farmacia_proxima});
         renderClubes(produtos, lojasProximas);
         renderCupons(produtos);
-      } else {
+      } else if(!data.sem_farmacia_proxima) {
         carregarProdutosGerais();
       }
     })
-    .catch(()=>{ carregarProdutosGerais(); });
+    .catch(()=>{ if(requestSeq === _homeRequestSeq) carregarProdutosGerais(); });
 }
 
 
@@ -1764,8 +1781,9 @@ function carregarProdutosGerais(){
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/curva-a' + qs)
+  _cFetch(`insights_curve_${_PQCV}_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/curva-a' + qs)
     .then(d=>{
+      if(d.sem_farmacia_proxima){ _homeHideStoreContent(); return; }
       if (_renderAchadosFallback(d.trending_lojas || [], {rede: d.sem_farmacia_proxima || !d.logado, semFarmaciaProxima: !!d.sem_farmacia_proxima})) return;
       throw new Error('sem-trending');
     })
@@ -1833,7 +1851,16 @@ function renderCupons(produtos){
       <div class="coupon-store">${hEsc(c.razao || 'Cupom Poupaqui')}${c.valido_ate ? ' · até ' + hEsc(c.valido_ate) : ''}</div>
     </div>`).join('') || '<div class="home-empty">Nenhum cupom disponível para sua região no momento.</div>';
 }
-function onLocationReady(lat,lng){ carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); carregarStories(lat,lng); atualizarAvisoSemFarmacia(); }
+function onLocationReady(lat,lng){
+  _homeHideStoreContent();
+  carregarHome(lat,lng);
+  carregarBanners(lat,lng);
+  carregarPopupLoja(lat,lng);
+  carregarStories(lat,lng);
+  carregarMaisComprados(lat,lng);
+  carregarInsights(lat,lng);
+  atualizarAvisoSemFarmacia();
+}
 
 // â”€â”€ Economia com IA Poupinha â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function carregarEconomiaIa(lat, lng, produtosProximos) {
@@ -1866,11 +1893,14 @@ const lng = localStorage.getItem('pq_lng');
 if (lat && lng) { carregarHome(lat,lng); carregarBanners(lat,lng); carregarPopupLoja(lat,lng); carregarStories(lat,lng); } else { setTimeout(()=>carregarHome(0,0), 2500); carregarBanners(0,0); }
 
 // â”€â”€ Mais comprados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function carregarMaisComprados(){
-  const qs = lat && lng ? `?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}` : '';
-  const gk = lat && lng ? _geoK(lat,lng) : 'global';
+let _maisCompradosSeq = 0;
+function carregarMaisComprados(latArg=lat,lngArg=lng){
+  const requestSeq = ++_maisCompradosSeq;
+  const qs = latArg && lngArg ? `?lat=${encodeURIComponent(latArg)}&lng=${encodeURIComponent(lngArg)}` : '';
+  const gk = latArg && lngArg ? _geoK(latArg,lngArg) : 'global';
   _cFetch(`mais_${gk}`, _PQC.mais, '/api/mais-comprados' + qs)
     .then(d=>{
+      if(requestSeq !== _maisCompradosSeq) return;
       const produtos = d.produtos || [];
       const el = document.getElementById('home-mais-comprados');
       if(!el) return;
@@ -2474,7 +2504,7 @@ function atualizarAvisoSemFarmacia() {
   const _lat = localStorage.getItem('pq_lat') || 0;
   const _lng = localStorage.getItem('pq_lng') || 0;
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  return _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
+  return _cFetch(`insights_v2_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d => {
       _sfpLogado = !!d.logado;
       const sec = document.getElementById('sec-sem-farmacia');
@@ -2503,14 +2533,18 @@ function atualizarAvisoSemFarmacia() {
     .catch(() => {});
 }
 
-function carregarInsights() {
-  const _lat = localStorage.getItem('pq_lat') || 0;
-  const _lng = localStorage.getItem('pq_lng') || 0;
+let _insightsRequestSeq = 0;
+function carregarInsights(latArg, lngArg) {
+  const requestSeq = ++_insightsRequestSeq;
+  const _lat = latArg != null ? latArg : (localStorage.getItem('pq_lat') || 0);
+  const _lng = lngArg != null ? lngArg : (localStorage.getItem('pq_lng') || 0);
   const qs = (_lat && _lng) ? `?lat=${encodeURIComponent(_lat)}&lng=${encodeURIComponent(_lng)}` : '';
-  _cFetch(`insights_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
+  _cFetch(`insights_v2_${_geoK(_lat || 0, _lng || 0)}`, 180e3, '/api/home/insights' + qs)
     .then(d => {
+      if(requestSeq !== _insightsRequestSeq) return;
       // Aviso sem farmácia próxima (mostra/esconde conforme a cidade atual)
       atualizarAvisoSemFarmacia();
+      if(d.sem_farmacia_proxima){ _homeHideStoreContent(); return; }
 
       // Banner IA personalizado no hero (sÃ³ logado)
       if (d.logado && d.banner_ia) {

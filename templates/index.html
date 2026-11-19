@@ -2035,11 +2035,11 @@ function carregarProdutos(lat, lng, busca='') {
           prodGrid.style.display = '';
           skelGrid.style.display = 'none';
           pagerEl.style.display = 'none';
+          const semFarmaciasProximas = !!data.sem_farmacia_proxima || !(data.lojas_proximas && data.lojas_proximas.length);
           const lojas = (data.lojas_proximas && data.lojas_proximas.length)
             ? data.lojas_proximas
-            : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj}));
+            : (semFarmaciasProximas ? [] : LOJAS_SERVIDOR.map((cnpj, i) => ({cnpjloja: cnpj, razao: LOJAS_SERVIDOR_NOMES[i] || cnpj})));
           const temLojas = lojas.length > 0;
-          const semFarmaciasProximas = !(data.lojas_proximas && data.lojas_proximas.length);
           prodGrid.innerHTML = `<div class="idx-empty">
             <div style="width:56px;height:56px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-bottom:18px">
               <i class="fa fa-magnifying-glass" style="font-size:1.4rem;color:var(--pq-muted);opacity:.5"></i>

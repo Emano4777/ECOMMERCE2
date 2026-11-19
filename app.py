@@ -11227,7 +11227,8 @@ def api_lojas_proximas():
         SELECT u.cnpjloja, u.razao, u.endereco, u.uf, u.telefone, g.lat, g.lng
         FROM users u
         LEFT JOIN ecommerce_lojas_geo g ON g.cnpjloja = u.cnpjloja
-        WHERE u.is_admin = FALSE
+        JOIN ecommerce_config_loja c ON c.cnpjloja = u.cnpjloja
+        WHERE u.is_admin = FALSE AND COALESCE(c.catalogo_publico, FALSE) = TRUE
         """
     )
     lojas = cur.fetchall()
@@ -11253,7 +11254,7 @@ def api_lojas_proximas():
             sem_geo.append(item)
 
     com_geo.sort(key=lambda x: x["distancia_km"])
-    return jsonify(com_geo[:10] + sem_geo[:20])
+    return jsonify([l for l in com_geo if l["distancia_km"] <= 30][:10])
 
 
 @app.get("/api/lojas/ativas")
@@ -11307,10 +11308,11 @@ def api_lojas_ativas():
 
     if lat != 0.0 or lng != 0.0:
         lojas.sort(key=lambda x: (x["distancia_km"] is None, x["distancia_km"] or 9999))
+        lojas = [l for l in lojas if l["distancia_km"] is not None and l["distancia_km"] <= 30]
 
     return jsonify({
         "lojas": lojas,
-        "sem_farmacia_proxima": bool((lat != 0.0 or lng != 0.0) and not tem_proxima and lojas),
+        "sem_farmacia_proxima": bool((lat != 0.0 or lng != 0.0) and not tem_proxima and rows),
     })
 
 
@@ -11359,7 +11361,7 @@ def api_produtos_proximos():
     try:
         lat_cache = round(float(request.args.get("lat", 0) or 0), 2)
         lng_cache = round(float(request.args.get("lng", 0) or 0), 2)
-        raio_cache = int(float(request.args.get("raio", 30) or 30))
+        raio_cache = min(max(int(float(request.args.get("raio", 30) or 30)), 1), 30)
         home_cache = request.args.get("home") == "1"
         cat_cache = (request.args.get("cat") or "").strip().lower()
         q_cache = _norm_text(request.args.get("q") or request.args.get("busca") or "")
@@ -11367,10 +11369,10 @@ def api_produtos_proximos():
         # lento que a vitrine normal) — cachear evita repetir essa
         # varredura a cada clique na mesma categoria.
         if q_cache:
-            cache_key = ("produtos_proximos_search_v3", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, q_cache, bool(_catalogo_alpha_exclusivo()))
+            cache_key = ("produtos_proximos_search_v4", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, q_cache, bool(_catalogo_alpha_exclusivo()))
             cache_ttl = 90
         else:
-            cache_key = ("produtos_proximos_curve_a_v3", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, bool(_catalogo_alpha_exclusivo()))
+            cache_key = ("produtos_proximos_curve_a_v4", lat_cache, lng_cache, raio_cache, home_cache, cat_cache, bool(_catalogo_alpha_exclusivo()))
         cached = _home_api_cache_get(cache_key, cache_ttl)
         if cached is not None:
             return jsonify(cached)
@@ -11385,11 +11387,12 @@ def api_produtos_proximos():
         return resp
     except Exception:
         app.logger.exception("Erro em /api/produtos-proximos")
-        raio = float(request.args.get("raio", 30))
-        raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
+        raio = min(max(float(request.args.get("raio", 30)), 1), 30)
+        raio_fallback = raio
         return jsonify({
             "produtos": [], "cnpjs_proximos": [], "lojas_proximas": [],
             "fora_raio": False, "sem_geocode": False,
+            "sem_farmacia_proxima": bool(request.args.get("lat") and request.args.get("lng")),
             "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0,
             "saudacao": None, "alternativa_para": None, "principio_ativo_ia": None,
         })
@@ -11411,8 +11414,8 @@ def _api_produtos_proximos_impl():
     except (KeyError, ValueError):
         return jsonify({"error": "lat/lng inválidos"}), 400
 
-    raio    = float(request.args.get("raio", 30))
-    raio_fallback = max(raio, float(request.args.get("raio_fallback", 60)))
+    raio = min(max(float(request.args.get("raio", 30)), 1), 30)
+    raio_fallback = raio
     busca_q = (request.args.get("q") or "").strip()
     cat_filter = (request.args.get("cat") or "").strip().lower()
     home_mode = request.args.get("home") == "1"
@@ -11466,9 +11469,6 @@ def _api_produtos_proximos_impl():
             lojas_dist.sort(key=lambda x: x["distancia_km"])
 
             proximas = [l for l in lojas_dist if l["distancia_km"] <= raio]
-            if not proximas:
-                proximas  = [l for l in lojas_dist if l["distancia_km"] <= raio_fallback][:3]
-                fora_raio = bool(proximas)
             loja_info = {l["cnpjloja"]: l for l in proximas}
         else:
             sem_loc     = True   # nenhuma geocodificada — cai no fallback
@@ -11495,7 +11495,11 @@ def _api_produtos_proximos_impl():
     cur.close()
 
     if not proximas:
-        return jsonify({"produtos": [], "fora_raio": False, "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0})
+        return jsonify({
+            "produtos": [], "cnpjs_proximos": [], "lojas_proximas": [],
+            "fora_raio": False, "sem_farmacia_proxima": not sem_loc,
+            "raio_km": raio, "raio_fallback_km": raio_fallback, "n_lojas": 0,
+        })
 
     cnpjs = [l["cnpjloja"] for l in proximas]
     produtos_raw = []
@@ -12110,6 +12114,7 @@ def _api_produtos_proximos_impl():
         "cnpjs_proximos":    [l["cnpjloja"] for l in proximas],
         "lojas_proximas":    [{"cnpjloja": l["cnpjloja"], "razao": _public_store_name(l)} for l in proximas],
         "fora_raio":         fora_raio,
+        "sem_farmacia_proxima": bool(not sem_loc and not proximas),
         "sem_geocode":       sem_geocode,
         "raio_km":           raio,
         "raio_fallback_km":  raio_fallback,
@@ -12745,11 +12750,15 @@ def _trending_lojas_fisicas(conn, lat=0.0, lng=0.0, limit=12, cnpjs_proximos=Non
                                 if haversine(lat, lng,
                                              float(r["lat"] or 0),
                                              float(r["lng"] or 0)) <= 30]
-                    cnpjs_proximos = proximas if proximas else todos_ativos
+                    cnpjs_proximos = proximas
                 else:
                     cnpjs_proximos = todos_ativos
         except Exception:
             cnpjs_proximos = None
+
+    if cnpjs_proximos == []:
+        cur.close()
+        return []
 
     scores = {}
     vg_filter  = "AND cnpj = ANY(%s)"      if cnpjs_proximos else ""
@@ -12982,7 +12991,7 @@ def _home_public_cnpjs(lat=0.0, lng=0.0):
             if proximas:
                 cnpjs = proximas
             else:
-                cnpjs = todos
+                cnpjs = []
                 sem_farmacia_proxima = True
         else:
             cnpjs = todos
@@ -12994,7 +13003,7 @@ def _home_public_cnpjs(lat=0.0, lng=0.0):
 def _home_curva_cache_key(cnpjs):
     joined = ",".join(sorted(cnpjs or []))
     digest = hashlib.sha1(joined.encode("utf-8")).hexdigest()[:16]
-    return f"home_curva_a_v1:{digest}"
+    return f"home_curva_a_v2:{digest}"
 
 
 def _build_home_curva_payload(cnpjs, sem_farmacia_proxima=False):
@@ -13023,7 +13032,7 @@ def api_home_curva_a():
         lat = lng = 0.0
     cnpjs, sem_farmacia_proxima = _home_public_cnpjs(lat, lng)
     if not cnpjs:
-        return jsonify({"produtos": [], "trending_lojas": [], "cnpjs_proximos": [], "lojas_proximas": [], "sem_farmacia_proxima": False})
+        return jsonify({"produtos": [], "trending_lojas": [], "cnpjs_proximos": [], "lojas_proximas": [], "sem_farmacia_proxima": sem_farmacia_proxima})
     cache_key = _home_curva_cache_key(cnpjs)
     cached, fresh = _home_curva_cache_get(cache_key, allow_stale=True)
     if cached and cached.get("produtos") and fresh:
@@ -13231,7 +13240,7 @@ def api_home_stories():
     try:
         lat = float(request.args.get("lat", 0))
         lng = float(request.args.get("lng", 0))
-        raio = min(max(float(request.args.get("raio", 30)), 1), 200)
+        raio = min(max(float(request.args.get("raio", 30)), 1), 30)
     except (TypeError, ValueError):
         return jsonify({"stories": []})
     if not (lat and lng):
@@ -13573,7 +13582,7 @@ def api_home_insights():
     except (ValueError, TypeError):
         lat = lng = 0.0
     home_insights_cache_key = (
-        "home_insights",
+        "home_insights_v2",
         str(consumidor_id or "anon"),
         round(lat or 0, 2),
         round(lng or 0, 2),
@@ -13622,7 +13631,7 @@ def api_home_insights():
                 if proximas:
                     cnpjs_proximos = proximas
                 else:
-                    cnpjs_proximos = todos_ativos
+                    cnpjs_proximos = []
                     resultado["sem_farmacia_proxima"] = True
                     try:
                         cidade, uf = _reverse_geocode_cidade_uf(lat, lng)
@@ -13637,6 +13646,14 @@ def api_home_insights():
 
     resultado["cnpjs_proximos"] = cnpjs_proximos or []
     resultado["lojas_proximas"] = [{"cnpjloja": c, "razao": ""} for c in (cnpjs_proximos or [])]
+
+    if resultado["sem_farmacia_proxima"]:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _home_api_cache_set(home_insights_cache_key, resultado, ttl_seconds=180 if consumidor_id else 300)
+        return jsonify(resultado)
 
     try:
         resultado["trending_lojas"] = _curve_a_products_for_cnpjs(cnpjs_proximos or [], limit=24)
@@ -13748,11 +13765,16 @@ def api_kit_produtos():
             if lat != 0.0 or lng != 0.0:
                 proximas = [r["cnpjloja"] for r in lojas_ativas
                             if haversine(lat, lng, float(r["lat"] or 0), float(r["lng"] or 0)) <= 30]
-                cnpjs_proximos = proximas if proximas else todos_ativos
+                cnpjs_proximos = proximas
             else:
                 cnpjs_proximos = todos_ativos
     except Exception as e:
         app.logger.warning(f"kit_produtos cnpjs: {e}")
+
+    if (lat != 0.0 or lng != 0.0) and not cnpjs_proximos:
+        cur.close()
+        conn.close()
+        return jsonify({"produtos": []})
 
     cnpj_cond   = "AND e.cnpj = ANY(%s)" if cnpjs_proximos else ""
     params_list = [kit["regex"]]
