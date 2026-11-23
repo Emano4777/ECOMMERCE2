@@ -1,0 +1,19 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='ml-national.css') }}?v=1">
+<section class="ml-national{% if ml_home %} home-section{% endif %}" id="ml-national" hidden aria-labelledby="ml-national-title" data-mode="{{ 'home' if ml_home else 'search' }}">
+  <div class="ml-national-head">
+    <div>
+      <h2 class="ml-national-title" id="ml-national-title"><i class="fa fa-truck-fast" aria-hidden="true"></i>Produtos nacionais</h2>
+      <p class="ml-national-copy">A Poupaqui também vai até você pelo Mercado Livre.<br>Consulte frete e disponibilidade para seu CEP no anúncio.</p>
+    </div>
+    {% if ml_home %}<a class="ml-national-all" href="{{ url_for('catalogo_publico', nacionais='1') }}">Ver todos <span aria-hidden="true">→</span></a>{% endif %}
+  </div>
+  {% if ml_home %}<div class="home-row-wrap">
+    <button type="button" class="home-row-cnav home-row-cnav--prev" onclick="_homeCarouselNav('ml-national-products',-1)" aria-label="Produtos nacionais anteriores"><i class="fa fa-chevron-left"></i></button>
+  {% endif %}
+    <div id="ml-national-products" class="{{ 'home-row' if ml_home else 'ml-national-grid' }}"></div>
+  {% if ml_home %}
+    <button type="button" class="home-row-cnav home-row-cnav--next" onclick="_homeCarouselNav('ml-national-products',1)" aria-label="Próximos produtos nacionais"><i class="fa fa-chevron-right"></i></button>
+  </div>{% endif %}
+  <p class="ml-national-status" id="ml-national-status" role="status" hidden></p>
+</section>
+<script src="{{ url_for('static', filename='ml-national.js') }}?v=1" defer></script>

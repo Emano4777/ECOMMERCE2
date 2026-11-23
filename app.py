@@ -11316,6 +11316,25 @@ def api_lojas_ativas():
     })
 
 
+@app.get("/api/produtos-nacionais")
+@_rate_limited_api(max_calls=60, window_secs=60)
+def api_produtos_nacionais():
+    from ml_public_catalog import catalog, STORE
+
+    def load_ids():
+        cur = db().cursor()
+        try:
+            cur.execute("SELECT ml_item_id FROM ml_items WHERE cnpjloja=%s ORDER BY ml_item_id", (STORE,))
+            return [r["ml_item_id"] for r in cur.fetchall()]
+        finally:
+            cur.close()
+
+    products = catalog(load_ids, _ml_get_token, _ml_api_get, (request.args.get("q") or "")[:160])
+    response = jsonify({"produtos": products})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/api/produtos-destaque")
 def api_produtos_destaque():
     """Produtos em destaque sem necessidade de localizacao (fallback home), ordenados por curva A."""
