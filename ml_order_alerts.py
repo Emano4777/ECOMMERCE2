@@ -26,7 +26,23 @@ def eligible(order, activated_at):
             and paid_at is not None and paid_at >= activated_at)
 
 
-def message(order, sla):
+def label_release_text(lead_time, shipment):
+    shipment = shipment or {}
+    if shipment.get("status") == "ready_to_ship" and shipment.get("substatus") in ("ready_to_print", "printed"):
+        return "Já disponível; confira na venda."
+    value = ((lead_time or {}).get("buffering") or {}).get("date")
+    if value:
+        try:
+            # Buffering is a scheduled calendar day encoded at UTC midnight,
+            # not an instant to shift to the preceding day in Sao Paulo.
+            day = datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+            return day.strftime("%d/%m/%Y") + " (previsão do Mercado Livre, sem horário confirmado)."
+        except ValueError:
+            pass
+    return "Ainda não informada pelo Mercado Livre; confira na venda."
+
+
+def message(order, sla, lead_time=None, shipment=None):
     deadline = parse_date((sla or {}).get("expected_date"))
     deadline_text = (deadline.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y às %H:%M (Brasília)")
                      if deadline else "Ainda não informado pelo Mercado Livre; confira na venda.")
@@ -34,7 +50,10 @@ def message(order, sla):
     for item in order.get("order_items") or []:
         title = " ".join(str((item.get("item") or {}).get("title") or "Produto").split())
         lines.append(f"• {item.get('quantity', 1)} un. — {title}")
-    lines += ["", f"Prazo de postagem: {deadline_text}", "", "Abrir venda e preparar nota/etiqueta:",
+    lines += ["", f"Liberação da etiqueta: {label_release_text(lead_time, shipment)}",
+              f"Prazo de postagem: {deadline_text}",
+              "Entregue antes do horário limite de recebimento da agência indicado na venda.",
+              "", "Abrir venda e preparar nota/etiqueta:",
               f"https://www.mercadolivre.com.br/vendas/{order['id']}/detalhe"]
     return "\n".join(lines)
 
@@ -121,7 +140,9 @@ def _run(conn, get_token, api_get, send):
             continue
         sid = (order.get("shipping") or {}).get("id")
         sla = api_get(f"/shipments/{sid}/sla", token) if sid else None
-        ok = bool(send(PHONE, message(order, sla)))
+        lead_time = api_get(f"/shipments/{sid}/lead_time", token) if sid else None
+        shipment = api_get(f"/shipments/{sid}", token) if sid else None
+        ok = bool(send(PHONE, message(order, sla, lead_time, shipment)))
         with conn.cursor() as cur:
             cur.execute("""UPDATE ml_wa_order_alerts SET attempts=attempts+1,
                 sent_at=CASE WHEN %s THEN NOW() ELSE NULL END, last_error=%s

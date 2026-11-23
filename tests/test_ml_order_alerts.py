@@ -27,6 +27,22 @@ class AlertsTests(unittest.TestCase):
     def test_missing_sla_does_not_invent_deadline(self):
         self.assertIn("Ainda não informado", message(self.order, None))
 
+    def test_buffering_calendar_day_is_not_shifted_to_previous_day(self):
+        text = message(self.order, {"expected_date": "2026-11-25T23:59:59-03:00"},
+                       {"buffering": {"date": "2026-11-24T00:00:00.000Z"}},
+                       {"status": "pending", "substatus": "buffered"})
+        self.assertIn("Liberação da etiqueta: 24/11/2026 (previsão", text)
+        self.assertIn("Prazo de postagem: 25/11/2026 às 23:59", text)
+        self.assertIn("horário limite de recebimento da agência", text)
+
+    def test_ready_label_and_missing_or_invalid_release_dates(self):
+        self.assertIn("Já disponível", message(self.order, None, None,
+                      {"status": "ready_to_ship", "substatus": "ready_to_print"}))
+        for lead in (None, {"buffering": {"date": None}}, {"buffering": {"date": "invalid"}}):
+            self.assertIn("Liberação da etiqueta: Ainda não informada", message(self.order, None, lead))
+        self.assertNotIn("Já disponível", message(self.order, None, None,
+                         {"status": "ready_to_ship", "substatus": "invoice_pending"}))
+
 
 if __name__ == "__main__":
     unittest.main()

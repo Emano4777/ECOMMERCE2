@@ -21,6 +21,12 @@ WhatsApp e o commit pode excepcionalmente causar repetição.
 O prazo vem de `/shipments/{id}/sla`, campo `expected_date`, convertido para
 America/Sao_Paulo. Se indisponível, o aviso informa que é preciso conferir a venda.
 O link exige login do administrador ou colaborador autorizado na conta vendedora.
+O aviso inclui a previsão de liberação da etiqueta de `/shipments/{id}/lead_time`,
+campo `buffering.date`. Esse campo representa o dia programado e não é convertido
+para o dia anterior pelo fuso de Brasília. A mensagem não promete um horário de
+liberação e lembra de respeitar o limite de recebimento da agência. Quando o envio
+está `ready_to_ship` com `ready_to_print` ou `printed`, informa etiqueta disponível.
+Sem informação válida, orienta conferir a venda. Avisos já enviados não são reenviados.
 
 Os pedidos ML desta loja são excluídos dos crons genéricos de WhatsApp e Alpha.
 `alpha_sync.export_paid_order` também impede exportá-los, inclusive manualmente,
