@@ -12,16 +12,24 @@
   const brl = value => Number(value).toLocaleString('pt-BR', {style:'currency',currency:'BRL'});
   let generation = 0;
   let timer;
-  function place(integrated) {
-    const anchor = document.getElementById(integrated ? 'ml-national-secondary' : 'ml-national-priority');
-    if (anchor) anchor.after(section);
+  let coverage = (Number(localStorage.getItem('pq_lat')) || Number(localStorage.getItem('pq_lng'))) ? 'pending' : 'unknown';
+  let hasContent = false;
+  const copy = section.querySelector('.ml-national-copy');
+  function visibility() {
+    section.hidden = coverage === 'pending' || coverage === 'integrated' || !hasContent;
+    if (copy) {
+      copy.textContent = coverage === 'uncovered'
+        ? 'Ainda não temos uma loja integrada atendendo sua região. Confira os produtos da Poupaqui com envio nacional pelo Mercado Livre. Consulte frete e disponibilidade para seu CEP no anúncio.'
+        : 'Informe sua localização para encontrar uma loja integrada perto de você. Enquanto isso, confira os produtos da Poupaqui com envio nacional pelo Mercado Livre. Consulte frete e disponibilidade para seu CEP no anúncio.';
+    }
   }
-  // Keep local products first while coverage is being resolved. Without a saved
-  // location, national products can already be shown in the priority position.
-  place(!!(Number(localStorage.getItem('pq_lat')) || Number(localStorage.getItem('pq_lng'))));
+  const anchor = document.getElementById('ml-national-priority');
+  if (anchor) anchor.after(section);
+  visibility();
   document.addEventListener('pq:regional-coverage', event => {
     const detail = event.detail || {};
-    place(detail.pending || detail.integrated);
+    coverage = detail.pending ? 'pending' : detail.integrated ? 'integrated' : 'uncovered';
+    visibility();
   });
   function card(p) {
     const badge = '<span class="ml-national-badge"><i class="fa fa-globe" aria-hidden="true"></i>Envio nacional</span>';
@@ -34,21 +42,23 @@
   }
   async function load(query) {
     const seq = ++generation;
-    if (!home && !all && !query.trim()) { section.hidden = true; return; }
+    if (!home && !all && !query.trim()) { hasContent = false; visibility(); return; }
     try {
       const response = await fetch('/api/produtos-nacionais?' + new URLSearchParams({q:query}));
       if (!response.ok) throw new Error('catalog');
       const data = await response.json();
       if (seq !== generation) return;
       row.innerHTML = (data.produtos || []).map(card).join('');
-      section.hidden = !data.produtos?.length && !all;
+      hasContent = !!data.produtos?.length || all;
+      visibility();
       status.hidden = !!data.produtos?.length;
       status.textContent = 'Nenhum produto nacional disponível para esta busca no momento.';
       if (home && typeof window._homeUpdateCarouselNav === 'function') window._homeUpdateCarouselNav('ml-national-products');
     } catch (_) {
       if (seq !== generation) return;
       row.replaceChildren();
-      section.hidden = !all;
+      hasContent = all;
+      visibility();
       status.hidden = false;
       status.textContent = 'Não foi possível consultar os produtos nacionais agora. Tente novamente em instantes.';
     }
