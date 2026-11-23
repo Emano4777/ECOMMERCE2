@@ -1,4 +1,4 @@
-﻿const assert = require('node:assert/strict');
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const script = fs.readFileSync('static/ml-national.js', 'utf8');
@@ -21,6 +21,9 @@ for (const mode of ['home', 'search']) for (const located of [false, true]) for 
   events['pq:regional-coverage']({detail:{integrated:false}});
   assert.equal(section.hidden,false);
   assert.match(copy.textContent,/Ainda/);
+  events['pq:regional-coverage']({detail:{integrated:false,located:false}});
+  assert.equal(section.hidden,false);
+  assert.match(copy.textContent,/Informe/);
   events['pq:regional-coverage']({detail:{pending:true}});
   assert.equal(section.hidden,true);
   events['pq:regional-coverage']({detail:{integrated:true}});

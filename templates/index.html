@@ -1956,6 +1956,7 @@ function carregarProdutos(lat, lng, busca='') {
       }
       _serverSearchLoading = false;
       document.dispatchEvent(new CustomEvent('pq:regional-coverage', {detail:{
+        located: !!(Number(lat) || Number(lng)),
         integrated: !!(Number(lat) || Number(lng)) && !data.sem_farmacia_proxima &&
           !!((data.cnpjs_proximos || []).length || (data.lojas_proximas || []).length)
       }}));

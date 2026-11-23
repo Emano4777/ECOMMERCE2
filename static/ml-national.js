@@ -28,7 +28,7 @@
   visibility();
   document.addEventListener('pq:regional-coverage', event => {
     const detail = event.detail || {};
-    coverage = detail.pending ? 'pending' : detail.integrated ? 'integrated' : 'uncovered';
+    coverage = detail.pending ? 'pending' : detail.integrated ? 'integrated' : detail.located === false ? 'unknown' : 'uncovered';
     visibility();
   });
   function card(p) {

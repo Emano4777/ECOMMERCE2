@@ -24,11 +24,11 @@ Não existe agendamento dessa vitrine na Vercel.
 ## Prioridade regional
 
 Na home e na busca, a vitrine nacional fica oculta quando há loja integrada
-atendendo a região, inclusive na página `nacionais=1`. Enquanto a cobertura ?
+atendendo a região, inclusive na página `nacionais=1`. Enquanto a cobertura é
 consultada, também permanece oculta. Sem cobertura, aparece em destaque e
 explica a alternativa nacional. Sem localização, convida a informar o endereço
 sem afirmar que a região não tem cobertura. Respostas tardias do catálogo não
-podem tornar a vitrine vis?vel em uma região coberta.
+podem tornar a vitrine visível em uma região coberta.
 Eventos `pq:regional-coverage` reutilizam os resultados das consultas regionais
 existentes; não acrescentam consultas geográficas ou ao Mercado Livre.
 
