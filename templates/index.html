@@ -1551,6 +1551,7 @@ function renderSearchOrderCta(hasResults) {
 
 function filtrar(q) {
   const termo = (q || '').trim();
+  document.dispatchEvent(new CustomEvent('pq:catalog-query', {detail:termo}));
   clearTimeout(_serverSearchTimer);
   const precisaServidor = termo.length >= 3 || /^\d{8,}$/.test(termo.replace(/\D/g, ''));
   if (_currentLat === null || _currentLng === null) {
@@ -1736,6 +1737,7 @@ function renderSortList() {
 
 function clearFilters() {
   document.getElementById('search-inp').value = '';
+  document.dispatchEvent(new CustomEvent('pq:catalog-query', {detail:''}));
   _allowUrlSearchFallback = false;
   if (location.search) history.replaceState(null, '', location.pathname);
   _sugestoesHide(true);

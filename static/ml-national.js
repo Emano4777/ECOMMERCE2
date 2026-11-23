@@ -42,10 +42,10 @@
       status.textContent = 'Não foi possível consultar os produtos nacionais agora. Tente novamente em instantes.';
     }
   }
-  if (search) search.addEventListener('input', () => {
+  document.addEventListener('pq:catalog-query', event => {
     ++generation;
     clearTimeout(timer);
-    timer = setTimeout(() => load(search.value), 350);
+    timer = setTimeout(() => load(String(event.detail || '')), 350);
   });
   load(home ? '' : (search?.value || params.get('q') || params.get('busca') || params.get('search') || ''));
 })();
