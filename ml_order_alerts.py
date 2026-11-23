@@ -35,7 +35,7 @@ def message(order, sla):
         title = " ".join(str((item.get("item") or {}).get("title") or "Produto").split())
         lines.append(f"• {item.get('quantity', 1)} un. — {title}")
     lines += ["", f"Prazo de postagem: {deadline_text}", "", "Abrir venda e preparar nota/etiqueta:",
-              f"https://www.mercadolivre.com.br/vendas/{order['id']}"]
+              f"https://www.mercadolivre.com.br/vendas/{order['id']}/detalhe"]
     return "\n".join(lines)
 
 
