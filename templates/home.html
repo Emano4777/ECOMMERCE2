@@ -1287,8 +1287,7 @@ body.pq-bf .dept-strip-wrap::after { background: linear-gradient(to right, trans
 
 
   {# â”€â”€ Economia com IA Poupinha â”€â”€ #}
-  {% set ml_home = true %}
-  {% include '_ml_national.html' %}
+  <div id="ml-national-priority" hidden></div>
 
   <section class="home-section" id="sec-economia-ia" style="display:none">
     <div class="home-economia-ia">
@@ -1397,6 +1396,9 @@ body.pq-bf .dept-strip-wrap::after { background: linear-gradient(to right, trans
 
   {# Trending e kits ocultos #}
   <section style="display:none"><div id="home-trending-lojas" class="home-row"></div></section>
+  <div id="ml-national-secondary" hidden></div>
+  {% set ml_home = true %}
+  {% include '_ml_national.html' %}
 </div>
 
 <!-- â”€â”€ Drawer de montagem de kit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
@@ -1739,6 +1741,7 @@ function _homeHideStoreContent(){
 let _homeRequestSeq = 0;
 function carregarHome(lat,lng){
   const requestSeq = ++_homeRequestSeq;
+  document.dispatchEvent(new CustomEvent('pq:regional-coverage', {detail:{pending:true}}));
   _homeHideStoreContent();
   const gk = _geoK(lat,lng);
   const qs = `?lat=${encodeURIComponent(lat || 0)}&lng=${encodeURIComponent(lng || 0)}`;
@@ -1747,6 +1750,10 @@ function carregarHome(lat,lng){
       if(requestSeq !== _homeRequestSeq) return;
       const produtos = data.trending_lojas || [];
       const lojasProximas = data.lojas_proximas || [];
+      document.dispatchEvent(new CustomEvent('pq:regional-coverage', {detail:{
+        integrated: !!(Number(lat) || Number(lng)) && !data.sem_farmacia_proxima &&
+          !!((data.cnpjs_proximos || []).length || lojasProximas.length)
+      }}));
       if(data.sem_farmacia_proxima){
         _homeHideStoreContent();
         return;

@@ -976,12 +976,14 @@ body.pq-bf .idx-empty { --pq-text: #e3e3e3; --pq-muted: #9a9a9a; }
   </button>
 </div>
 
-{% set ml_home = false %}
-{% include '_ml_national.html' %}
+<div id="ml-national-priority" hidden></div>
 
 <!-- Grade de produtos -->
 <div class="prod-grid" id="prod-grid" style="display:none"></div>
 <div class="idx-pager" id="idx-pager" style="display:none"></div>
+<div id="ml-national-secondary" hidden></div>
+{% set ml_home = false %}
+{% include '_ml_national.html' %}
 
 <noscript>
   <p style="text-align:center;color:var(--pq-muted);padding:50px 20px;font-size:.9rem">
@@ -1928,6 +1930,7 @@ function _fetchProdutosProximosComRetry(url, tentativa=0) {
 }
 
 function carregarProdutos(lat, lng, busca='') {
+  document.dispatchEvent(new CustomEvent('pq:regional-coverage', {detail:{pending:true}}));
   _currentLat = lat;
   _currentLng = lng;
   const urlSearch = initialCatalogQuery();
@@ -1952,6 +1955,10 @@ function carregarProdutos(lat, lng, busca='') {
         return;
       }
       _serverSearchLoading = false;
+      document.dispatchEvent(new CustomEvent('pq:regional-coverage', {detail:{
+        integrated: !!(Number(lat) || Number(lng)) && !data.sem_farmacia_proxima &&
+          !!((data.cnpjs_proximos || []).length || (data.lojas_proximas || []).length)
+      }}));
       allProdutos = (data.produtos || []).filter(hasPublicImage);
       if (data.cnpjs_proximos && data.cnpjs_proximos.length) _cnpjsProximos = data.cnpjs_proximos;
       _encomendaLojas = [];

@@ -12,6 +12,17 @@
   const brl = value => Number(value).toLocaleString('pt-BR', {style:'currency',currency:'BRL'});
   let generation = 0;
   let timer;
+  function place(integrated) {
+    const anchor = document.getElementById(integrated ? 'ml-national-secondary' : 'ml-national-priority');
+    if (anchor) anchor.after(section);
+  }
+  // Keep local products first while coverage is being resolved. Without a saved
+  // location, national products can already be shown in the priority position.
+  place(!!(Number(localStorage.getItem('pq_lat')) || Number(localStorage.getItem('pq_lng'))));
+  document.addEventListener('pq:regional-coverage', event => {
+    const detail = event.detail || {};
+    place(detail.pending || detail.integrated);
+  });
   function card(p) {
     const badge = '<span class="ml-national-badge"><i class="fa fa-globe" aria-hidden="true"></i>Envio nacional</span>';
     const button = '<span class="ml-national-link">Ver no Mercado Livre <i class="fa fa-arrow-up-right-from-square" aria-hidden="true"></i></span>';

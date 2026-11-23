@@ -21,5 +21,14 @@ ficam ocultos para evitar divulgar estoque antigo.
 Mercado Livre, tokens ou banco de dados. Visitantes não disparam sincronizações.
 Não existe agendamento dessa vitrine na Vercel.
 
+## Prioridade regional
+
+Na home, o nacional fica depois dos carrosséis locais quando os dados da região
+confirmam loja integrada próxima. Na busca, fica depois da grade e paginação
+regionais. Sem cobertura integrada (ou sem localização), sobe para a posição
+de destaque. Enquanto a cobertura é consultada, mantém a posição secundária.
+Eventos `pq:regional-coverage` reutilizam os resultados das consultas regionais
+existentes; não acrescentam consultas geográficas ou ao Mercado Livre.
+
 Verificação: `systemctl status dns-ml-national-catalog.timer` e
 `journalctl -u dns-ml-national-catalog.service`.
