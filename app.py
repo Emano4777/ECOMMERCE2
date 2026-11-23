@@ -29397,6 +29397,27 @@ def api_cron_ml_national_catalog():
         return jsonify({"ok": False, "error": "catalog_refresh_failed"}), 503
 
 
+@app.post("/api/cron/ml-aftersales-sao-pedro")
+def api_cron_ml_aftersales_sao_pedro():
+    if os.getenv("VERCEL") or request.remote_addr not in ("127.0.0.1", "::1"):
+        return jsonify({"ok": False}), 403
+    if request.headers.get("Authorization", "") != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False}), 401
+    if not WASENDER_API_KEY:
+        return jsonify({"ok": False, "erro": "WhatsApp não configurado"}), 503
+    try:
+        from ml_aftersales_alerts import run
+
+        def send_aftersales(phone, text):
+            result = _wa_send(phone, text, retornar_dados=True, _tentativa=2)
+            return isinstance(result, dict) and result.get("success") is True
+
+        return jsonify(run(db(), _ml_get_token, _ml_api_get, send_aftersales))
+    except Exception:
+        app.logger.exception("Falha no aviso ML de pos-venda Sao Pedro")
+        return jsonify({"ok": False, "erro": "Falha ao processar pos-venda ML"}), 503
+
+
 @app.post("/api/cron/ml-whatsapp-sao-pedro")
 def api_cron_ml_whatsapp_sao_pedro():
     if request.headers.get("Authorization", "") != f"Bearer {_CRON_SECRET}":
