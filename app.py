@@ -11319,17 +11319,8 @@ def api_lojas_ativas():
 @app.get("/api/produtos-nacionais")
 @_rate_limited_api(max_calls=60, window_secs=60)
 def api_produtos_nacionais():
-    from ml_public_catalog import catalog, STORE
-
-    def load_ids():
-        cur = db().cursor()
-        try:
-            cur.execute("SELECT ml_item_id FROM ml_items WHERE cnpjloja=%s ORDER BY ml_item_id", (STORE,))
-            return [r["ml_item_id"] for r in cur.fetchall()]
-        finally:
-            cur.close()
-
-    products = catalog(load_ids, _ml_get_token, _ml_api_get, (request.args.get("q") or "")[:160])
+    from ml_public_catalog import read_catalog
+    products = read_catalog((request.args.get("q") or "")[:160])
     response = jsonify({"produtos": products})
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -29379,6 +29370,31 @@ def api_cron_alpha_export():
     pid = str(row["id"])
     res = _alpha_export_paid_order_safe(pid)
     return jsonify({"ok": True, "id": pid[:8], "resultado": res})
+
+
+@app.post("/api/cron/ml-national-catalog")
+def api_cron_ml_national_catalog():
+    # This job is local to HostGator; even an authenticated Vercel request cannot run it.
+    if os.getenv("VERCEL") or request.remote_addr not in ("127.0.0.1", "::1"):
+        return jsonify({"ok": False}), 403
+    if request.headers.get("Authorization", "") != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False}), 401
+    from ml_public_catalog import refresh_catalog, STORE
+
+    def load_ids():
+        cur = db().cursor()
+        try:
+            cur.execute("SELECT ml_item_id FROM ml_items WHERE cnpjloja=%s ORDER BY ml_item_id", (STORE,))
+            return [r["ml_item_id"] for r in cur.fetchall()]
+        finally:
+            cur.close()
+
+    try:
+        total = refresh_catalog(load_ids, _ml_get_token, _ml_api_get)
+        return jsonify({"ok": True, "products": total})
+    except Exception:
+        app.logger.exception("HostGator ML national catalog refresh failed")
+        return jsonify({"ok": False, "error": "catalog_refresh_failed"}), 503
 
 
 @app.post("/api/cron/ml-whatsapp-sao-pedro")

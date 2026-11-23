@@ -1,16 +1,18 @@
 """Public national showcase, restricted to this store's registered ML listings."""
 import math
+import json
+import os
 import re
-import threading
+import tempfile
 import time
 import unicodedata
+from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 STORE = "54185432000143"
 SELLER = "3501375634"
-TTL = 120
-_snapshot = (0, [])
-_lock = threading.Lock()
+SNAPSHOT_PATH = Path(os.environ.get("ML_PUBLIC_CATALOG_PATH", "/root/scripts/dns_ecommerce_web/ml-national-catalog.json"))
+MAX_AGE = 600
 
 
 def normalized(value):
@@ -57,34 +59,47 @@ def matching(products, query):
          "MLB264201": "suplemento nutricao"}.get(p["categoria"], "")])) for t in terms)]
 
 
-def catalog(load_ids, get_token, api_get, query=""):
-    global _snapshot
-    now = time.monotonic()
-    if now >= _snapshot[0]:
-        # No repeated cold-start requests per worker; never serve expired stock on failure.
-        with _lock:
-            if time.monotonic() >= _snapshot[0]:
-                products = []
-                try:
-                    ids = list(dict.fromkeys(load_ids()))[:200]
-                    token = get_token(cnpjloja=STORE) if ids else None
-                    if ids and not token:
-                        raise RuntimeError("ML token unavailable")
-                    for start in range(0, len(ids), 20):
-                        result = api_get("/items?" + urlencode({"ids": ",".join(ids[start:start + 20])}), token)
-                        if not isinstance(result, list):
-                            raise RuntimeError("ML listing read failed")
-                        for row in result:
-                            if row.get("code") == 200:
-                                p = public_item(row.get("body") or {})
-                                if p:
-                                    products.append(p)
-                    # One customer card per EAN, even if DB later includes catalog twins.
-                    unique = {}
-                    for p in products:
-                        unique.setdefault(p["ean"] or p["id"], p)
-                    products = list(unique.values())
-                except Exception:
-                    products = []
-                _snapshot = (time.monotonic() + (TTL if products else 15), products)
-    return matching(_snapshot[1], query)
+def refresh_catalog(load_ids, get_token, api_get, path=SNAPSHOT_PATH):
+    """Called only by the authenticated HostGator loopback cron, never by visitors."""
+    ids = list(dict.fromkeys(load_ids()))[:200]
+    token = get_token(cnpjloja=STORE) if ids else None
+    if ids and not token:
+        raise RuntimeError("ML token unavailable")
+    unique = {}
+    for start in range(0, len(ids), 20):
+        result = api_get("/items?" + urlencode({"ids": ",".join(ids[start:start + 20])}), token)
+        if not isinstance(result, list):
+            raise RuntimeError("ML listing read failed")
+        for row in result:
+            if row.get("code") not in (200, 404):
+                raise RuntimeError("ML listing batch incomplete")
+            if row.get("code") == 200:
+                p = public_item(row.get("body") or {})
+                if p:
+                    unique.setdefault(p["ean"] or p["id"], p)
+    products = list(unique.values())
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as f:
+            temporary = f.name
+            json.dump({"updated_at": time.time(), "produtos": products}, f, ensure_ascii=False)
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+    return len(products)
+
+
+def read_catalog(query="", path=SNAPSHOT_PATH):
+    """Local file only: zero ML, DB, token refresh or Vercel calls on public reads."""
+    try:
+        snapshot = json.loads(Path(path).read_text(encoding="utf-8"))
+        age = time.time() - float(snapshot["updated_at"])
+        if not -30 <= age <= MAX_AGE:
+            return []
+        return matching(snapshot["produtos"], query)
+    except (OSError, ValueError, KeyError, TypeError):
+        return []

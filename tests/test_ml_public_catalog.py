@@ -1,4 +1,7 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 import ml_public_catalog as catalog
 
@@ -25,16 +28,22 @@ class NationalCatalogTests(unittest.TestCase):
             self.assertEqual(catalog.matching([product],query),[product])
         self.assertEqual(catalog.matching([product],'perfume'),[])
 
-    def test_cache_refresh_deduplicates_and_hides_expired_products_on_failure(self):
-        with patch.object(catalog,'_snapshot',(0,[])):
+    def test_cron_snapshot_and_public_reads_never_call_ml(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'catalog.json'
             calls=[]
             def api(path,token):
                 calls.append(path)
                 return [{'code':200,'body':self.item},{'code':200,'body':{**self.item,'id':'MLB456'}}]
-            products=catalog.catalog(lambda:['MLB123','MLB456'],lambda **kw:'secret',api)
-            self.assertEqual(len(products),1)
-            self.assertNotIn('secret',str(products))
-            catalog.catalog(lambda:[],lambda **kw:None,api)
+            count=catalog.refresh_catalog(lambda:['MLB123','MLB456'],lambda **kw:'secret',api,path)
+            self.assertEqual(count,1)
+            self.assertNotIn('secret',path.read_text())
+            self.assertEqual(len(catalog.read_catalog('ricosol',path)),1)
             self.assertEqual(len(calls),1)
-            catalog._snapshot=(0,products)
-            self.assertEqual(catalog.catalog(lambda:['MLB123'],lambda **kw:'secret',lambda *a:None),[])
+            before=path.read_text()
+            with self.assertRaises(RuntimeError):
+                catalog.refresh_catalog(lambda:['MLB123'],lambda **kw:'secret',lambda *a:None,path)
+            self.assertEqual(path.read_text(),before)
+            with patch.object(catalog.time,'time',return_value=json.loads(before)['updated_at']+601):
+                self.assertEqual(catalog.read_catalog('',path),[])
+            self.assertEqual(catalog.read_catalog('',Path(directory)/'missing'),[])
