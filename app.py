@@ -10099,7 +10099,7 @@ def _ads_cidade_bloqueada(nome_local):
 # desligados em TODO o site, sem mexer nas regras de elegibilidade abaixo
 # (raio de entrega + cidades bloqueadas) -- quando quiser reativar, e so
 # voltar esse flag pra False. Nao apagar nem alterar a logica existente.
-_ADS_DESLIGADO_TEMPORARIAMENTE = True
+_ADS_DESLIGADO_TEMPORARIAMENTE = False
 
 
 @app.get("/api/ads-elegivel")
