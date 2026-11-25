@@ -10095,6 +10095,13 @@ def _ads_cidade_bloqueada(nome_local):
     return _local_rio_das_pedras_sp(nome_local)
 
 
+# Kill-switch temporario (pedido do usuario em 2026-11-25): anuncios
+# desligados em TODO o site, sem mexer nas regras de elegibilidade abaixo
+# (raio de entrega + cidades bloqueadas) -- quando quiser reativar, e so
+# voltar esse flag pra False. Nao apagar nem alterar a logica existente.
+_ADS_DESLIGADO_TEMPORARIAMENTE = True
+
+
 @app.get("/api/ads-elegivel")
 @_rate_limited_api(max_calls=40, window_secs=60)
 def api_ads_elegivel():
@@ -10103,6 +10110,8 @@ def api_ads_elegivel():
     alguma loja o visitante pode comprar de verdade, entao nao disputa tela
     com anuncio. Antes valia o raio de catalogo (30 km de qualquer loja
     publica), que escondia anuncio de muita gente que nao recebe entrega."""
+    if _ADS_DESLIGADO_TEMPORARIAMENTE:
+        return jsonify({"elegivel": False})
     if _ads_cidade_bloqueada(request.args.get("nome")):
         return jsonify({"elegivel": False})
     try:
