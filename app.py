@@ -138,7 +138,8 @@ VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:contato@poupaqui.co
 # ─── MERCADO LIVRE ─────────────────────────────────────────────────────────────
 ML_APP_ID    = os.getenv("ML_APP_ID", "")
 ML_SECRET    = os.getenv("ML_CLIENT_SECRET", "")
-ML_REDIRECT  = os.getenv("ML_REDIRECT_URI", "https://www.drogariaspoupaqui.com.br/ml/callback")
+from ml_oauth import redirect_uri as _ml_redirect_uri, token_error as _ml_token_error
+ML_REDIRECT  = _ml_redirect_uri(os.getenv("ML_REDIRECT_URI"))
 ML_AUTH_URL  = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 ML_API_BASE  = "https://api.mercadolibre.com"
@@ -34640,11 +34641,18 @@ def ml_callback():
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             token_data = json.loads(resp.read())
     except Exception as e:
-        flash(f"Erro ao obter token ML: {e}", "error")
+        if isinstance(e, urllib.error.HTTPError):
+            error_code, message = _ml_token_error(e.read(8192))
+            app.logger.warning("ML OAuth token rejected: status=%s error=%s", e.code, error_code)
+            flash(message, "error")
+        else:
+            app.logger.warning("ML OAuth token failed: type=%s", type(e).__name__)
+            flash("Falha de comunicação com o Mercado Livre. Tente conectar novamente pelo painel da loja.", "error")
         return redirect(url_for("painel_ml"))
 
     if "access_token" not in token_data:
-        flash(f"Resposta inválida do ML: {token_data}", "error")
+        app.logger.warning("ML OAuth response missing access_token")
+        flash("O Mercado Livre retornou uma autorização incompleta. Tente conectar novamente.", "error")
         return redirect(url_for("painel_ml"))
 
     access_token  = token_data["access_token"]
