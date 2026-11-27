@@ -31,6 +31,42 @@ def sync(db, get_token, apply=False):
         return {"ok": False,"erro":"sem_token"}
     session = requests.Session()
     session.headers["Authorization"] = "Bearer " + token
+    cached_items = {}
+    known_ids = {row["ml_item_id"] for row in mappings}
+    me = session.get(API+"/users/me",timeout=20)
+    if me.status_code != 200 or str(me.json().get("id")) != "3501375634":
+        raise RuntimeError("Conta ML nao corresponde a loja Sao Pedro")
+    for status in ("active", "paused"):
+        listing = session.get(API+"/users/3501375634/items/search",params={"status":status,"limit":100},timeout=20)
+        if listing.status_code != 200:
+            raise RuntimeError("Nao foi possivel enumerar os anuncios da loja")
+        if listing.json().get("paging",{}).get("total",0)>100:
+            raise RuntimeError("Catalogo maior que limite de sincronizacao; ampliar paginacao")
+        for iid in listing.json().get("results",[]):
+            if iid in known_ids:
+                continue
+            item_r = session.get(API+"/items/"+iid,timeout=20)
+            if item_r.status_code != 200:
+                continue
+            item = item_r.json()
+            cached_items[iid] = item
+            gtin = next((a.get("value_name") for a in item.get("attributes",[]) if a.get("id")=="GTIN"),None)
+            if not gtin or item.get("bundle"):
+                continue
+            cur.execute("""SELECT %s AS ml_item_id,ap.ean,ap.estoque,ap.inativo,ap.synced_at,
+                b.preco,b.sincronizado_em FROM ecommerce_alpha_produtos ap
+                LEFT JOIN ecommerce_automatiza_ml_precos b ON b.cnpjloja=ap.cnpjloja AND LTRIM(b.ean,'0')=LTRIM(ap.ean,'0')
+                WHERE ap.cnpjloja=%s AND LTRIM(ap.ean,'0')=LTRIM(%s,'0')
+                ORDER BY ap.synced_at DESC,ap.inativo,ap.alpha_o_id LIMIT 1""",(iid,STORE,gtin))
+            match = cur.fetchone()
+            if match:
+                mappings.append(match)
+                known_ids.add(iid)
+                if apply:
+                    cur.execute("""INSERT INTO ml_items(ml_item_id,ean,titulo,preco,status,updated_at,category_id,cnpjloja)
+                        VALUES (%s,%s,%s,%s,%s,NOW(),%s,%s) ON CONFLICT(ml_item_id) DO NOTHING""",
+                        (iid,match["ean"],item.get("title"),item.get("price"),item.get("status"),item.get("category_id"),STORE))
+    conn.commit()
     result = {"ok": True,"aplicar":apply,"estoques":0,"precos":0,"notas":0,"ignorados":[],"erros":[],"plano":[]}
     updated = set()
     stale_before = datetime.now(timezone.utc) - timedelta(minutes=20)
@@ -38,10 +74,12 @@ def sync(db, get_token, apply=False):
         iid = mapping["ml_item_id"]
         if mapping["synced_at"] < stale_before:
             result["ignorados"].append({"id":iid,"motivo":"estoque_desatualizado"}); continue
-        item_r = session.get(API+"/items/"+iid,timeout=20)
-        if item_r.status_code != 200:
-            result["erros"].append({"id":iid,"http":item_r.status_code}); continue
-        item = item_r.json()
+        item = cached_items.get(iid)
+        if item is None:
+            item_r = session.get(API+"/items/"+iid,timeout=20)
+            if item_r.status_code != 200:
+                result["erros"].append({"id":iid,"http":item_r.status_code}); continue
+            item = item_r.json()
         if item.get("status") not in {"active","paused"} or item.get("variations") or item.get("bundle") or item.get("shipping",{}).get("logistic_type")=="fulfillment":
             result["ignorados"].append({"id":iid,"motivo":"tipo_ou_status_nao_suportado"}); continue
         gtins = [a.get("value_name","").lstrip("0") for a in item.get("attributes",[]) if a.get("id")=="GTIN"]
