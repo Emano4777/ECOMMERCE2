@@ -308,7 +308,7 @@ def sync_products():
                 largura=EXCLUDED.largura,
                 comprimento=EXCLUDED.comprimento,
                 peso=EXCLUDED.peso,
-                imagem_url=COALESCE(EXCLUDED.imagem_url, ecommerce_alpha_produtos.imagem_url),
+                imagem_url=COALESCE(EXCLUDED.imagem_url, CASE WHEN LTRIM(COALESCE(ecommerce_alpha_produtos.ean,''),'0')=LTRIM(COALESCE(EXCLUDED.ean,''),'0') THEN ecommerce_alpha_produtos.imagem_url ELSE NULL END),
                 synced_at=NOW()
             """,
             values,
