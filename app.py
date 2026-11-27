@@ -2163,6 +2163,20 @@ def _wa_send(numero: str, msg: str, imagem_url: str = None, retornar_dados: bool
         return False
 
 
+def _ml_wa_send_result(resposta_wa):
+    """(ok, wa_message_id) a partir do retorno de _wa_send(retornar_dados=True)
+    -- usado pelos avisos ML (venda paga, copia pro dono, pos-venda) pra
+    guardar o id retornado pela WA Sender junto do envio, em vez de so saber
+    que o provedor "aceitou" (aceito != entregue no celular -- mesma extracao
+    ja usada no envio de CRM, ver _wa_send com dados_wa.get('msgId')/key.id)."""
+    ok = isinstance(resposta_wa, dict) and resposta_wa.get("success") is True
+    wa_message_id = None
+    if ok:
+        dados_wa = resposta_wa.get("data") or {}
+        wa_message_id = str(dados_wa.get("id") or dados_wa.get("msgId") or (dados_wa.get("key") or {}).get("id") or "") or None
+    return ok, wa_message_id
+
+
 def _wa_reservar_notificacao_pedido(pedido_id: str) -> bool:
     """Reserva atomicamente o direito de mandar o WA de 'pedido pago' pra
     loja -- so retorna True pra UMA chamada concorrente (webhook, checagem de
@@ -29450,7 +29464,7 @@ def api_cron_ml_owner_sales():
 
         def send_owner_sale(phone, text):
             result = _wa_send(phone, text, retornar_dados=True, _tentativa=2)
-            return isinstance(result, dict) and result.get("success") is True
+            return _ml_wa_send_result(result)
 
         return jsonify(run(db(), _ml_get_token, _ml_api_get, send_owner_sale))
     except Exception:
@@ -29471,7 +29485,7 @@ def api_cron_ml_aftersales_sao_pedro():
 
         def send_aftersales(phone, text):
             result = _wa_send(phone, text, retornar_dados=True, _tentativa=2)
-            return isinstance(result, dict) and result.get("success") is True
+            return _ml_wa_send_result(result)
 
         return jsonify(run(db(), _ml_get_token, _ml_api_get, send_aftersales))
     except Exception:
@@ -29490,7 +29504,7 @@ def api_cron_ml_whatsapp_sao_pedro():
         def send_ml_alert(phone, text):
             # Retry next timer tick instead of sleeping inside a web worker.
             result = _wa_send(phone, text, retornar_dados=True, _tentativa=2)
-            return isinstance(result, dict) and result.get("success") is True
+            return _ml_wa_send_result(result)
         return jsonify(run(db(), _ml_get_token, _ml_api_get, send_ml_alert))
     except Exception:
         app.logger.exception("Falha no aviso ML Sao Pedro")

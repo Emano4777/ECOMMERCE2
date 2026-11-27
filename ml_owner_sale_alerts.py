@@ -35,6 +35,7 @@ def _run(conn, token, api_get, send):
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), sent_at TIMESTAMPTZ,
             attempts INTEGER NOT NULL DEFAULT 0, skipped BOOLEAN NOT NULL DEFAULT FALSE,
             last_error TEXT, PRIMARY KEY(seller_id,phone,order_id))''')
+        cur.execute('ALTER TABLE ml_wa_sale_copies ADD COLUMN IF NOT EXISTS wa_message_id TEXT')
         cur.execute('''INSERT INTO ml_wa_sale_copy_config(seller_id,phone)
             VALUES (%s,%s) ON CONFLICT DO NOTHING''', (SELLER, PHONE))
         cur.execute('SELECT activated_at FROM ml_wa_sale_copy_config WHERE seller_id=%s AND phone=%s', (SELLER, PHONE))
@@ -68,14 +69,15 @@ def _run(conn, token, api_get, send):
             lead = api_get(f'/shipments/{sid}/lead_time', token) if sid else None
             shipment = api_get(f'/shipments/{sid}', token) if sid else None
             try:
-                ok = bool(send(PHONE, message(order, sla, lead, shipment)))
+                ok, wa_message_id = send(PHONE, message(order, sla, lead, shipment))
             except Exception:
-                ok = False
+                ok, wa_message_id = False, None
             with conn.cursor() as cur:
                 cur.execute('''UPDATE ml_wa_sale_copies SET attempts=attempts+1,
-                    sent_at=CASE WHEN %s THEN NOW() ELSE NULL END,last_error=%s
+                    sent_at=CASE WHEN %s THEN NOW() ELSE NULL END,last_error=%s,
+                    wa_message_id=COALESCE(%s,wa_message_id)
                     WHERE seller_id=%s AND phone=%s AND order_id=%s''',
-                    (ok, None if ok else 'WhatsApp não confirmou envio', SELLER, PHONE, oid))
+                    (ok, None if ok else 'WhatsApp não confirmou envio', wa_message_id, SELLER, PHONE, oid))
             sent, failed = int(ok), int(not ok)
     with conn.cursor() as cur:
         cur.execute('''UPDATE ml_wa_sale_copy_config SET last_success_at=NOW()

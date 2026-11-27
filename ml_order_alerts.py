@@ -85,6 +85,9 @@ def _run(conn, get_token, api_get, send):
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), sent_at TIMESTAMPTZ,
             attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
             skipped BOOLEAN NOT NULL DEFAULT FALSE, PRIMARY KEY(seller_id, order_id))""")
+        # Guarda o id que a WA Sender devolveu pro envio (nao so "aceitou") --
+        # ALTER separado do CREATE porque a tabela ja existe em producao.
+        cur.execute("ALTER TABLE ml_wa_order_alerts ADD COLUMN IF NOT EXISTS wa_message_id TEXT")
         cur.execute("INSERT INTO ml_wa_alert_config(seller_id) VALUES (%s) ON CONFLICT DO NOTHING", (SELLER,))
         cur.execute("SELECT * FROM ml_wa_alert_config WHERE seller_id=%s", (SELLER,))
         config = cur.fetchone()
@@ -142,11 +145,12 @@ def _run(conn, get_token, api_get, send):
         sla = api_get(f"/shipments/{sid}/sla", token) if sid else None
         lead_time = api_get(f"/shipments/{sid}/lead_time", token) if sid else None
         shipment = api_get(f"/shipments/{sid}", token) if sid else None
-        ok = bool(send(PHONE, message(order, sla, lead_time, shipment)))
+        ok, wa_message_id = send(PHONE, message(order, sla, lead_time, shipment))
         with conn.cursor() as cur:
             cur.execute("""UPDATE ml_wa_order_alerts SET attempts=attempts+1,
-                sent_at=CASE WHEN %s THEN NOW() ELSE NULL END, last_error=%s
-                WHERE seller_id=%s AND order_id=%s""", (ok, None if ok else "WhatsApp não confirmou envio", SELLER, oid))
+                sent_at=CASE WHEN %s THEN NOW() ELSE NULL END, last_error=%s, wa_message_id=COALESCE(%s, wa_message_id)
+                WHERE seller_id=%s AND order_id=%s""",
+                (ok, None if ok else "WhatsApp não confirmou envio", wa_message_id, SELLER, oid))
         conn.commit()
         sent += int(ok)
         failed += int(not ok)

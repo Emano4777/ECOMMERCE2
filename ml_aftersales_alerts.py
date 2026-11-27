@@ -143,6 +143,7 @@ def _run(conn, token, api_get, send):
             body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             sent_at TIMESTAMPTZ, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
             PRIMARY KEY(seller_id, claim_id, fingerprint))''')
+        cur.execute('ALTER TABLE ml_wa_aftersales_events ADD COLUMN IF NOT EXISTS wa_message_id TEXT')
         cur.execute('INSERT INTO ml_wa_aftersales_config(seller_id) VALUES (%s) ON CONFLICT DO NOTHING', (SELLER,))
         cur.execute('SELECT activated_at FROM ml_wa_aftersales_config WHERE seller_id=%s', (SELLER,))
         activated_at = cur.fetchone()['activated_at']
@@ -185,14 +186,15 @@ def _run(conn, token, api_get, send):
     sent = failed = 0
     for event in pending:
         try:
-            ok = bool(send(PHONE, event['body']))
+            ok, wa_message_id = send(PHONE, event['body'])
         except Exception:
-            ok = False
+            ok, wa_message_id = False, None
         with conn.cursor() as cur:
             cur.execute('''UPDATE ml_wa_aftersales_events SET attempts=attempts+1,
-                sent_at=CASE WHEN %s THEN NOW() ELSE NULL END,last_error=%s
+                sent_at=CASE WHEN %s THEN NOW() ELSE NULL END,last_error=%s,
+                wa_message_id=COALESCE(%s,wa_message_id)
                 WHERE seller_id=%s AND claim_id=%s AND fingerprint=%s''',
-                (ok, None if ok else 'WhatsApp não confirmou envio', SELLER, event['claim_id'], event['fingerprint']))
+                (ok, None if ok else 'WhatsApp não confirmou envio', wa_message_id, SELLER, event['claim_id'], event['fingerprint']))
         conn.commit()
         sent += int(ok)
         failed += int(not ok)
