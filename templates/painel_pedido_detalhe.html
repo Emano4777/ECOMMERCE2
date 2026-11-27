@@ -74,7 +74,7 @@
   <div class="pd-info-item">
     <div class="lbl">Cliente</div>
     <div class="val">{{ pedido.cliente_nome }}</div>
-    {% if pedido.cliente_telefone %}
+    {% if pedido.cliente_telefone and pedido.cliente_telefone|replace("0", "")|trim %}
     <div style="font-size:.8rem;color:var(--pk-muted);margin-top:4px">{{ pedido.cliente_telefone }}</div>
     {% endif %}
     {% if pedido.cliente_email %}
@@ -237,7 +237,7 @@
     </div>
     <div class="ml-ship-cell">
       <div class="lbl">Etiqueta</div>
-      <div class="val">{{ 'Disponível se o ML liberar' if pedido.ml_shipping_id else 'Aguardando envio' }}</div>
+      <div class="val">{{ ml_shipping.label_message }}</div>
     </div>
     <div class="ml-ship-cell">
       <div class="lbl">Operação</div>
@@ -249,7 +249,7 @@
     <form method="post" action="{{ url_for('painel_ml_sincronizar_envio', pedido_id=pedido.id) }}">
       <button class="ml-ship-btn" type="submit"><i class="fa fa-rotate"></i>Sincronizar envio</button>
     </form>
-    {% if pedido.ml_shipping_id %}
+    {% if ml_shipping.label_ready %}
       <a class="ml-ship-btn primary" href="{{ url_for('painel_ml_baixar_etiqueta', pedido_id=pedido.id) }}">
         <i class="fa fa-file-arrow-down"></i>Baixar etiqueta
       </a>

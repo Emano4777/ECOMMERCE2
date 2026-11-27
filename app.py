@@ -23196,6 +23196,12 @@ def painel_pedidos():
                COALESCE(origem, 'ecommerce') AS origem, ml_order_id
         FROM ecommerce_pedidos
     WHERE cnpjloja = %s
+      AND (ml_order_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM ecommerce_pedidos canonical
+        WHERE canonical.cnpjloja=ecommerce_pedidos.cnpjloja
+          AND canonical.ml_order_id=ecommerce_pedidos.ml_order_id
+          AND (canonical.criado_em,canonical.id)<(ecommerce_pedidos.criado_em,ecommerce_pedidos.id)
+      ))
     """
     args = [cnpjloja]
     if _motoboy_logged():
@@ -23271,8 +23277,9 @@ def painel_pedido_detalhe(pedido_id):
     cur.close()
     pedido_dict = dict(pedido)
     ml_shipping_info = None
+    synced_info = None
     if pedido_dict.get("origem") == "mercado_livre":
-        if pedido_dict.get("ml_order_id") and (not pedido_dict.get("ml_shipping_id") or not pedido_dict.get("ml_shipping_status")):
+        if pedido_dict.get("ml_order_id"):
             synced_info, _sync_err = _ml_sync_shipment_for_pedido(
                 pedido_id=pedido_id,
                 cnpjloja=cnpjloja,
@@ -23302,6 +23309,11 @@ def painel_pedido_detalhe(pedido_id):
                     pedido_dict.get("ml_shipping_substatus"),
                 ),
             }
+    if ml_shipping_info:
+        from ml_panel import label_state
+        ml_shipping_info.update(label_state(ml_shipping_info if synced_info else {}))
+        if not ml_shipping_info["label_ready"]:
+            ml_shipping_info["instruction"] = ml_shipping_info["label_message"]
     # Parseia receita_url que pode ser JSON array ["url1","url2"] ou URL simples (legado)
     _ru = pedido_dict.get("receita_url") or ""
     try:
@@ -23386,7 +23398,12 @@ def painel_ml_baixar_etiqueta(pedido_id):
     if not row:
         flash("Pedido Mercado Livre não encontrado.", "error")
         return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
-    shipping_id = row.get("ml_shipping_id")
+    info, err = _ml_sync_shipment_for_pedido(pedido_id=pedido_id, cnpjloja=cnpjloja)
+    from ml_panel import label_state
+    if not info or not label_state(info)["label_ready"]:
+        flash(label_state(info or {})["label_message"], "info")
+        return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
+    shipping_id = info.get("id")
     if not shipping_id:
         info, err = _ml_sync_shipment_for_pedido(pedido_id=pedido_id, cnpjloja=cnpjloja)
         shipping_id = (info or {}).get("id")
@@ -23398,7 +23415,7 @@ def painel_ml_baixar_etiqueta(pedido_id):
         "shipment_ids": shipping_id,
         "response_type": "pdf",
     })
-    data, status, content_type = _ml_api_get_raw(path, accept="application/pdf")
+    data, status, content_type = _ml_api_get_raw(path, token=_ml_get_token(cnpjloja=cnpjloja), accept="application/pdf")
     if not data or status not in (200, 201):
         flash(f"Não foi possível baixar a etiqueta no Mercado Livre: HTTP {status} - {content_type}", "error")
         return redirect(url_for("painel_pedido_detalhe", pedido_id=pedido_id))
@@ -34256,6 +34273,8 @@ def _ml_parse_shipment(shipping):
         "estimated_delivery": _ml_flat_value(
             ((shipping.get("shipping_option") or {}).get("estimated_delivery_time") or {}).get("date")
         ),
+        "label_release": ((shipping.get("buffering") or {}).get("date")),
+        "posting_deadline": (((shipping.get("shipping_option") or {}).get("estimated_handling_limit") or {}).get("date")),
         "address": {
             "street": receiver.get("street_name") or "",
             "number": receiver.get("street_number") or "",
@@ -34486,7 +34505,7 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
         cliente_email = buyer.get("email", "")
         phone_obj   = buyer.get("phone", {})
         raw_phone   = f"{phone_obj.get('area_code','')}{phone_obj.get('number','')}"
-        cliente_telefone = re.sub(r"\D+", "", raw_phone)[:11] or "00000000000"
+        cliente_telefone = re.sub(r"\D+", "", raw_phone)[:11] or ""
         billing_info = order.get("billing_info") or buyer.get("billing_info") or {}
         cliente_documento = _digits(
             billing_info.get("doc_number")

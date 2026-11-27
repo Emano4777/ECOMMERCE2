@@ -106,7 +106,7 @@
         </td>
         <td>
           <div style="font-weight:700">{{ p.cliente_nome }}</div>
-          {% if p.cliente_telefone %}
+          {% if p.cliente_telefone and p.cliente_telefone|replace("0", "")|trim %}
           <div style="font-size:.76rem;color:var(--pk-muted)">{{ p.cliente_telefone }}</div>
           {% endif %}
           {% if p.cliente_email %}<div style="font-size:.76rem;color:var(--pk-muted)">{{ p.cliente_email }}</div>{% endif %}
