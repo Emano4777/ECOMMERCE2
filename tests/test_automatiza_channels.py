@@ -7,6 +7,7 @@ from automatiza_channels import book_price
 from automatiza_sync import _preco_calc, _controlled, _export_reference, _validate_filial
 from automatiza_fiscal import authorized_xml
 from automatiza_ml_sync import is_virtual_bundle
+from automatiza_sync import _pedido_payload
 
 
 class DirectedPriceTests(unittest.TestCase):
@@ -59,3 +60,25 @@ class FiscalTests(unittest.TestCase):
         for xml in [self.xml(cnpj="64369730000147"),self.xml(status="101"),self.xml(env="2")]:
             with self.assertRaises(ValueError):
                 authorized_xml(xml,"54185432000143")
+
+
+class MercadoLivrePackTests(unittest.TestCase):
+    def test_paid_components_share_one_erp_total_and_group(self):
+        cur=Mock()
+        cur.fetchone.return_value={"id":"a","ml_pack_id":"900","ml_pack_order_ids":["101","102"],"total":10}
+        cur.fetchall.side_effect=[[
+            {"id":"a","ml_order_id":"101","ml_shipping_id":"500","pagamento_status":"approved","status":"pago","total":10},
+            {"id":"b","ml_order_id":"102","ml_shipping_id":"500","pagamento_status":"approved","status":"pago","total":20},
+        ],[{"codigo_mercadoria":1,"ean":"789","qty":1}]]
+        order,items=_pedido_payload(cur,"a","54185432000143")
+        self.assertEqual(order["total"],30)
+        self.assertEqual(order["_erp_group_ids"],["a","b"])
+        with patch.dict(os.environ,{"AUTOMATIZA_FULL_REFERENCE":"1"}):
+            self.assertEqual(_export_reference(order),"MLP900")
+
+    def test_incomplete_pack_waits_before_any_export(self):
+        cur=Mock()
+        cur.fetchone.return_value={"id":"a","ml_pack_id":"900","ml_pack_order_ids":["101","102"]}
+        cur.fetchall.return_value=[{"id":"a","ml_order_id":"101","ml_shipping_id":"500","total":10}]
+        with self.assertRaisesRegex(RuntimeError,"incompleto"):
+            _pedido_payload(cur,"a","54185432000143")

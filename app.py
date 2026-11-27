@@ -34540,6 +34540,8 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 state = (state_obj.get("id") or "").removeprefix("BR-") or state_obj.get("name", "")
                 bairro = (addr.get("neighborhood") or {}).get("name", "")
                 complemento = addr.get("comment") or ""
+                cliente_nome = addr.get("receiver_name") or cliente_nome
+                cliente_telefone = _digits(addr.get("receiver_phone")) or cliente_telefone
                 endereco_entrega = f"{street}, {number} {complemento} — {bairro} — {city}/{state} CEP {cep_comprador}"
                 if not cliente_documento:
                     fiscal = _ml_api_get(f"/shipments/{shipping_id}/billing_info", token) or {}
@@ -34594,7 +34596,16 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 INSERT INTO ecommerce_pedido_itens (pedido_id, ean, nome, preco_unitario, qty)
                 VALUES (%s,%s,%s,%s,%s)
             """, (pedido_id, it["ean"], it["nome"], it["preco"], it["qty"]))
+        pack_id = order.get("pack_id") if str(cnpjloja)=="54185432000143" else None
+        pack_order_ids = []
+        if pack_id:
+            pack = _ml_api_get(f"/packs/{pack_id}", token) or {}
+            pack_order_ids = [str(o["id"]) for o in pack.get("orders", []) if o.get("id")]
+            cur2.execute("UPDATE ecommerce_pedidos SET ml_pack_id=%s,ml_pack_order_ids=%s::jsonb WHERE id=%s", (str(pack_id), json.dumps(pack_order_ids), pedido_id))
         conn2.commit(); cur2.close()
+        for related_id in pack_order_ids:
+            if related_id != str(order_id):
+                _ml_queue_order(related_id, (order.get("seller") or {}).get("id") or ml_user_id)
         if status_ped == "pago" and str(cnpjloja) != "54185432000143":
             _alpha_export_paid_order_safe(pedido_id)
         print(f"[ML] Pedido {order_id} criado → {pedido_id} (loja {cnpjloja})")

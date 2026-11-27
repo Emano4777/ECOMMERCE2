@@ -37,6 +37,8 @@ def _controlled(value):
 
 def _export_reference(pedido):
     if _enabled_flag("AUTOMATIZA_FULL_REFERENCE"):
+        if pedido.get("ml_pack_id"):
+            return "MLP" + str(pedido["ml_pack_id"])
         return "ML" + str(pedido["ml_order_id"]) if pedido.get("ml_order_id") else str(pedido["id"])
     return str(pedido["id"])[:8].upper()
 
@@ -113,6 +115,8 @@ def ensure_local_schema():
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS automatiza_enviado_em TIMESTAMPTZ")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS automatiza_pedido_codigo TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS automatiza_erro TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_pack_id TEXT")
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_pack_order_ids JSONB")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ecommerce_automatiza_notas_fiscais (
                 pedido_id UUID PRIMARY KEY,
@@ -397,6 +401,23 @@ def _pedido_payload(local_cur, pedido_id, cnpjloja):
     pedido = local_cur.fetchone()
     if not pedido:
         raise RuntimeError("Pedido nao encontrado (ou nao e dessa loja)")
+    group_ids = [str(pedido_id)]
+    if pedido.get("ml_pack_id"):
+        expected = pedido.get("ml_pack_order_ids") or []
+        if isinstance(expected, str):
+            expected = json.loads(expected)
+        if not expected:
+            raise RuntimeError("Aguardando composicao completa do pacote ML")
+        local_cur.execute("SELECT * FROM ecommerce_pedidos WHERE cnpjloja=%s AND ml_order_id=ANY(%s)", (cnpjloja, [str(x) for x in expected]))
+        group = local_cur.fetchall()
+        if len(group) != len(set(expected)) or len({str(p.get("ml_shipping_id")) for p in group}) != 1:
+            raise RuntimeError("Pacote ML incompleto ou com multiplos envios; conferir antes de faturar")
+        if any(p.get("pagamento_status") != "approved" or p.get("status") in {"cancelado", "estornado", "reembolsado"} for p in group):
+            raise RuntimeError("Pacote ML ainda nao esta integralmente pago")
+        group_ids = [str(p["id"]) for p in group]
+        pedido["total"] = sum(p["total"] for p in group)
+        pedido["desconto_cupom"] = sum(p.get("desconto_cupom") or 0 for p in group)
+    pedido["_erp_group_ids"] = group_ids
     local_cur.execute(
         """
         SELECT i.*, ap.alpha_o_id AS codigo_mercadoria
@@ -407,10 +428,10 @@ def _pedido_payload(local_cur, pedido_id, cnpjloja):
               AND COALESCE(ap.inativo,false)=false
             ORDER BY ap.synced_at DESC,ap.alpha_o_id LIMIT 1
         ) ap ON TRUE
-        WHERE i.pedido_id=%s
+        WHERE i.pedido_id=ANY(%s::uuid[])
         ORDER BY i.id
         """,
-        (cnpjloja, pedido_id),
+        (cnpjloja, group_ids),
     )
     itens = local_cur.fetchall()
     if not itens:
@@ -457,7 +478,7 @@ def export_paid_order(pedido_id):
         pedido, itens = _pedido_payload(lcur, str(pedido_id), cnpjloja)
 
         if pedido.get("ml_order_id"):
-            lcur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("automatiza-ml:" + str(pedido["ml_order_id"]),))
+            lcur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("automatiza-ml:" + str(pedido.get("ml_pack_id") or pedido["ml_order_id"]),))
         if _enabled_flag("AUTOMATIZA_REQUIRE_SOURCE") and source_for_store(lcur, cnpjloja) != "automatiza":
             return {"ok": False, "erro": "loja_usa_outro_erp"}
         if pedido.get("status") in {"cancelado", "cancelled", "estornado", "reembolsado"}:
@@ -507,7 +528,7 @@ def export_paid_order(pedido_id):
                     raise RuntimeError("Referencia duplicada no ERP; conferir antes de reenviar")
                 if existing:
                     codigo_pedido = existing[0]["Codigo"]
-                    lcur.execute("UPDATE ecommerce_pedidos SET automatiza_enviado_em=NOW(), automatiza_pedido_codigo=%s,automatiza_erro=NULL WHERE id=%s", (str(codigo_pedido), pedido_id))
+                    lcur.execute("UPDATE ecommerce_pedidos SET automatiza_enviado_em=NOW(), automatiza_pedido_codigo=%s,automatiza_erro=NULL WHERE id=ANY(%s::uuid[])", (str(codigo_pedido), pedido.get("_erp_group_ids", [str(pedido_id)])))
                     lconn.commit()
                     return {"ok": True, "ja_enviado": True, "codigo_pedido": codigo_pedido}
                 acur.execute(
@@ -644,8 +665,8 @@ def export_paid_order(pedido_id):
             raise
 
         lcur.execute(
-            "UPDATE ecommerce_pedidos SET automatiza_enviado_em=NOW(), automatiza_pedido_codigo=%s, automatiza_erro=NULL WHERE id=%s",
-            (str(codigo_pedido), pedido_id),
+            "UPDATE ecommerce_pedidos SET automatiza_enviado_em=NOW(), automatiza_pedido_codigo=%s, automatiza_erro=NULL WHERE id=ANY(%s::uuid[])",
+            (str(codigo_pedido), pedido.get("_erp_group_ids", [str(pedido_id)])),
         )
         lconn.commit()
         lcur.close()
