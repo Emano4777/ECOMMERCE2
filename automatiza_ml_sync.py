@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import requests
 
+from ml_order_alerts import PHONE
+
 STORE = "54185432000143"
 API = "https://api.mercadolibre.com"
 
@@ -12,7 +14,39 @@ def is_virtual_bundle(item):
     return bool(item.get("bundle") or "bundle" in item.get("tags", []))
 
 
-def sync(db, get_token, apply=False):
+def _alertar_nota_fiscal_problema(cur, conn, send, invoice, motivo, tentativas_minimas=0):
+    """Avisa o dono no WhatsApp quando a nota fiscal nao e aceita pelo
+    Mercado Livre -- antes disso ficava so tentando de novo sozinho a cada
+    5min (ou acumulando no log, no caso do conflito de chave), sem ninguem
+    ser avisado que a etiqueta ficou travada por causa da nota."""
+    if not send:
+        return
+    cur.execute(
+        "SELECT ml_tentativa_count, ml_alerta_em FROM ecommerce_automatiza_xml WHERE pedido_id=%s",
+        (invoice["pedido_id"],),
+    )
+    row = cur.fetchone()
+    if not row or row["ml_alerta_em"] or row["ml_tentativa_count"] < tentativas_minimas:
+        return
+    ml_order_id = invoice.get("ml_order_id")
+    texto = (
+        "⚠️ Nota fiscal recusada pelo Mercado Livre\n"
+        "Loja São Pedro\n"
+        f"Venda #{ml_order_id}\n"
+        f"Motivo: {motivo}\n"
+        "A etiqueta não libera sem a nota aceita — confira manualmente.\n\n"
+        f"https://www.mercadolivre.com.br/vendas/{ml_order_id}/detalhe"
+    )
+    try:
+        ok, _wa_message_id = send(PHONE, texto)
+    except Exception:
+        ok = False
+    if ok:
+        cur.execute("UPDATE ecommerce_automatiza_xml SET ml_alerta_em=NOW() WHERE pedido_id=%s", (invoice["pedido_id"],))
+        conn.commit()
+
+
+def sync(db, get_token, apply=False, send=None):
     if os.getenv("VERCEL"):
         raise RuntimeError("Rotina exclusiva do HostGator")
     from erp_routing import source_for_store
@@ -153,6 +187,14 @@ def sync(db, get_token, apply=False):
         if r.status_code==200 and r.json().get("fiscal_key"):
             if r.json()["fiscal_key"] != invoice["chave_acesso"]:
                 result["erros"].append({"pedido":str(invoice["pedido_id"]),"erro":"nota_ja_existe_divergente"})
+                # Conflito nao se resolve sozinho tentando de novo -- avisa na hora,
+                # uma unica vez (ml_alerta_em guarda isso), em vez de so acumular
+                # no log do cron sem ninguem saber que precisa intervir.
+                if apply:
+                    cur.execute("""UPDATE ecommerce_automatiza_xml SET ml_erro=%s,ml_tentativa_em=NOW()
+                        WHERE pedido_id=%s""", ("nota_ja_existe_divergente", invoice["pedido_id"]))
+                    conn.commit()
+                    _alertar_nota_fiscal_problema(cur, conn, send, invoice, "A nota ja existe no Mercado Livre com uma chave de acesso diferente da nossa.")
             elif apply:
                 cur.execute("UPDATE ecommerce_automatiza_xml SET ml_enviado_em=NOW(),ml_erro=NULL WHERE pedido_id=%s",(invoice["pedido_id"],));conn.commit()
             continue
@@ -164,10 +206,20 @@ def sync(db, get_token, apply=False):
             response = session.post(API+"/shipments/"+shipment+"/invoice_data/",params={"siteId":"MLB"},headers={"Content-Type":"application/xml"},data=invoice["xml_nfe"].encode("utf-8"),timeout=30)
             ok = response.status_code in {200,201,202,204}
             cur.execute("""UPDATE ecommerce_automatiza_xml SET ml_tentativa_em=NOW(),ml_erro=%s,
-                ml_enviado_em=CASE WHEN %s THEN NOW() ELSE ml_enviado_em END WHERE pedido_id=%s""",
-                (None if ok else "HTTP "+str(response.status_code),ok,invoice["pedido_id"]))
+                ml_enviado_em=CASE WHEN %s THEN NOW() ELSE ml_enviado_em END,
+                ml_tentativa_count=CASE WHEN %s THEN 0 ELSE ml_tentativa_count+1 END
+                WHERE pedido_id=%s""",
+                (None if ok else "HTTP "+str(response.status_code),ok,ok,invoice["pedido_id"]))
             conn.commit()
             result["notas"]+=int(ok)
+            # So avisa apos algumas tentativas seguidas falhando (nao na primeira
+            # falha isolada, que costuma ser so o ML ainda processando) -- ver
+            # ml_tentativa_count/ml_alerta_em em automatiza_fiscal.ensure_schema.
+            if not ok:
+                _alertar_nota_fiscal_problema(
+                    cur, conn, send, invoice, f"Mercado Livre recusou a nota: HTTP {response.status_code}.",
+                    tentativas_minimas=3,
+                )
     cur.close()
     result["ok"] = not result["erros"]
     return result
@@ -178,8 +230,10 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     import app as web
+    def _enviar_wa(phone, texto):
+        return web._ml_wa_send_result(web._wa_send(phone, texto, retornar_dados=True))
     with web.app.app_context():
-        result=sync(web.db,web._ml_get_token,apply="--apply" in sys.argv)
+        result=sync(web.db,web._ml_get_token,apply="--apply" in sys.argv,send=_enviar_wa)
         if "--summary" in sys.argv and "plano" in result:
             result["anuncios_conferidos"]=len(result.pop("plano"))
         print(json.dumps(result,ensure_ascii=True))

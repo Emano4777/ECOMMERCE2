@@ -4097,6 +4097,11 @@ def _ensure_ml_shipping_schema():
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_tracking_number TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_tracking_method TEXT")
         cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_shipping_updated_at TIMESTAMPTZ")
+        # Guarda quando o dono ja foi avisado no WhatsApp de que a etiqueta
+        # ficou liberada -- antes disso so aparecia passivamente no painel
+        # (so era visto se alguem abrisse o pedido), igual uma venda que
+        # ficou invisivel por falta de aviso ativo (ver _ml_notificar_etiqueta_liberada).
+        cur.execute("ALTER TABLE ecommerce_pedidos ADD COLUMN IF NOT EXISTS ml_label_avisado_em TIMESTAMPTZ")
         conn.commit(); cur.close()
         _schema_ready.add(key)
         _mark_migration_done(key)
@@ -34514,7 +34519,44 @@ def _ml_sync_shipment_for_pedido(pedido_id=None, ml_order_id=None, shipping_id=N
             ),
         )
         conn.commit(); cur.close()
+        try:
+            _ml_notificar_etiqueta_liberada(pedido_id, ml_order_id, info)
+        except Exception:
+            app.logger.exception("Falha ao avisar etiqueta liberada (pedido %s)", pedido_id)
     return info, ""
+
+
+def _ml_notificar_etiqueta_liberada(pedido_id, ml_order_id, info):
+    """Avisa o dono no WhatsApp assim que a etiqueta Mercado Envios fica
+    liberada pra imprimir. So dispara uma vez por pedido (ml_label_avisado_em);
+    se o envio falhar, a coluna fica NULL e a proxima sincronizacao (abrir o
+    pedido, ou o cron /api/cron/ml-sync-shipments) tenta avisar de novo."""
+    if not ml_order_id:
+        return
+    from ml_panel import label_state
+    if not label_state(info or {})["label_ready"]:
+        return
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT ml_label_avisado_em FROM ecommerce_pedidos WHERE id=%s", (pedido_id,))
+    row = cur.fetchone()
+    if not row or row.get("ml_label_avisado_em"):
+        cur.close()
+        return
+    cur.close()
+    from ml_order_alerts import PHONE as _ML_ALERT_PHONE
+    texto = (
+        "🏷️ Etiqueta liberada — Mercado Livre\n"
+        "Loja São Pedro\n"
+        f"Venda #{ml_order_id}\n"
+        "Já pode imprimir a etiqueta e despachar.\n\n"
+        f"https://www.mercadolivre.com.br/vendas/{ml_order_id}/detalhe"
+    )
+    resultado = _wa_send(_ML_ALERT_PHONE, texto, retornar_dados=True)
+    ok, _wa_message_id = _ml_wa_send_result(resultado)
+    if ok:
+        conn2 = db(); cur2 = conn2.cursor()
+        cur2.execute("UPDATE ecommerce_pedidos SET ml_label_avisado_em=NOW() WHERE id=%s", (pedido_id,))
+        conn2.commit(); cur2.close()
 
 
 def _ml_is_connected(cnpjloja=None):

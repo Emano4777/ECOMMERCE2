@@ -33,6 +33,12 @@ def ensure_schema(cur):
         numero_nota TEXT,modelo TEXT NOT NULL,xml_nfe TEXT NOT NULL,
         sincronizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),ml_enviado_em TIMESTAMPTZ,
         ml_erro TEXT,ml_tentativa_em TIMESTAMPTZ)""")
+    # ml_tentativa_count/ml_alerta_em: antes uma nota rejeitada pelo ML ficava
+    # so tentando de novo a cada 5min pra sempre, sem ninguem ser avisado se
+    # continuasse falhando -- usados pra avisar o dono no WhatsApp apos
+    # algumas tentativas seguidas sem sucesso (ver automatiza_ml_sync.sync).
+    cur.execute("ALTER TABLE ecommerce_automatiza_xml ADD COLUMN IF NOT EXISTS ml_tentativa_count INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE ecommerce_automatiza_xml ADD COLUMN IF NOT EXISTS ml_alerta_em TIMESTAMPTZ")
 
 
 def sync_xml(cnpjloja, local_connect):
