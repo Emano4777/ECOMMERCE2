@@ -491,7 +491,7 @@ def export_paid_order(pedido_id):
         # como fallback se um dia aparecer outra forma de pagamento).
         forma = (pedido.get("forma_pagamento") or "").lower()
         if forma == "pix":
-            cod_condicao_pagamento, desc_pagamento = 5, "PIX"
+            cod_condicao_pagamento, desc_pagamento = int(os.getenv("AUTOMATIZA_PIX_CODE", "5")), "PIX"
         elif forma in ("mercadopago", "mercado_livre", "cartao", "cartao_credito", "cartao_debito"):
             cod_condicao_pagamento, desc_pagamento = 2, "CARTAO"
         else:
@@ -565,6 +565,14 @@ def export_paid_order(pedido_id):
                 )
                 acur.execute("SELECT LAST_INSERT_ID() AS id")
                 codigo_pedido = acur.fetchone()["id"]
+                if _enabled_flag("AUTOMATIZA_FULL_REFERENCE"):
+                    acur.execute("UPDATE automatiza.pedido_ecommerce SET Codigo_Parceiro_Ecommerce=12 WHERE Codigo=%s AND filiCodigo=%s", (codigo_pedido, filial))
+                    if pedido.get("ml_order_id"):
+                        acur.execute("""UPDATE automatiza.pedido_ecommerce SET peecCodigo_Referencia=%s,
+                            peecCnpj_Intermediador='03007331000141',peecId_Intermediador=%s,
+                            peecObservacoes_Entrega=%s WHERE Codigo=%s AND filiCodigo=%s""",
+                            (str(pedido["ml_order_id"]),os.getenv("AUTOMATIZA_ML_SELLER_ID", ""),
+                             "Mercado Livre - Mercado Envios. Venda " + str(pedido["ml_order_id"]),codigo_pedido,filial))
 
                 for it in itens:
                     qty = int(it["qty"])
