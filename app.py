@@ -34347,6 +34347,15 @@ def _ml_api_get_raw(path, token=None, accept="application/octet-stream"):
         return None, 500, str(e)
 
 
+def _ml_is_masked_field(value):
+    """O Mercado Livre mascara campos sensiveis do endereco de entrega (nome,
+    telefone, rua, numero, complemento) com uma sequencia de "X" ate o
+    vendedor gerar a etiqueta -- usar esse valor sem checar sobrescreve dados
+    bons (ex.: nome do buyer) com lixo visivel pro lojista."""
+    value = (value or "").strip()
+    return bool(value) and re.fullmatch(r"[Xx]+", value) is not None
+
+
 def _ml_flat_value(value):
     if isinstance(value, dict):
         return value.get("id") or value.get("name") or value.get("description") or json.dumps(value, ensure_ascii=False)
@@ -34714,9 +34723,25 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 state = (state_obj.get("id") or "").removeprefix("BR-") or state_obj.get("name", "")
                 bairro = (addr.get("neighborhood") or {}).get("name", "")
                 complemento = addr.get("comment") or ""
-                cliente_nome = addr.get("receiver_name") or cliente_nome
-                cliente_telefone = _digits(addr.get("receiver_phone")) or cliente_telefone
-                endereco_entrega = f"{street}, {number} {complemento} — {bairro} — {city}/{state} CEP {cep_comprador}"
+                receiver_name  = addr.get("receiver_name") or ""
+                receiver_phone = addr.get("receiver_phone") or ""
+                # O ML mascara campos sensiveis do endereco (nome, telefone, rua,
+                # numero, complemento) com uma sequencia de "X" ate a etiqueta ser
+                # gerada -- usar sem checar sobrescrevia o nome bom vindo do buyer
+                # com "XXXXXXX" e gravava um endereco ilegivel (achado numa venda
+                # real: pedido #2000019826806408, Fabio Guimaraes Neves virou
+                # "XXXXXXX" no painel).
+                if not _ml_is_masked_field(receiver_name):
+                    cliente_nome = receiver_name or cliente_nome
+                if not _ml_is_masked_field(receiver_phone):
+                    cliente_telefone = _digits(receiver_phone) or cliente_telefone
+                if _ml_is_masked_field(street) or _ml_is_masked_field(number) or _ml_is_masked_field(complemento):
+                    endereco_entrega = (
+                        f"Endereço detalhado liberado pelo Mercado Livre ao gerar a etiqueta — "
+                        f"{bairro} — {city}/{state} CEP {cep_comprador}"
+                    ).strip()
+                else:
+                    endereco_entrega = f"{street}, {number} {complemento} — {bairro} — {city}/{state} CEP {cep_comprador}"
                 if not cliente_documento:
                     fiscal = _ml_api_get(f"/shipments/{shipping_id}/billing_info", token) or {}
                     cliente_documento = _digits(((fiscal.get("receiver") or {}).get("document") or {}).get("value"))
