@@ -687,11 +687,16 @@
   }
 
   function _alertarStatusPedido(payload) {
+    // So usa payload.old.status pra decidir "mudou" quando o Supabase manda
+    // de fato -- sem REPLICA IDENTITY FULL na tabela, o "old" de um UPDATE so
+    // traz a chave primaria, entao old.status vem undefined e esse alerta
+    // disparava de novo a cada sincronizacao de fundo que so tocava OUTRAS
+    // colunas do pedido (ex.: ml_shipping_status a cada 2min), mesmo sem o
+    // status mudar -- por isso o dedup real e por localStorage (id+status),
+    // igual ja era feito pro alerta de pedido novo.
     var row = payload && payload.new ? payload.new : {};
-    var oldRow = payload && payload.old ? payload.old : {};
     var status = row.status || "";
     if (!status || !STATUS_LABELS[status]) return;
-    if (oldRow.status && oldRow.status === status) return;
     if (_statusFoiVisto(row)) return;
     _marcarStatusVisto(row);
     _alertar("pedido-status", STATUS_LABELS[status], "Ver pedido", _urlPedido(row));

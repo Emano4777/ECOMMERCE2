@@ -29441,7 +29441,7 @@ def api_cron_ml_sync_shipments():
         SELECT id, cnpjloja FROM ecommerce_pedidos
         WHERE origem='mercado_livre' AND ml_order_id IS NOT NULL
           AND COALESCE(ml_shipping_status,'') NOT IN ('delivered','cancelled')
-          AND status NOT IN ('cancelado')
+          AND status NOT IN ('cancelado','entregue')
         ORDER BY ml_shipping_updated_at ASC NULLS FIRST
         LIMIT 10
         """
