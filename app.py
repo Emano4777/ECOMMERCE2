@@ -29451,6 +29451,58 @@ def api_cron_ml_sync_shipments():
     return jsonify({"ok": True, "sincronizados": sincronizados, "falhas": falhas, "total": len(pendentes)})
 
 
+@app.post("/api/cron/ml-poll-missing-orders")
+def api_cron_ml_poll_missing_orders():
+    """Rede de seguranca contra notificacao perdida do ML -- o /ml/webhook so
+    enfileira uma venda quando o Mercado Livre de fato chama nossa URL; se
+    essa notificacao nao for entregue (visto numa venda real que ficou ~20min
+    fora do painel, pagou e nunca apareceu na fila nem no banco), nada
+    descobria essa venda sozinho -- so um pedido manual via
+    /api/painel/ml/importar-pedido. Busca vendas recentes direto na API do ML
+    (ultimas 3h) e enfileira (via _ml_queue_order, idempotente) as que ainda
+    nao estao em ecommerce_pedidos; quem processa a fila continua sendo
+    /api/cron/ml-flush-queue, ja agendado."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    conn = db(); cur = conn.cursor()
+    cur.execute("SELECT cnpjloja FROM ml_tokens_loja")
+    lojas = [r["cnpjloja"] for r in cur.fetchall()]
+    cur.close()
+    encontrados = enfileirados = 0
+    erros = []
+    for cnpjloja in lojas:
+        try:
+            token = _ml_get_token(cnpjloja=cnpjloja)
+            if not token:
+                continue
+            me = _ml_api_get("/users/me", token)
+            seller_id = str((me or {}).get("id") or "")
+            if not seller_id:
+                continue
+            since = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(timespec="milliseconds")
+            params = {"seller": seller_id, "order.date_created.from": since, "sort": "date_desc", "limit": 50}
+            result = _ml_api_get("/orders/search?" + urllib.parse.urlencode(params), token)
+            resultados = (result or {}).get("results") or []
+            encontrados += len(resultados)
+            for o in resultados:
+                oid = str(o.get("id") or "")
+                if not oid.isdigit():
+                    continue
+                conn2 = db(); cur2 = conn2.cursor()
+                cur2.execute("SELECT 1 FROM ecommerce_pedidos WHERE ml_order_id=%s LIMIT 1", (oid,))
+                ja_existe = cur2.fetchone(); cur2.close()
+                if not ja_existe:
+                    _ml_queue_order(oid, seller_id)
+                    enfileirados += 1
+        except Exception as exc:
+            erros.append(f"{cnpjloja}: {exc}")
+    return jsonify({
+        "ok": not erros, "lojas": len(lojas), "vendas_vistas_no_ml": encontrados,
+        "enfileirados_para_importar": enfileirados, "erros": erros,
+    })
+
+
 @app.post("/api/cron/alpha-export")
 def api_cron_alpha_export():
     """Endpoint chamado pelo cron do Hostgator a cada minuto. Exporta 1 pedido por chamada."""
