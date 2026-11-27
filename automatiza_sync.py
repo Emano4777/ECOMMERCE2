@@ -20,10 +20,34 @@ import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
 import pymysql
 import pymysql.cursors
+from erp_routing import source_for_store
 
 
 def _digits(value):
     return re.sub(r"\D+", "", str(value or ""))
+
+
+def _enabled_flag(name, default=False):
+    return os.getenv(name, "1" if default else "0").strip().lower() in {"1", "true", "sim", "s", "yes"}
+
+
+def _controlled(value):
+    return str(value or "").strip().upper() in {"1", "S", "SIM", "TRUE", "Y", "YES"}
+
+
+def _export_reference(pedido):
+    if _enabled_flag("AUTOMATIZA_FULL_REFERENCE"):
+        return "ML" + str(pedido["ml_order_id"]) if pedido.get("ml_order_id") else str(pedido["id"])
+    return str(pedido["id"])[:8].upper()
+
+
+def _validate_filial(cur, cnpjloja):
+    cur.execute("SELECT * FROM automatiza.view_ecommerce_delivery_filial_logada")
+    rows = cur.fetchall()
+    matches = [r for r in rows if _digits(r.get("cpnj") or r.get("cnpj") or r.get("cnpj_filial")) == cnpjloja]
+    if len(matches) != 1:
+        raise RuntimeError("CNPJ do agente nao corresponde a filial do Automatiza")
+    return matches[0]["codigo_filial"]
 
 
 def _local_dsn():
@@ -133,6 +157,8 @@ def _preco_calc(row):
     candidato = delivery if delivery is not None else loja
     if candidato is not None:
         candidato = float(candidato)
+        if candidato >= base and candidato > 0:
+            return candidato, None, candidato
         if 0 < candidato < base:
             desconto = 1 - (candidato / base) if base > 0 else 0
             if desconto <= _DESCONTO_PLAUSIVEL_MAX:
@@ -204,15 +230,25 @@ def sync_products():
 
     with _automatiza_connect() as aconn:
         acur = aconn.cursor()
-        acur.execute("SELECT * FROM automatiza.view_ecommerce_delivery_produtos")
+        _validate_filial(acur, cnpjloja)
+        acur.execute("SELECT * FROM automatiza.view_ecommerce_delivery_produtos WHERE cnpj_filial=%s", (cnpjloja,))
         rows = acur.fetchall()
         acur.close()
 
     if not rows:
-        return {"ok": True, "total": 0}
+        raise RuntimeError("View de produtos vazia; catalogo preservado")
 
+    books = None
+    if os.getenv("AUTOMATIZA_CADERNO_ECOMMERCE"):
+        from automatiza_channels import read_books, apply_ecommerce_book
+        books = read_books(rows)
+        apply_ecommerce_book(rows, books)
     with _local_connect() as lconn:
         lcur = lconn.cursor()
+        if _enabled_flag("AUTOMATIZA_REQUIRE_SOURCE") and source_for_store(lcur, cnpjloja) != "automatiza":
+            raise RuntimeError("Troca de ERP ainda nao ativada para essa loja")
+        # Serializes with the Alpha migration so an old job cannot write afterwards.
+        lcur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("catalogo-erp:" + cnpjloja,))
         images = _image_map(lcur, cnpjloja, [r.get("EAN") for r in rows])
 
         values = []
@@ -240,7 +276,7 @@ def sync_products():
                 r.get("laboratorio"),
                 classificacao,
                 situacao != "ATIVO",
-                bool(r.get("cotrole_especial")),
+                _controlled(r.get("cotrole_especial")),
                 r.get("altura"),
                 r.get("largura"),
                 r.get("comprimento"),
@@ -278,6 +314,11 @@ def sync_products():
             values,
             template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
         )
+        if books:
+            from automatiza_channels import save_ml_book
+            save_ml_book(lcur, cnpjloja, rows, books)
+        if _enabled_flag("AUTOMATIZA_AUTHORITATIVE_CATALOG"):
+            lcur.execute("UPDATE ecommerce_alpha_produtos SET inativo=true,estoque=0,synced_at=NOW() WHERE cnpjloja=%s AND NOT (alpha_o_id=ANY(%s))", (cnpjloja, [v[1] for v in values]))
         lconn.commit()
         lcur.close()
 
@@ -360,8 +401,12 @@ def _pedido_payload(local_cur, pedido_id, cnpjloja):
         """
         SELECT i.*, ap.alpha_o_id AS codigo_mercadoria
         FROM ecommerce_pedido_itens i
-        LEFT JOIN ecommerce_alpha_produtos ap
-          ON ap.cnpjloja=%s AND LTRIM(COALESCE(ap.ean,''),'0') = LTRIM(COALESCE(i.ean,''),'0')
+        LEFT JOIN LATERAL (
+            SELECT alpha_o_id FROM ecommerce_alpha_produtos ap
+            WHERE ap.cnpjloja=%s AND LTRIM(COALESCE(ap.ean,''),'0') = LTRIM(COALESCE(i.ean,''),'0')
+              AND COALESCE(ap.inativo,false)=false
+            ORDER BY ap.synced_at DESC,ap.alpha_o_id LIMIT 1
+        ) ap ON TRUE
         WHERE i.pedido_id=%s
         ORDER BY i.id
         """,
@@ -402,12 +447,26 @@ def export_paid_order(pedido_id):
     if not automatiza_enabled():
         return {"ok": False, "erro": "automatiza_nao_configurado"}
     cnpjloja = _cnpjloja()
+    if not _enabled_flag("AUTOMATIZA_EXPORT_ENABLED", True):
+        return {"ok": False, "erro": "exportacao_desativada"}
     ensure_local_schema()
 
     with _local_connect() as lconn:
         lcur = lconn.cursor()
+        lcur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("automatiza-pedido:" + str(pedido_id),))
         pedido, itens = _pedido_payload(lcur, str(pedido_id), cnpjloja)
 
+        if pedido.get("ml_order_id"):
+            lcur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("automatiza-ml:" + str(pedido["ml_order_id"]),))
+        if _enabled_flag("AUTOMATIZA_REQUIRE_SOURCE") and source_for_store(lcur, cnpjloja) != "automatiza":
+            return {"ok": False, "erro": "loja_usa_outro_erp"}
+        if pedido.get("status") in {"cancelado", "cancelled", "estornado", "reembolsado"}:
+            return {"ok": False, "erro": "pedido_cancelado"}
+        if _enabled_flag("AUTOMATIZA_SKIP_ALPHA_EXPORTED") and pedido.get("alpha_enviado_em"):
+            return {"ok": True, "ja_enviado": True, "erp": "alpha"}
+        cutoff = os.getenv("AUTOMATIZA_EXPORT_FROM")
+        if cutoff and pedido.get("criado_em") and pedido["criado_em"] < datetime.fromisoformat(cutoff):
+            return {"ok": False, "erro": "pedido_anterior_a_migracao"}
         if pedido.get("automatiza_enviado_em"):
             return {"ok": True, "ja_enviado": True}
 
@@ -425,7 +484,7 @@ def export_paid_order(pedido_id):
         # Retirada nunca cobra frete, mesmo que frete_valor tenha algum
         # resquicio de calculo -- confirmado pela loja.
         frete = 0.0 if retirada else float(pedido.get("frete_valor") or 0)
-        codigo_ecommerce = str(pedido["id"])[:8].upper()
+        codigo_ecommerce = _export_reference(pedido)
         doc = _digits(pedido.get("cliente_documento") or pedido.get("consumidor_documento"))
         # So temos pix e cartao no site -- mapeia pros codigos reais do
         # Automatiza (confirmados: 2=CARTAO, 5=PIX; 1=DINHEIRO so entra
@@ -433,7 +492,7 @@ def export_paid_order(pedido_id):
         forma = (pedido.get("forma_pagamento") or "").lower()
         if forma == "pix":
             cod_condicao_pagamento, desc_pagamento = 5, "PIX"
-        elif forma in ("mercadopago", "cartao", "cartao_credito", "cartao_debito"):
+        elif forma in ("mercadopago", "mercado_livre", "cartao", "cartao_credito", "cartao_debito"):
             cod_condicao_pagamento, desc_pagamento = 2, "CARTAO"
         else:
             cod_condicao_pagamento, desc_pagamento = 1, "DINHEIRO"
@@ -441,6 +500,16 @@ def export_paid_order(pedido_id):
         try:
             with _automatiza_connect() as aconn:
                 acur = aconn.cursor()
+                filial = _validate_filial(acur, cnpjloja)
+                acur.execute("SELECT Codigo FROM automatiza.pedido_ecommerce WHERE filiCodigo=%s AND peecCodigo_Ecommerce=%s LIMIT 2", (filial, codigo_ecommerce))
+                existing = acur.fetchall()
+                if len(existing) > 1:
+                    raise RuntimeError("Referencia duplicada no ERP; conferir antes de reenviar")
+                if existing:
+                    codigo_pedido = existing[0]["Codigo"]
+                    lcur.execute("UPDATE ecommerce_pedidos SET automatiza_enviado_em=NOW(), automatiza_pedido_codigo=%s,automatiza_erro=NULL WHERE id=%s", (str(codigo_pedido), pedido_id))
+                    lconn.commit()
+                    return {"ok": True, "ja_enviado": True, "codigo_pedido": codigo_pedido}
                 acur.execute(
                     """
                     INSERT INTO automatiza.pedido_ecommerce SET
@@ -588,11 +657,14 @@ def export_pending_orders(limit=50):
             """
             SELECT id FROM ecommerce_pedidos
             WHERE cnpjloja=%s AND automatiza_enviado_em IS NULL
+              AND status NOT IN ('cancelado','cancelled','estornado','reembolsado')
+              AND (NOT %s OR alpha_enviado_em IS NULL)
+              AND (%s IS NULL OR criado_em >= %s::timestamptz)
               AND (status = ANY(%s) OR pagamento_status = 'approved')
             ORDER BY criado_em
             LIMIT %s
             """,
-            (cnpjloja, list(_PAGO_STATUSES), limit),
+            (cnpjloja, _enabled_flag("AUTOMATIZA_SKIP_ALPHA_EXPORTED"), os.getenv("AUTOMATIZA_EXPORT_FROM"), os.getenv("AUTOMATIZA_EXPORT_FROM"), list(_PAGO_STATUSES), limit),
         )
         ids = [r["id"] for r in lcur.fetchall()]
         lcur.close()
@@ -658,7 +730,7 @@ def sync_notas_fiscais():
                     "ean": l.get("ean"),
                     "quantidade": float(l.get("quantidade") or 0),
                     "valor_bruto_unitario": float(
-                        l.get("valor_bruto_unitario") or l.get("valor_bruto") or 0
+                        l.get("valor_bruto_unitario") or l.get("valor_bruto_nitario") or 0
                     ),
                     "valor_desconto": float(l.get("valor_desconto") or 0),
                     "valor_liquido": float(l.get("valor_liquido") or 0),
@@ -700,7 +772,11 @@ def sync_pedidos():
     (ex: 5 em 5 min) sem precisar puxar o catalogo inteiro toda vez."""
     pedidos = export_pending_orders()
     notas = sync_notas_fiscais()
-    return {"pedidos": pedidos, "notas": notas}
+    result = {"pedidos": pedidos, "notas": notas}
+    if _enabled_flag("AUTOMATIZA_XML_ENABLED"):
+        from automatiza_fiscal import sync_xml
+        result["xml"] = sync_xml(_cnpjloja(), _local_connect)
+    return result
 
 
 def sync_all():

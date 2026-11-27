@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import psycopg2
+from erp_routing import source_for_store
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor, execute_values
 
@@ -261,6 +262,10 @@ def sync_products(limit=5000, mark_processed=True):
     if not cnpjloja:
         return {"ok": False, "erro": "ALPHA_DEFAULT_CNPJLOJA nao configurado", "total": 0}
 
+    with _local_connect() as check_conn:
+        with check_conn.cursor() as check_cur:
+            if source_for_store(check_cur, cnpjloja) != "alpha":
+                return {"ok": True, "total": 0, "ignorado": "loja_usa_outro_erp"}
     ensure_local_schema()
     schema = _alpha_schema()
     active_path = _active_path()
@@ -289,6 +294,9 @@ def sync_products(limit=5000, mark_processed=True):
     with _local_connect(timeout_ms=55000) as lconn:
         ensure_local_schema(lconn)
         lcur = lconn.cursor()
+        lcur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("catalogo-erp:" + cnpjloja,))
+        if source_for_store(lcur, cnpjloja) != "alpha":
+            return {"ok": True, "total": 0, "ignorado": "loja_usa_outro_erp"}
         images = _image_map(lcur, cnpjloja, eans)
         values = []
         active_ids = []
@@ -491,6 +499,10 @@ def export_paid_order(pedido_id):
     schema = _alpha_schema()
     with _local_connect(timeout_ms=30000) as lconn:
         lcur = lconn.cursor()
+        lcur.execute("SELECT cnpjloja FROM ecommerce_pedidos WHERE id=%s", (str(pedido_id),))
+        store = lcur.fetchone()
+        if store and source_for_store(lcur, store["cnpjloja"]) != "alpha":
+            return {"ok": True, "ignorado": "loja_usa_outro_erp"}
         pedido, itens, doc = _pedido_payload(lcur, str(pedido_id))
         # Sao Pedro operates ML manually while its ERP is being replaced.
         if str(pedido.get("cnpjloja")) == "54185432000143" and pedido.get("origem") == "mercado_livre":
@@ -756,6 +768,8 @@ def sync_prices_from_staging(cnpjloja=None):
         return {"ok": False, "erro": "ALPHA_DEFAULT_CNPJLOJA nao configurado"}
     with _local_connect(timeout_ms=30000) as lconn:
         lcur = lconn.cursor()
+        if source_for_store(lcur, cnpjloja) != "alpha":
+            return {"ok": True, "ignorado": "loja_usa_outro_erp"}
 
         # Grava preco_venda (preço base, sem desconto) em ecommerce_precos
         lcur.execute(

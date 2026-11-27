@@ -9,3 +9,6 @@ reportlab==4.5.1
 pywebpush==2.4.0
 pymemcache>=4.0.0
 anthropic>=0.109.0
+
+PyMySQL>=1.1,<2
+requests>=2.31,<3

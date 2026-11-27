@@ -19578,6 +19578,19 @@ def rastreio_publico(token):
 
 
 def _alpha_nota_xml_por_pedido(pedido_id):
+    conn = db()
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.ecommerce_automatiza_xml') AS tabela")
+        if cur.fetchone().get("tabela"):
+            cur.execute("SELECT xml_nfe,chave_acesso,numero_nota FROM ecommerce_automatiza_xml WHERE pedido_id=%s", (str(pedido_id),))
+            cached = cur.fetchone()
+            if cached:
+                return cached["xml_nfe"], cached["chave_acesso"], cached["numero_nota"]
+        from erp_routing import source_for_store
+        cur.execute("SELECT cnpjloja FROM ecommerce_pedidos WHERE id=%s", (str(pedido_id),))
+        store = cur.fetchone()
+        if store and source_for_store(cur, store["cnpjloja"]) == "automatiza":
+            return None, None, None
     if not alpha_sync:
         return None, None, None
     schema = alpha_sync._alpha_schema()
@@ -34451,10 +34464,18 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
 
         conn = db(); cur = conn.cursor()
 
+        # One transaction owns each order through import, even across workers.
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("ml-import:" + str(order_id),))
         # Evita duplicata
         cur.execute("SELECT id FROM ecommerce_pedidos WHERE ml_order_id=%s", (str(order_id),))
-        if cur.fetchone():
+        existing = cur.fetchone()
+        if existing:
+            if order.get("status") == "paid":
+                cur.execute("UPDATE ecommerce_pedidos SET pagamento_status='approved',status=CASE WHEN status='pendente' THEN 'pago' ELSE status END,atualizado_em=NOW() WHERE ml_order_id=%s AND status NOT IN ('cancelado','estornado','reembolsado')", (str(order_id),))
+            elif order.get("status") == "cancelled":
+                cur.execute("UPDATE ecommerce_pedidos SET status='cancelado',pagamento_status='cancelled',atualizado_em=NOW() WHERE ml_order_id=%s", (str(order_id),))
             cur.close()
+            conn.commit()
             return
 
         # Dados do comprador
@@ -34478,7 +34499,7 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
 
         total       = float(order.get("total_amount", 0))
         status_ml   = order.get("status", "confirmed")
-        status_ped  = "pago" if status_ml in ("paid", "confirmed") else "pendente"
+        status_ped  = "pago" if status_ml == "paid" else "pendente"
         pag_status  = "approved" if status_ped == "pago" else "pending"
 
         # Itens
@@ -34536,7 +34557,7 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
             raise RuntimeError("Nenhuma loja cadastrada no sistema.")
 
         # Insere pedido
-        conn2 = db(); cur2 = conn2.cursor()
+        conn2 = conn; cur2 = conn2.cursor()
         pedido_id = str(_uuid.uuid4())
         cur2.execute("""
             INSERT INTO ecommerce_pedidos (
@@ -34572,6 +34593,8 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
             _alpha_export_paid_order_safe(pedido_id)
         print(f"[ML] Pedido {order_id} criado → {pedido_id} (loja {cnpjloja})")
     except Exception as e:
+        if "conn" in locals():
+            conn.rollback()
         print(f"[ML] Erro ao processar pedido {order_id}: {e}")
         raise  # propaga para _ml_flush_queue gravar o erro real na fila
 
