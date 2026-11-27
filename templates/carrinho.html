@@ -823,7 +823,7 @@ function pickupContextHtml(cfg, razao) {
       <div style="min-width:0"><strong>${esc(razao || cfg.razao || 'Drogaria Poupaqui')}</strong><span><i class="fa fa-location-dot me-1" style="color:var(--pq-red)"></i>${esc(endereco)}</span></div>
     </div>
     ${avisoDistancia}
-    <div class="pickup-tip"><i class="fa fa-circle-info" style="margin-top:2px"></i><span>Você receberá uma confirmação quando o pedido estiver pronto para retirada.</span></div>`;
+    <div class="pickup-tip"><i class="fa fa-circle-info" style="margin-top:2px"></i><span>Retirada sem pedido mínimo e sem frete. Você receberá uma confirmação quando o pedido estiver pronto para retirada.</span></div>`;
 }
 
 function brl(v) {
@@ -1491,11 +1491,8 @@ function renderCart() {
       } else if (!atingiuMinimo) {
         entregaMsg = '';
       }
-      // Aviso de pedido mínimo é independente do horário/feriado: mesmo que a
-      // loja esteja fechada agora, o consumidor precisa saber que também
-      // falta valor no carrinho — senão ele só vê "fechada" e nunca descobre
-      // que precisa adicionar mais itens.
-      if (distanciaConhecida && dentroRaio && !atingiuMinimo) {
+      // O mínimo vale apenas para entrega; retirada pode ser concluída abaixo dele.
+      if (deliverySelected === 'entrega' && distanciaConhecida && dentroRaio && !atingiuMinimo) {
         minPedidoAvisoHtml = `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:14px 16px;margin-top:10px;box-sizing:border-box">
           <i class="fa fa-triangle-exclamation" style="color:#ea580c;font-size:1.25rem;margin-top:1px;flex-shrink:0"></i>
           <div style="min-width:0;overflow-wrap:break-word">
@@ -1682,9 +1679,8 @@ function atualizarTotaisComFrete() {
     if (delivery === 'entrega') {
       entregaCount++;
     }
-    // Mesmo quando "entrega" ainda não pode ser selecionada (por faltar valor
-    // mínimo), avisa no resumo que falta X para desbloquear a entrega nessa loja.
-    if (cfg.aceita_entrega === true) {
+    // Retirada não exige o mínimo configurado para entrega.
+    if (delivery === 'entrega' && cfg.aceita_entrega === true) {
       const minPedido = parseFloat(cfg.pedido_minimo_entrega || 0);
       if (minPedido > 0 && sub < minPedido) {
         faltasMinimo.push({ razao: cfg.razao || '', falta: minPedido - sub });
@@ -1908,6 +1904,12 @@ function deliveryOptAgendadaHtml(cnpj, proximoDiaEntrega, label, checked=false) 
 
 function onDeliveryChange(cnpj, val) {
   _deliveryModes[cnpj] = val;
+  // O clique do label ocorre antes da seleção nativa do radio.
+  // Atualiza os controles antes de recalcular o resumo.
+  document.querySelectorAll(`input[name="delivery-${cnpj}"]`).forEach(input => {
+    input.checked = input.value === val;
+    input.closest('label')?.classList.toggle('selected', input.checked);
+  });
   const pickupContext = document.getElementById(`pickup-context-${cnpj}`);
   const deliveryContext = document.getElementById(`delivery-context-${cnpj}`);
   if (pickupContext) pickupContext.style.display = val === 'entrega' ? 'none' : '';
