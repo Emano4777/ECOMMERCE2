@@ -131,6 +131,11 @@ def sync(db, get_token, apply=False):
                 result["erros"].append({"id":iid,"operacao":"preco","http":response.status_code})
             else:
                 result["precos"]+=1
+                cur.execute("UPDATE ml_items SET preco=%s,updated_at=NOW() WHERE ml_item_id=%s AND cnpjloja=%s", (price,iid,STORE))
+                conn.commit()
+        elif price:
+            cur.execute("UPDATE ml_items SET preco=%s WHERE ml_item_id=%s AND cnpjloja=%s AND preco IS DISTINCT FROM %s", (price,iid,STORE,price))
+            conn.commit()
     cur.execute("""SELECT x.*,p.ml_order_id,p.ml_shipping_id,p.status FROM ecommerce_automatiza_xml x
         JOIN ecommerce_pedidos p ON p.id=x.pedido_id
         WHERE x.cnpjloja=%s AND x.modelo='55' AND x.ml_enviado_em IS NULL
