@@ -102,7 +102,9 @@ def sync(db, get_token, apply=False):
         price = mapping.get("preco") if mapping.get("sincronizado_em") and mapping["sincronizado_em"]>=stale_before else None
         result["plano"].append({"id":iid,"ean":mapping["ean"],"estoque":qty,"preco":float(price) if price else None})
         up = item.get("user_product_id")
-        if up and up not in updated:
+        # Existing ML stock includes incoming merchandise, independently of ERP.
+        # Keep ML's own sales deductions; only opt in to ERP stock explicitly.
+        if os.getenv("AUTOMATIZA_ML_SYNC_STOCK", "0") == "1" and up and up not in updated:
             stock_r = session.get(API+"/user-products/"+up+"/stock",timeout=20)
             if stock_r.status_code == 200:
                 stock = stock_r.json()
