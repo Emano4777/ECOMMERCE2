@@ -55,7 +55,7 @@ def sync_xml(cnpjloja, local_connect):
                         acur.execute("""SELECT x.noarArquivo FROM nota n
                             JOIN nota_arquivo_xml x ON x.noarChave_Acesso=n.notaNFe_Chave_Acesso AND x.filiCodigo=n.filiCodigo
                             WHERE n.Codigo_Pedido_Ecommerce=%s AND n.filiCodigo=1
-                            AND n.notaAutorizada=1 AND n.notaData_Cancelamento IS NULL
+                            AND n.notaAutorizada=1 AND (n.notaData_Cancelamento IS NULL OR n.notaData_Cancelamento<'1901-01-01')
                             ORDER BY n.Codigo DESC LIMIT 1""", (order["automatiza_pedido_codigo"],))
                         row = acur.fetchone()
                         if not row:
