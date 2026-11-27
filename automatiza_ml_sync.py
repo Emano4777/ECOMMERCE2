@@ -8,6 +8,10 @@ STORE = "54185432000143"
 API = "https://api.mercadolibre.com"
 
 
+def is_virtual_bundle(item):
+    return bool(item.get("bundle") or "bundle" in item.get("tags", []))
+
+
 def sync(db, get_token, apply=False):
     if os.getenv("VERCEL"):
         raise RuntimeError("Rotina exclusiva do HostGator")
@@ -51,7 +55,7 @@ def sync(db, get_token, apply=False):
             item = item_r.json()
             cached_items[iid] = item
             gtin = next((a.get("value_name") for a in item.get("attributes",[]) if a.get("id")=="GTIN"),None)
-            if not gtin or item.get("bundle"):
+            if not gtin or is_virtual_bundle(item):
                 continue
             cur.execute("""SELECT %s AS ml_item_id,ap.ean,ap.estoque,ap.inativo,ap.synced_at,
                 b.preco,b.sincronizado_em FROM ecommerce_alpha_produtos ap
@@ -80,7 +84,7 @@ def sync(db, get_token, apply=False):
             if item_r.status_code != 200:
                 result["erros"].append({"id":iid,"http":item_r.status_code}); continue
             item = item_r.json()
-        if item.get("status") not in {"active","paused"} or item.get("variations") or item.get("bundle") or item.get("shipping",{}).get("logistic_type")=="fulfillment":
+        if item.get("status") not in {"active","paused"} or item.get("variations") or is_virtual_bundle(item) or item.get("shipping",{}).get("logistic_type")=="fulfillment":
             result["ignorados"].append({"id":iid,"motivo":"tipo_ou_status_nao_suportado"}); continue
         gtins = [a.get("value_name","").lstrip("0") for a in item.get("attributes",[]) if a.get("id")=="GTIN"]
         if mapping["ean"].lstrip("0") not in gtins:

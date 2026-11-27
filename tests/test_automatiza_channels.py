@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from automatiza_channels import book_price
 from automatiza_sync import _preco_calc, _controlled, _export_reference, _validate_filial
 from automatiza_fiscal import authorized_xml
+from automatiza_ml_sync import is_virtual_bundle
 
 
 class DirectedPriceTests(unittest.TestCase):
@@ -34,6 +35,10 @@ class DirectedPriceTests(unittest.TestCase):
         with patch.dict(os.environ,{"AUTOMATIZA_FULL_REFERENCE":"1"}):
             self.assertEqual(_export_reference(dict(id="abcdef00-other",ml_order_id="20000123")),"ML20000123")
             self.assertEqual(_export_reference(dict(id="abcdef00-other")),"abcdef00-other")
+
+    def test_virtual_bundle_is_not_a_unit_even_when_api_omits_bundle_body(self):
+        self.assertTrue(is_virtual_bundle({"tags":["bundle"],"bundle":None}))
+        self.assertFalse(is_virtual_bundle({"tags":["kit_component"]}))
 
     def test_wrong_filial_is_rejected(self):
         cur=Mock();cur.fetchall.return_value=[{"codigo_filial":1,"cpnj":"64369730000147"}]
