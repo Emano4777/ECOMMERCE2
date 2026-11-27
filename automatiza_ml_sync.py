@@ -108,9 +108,14 @@ def sync(db, get_token, apply=False):
                 stock = stock_r.json()
                 locations = stock.get("locations",[])
                 version = stock_r.headers.get("x-version")
-                if len(locations)==1 and locations[0].get("type")=="selling_address" and version:
+                if len(locations)==1 and locations[0].get("type")=="selling_address" and (item.get("site_id")=="MLB" or version):
                     if int(locations[0].get("quantity",0)) != qty and apply:
-                        response = session.put(API+"/user-products/"+up+"/stock/type/selling_address",headers={"x-version":version},json={"quantity":qty},timeout=25)
+                        # MLB without multi-origin accepts stock through /items.
+                        # selling_address writes are enabled only in other sites.
+                        if item.get("site_id")=="MLB":
+                            response = session.put(API+"/items/"+iid,json={"available_quantity":qty},timeout=25)
+                        else:
+                            response = session.put(API+"/user-products/"+up+"/stock/type/selling_address",headers={"x-version":version},json={"quantity":qty},timeout=25)
                         if response.status_code not in {200,204}:
                             result["erros"].append({"id":iid,"operacao":"estoque","http":response.status_code})
                         else:
@@ -167,4 +172,7 @@ if __name__ == "__main__":
     load_dotenv()
     import app as web
     with web.app.app_context():
-        print(json.dumps(sync(web.db,web._ml_get_token,apply="--apply" in sys.argv),ensure_ascii=True))
+        result=sync(web.db,web._ml_get_token,apply="--apply" in sys.argv)
+        if "--summary" in sys.argv and "plano" in result:
+            result["anuncios_conferidos"]=len(result.pop("plano"))
+        print(json.dumps(result,ensure_ascii=True))
