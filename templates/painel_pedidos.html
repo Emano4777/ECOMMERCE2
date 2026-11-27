@@ -147,7 +147,11 @@
         </td>
         <td>
           {% set _sl = {'pendente':'Pendente','pago':'Pago ✓','pronto_retirada':'Pronto p/ retirada','enviado':'Enviado','entregue':('Retirado ✓' if p.tipo_entrega == 'retirada' else 'Entregue ✓'),'cancelado':'Cancelado'} %}
+          {% if p.status_ml_label %}
+          <span class="status-badge s-{{ p.status_ml_bucket or p.status }}" title="Status do envio no Mercado Livre">{{ p.status_ml_label }}</span>
+          {% else %}
           <span class="status-badge s-{{ p.status }}">{{ _sl.get(p.status, p.status) }}</span>
+          {% endif %}
           {% if p.receita_status == 'pendente' %}
           <div style="margin-top:4px">
             <span style="background:#1e1a08;color:#f5c842;border-radius:10px;padding:2px 8px;font-size:.7rem;font-weight:700">

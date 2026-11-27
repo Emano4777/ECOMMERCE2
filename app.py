@@ -23207,7 +23207,7 @@ def painel_pedidos():
         SELECT id, cliente_nome, cliente_telefone, cliente_email, forma_pagamento,
                status, total, criado_em, pagamento_status, pagamento_status_detail,
                receita_status, tipo_entrega,
-               COALESCE(origem, 'ecommerce') AS origem, ml_order_id
+               COALESCE(origem, 'ecommerce') AS origem, ml_order_id, ml_shipping_status
         FROM ecommerce_pedidos
     WHERE cnpjloja = %s
       AND (ml_order_id IS NULL OR NOT EXISTS (
@@ -23228,6 +23228,18 @@ def painel_pedidos():
     sql += " ORDER BY criado_em DESC LIMIT 200"
     cur.execute(sql, args)
     pedidos = cur.fetchall()
+    for p in pedidos:
+        # So pra badge da lista: pedido ecommerce proprio mantem exatamente
+        # como era (status_ml_bucket fica None, template cai no caminho de
+        # sempre); pedido Mercado Livre ja sincronizado mostra o status real
+        # do envio (ex.: "Em transito") em vez do status interno, que so
+        # muda quando o lojista clica o botao manualmente.
+        if p.get("origem") == "mercado_livre" and p.get("ml_shipping_status"):
+            p["status_ml_bucket"] = _ml_status_bucket(p["ml_shipping_status"])
+            p["status_ml_label"] = _ml_status_label(p["ml_shipping_status"])
+        else:
+            p["status_ml_bucket"] = None
+            p["status_ml_label"] = None
     cur.execute(
         "SELECT COUNT(*) FROM ecommerce_pedidos WHERE cnpjloja=%s AND receita_status='pendente'",
         (cnpjloja,),
@@ -23328,6 +23340,16 @@ def painel_pedido_detalhe(pedido_id):
         ml_shipping_info.update(label_state(ml_shipping_info if synced_info else {}))
         if not ml_shipping_info["label_ready"]:
             ml_shipping_info["instruction"] = ml_shipping_info["label_message"]
+    # status_efetivo: pro pedido Mercado Livre, o chip ativo em "Alterar
+    # status" acompanha o status real do envio (recem-sincronizado acima),
+    # nao o status interno (que so mudava quando o lojista clicava o botao
+    # manualmente e por isso ficava desatualizado); pedido ecommerce proprio
+    # mantem o status interno de sempre.
+    pedido_dict["status_efetivo"] = pedido_dict.get("status")
+    if pedido_dict.get("origem") == "mercado_livre":
+        _bucket = _ml_status_bucket(pedido_dict.get("ml_shipping_status"))
+        if _bucket:
+            pedido_dict["status_efetivo"] = _bucket
     # Parseia receita_url que pode ser JSON array ["url1","url2"] ou URL simples (legado)
     _ru = pedido_dict.get("receita_url") or ""
     try:
@@ -29397,6 +29419,38 @@ def api_cron_ml_flush_queue():
     return jsonify({"ok": True})
 
 
+@app.post("/api/cron/ml-sync-shipments")
+def api_cron_ml_sync_shipments():
+    """Mantem ml_shipping_status atualizado sem depender de alguem abrir o
+    detalhe do pedido -- antes o status do envio ML so era sincronizado
+    quando o lojista abria /painel/pedidos/<id> (chama
+    _ml_sync_shipment_for_pedido), entao a lista de pedidos ficava mostrando
+    o status antigo (ex.: pedido ja entregue no ML continuava aparecendo
+    'Pago' na lista principal, obrigando abrir o pedido pra conferir)."""
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_CRON_SECRET}":
+        return jsonify({"ok": False, "erro": "unauthorized"}), 401
+    conn = db(); cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, cnpjloja FROM ecommerce_pedidos
+        WHERE origem='mercado_livre' AND ml_order_id IS NOT NULL
+          AND COALESCE(ml_shipping_status,'') NOT IN ('delivered','cancelled')
+          AND status NOT IN ('cancelado')
+        ORDER BY ml_shipping_updated_at ASC NULLS FIRST
+        LIMIT 10
+        """
+    )
+    pendentes = cur.fetchall()
+    cur.close()
+    sincronizados = falhas = 0
+    for row in pendentes:
+        _info, _err = _ml_sync_shipment_for_pedido(pedido_id=row["id"], cnpjloja=row["cnpjloja"])
+        sincronizados += int(bool(_info))
+        falhas += int(not _info)
+    return jsonify({"ok": True, "sincronizados": sincronizados, "falhas": falhas, "total": len(pendentes)})
+
+
 @app.post("/api/cron/alpha-export")
 def api_cron_alpha_export():
     """Endpoint chamado pelo cron do Hostgator a cada minuto. Exporta 1 pedido por chamada."""
@@ -34247,6 +34301,41 @@ def _ml_flat_value(value):
     if value is None:
         return None
     return str(value)
+
+
+_ML_SHIPPING_STATUS_LABELS = {
+    "pending": "Pendente",
+    "handling": "Em preparação",
+    "ready_to_ship": "Pronto para envio",
+    "shipped": "Em trânsito",
+    "delivered": "Entregue",
+    "not_delivered": "Não entregue",
+    "cancelled": "Cancelado",
+}
+
+_ML_SHIPPING_STATUS_BUCKET = {
+    "pending": "pago",
+    "handling": "pago",
+    "ready_to_ship": "pago",
+    "shipped": "enviado",
+    "not_delivered": "enviado",
+    "delivered": "entregue",
+    "cancelled": "cancelado",
+}
+
+
+def _ml_status_bucket(ml_shipping_status):
+    """Traduz o status real do envio no Mercado Livre pro mesmo balde visual
+    (pago/enviado/entregue/cancelado) usado pelos pedidos do ecommerce
+    proprio -- so pra exibicao (badge na lista, chip ativo em 'Alterar
+    status'); nunca sobrescreve a coluna status real do pedido. None quando
+    ainda nao ha envio ML sincronizado (mantem o status interno como esta)."""
+    return _ML_SHIPPING_STATUS_BUCKET.get((ml_shipping_status or "").strip().lower())
+
+
+def _ml_status_label(ml_shipping_status):
+    status = (ml_shipping_status or "").strip().lower()
+    return _ML_SHIPPING_STATUS_LABELS.get(status, ml_shipping_status or "—")
 
 
 def _ml_shipping_instruction(logistic_type, mode, status=None, substatus=None):
