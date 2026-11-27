@@ -34536,8 +34536,14 @@ def _process_ml_order(order_id, cnpjloja_hint=None, ml_user_id=None):
                 street = addr.get("street_name", "")
                 number = addr.get("street_number", "")
                 city   = (addr.get("city") or {}).get("name", "")
-                state  = (addr.get("state") or {}).get("name", "")
-                endereco_entrega = f"{street}, {number} — {city}/{state} CEP {cep_comprador}"
+                state_obj = addr.get("state") or {}
+                state = (state_obj.get("id") or "").removeprefix("BR-") or state_obj.get("name", "")
+                bairro = (addr.get("neighborhood") or {}).get("name", "")
+                complemento = addr.get("comment") or ""
+                endereco_entrega = f"{street}, {number} {complemento} — {bairro} — {city}/{state} CEP {cep_comprador}"
+                if not cliente_documento:
+                    fiscal = _ml_api_get(f"/shipments/{shipping_id}/billing_info", token) or {}
+                    cliente_documento = _digits(((fiscal.get("receiver") or {}).get("document") or {}).get("value"))
 
         cur.close()
 
