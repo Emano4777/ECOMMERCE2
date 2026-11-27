@@ -695,6 +695,43 @@ function distanciaParaLoja(cfg) {
   return haversineKm(uLat, uLng, lLat, lLng);
 }
 
+// Todos os enderecos que o cliente tem disponiveis pra entrega: localizacao
+// atual (a que ele preencheu/escolheu pra ver produtos da cidade), endereco
+// do cadastro, e enderecos salvos -- nessa ordem de preferencia quando mais
+// de um atende o raio da loja.
+function candidatosEndereco() {
+  const list = [];
+  const current = getCurrentLocationAddress();
+  const profile = getProfileAddress();
+  if (current.label && current.lat && current.lng) list.push({mode: 'current', ...current});
+  if (profile.label && profile.lat && profile.lng) list.push({mode: 'profile', ...profile});
+  _enderecosSalvos.forEach(function (x) {
+    if (x.lat && x.lng) list.push({mode: 'saved:' + x.id, label: x.endereco || '', lat: x.lat, lng: x.lng});
+  });
+  return list;
+}
+
+// A entrega so deveria ficar indisponivel quando NENHUM endereco conhecido
+// do cliente atende o raio da loja -- antes, so o endereco que calhava de
+// estar selecionado (ex.: localizacao atual de outra cidade) decidia
+// sozinho, escondendo a opcao de entrega mesmo quando o endereco do
+// cadastro atenderia. Prefere o modo ja selecionado se ele atender; senao,
+// o primeiro candidato (atual > cadastro > salvos) que atender.
+function melhorEnderecoEntrega(cfg) {
+  const lLat = parseFloat(cfg.loja_lat);
+  const lLng = parseFloat(cfg.loja_lng);
+  if (!lLat || !lLng) return undefined;
+  const comDistancia = candidatosEndereco().map(function (c) {
+    return Object.assign({}, c, {dist: haversineKm(parseFloat(c.lat), parseFloat(c.lng), lLat, lLng)});
+  }).filter(function (c) { return Number.isFinite(c.dist); });
+  if (!comDistancia.length) return undefined;
+  const raio = parseFloat(cfg.raio_entrega_km || 0);
+  const atual = comDistancia.find(function (c) { return c.mode === DELIVERY_ADDRESS_MODE; });
+  if (atual && atual.dist <= raio) return atual;
+  const outroQueAtende = comDistancia.find(function (c) { return c.dist <= raio; });
+  return outroQueAtende || atual || comDistancia[0];
+}
+
 // Espelho em JS de _resolver_frete() (app.py) — fonte unica pro calculo de
 // frete no carrinho, chamada nos 3 lugares que hoje repetiam essa conta
 // (render do carrinho, atualizarTotaisComFrete e finalizarPedido). Sem
@@ -1423,10 +1460,20 @@ function renderCart() {
     const showWpp = false;
     const showPix = cfg.aceita_pix !== false;
     const showMp  = cfg.aceita_mp === true;
-    const distDinamica = distanciaParaLoja(cfg);
+    const raio = parseFloat(cfg.raio_entrega_km || 0);
+    const melhorEndereco = melhorEnderecoEntrega(cfg);
+    // Corrige o endereco selecionado pro que de fato atende o raio, quando o
+    // que estava ativo (ex.: localizacao atual de outra cidade) nao atende
+    // mas outro conhecido do cliente (cadastro ou salvo) atende -- sem isso
+    // a opcao de entrega nunca aparecia pra escolher, so pelo endereco que
+    // calhava de estar selecionado.
+    if (melhorEndereco && melhorEndereco.mode !== DELIVERY_ADDRESS_MODE && melhorEndereco.dist <= raio) {
+      DELIVERY_ADDRESS_MODE = melhorEndereco.mode;
+      localStorage.setItem('pq_cart_addr_mode', melhorEndereco.mode);
+    }
+    const distDinamica = melhorEndereco ? melhorEndereco.dist : distanciaParaLoja(cfg);
     const distItem = g.itens.find(i => i.distancia_km !== null && i.distancia_km !== undefined)?.distancia_km;
     const dist = distDinamica !== undefined ? distDinamica : (distItem !== undefined ? parseFloat(distItem) : undefined);
-    const raio = parseFloat(cfg.raio_entrega_km || 0);
     const minPedido = parseFloat(cfg.pedido_minimo_entrega || 0);
     const temReceitaDigital = g.itens.some(i => i.requer_receita);
     const temTarjaVermelhaSimples = g.itens.some(i => i.tarja === 'vermelha' && !i.requer_receita);
